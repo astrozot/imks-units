@@ -221,6 +221,8 @@ button:focus-visible, .expr:focus-visible { outline: 2px solid var(--accent); ou
 }
 
 .entry:last-child { border-bottom: 0; }
+.entry.recalled { background: var(--tab-soft); box-shadow: inset 3px 0 0 var(--tab); border-radius: 0 10px 10px 0; padding-left: 10px; padding-right: 6px; border-bottom-color: transparent; }
+.entry.recalled .in { color: var(--tab-soft-text); }
 
 .entry .in {
   color: var(--muted);
@@ -312,7 +314,10 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 @keyframes blink { 50% { opacity: 0; } }
 
 .preview {
-  min-height: 24px;
+  min-height: 28px;
+  margin-top: 4px;
+  padding-top: 3px;
+  line-height: 1.45;
   text-align: right;
   font-size: 17px;
   color: var(--muted);
@@ -2337,6 +2342,11 @@ function tokenize(src) {
       i++;
       continue;
     }
+    if (c === "√" || c === "∛") {
+      toks.push({ t: "root", v: c === "√" ? "sqrt" : "cbrt", pos: i });
+      i++;
+      continue;
+    }
     throw new CalcError(`Unexpected character '${c}'`);
   }
   return toks;
@@ -2449,6 +2459,11 @@ function parse(src, env) {
       const op = next().t;
       return { t: "un", op, a: unary() };
     }
+    if (at("root")) {
+      // √x, ∛x: prefix roots
+      const f = next().v;
+      return { t: "call", f, args: [unary()] };
+    }
     return power();
   };
 
@@ -2458,7 +2473,7 @@ function parse(src, env) {
       if (at("*") || at("/")) {
         const op = next().t;
         a = { t: "bin", op, a, b: unary() };
-      } else if (at("id") || at("(") || at("bracket")) {
+      } else if (at("id") || at("(") || at("bracket") || at("root")) {
         // implicit multiplication: 2 pi, (a+b)(c+d)
         a = { t: "bin", op: "*", a, b: unary() };
       } else break;
@@ -2597,6 +2612,7 @@ class Interpreter {
   lookup(name, scope) {
     if (scope && scope.has(name)) return scope.get(name);
     const env = this.env;
+    if (env.vars.resolve) name = env.vars.resolve(name);
     if (env.vars.has(name)) {
       const v = env.vars.get(name);
       if (v && v.lazy) return v.lazy();
@@ -2663,6 +2679,12 @@ class Interpreter {
         let f = scope && scope.has(node.f) ? scope.get(node.f) : env.vars.get(node.f);
         if (f && f.fn) return this.callUser(f.fn, args.map(asQ));
         f = this.builtins[node.f];
+        if (!f && args.length === 1 && !(scope && scope.has(node.f))) {
+          // a value followed by parentheses multiplies: pi (2 m)^2
+          let v = null;
+          try { v = this.lookup(node.f, scope); } catch { v = null; }
+          if (v instanceof Q) return env.mul(v, asQ(args[0]));
+        }
         if (!f) throw new CalcError(`Unknown function '${node.f}'`);
         if (!args.length) throw new CalcError(`${node.f} needs an argument`);
         return f(...args.map(asQ));
@@ -3363,7 +3385,7 @@ const COSMO_PRESETS = {
   custom: { name: "Custom" },
 };
 
-const COSMO_NAMES = ["H0", "OmegaM", "OmegaL", "OmegaR"];
+const COSMO_NAMES = ["H_0", "Omega_M", "Omega_L", "Omega_R"];
 
 const state = {
   calc: null,
@@ -3396,13 +3418,13 @@ const CATEGORIES = [
   ["Length", ["m", "km", "cm", "mm", "µm", "nm", "in", "ft", "yd", "mi", "nmi", "au", "ly", "pc", "Å"]],
   ["Area", ["m^2", "km^2", "cm^2", "ha", "acre", "ft^2", "in^2", "mi^2", "barn"]],
   ["Volume", ["L", "mL", "m^3", "cm^3", "gal", "qt", "pt", "cup", "ozfl", "tbsp", "tsp"]],
-  ["Mass", ["kg", "g", "mg", "t", "lb", "oz", "carat", "u", "Mearth", "Mjup", "Msun"]],
+  ["Mass", ["kg", "g", "mg", "t", "lb", "oz", "carat", "u", "M_Earth", "M_Jupiter", "M_Sun"]],
   ["Time", ["s", "ms", "µs", "ns", "min", "h", "day", "week", "yr"]],
   ["Speed", ["m/s", "km/h", "mph", "knot", "km/s", "ft/s"]],
   ["Accel.", ["m/s^2", "ga", "ft/s^2"]],
   ["Temp.", ["K", "°C", "°F"]],
   ["Energy", ["J", "kJ", "MJ", "cal", "kcal", "Wh", "kWh", "eV", "keV", "MeV", "GeV", "erg", "BTU"]],
-  ["Power", ["W", "mW", "kW", "MW", "GW", "hp", "Lsun"]],
+  ["Power", ["W", "mW", "kW", "MW", "GW", "hp", "L_Sun"]],
   ["Pressure", ["Pa", "hPa", "kPa", "MPa", "bar", "mbar", "atm", "psi", "mmHg", "torr"]],
   ["Force", ["N", "kN", "dyn", "lbf", "kgf"]],
   ["Electric", ["A", "mA", "V", "mV", "kV", "Ω", "kΩ", "MΩ", "C", "F", "µF", "nF", "pF", "H", "S", "T", "Gs", "Wb"]],
@@ -3411,7 +3433,7 @@ const CATEGORIES = [
   ["Light", ["cd", "lm", "lx"]],
   ["Amount", ["mol", "mmol"]],
   ["Money", ["EUR", "USD", "GBP", "CHF", "JPY", "CNY", "CAD", "AUD", "SEK", "NOK", "DKK", "PLN", "CZK", "INR", "BRL", "BTC"]],
-  ["Astro", ["au", "ly", "pc", "kpc", "Mpc", "Msun", "Mjup", "Mearth", "Rjup", "Rearth", "Lsun", "Jy"]],
+  ["Astro", ["au", "ly", "pc", "kpc", "Mpc", "M_Sun", "M_Jupiter", "M_Earth", "R_Sun", "R_Jupiter", "R_Earth", "L_Sun", "Jy"]],
 ];
 
 const POPULAR = CATEGORIES.flatMap(([, us]) => us);
@@ -3428,13 +3450,13 @@ const KEY_CATS = [
   ["Length", ["m", "in", "ft", "yd", "mi", "nmi", "fath", "point", "Å", "fermi", "au", "ly", "pc"]],
   ["Area", ["m^2", "ha", "acre", "barn", "in^2", "ft^2", "yd^2", "mi^2"]],
   ["Volume", ["L", "m^3", "gal", "qt", "pt", "cup", "ozfl", "tbsp", "tsp", "in^3", "ft^3"]],
-  ["Mass", ["kg", "g", "t", "lb", "oz", "carat", "u", "Msun"]],
+  ["Mass", ["kg", "g", "t", "lb", "oz", "carat", "u", "M_Sun"]],
   ["Time", ["s", "min", "h", "day", "week", "yr", "Cy"]],
   ["Speed", ["m/s", "km/h", "mph", "knot", "ft/s"]],
   ["Accel.", ["m/s^2", "ga", "ft/s^2"]],
   ["Temp.", ["K", "°C", "°F"]],
   ["Energy", ["J", "Wh", "cal", "eV", "erg", "BTU", "E_h"]],
-  ["Power", ["W", "hp", "Lsun"]],
+  ["Power", ["W", "hp", "L_Sun"]],
   ["Pressure", ["Pa", "bar", "atm", "psi", "mmHg", "torr"]],
   ["Force", ["N", "dyn", "lbf", "kgf"]],
   ["Electric", ["A", "V", "Ω", "C", "F", "H", "S", "T", "Gs", "Wb"]],
@@ -3444,13 +3466,13 @@ const KEY_CATS = [
   ["Amount", ["mol"]],
   ["Viscosity", ["P", "St"]],
   ["Money", ["EUR", "USD", "GBP", "CHF", "JPY", "CNY", "CAD", "AUD", "SEK", "NOK", "DKK", "PLN", "CZK", "INR", "BRL", "BTC"]],
-  ["Astro", ["au", "ly", "pc", "Msun", "Lsun", "Mjup", "Rjup", "Mearth", "Rearth", "Jy", "yr"]],
+  ["Astro", ["au", "ly", "pc", "M_Sun", "R_Sun", "L_Sun", "M_Jupiter", "R_Jupiter", "M_Earth", "R_Earth", "Jy", "yr"]],
 ];
 
 // SI units offered right after a bare number
 const SI_SUGGEST = ["m", "kg", "s", "A", "K", "mol", "cd", "N", "J", "W", "Pa", "Hz", "C", "V", "Ω", "T", "eV", "°C", "L", "min", "h"];
 
-const UNIT_LABELS = { deg: "°", arcmin: "′", arcsec: "″", Msun: "M☉", Lsun: "L☉", E_h: "Eₕ" };
+const UNIT_LABELS = { deg: "°", arcmin: "′", arcsec: "″", M_Sun: "M☉", L_Sun: "L☉", R_Sun: "R☉", M_Earth: "M⊕", R_Earth: "R⊕", E_h: "Eₕ" };
 
 // ---------------------------------------------------------------------
 // Typeset names: hbar -> ħ, Msun -> M☉ (subscript), m_e -> mₑ, epsilon0 -> ε₀.
@@ -3461,82 +3483,65 @@ const GREEK = {
   iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", omicron: "ο", pi: "π", rho: "ρ",
   sigma: "σ", tau: "τ", upsilon: "υ", phi: "φ", chi: "χ", psi: "ψ", omega: "ω",
   Gamma: "Γ", Delta: "Δ", Theta: "Θ", Lambda: "Λ", Xi: "Ξ", Pi: "Π", Sigma: "Σ", Upsilon: "Υ",
-  Phi: "Φ", Psi: "Ψ", Omega: "Ω",
+  Phi: "Φ", Psi: "Ψ", Omega: "Ω", Beta: "Β",
 };
 const GREEK_NAMES = Object.keys(GREEK).sort((a, b) => b.length - a.length);
 
 const sub = (s) => `<sub>${s}</sub>`;
+const SUBDIGITS = (d) => [...d].map((c) => "₀₁₂₃₄₅₆₇₈₉"[c]).join("");
 
-const NAME_HTML = {
-  hbar: "ħ", Msun: "M" + sub("☉"), Rsun: "R" + sub("☉"), Lsun: "L" + sub("☉"),
-  Nav: "N" + sub("A"), muBohr: "μ" + sub("B"), me: "m" + sub("e"), mp: "m" + sub("p"),
-  ke: "k" + sub("e"), dH: "d" + sub("H"), tH: "t" + sub("H"), OmegaL: "Ω" + sub("Λ"),
-  inf: "∞",
-  euler: "ℯ", golden: "φ", zeta3: "ζ(3)", sin2thetaW: "sin²θ" + sub("W"), m_pi: "m" + sub("π±"), m_pi0: "m" + sub("π⁰"),
-  GMsun_N: "GM" + sub("☉") + "<sup>N</sup>", Rsun_N: "R" + sub("☉") + "<sup>N</sup>", Lsun_N: "L" + sub("☉") + "<sup>N</sup>",
-  Teff_sun: "T" + sub("eff,☉"), Mbol_sun: "M" + sub("bol,☉"), GM_Earth: "GM" + sub("⊕"), omega_Earth: "ω" + sub("⊕"),
-  J2_Earth: "J" + sub("2"), T_Earth: "T" + sub("⊕"), dTdz: "dT/dz", dg_fa: "dg/dh", S_sun: "S" + sub("☉"),
-  Gfermi: "G" + sub("F"), E_Landauer: "E" + sub("Landauer"), M_air: "M" + sub("air"),
-};
-const FN_HTML = { sqrt: "√", cbrt: "∛", Phiinv: "Φ<sup>−1</sup>", erfinv: "erf<sup>−1</sup>", lgamma: "lnΓ", beta: "B", chi2_p: "p<sub>χ²</sub>", t_p: "p<sub>t</sub>", pvalue: "p<sub>nσ</sub>", nsigma: "n<sub>σ</sub>" };
-const UNIT_HTML = { Mearth: "M" + sub("⊕"), Rearth: "R" + sub("⊕"), Mjup: "M" + sub("J"), Rjup: "R" + sub("J"), deg: "°", arcmin: "′", arcsec: "″", ohm: "Ω", Ang: "Å", Msun: "M" + sub("☉"), Lsun: "L" + sub("☉") };
+// Names with their own glyph; everything else follows the rules below
+const NAME_HTML = { hbar: "ħ", euler: "ℯ", inf: "∞" };
+const FN_HTML = { sqrt: "√", cbrt: "∛" };
+const UNIT_HTML = { deg: "°", arcmin: "′", arcsec: "″", ohm: "Ω", Ang: "Å" };
+const BASE_HTML = { sin2theta: "sin²θ" };
+const SUB_WORDS = { Sun: "☉", Earth: "⊕", half: "½" };
+const CHARGE = { 0: "⁰", plus: "⁺", minus: "⁻" };
 
-// alpha, epsilon0, OmegaM -> α, ε₀, Ω_M
-function greekHTML(w) {
-  for (const g of GREEK_NAMES) {
-    if (!w.startsWith(g)) continue;
-    const r = w.slice(g.length);
-    if (!r) return GREEK[g];
-    if (/^\d+$/.test(r) || /^[A-Z][A-Za-z]*$/.test(r)) return GREEK[g] + sub(esc(r));
-    return null;
-  }
-  return null;
+// One subscript component: Sun -> ☉, mu -> μ, pi0 -> π⁰, C14 -> ¹⁴C, H2O -> H₂O
+function subPart(s, base) {
+  if (SUB_WORDS[s]) return SUB_WORDS[s];
+  if (GREEK[s]) return GREEK[s];
+  const ch = /^([A-Za-z]+?)(0|plus|minus)$/.exec(s);
+  if (ch && GREEK[ch[1]]) return GREEK[ch[1]] + CHARGE[ch[2]];
+  const sq = /^([a-z]+)([23])$/.exec(s);
+  if (sq && GREEK[sq[1]]) return GREEK[sq[1]] + "²³"[sq[2] - 2];
+  if (typeof NUCLIDE_NAMES !== "undefined" && NUCLIDE_NAMES.has(s)) return isoHTML(s);
+  if (base === "M" && typeof CHEM_NAMES !== "undefined" && CHEM_NAMES.has(s)) return esc(s.replace(/\d+/g, SUBDIGITS));
+  return esc(s);
+}
+
+// base_sub1_sub2: a Greek word becomes its letter, "_" parts become one
+// comma-separated subscript, and a final _inv becomes ⁻¹
+function prettyParts(w) {
+  const parts = w.split("_");
+  if (parts.some((x) => !x)) return null;
+  if (parts.length === 1) return GREEK[w] || null;
+  let inv = false;
+  if (parts.at(-1) === "inv") { inv = true; parts.pop(); }
+  const base = parts[0];
+  let html = BASE_HTML[base] || GREEK[base] || esc(base);
+  if (parts.length > 1) html += sub(parts.slice(1).map((s) => subPart(s, base)).join(","));
+  if (inv) html += "<sup>−1</sup>";
+  return html;
 }
 
 // HTML for an identifier, or null when it is shown as typed
 function prettyName(w, { fn = false, unit = null } = {}) {
-  if (fn) {
-    if (FN_HTML[w]) return FN_HTML[w];
-    if (w === "gamma") return "Γ";
-    if (state.calc && state.calc.builtins[w] && !SCIENCE.has(w)) return null;
-    unit = false;
-  }
-  const e = state.calc && env();
-  if (unit === null) unit = e ? isBareUnit(w) : false;
+  if (fn) return FN_HTML[w] || prettyParts(w);
+  if (unit === null) unit = state.calc ? isBareUnit(w) : false;
   if (unit) {
     if (UNIT_HTML[w]) return UNIT_HTML[w];
-    const iu = e && e.isunit(w);
-    if (iu && iu[0] && UNIT_HTML[iu[1]]) return esc(iu[0]) + UNIT_HTML[iu[1]];
-    const m = /^([^_]+)_([^_]+)$/.exec(w);
-    return m ? esc(m[1]) + sub(esc(m[2])) : null;
+    const iu = state.calc && env().isunit(w);
+    if (iu && iu[0] && iu[1]) {
+      if (UNIT_HTML[iu[1]]) return esc(iu[0]) + UNIT_HTML[iu[1]];
+      if (iu[1].includes("_")) { const h = prettyParts(iu[1]); return h ? esc(iu[0]) + h : null; }
+      return null;
+    }
+    return w.includes("_") ? prettyParts(w) : null;
   }
   if (NAME_HTML[w]) return NAME_HTML[w];
-  const mm = /^(rho|E|kth|c|alpha|rhoe)_([a-z]+)$/.exec(w);
-  if (mm && typeof MATERIAL_NAMES !== "undefined" && MATERIAL_NAMES.has(mm[2])) {
-    const sym = { rho: "ρ", E: "E", kth: "k", c: "c", alpha: "α", rhoe: "ρ" }[mm[1]];
-    return sym + sub((mm[1] === "kth" ? "th," : mm[1] === "rhoe" ? "e," : "") + esc(mm[2]));
-  }
-  const nm = /^(T12|tau|lambda|m)_([A-Z][a-z]?\d+m?)$/.exec(w);
-  if (nm && typeof NUCLIDE_NAMES !== "undefined" && NUCLIDE_NAMES.has(nm[2])) {
-    const sym = { T12: "T" + sub("½"), tau: "τ", lambda: "λ", m: "m" }[nm[1]];
-    const iso = /^([A-Z][a-z]?)(\d+)(m?)$/.exec(nm[2]);
-    return `${sym}(<sup>${iso[2]}${iso[3]}</sup>${iso[1]})`;
-  }
-  const cm = /^M_([A-Za-z][A-Za-z0-9]*)$/.exec(w);
-  if (cm && typeof CHEM_NAMES !== "undefined" && CHEM_NAMES.has(cm[1])) {
-    return "M" + sub(cm[1].replace(/\d+/g, (d) => [...d].map((c) => "₀₁₂₃₄₅₆₇₈₉"[c]).join("")));
-  }
-  const pm = /^(M|R|rho|g|vesc|a|P|Prot|e)_([A-Z][a-z]+)$/.exec(w);
-  if (pm && BODY_NAMES.has(pm[2])) {
-    return PROP_SYM[pm[1]] + sub((PROP_SUB[pm[1]] || "") + (pm[2] === "Earth" ? "⊕" : esc(pm[2])));
-  }
-  const m = /^([^_]+)_([^_]+)$/.exec(w);
-  if (m) return (greekHTML(m[1]) || esc(m[1])) + sub(greekHTML(m[2]) || esc(m[2]));
-  const g = greekHTML(w);
-  if (g) return g;
-  const d = /^([A-Za-z]{1,2})(\d+)$/.exec(w);
-  if (d && e && e.vars.has(w)) return esc(d[1]) + sub(d[2]);
-  return null;
+  return prettyParts(w);
 }
 
 // A unit specification like "m/s^2" or "Msun", for keys and chips
@@ -3560,7 +3565,7 @@ function treeHTML(tree) {
     if (typeof u === "string") {
       if (u[0] === '"' && u.at(-1) === '"') continue;
       if (u[0] === "'") {
-        const n = u.slice(1, -1);
+        const n = env().vars.resolve ? env().vars.resolve(u.slice(1, -1)) : u.slice(1, -1);
         base = `<i>${prettyName(n, { unit: false }) || esc(n)}</i>`;
       } else base = prettyName(u, { unit: true }) || esc(u);
     } else {
@@ -3589,25 +3594,25 @@ const CONSTS = [
   ["ħ", "hbar", "Reduced Planck constant"],
   ["k", "k", "Boltzmann constant"],
   ["e", "e", "Elementary charge"],
-  ["Nₐ", "Nav", "Avogadro constant"],
+  ["Nₐ", "N_A", "Avogadro constant"],
   ["R", "R", "Molar gas constant"],
-  ["σ", "sigma", "Stefan–Boltzmann constant"],
-  ["ε₀", "epsilon0", "Vacuum permittivity"],
-  ["μ₀", "mu0", "Vacuum permeability"],
+  ["σ", "sigma_SB", "Stefan–Boltzmann constant"],
+  ["ε₀", "epsilon_0", "Vacuum permittivity"],
+  ["μ₀", "mu_0", "Vacuum permeability"],
   ["α", "alpha", "Fine-structure constant"],
   ["mₑ", "m_e", "Electron mass"],
   ["mₚ", "m_p", "Proton mass"],
   ["mₙ", "m_n", "Neutron mass"],
-  ["μ_B", "muBohr", "Bohr magneton"],
+  ["μ_B", "mu_B", "Bohr magneton"],
   ["a<sub>0</sub>", 'const["Bohr radius"]', "Bohr radius"],
   ["R<sub>∞</sub>", 'const["Rydberg constant"]', "Rydberg constant"],
-  ["M☉", "Msun", "Solar mass"],
-  ["R☉", "Rsun", "Solar radius"],
-  ["L☉", "Lsun", "Solar luminosity"],
-  ["H₀", "H0", "Hubble constant"],
+  ["M☉", "M_Sun", "Solar mass"],
+  ["R☉", "R_Sun", "Solar radius"],
+  ["L☉", "L_Sun", "Solar luminosity"],
+  ["H₀", "H_0", "Hubble constant"],
   ["T_CMB", "T_CMB", "CMB temperature"],
   ["ρ_c", "rho_c", "Critical density"],
-  ["d_H", "dH", "Hubble distance"],
+  ["d_H", "d_H", "Hubble distance"],
 ];
 
 // ---------------------------------------------------------------------
@@ -3623,12 +3628,12 @@ function applySettings(calc) {
   const num = (x, d) => (Number.isFinite(Number(x)) ? Number(x) : d);
   const om = num(c.Om, 0.3), or = num(c.OR, 0);
   const ol = c.flat ? 1 - om - or : num(c.OL, 0.7);
-  calc.run(`%let H0 = ${num(c.H0, 70)}[km s^-1 Mpc^-1]   # "Hubble's constant"`);
-  calc.run(`%let OmegaM = ${om}   # "Mass density parameter"`);
-  calc.run(`%let OmegaL = ${ol}   # "Cosmological constant parameter"`);
-  calc.run(`%let OmegaR = ${or}   # "Radiation density parameter"`);
-  calc.run('%lazy OmegaK = 1 - OmegaM - OmegaL - OmegaR   # "Curvature parameter"');
-  if (calc.systemNames) calc.systemNames.add("OmegaR");
+  calc.run(`%let H_0 = ${num(c.H0, 70)}[km s^-1 Mpc^-1]   # "Hubble's constant"`);
+  calc.run(`%let Omega_M = ${om}   # "Mass density parameter"`);
+  calc.run(`%let Omega_L = ${ol}   # "Cosmological constant parameter"`);
+  calc.run(`%let Omega_R = ${or}   # "Radiation density parameter"`);
+  calc.run('%lazy Omega_K = 1 - Omega_M - Omega_L - Omega_R   # "Curvature parameter"');
+  if (calc.systemNames) calc.systemNames.add("Omega_R");
 }
 
 function build() {
@@ -3637,9 +3642,11 @@ function build() {
     currencies: state.currencies,
     extra: state.defs,
   });
+  installAliases(calc);
   addScience(calc);
   addPlanets(calc);
   addExtras(calc);
+  installFunctionAliases(calc);
   state.startupErrors = errors;
   state.userErrors = userErrors;
   applySettings(calc);
@@ -3933,7 +3940,7 @@ function insertName(name) {
   let sep = "";
   if (/[\p{L}\p{N}_.)\]°µΩ!]$/u.test(b)) sep = " ";
   // after a number, a name that is also a unit (h, g) would be read as the unit
-  if (ctx === "bare" && !["Msun", "Lsun"].includes(name) && isBareUnit(name.replace(/\[.*$/, ""))) sep = /\s$/.test(b) ? "* " : " * ";
+  if (ctx === "bare" && !["M_Sun", "L_Sun", "R_Sun", "M_Earth", "R_Earth", "M_Jupiter", "R_Jupiter"].includes(name) && isBareUnit(name.replace(/\[.*$/, ""))) sep = /\s$/.test(b) ? "* " : " * ";
   insert(sep + name);
 }
 
@@ -4176,9 +4183,24 @@ function onInput() {
   updateSuggestions();
 }
 
+// Does src assign to a built-in name? -> how to describe what it replaces
+function builtinTarget(src) {
+  const m = /^\s*([\p{L}_][\p{L}\p{N}_]*)\s*(\([^)]*\))?\s*=(?!=)/u.exec(src);
+  if (!m) return null;
+  const e = env();
+  const name = e.vars.resolve(m[1]);
+  const shown = m[1];
+  if (m[2] && state.calc.builtins[name] && !e.vars.has(name)) return { shown, what: `the built-in function ${name}` };
+  if (!state.calc.systemNames.has(name) || !e.vars.has(name)) return null;
+  const v = e.vars.get(name);
+  const doc = v && v.doc ? firstLine(v.doc) : "";
+  return { shown, what: doc ? `the built-in ${doc.charAt(0).toLowerCase() + doc.slice(1)}` : `the built-in ${name}` };
+}
+
 function evaluate() {
   const src = state.text.trim();
   if (!src) return;
+  const shadow = builtinTarget(src);
   const r = state.calc.run(src);
   if (r.kind === "error") {
     previewEl.classList.add("error");
@@ -4209,12 +4231,172 @@ function evaluate() {
     if (state.session.length > 500) state.session = state.session.slice(-500);
     store.set("session", state.session);
     categoryDims = null;
+    if (shadow) {
+      toast(`${shadow.shown} now replaces ${shadow.what} in this session`, 8000, ["Undo", () => {
+        const i = state.session.lastIndexOf(src);
+        if (i >= 0) state.session.splice(i, 1);
+        store.set("session", state.session);
+        build();
+        refresh();
+        toast(`${shadow.shown} restored`);
+      }]);
+    }
     renderConstGrid();
     renderFnGrid();
   }
   appendEntry(entry);
   state.recall = -1;
+  state.draft = null;
   setInput("");
+}
+
+// ---------------------------------------------------------------------
+// Names: one notation, aliases by appearance
+//
+// Subscripts come only from "_" (Omega_M, m_e, L_Sun). Within a namespace
+// (variables and functions; units; prefixes) names that are displayed the
+// same are the same object: π = pi, Ω_M = Omega_M, ε_0 = epsilon_0. Old
+// names (OmegaM, Msun, me…) stay accepted as hidden legacy aliases.
+
+const LEGACY_VARS = {
+  // iMKS library
+  Nav: "N_A", Gfermi: "G_F", me: "m_e", mp: "m_p", muBohr: "mu_B", mu0: "mu_0", epsilon0: "epsilon_0",
+  ke: "k_e", sigma: "sigma_SB", Msun: "M_Sun", Rsun: "R_Sun", Lsun: "L_Sun", H0: "H_0",
+  OmegaM: "Omega_M", OmegaL: "Omega_L", OmegaCMB: "Omega_CMB", OmegaK: "Omega_K", OmegaR: "Omega_R",
+  dH: "d_H", tH: "t_H",
+  // names used by earlier versions of this app
+  GMsun_N: "GM_Sun_N", Rsun_N: "R_Sun_N", Lsun_N: "L_Sun_N", Teff_sun: "T_eff_Sun", Mbol_sun: "M_bol_Sun",
+  S_sun: "S_Sun", J2_Earth: "J_2_Earth", Phi0: "Phi_0", G0: "G_0", zeta3: "zeta_3", gammaE: "gamma_E",
+  sin2thetaW: "sin2theta_W", cp_water: "c_p_water", Lvap_water: "L_vap_water", Lfus_water: "L_fus_water",
+  cp_air: "c_p_air", muN: "mu_N",
+};
+// symbols typed for names that are not stored variables
+const SYMBOL_VARS = { "π": "pi", "τ": "tau", "∞": "inf" };
+
+const LEGACY_FNS = {
+  Ez: "E", Hubble: "H", thetaE: "theta_E", thetaSIS: "theta_E_SIS", Phiinv: "Phi_inv", erfinv: "erf_inv",
+  chi2_p: "p_chi2", t_p: "p_t", gamma: "Gamma", beta: "Beta",
+};
+
+// units kept for old expressions but not offered anywhere
+const LEGACY_UNITS = new Set(["Msun", "Lsun", "Mearth", "Rearth", "Mjup", "Rjup"]);
+
+// prefixed legacy families from earlier versions (vesc_Mars -> v_esc_Mars)
+const LEGACY_PATTERNS = [
+  [/^vesc_(.+)$/, "v_esc_$1"], [/^Prot_(.+)$/, "P_rot_$1"], [/^T12_(.+)$/, "T_half_$1"],
+  [/^kth_(.+)$/, "k_th_$1"], [/^rhoe_(.+)$/, "rho_e_$1"],
+];
+
+// look-alike characters and typed subscript digits
+function fixChars(name) {
+  return name
+    .replace(/\u00b5/g, "μ").replace(/\u2126/g, "Ω").replace(/\u212b/g, "Å").replace(/\u210f/g, "ħ").replace(/\u212a/g, "K")
+    .replace(/([^_₀-₉])([₀-₉]+)$/, (_, a, d) => a + "_" + [...d].map((c) => c.charCodeAt(0) - 0x2080).join(""));
+}
+
+// display key of a name: the typeset form as text
+function displayKey(name, fn = false) {
+  const n = fixChars(name);
+  let h;
+  try { h = prettyName(n, fn ? { fn: true } : { unit: false }); } catch { h = null; }
+  h = h || esc(n);
+  return h.replace(/<sub>/g, "_{").replace(/<\/sub>/g, "}").replace(/<sup>/g, "^{").replace(/<\/sup>/g, "}")
+    .replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
+// Variables: a Map whose keys are resolved through legacy and display aliases
+class AliasMap extends Map {
+  constructor(entries) {
+    super();
+    this.legacy = new Map(Object.entries({ ...LEGACY_VARS, ...SYMBOL_VARS }));
+    this.index = new Map();
+    if (entries) for (const [k, v] of entries) this.set(k, v);
+  }
+  resolve(k) {
+    if (typeof k !== "string" || super.has(k)) return k;
+    if (this.legacy.has(k)) return this.legacy.get(k);
+    for (const [re, to] of LEGACY_PATTERNS) if (re.test(k)) {
+      const n = k.replace(re, to);
+      if (super.has(n)) return n;
+    }
+    const f = fixChars(k);
+    if (f !== k && (super.has(f) || this.legacy.has(f))) return super.has(f) ? f : this.legacy.get(f);
+    const hit = this.index.get(displayKey(k));
+    return hit && super.has(hit) ? hit : k;
+  }
+  get(k) { return super.get(this.resolve(k)); }
+  has(k) { return super.has(this.resolve(k)); }
+  delete(k) { return super.delete(this.resolve(k)); }
+  set(k, v) {
+    const r = this.resolve(k);
+    super.set(r, v);
+    const key = displayKey(r);
+    if (!this.index.has(key) || !super.has(this.index.get(key))) this.index.set(key, r);
+    return this;
+  }
+  // move a stored entry to its new name, keeping the old one as an alias
+  rename(from, to) {
+    if (!super.has(from) || super.has(to)) return;
+    const v = super.get(from);
+    super.delete(from);
+    this.set(to, v);
+    this.legacy.set(from, to);
+  }
+}
+
+// Units: legacy names stay usable but are hidden from every listing
+class HidingMap extends Map {
+  *entries() { for (const e of super.entries()) if (!LEGACY_UNITS.has(e[0])) yield e; }
+  *keys() { for (const [k] of this.entries()) yield k; }
+  *values() { for (const [, v] of this.entries()) yield v; }
+  [Symbol.iterator]() { return this.entries(); }
+  forEach(f, t) { for (const [k, v] of this.entries()) f.call(t, v, k, this); }
+}
+
+function installAliases(calc) {
+  const env = calc.env;
+  const vars = new AliasMap();
+  for (const [k, v] of Map.prototype.entries.call(env.vars)) Map.prototype.set.call(vars, k, v);
+  for (const k of Map.prototype.keys.call(vars)) vars.index.set(displayKey(k), k);
+  env.vars = vars;
+  for (const [from, to] of Object.entries(LEGACY_VARS)) {
+    if (to === "m_e" || to === "m_p") {
+      Map.prototype.delete.call(vars, from);
+      continue;
+    }
+    vars.rename(from, to);
+  }
+  if (calc.systemNames) {
+    calc.systemNames = new Set([...calc.systemNames].map((n) => vars.resolve(n)));
+  }
+  const units = new HidingMap();
+  for (const [k, v] of Map.prototype.entries.call(env.units)) Map.prototype.set.call(units, k, v);
+  env.units = units;
+  // units in the new notation, with the same values
+  calc.run('%newunit M_Sun=M_Sun # "Mass of the Sun"');
+  calc.run('%newunit L_Sun=L_Sun # "Luminosity of the Sun"');
+  calc.run('%newunit R_Sun=R_Sun # "Radius of the Sun"');
+}
+
+// Functions: builtins looked up through legacy and display aliases
+function installFunctionAliases(calc) {
+  const target = calc.builtins;
+  for (const [from, to] of Object.entries(LEGACY_FNS)) {
+    if (target[from] && !target[to]) {
+      target[to] = target[from];
+      delete target[from];
+    }
+    if (functionDocs[from] && !functionDocs[to]) functionDocs[to] = functionDocs[from];
+  }
+  const index = new Map(Object.keys(target).map((k) => [displayKey(k, true), k]));
+  calc.builtins = new Proxy(target, {
+    get(t, p) {
+      if (typeof p !== "string" || p in t) return t[p];
+      if (LEGACY_FNS[p]) return t[LEGACY_FNS[p]];
+      const hit = index.get(displayKey(p, true));
+      return hit ? t[hit] : undefined;
+    },
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -4226,8 +4408,8 @@ function evaluate() {
 // redshifts and parameters are propagated linearly (numerical derivatives).
 
 const SCIENCE_DOCS = {
-  Ez: "E(z) = H(z)/H0, dimensionless Hubble parameter: Ez(z)",
-  Hubble: "Hubble parameter H(z): Hubble(z)",
+  E: "E(z) = H(z)/H_0, dimensionless Hubble parameter: E(z)",
+  H: "Hubble parameter: H(z)",
   D_C: "Line-of-sight comoving distance: D_C(z) or D_C(z1, z2)",
   D_M: "Transverse comoving distance: D_M(z) or D_M(z1, z2)",
   D_A: "Angular diameter distance: D_A(z), or D_A(z1, z2) between two redshifts",
@@ -4238,8 +4420,8 @@ const SCIENCE_DOCS = {
   V_C: "All-sky comoving volume within redshift z: V_C(z)",
   scale: "Proper length subtended by one arcsecond at redshift z: scale(z)",
   Sigma_cr: "Critical surface density c² D_s / (4π G D_l D_ls): Sigma_cr(z_l, z_s)",
-  thetaE: "Einstein radius of a point mass: thetaE(M, z_l, z_s)",
-  thetaSIS: "Einstein radius of a singular isothermal sphere: thetaSIS(sigma_v, z_l, z_s)",
+  theta_E: "Einstein radius of a point mass: theta_E(M, z_l, z_s)",
+  theta_E_SIS: "Einstein radius of a singular isothermal sphere: theta_E_SIS(sigma_v, z_l, z_s)",
   M_E: "Mass within an Einstein radius θ: M_E(theta, z_l, z_s)",
   D_dt: "Time-delay distance (1 + z_l) D_l D_s / D_ls: D_dt(z_l, z_s)",
 };
@@ -4290,12 +4472,12 @@ function addScience(calc) {
   };
   // [om, ol, or] as UNum
   const params = () => [
-    env.checkPure(getQ("OmegaM", new Q(0.3)), "OmegaM"),
-    env.checkPure(getQ("OmegaL", new Q(0.7)), "OmegaL"),
-    env.checkPure(getQ("OmegaR", new Q(0)), "OmegaR"),
+    env.checkPure(getQ("Omega_M", new Q(0.3)), "Omega_M"),
+    env.checkPure(getQ("Omega_L", new Q(0.7)), "Omega_L"),
+    env.checkPure(getQ("Omega_R", new Q(0)), "Omega_R"),
   ];
-  const hubbleDistance = () => env.div(getQ("c"), getQ("H0"));
-  const hubbleTime = () => env.div(new Q(1), getQ("H0"));
+  const hubbleDistance = () => env.div(getQ("c"), getQ("H_0"));
+  const hubbleTime = () => env.div(new Q(1), getQ("H_0"));
 
   // dimensionless helpers on plain numbers
   const E = (z, om, ol, or) => {
@@ -4346,13 +4528,13 @@ function addScience(calc) {
   };
   const zero = new UNum(0);
 
-  b.Ez = (...a) => {
-    const [z] = zArgs("Ez", a, [1, 1]);
+  b.E = (...a) => {
+    const [z] = zArgs("E", a, [1, 1]);
     return cosmo((z1, om, ol, or) => E(z1, om, ol, or), [z]);
   };
-  b.Hubble = (...a) => {
-    const [z] = zArgs("Hubble", a, [1, 1]);
-    return show(env.mul(getQ("H0"), b.Ez(new Q(z))), "km/s/Mpc");
+  b.H = (...a) => {
+    const [z] = zArgs("H", a, [1, 1]);
+    return show(env.mul(getQ("H_0"), b.E(new Q(z))), "km/s/Mpc");
   };
   b.D_C = (...a) => {
     const z = zArgs("D_C", a, [1, 2]);
@@ -4413,17 +4595,17 @@ function addScience(calc) {
   b.Sigma_cr = (zl, zs) => {
     const [Dl, Ds, Dls] = lensD("Sigma_cr", zl, zs);
     const k = env.div(c2(), env.mul(new Q(4 * Math.PI), G()));
-    return show(env.div(env.mul(k, Ds), env.mul(Dl, Dls)), "Msun/pc^2");
+    return show(env.div(env.mul(k, Ds), env.mul(Dl, Dls)), "M_Sun/pc^2");
   };
-  b.thetaE = (M, zl, zs) => {
-    need(M, "kg", "thetaE", "mass");
-    const [Dl, Ds, Dls] = lensD("thetaE", zl, zs);
+  b.theta_E = (M, zl, zs) => {
+    need(M, "kg", "theta_E", "mass");
+    const [Dl, Ds, Dls] = lensD("theta_E", zl, zs);
     const r = env.div(env.mul(env.mul(new Q(4), G()), M), c2());
     return show(b.sqrt(env.div(env.mul(r, Dls), env.mul(Dl, Ds))), "arcsec");
   };
-  b.thetaSIS = (sigma, zl, zs) => {
-    need(sigma, "m/s", "thetaSIS", "velocity dispersion");
-    const [, Ds, Dls] = lensD("thetaSIS", zl, zs);
+  b.theta_E_SIS = (sigma, zl, zs) => {
+    need(sigma, "m/s", "theta_E_SIS", "velocity dispersion");
+    const [, Ds, Dls] = lensD("theta_E_SIS", zl, zs);
     const v = env.div(sigma, getQ("c"));
     return show(env.mul(env.mul(new Q(4 * Math.PI), env.mul(v, v)), env.div(Dls, Ds)), "arcsec");
   };
@@ -4432,7 +4614,7 @@ function addScience(calc) {
     const t = env.checkPure(theta, "M_E (theta)");
     const [Dl, Ds, Dls] = lensD("M_E", zl, zs);
     const k = env.div(env.mul(new Q(t.mul(t)), c2()), env.mul(new Q(4), G()));
-    return show(env.div(env.mul(k, env.mul(Dl, Ds)), Dls), "Msun");
+    return show(env.div(env.mul(k, env.mul(Dl, Ds)), Dls), "M_Sun");
   };
   b.D_dt = (zl, zs) => {
     const [Dl, Ds, Dls, l] = lensD("D_dt", zl, zs);
@@ -4479,13 +4661,13 @@ const BODY_PROPS = [
   ["R", "R", "Mean radius", "km"],
   ["rho", "ρ", "Mean density", "g/cm^3"],
   ["g", "g", "Surface gravity", "m/s^2"],
-  ["vesc", "v", "Escape speed", "km/s"],
+  ["v_esc", "v", "Escape speed", "km/s"],
   ["a", "a", "Orbit semi-major axis", "km"],
   ["P", "P", "Orbital period", "day"],
-  ["Prot", "P", "Rotation period", "hour"],
+  ["P_rot", "P", "Rotation period", "hour"],
   ["e", "e", "Orbit eccentricity", ""],
 ];
-const PROP_SUB = { vesc: "esc,", Prot: "rot," };
+const PROP_SUB = { v_esc: "esc,", P_rot: "rot," };
 const PROP_SYM = Object.fromEntries(BODY_PROPS.map((p) => [p[0], p[1]]));
 
 function planetDefs() {
@@ -4497,12 +4679,17 @@ function planetDefs() {
     L.push(`%let R_${n} = ${R}[km] # "Mean radius of ${of}"`);
     L.push(`%lazy rho_${n} = M_${n} / (4 / 3 * pi * R_${n}^3) # "Mean density of ${of}"`);
     L.push(`%lazy g_${n} = nominal(G) * M_${n} / R_${n}^2 # "Surface gravity of ${of} (GM/R², no rotation)"`);
-    L.push(`%lazy vesc_${n} = sqrt(2 * nominal(G) * M_${n} / R_${n}) # "Escape speed from ${of}"`);
+    L.push(`%lazy v_esc_${n} = sqrt(2 * nominal(G) * M_${n} / R_${n}) # "Escape speed from ${of}"`);
     L.push(`%let a_${n} = ${a}[km] # "Semi-major axis of the orbit of ${of} around ${around}"`);
     L.push(`%let P_${n} = ${P}[day] # "Sidereal orbital period of ${of} around ${around}"`);
-    L.push(`%let Prot_${n} = ${rot}[hour] # "Sidereal rotation period of ${of}${rot < 0 ? " (negative: retrograde)" : ""}"`);
+    L.push(`%let P_rot_${n} = ${rot}[hour] # "Sidereal rotation period of ${of}${rot < 0 ? " (negative: retrograde)" : ""}"`);
     L.push(`%let e_${n} = ${e} # "Orbital eccentricity of ${of}"`);
   }
+  L.push('%newunit M_Earth=M_Earth # "Earth mass"');
+  L.push('%newunit R_Earth=R_Earth # "Earth mean radius"');
+  L.push('%newunit M_Jupiter=M_Jupiter # "Jupiter mass"');
+  L.push('%newunit R_Jupiter=R_Jupiter # "Jupiter mean radius"');
+  // earlier names, hidden
   L.push('%newunit Mearth=5.9722e24[kg] # "Earth mass"');
   L.push('%newunit Rearth=6378.1[km] # "Earth radius (IAU nominal equatorial)"');
   L.push('%newunit Mjup=1.89813e27[kg] # "Jupiter mass"');
@@ -4601,9 +4788,9 @@ function extraDefs() {
   const add = (s) => L.push(s);
   // mathematics and statistics
   add('%let euler = exp(1) # "Euler\'s number e = 2.71828… (the name e is the elementary charge)"');
-  add('%let gammaE = 0.57721566490153286 # "Euler–Mascheroni constant"');
+  add('%let gamma_E = 0.57721566490153286 # "Euler–Mascheroni constant"');
   add('%let golden = (1 + sqrt(5)) / 2 # "Golden ratio φ"');
-  add('%let zeta3 = 1.2020569031595943 # "Apéry\'s constant ζ(3)"');
+  add('%let zeta_3 = 1.2020569031595943 # "Apéry\'s constant ζ(3)"');
   add('%let fwhm = 2 * sqrt(2 * ln(2)) # "FWHM / σ of a Gaussian"');
   // atomic and particle physics
   add('%let m_alpha = const["alpha particle mass"] # "Alpha particle mass"');
@@ -4614,30 +4801,32 @@ function extraDefs() {
   add('%let m_H = (125.20 ± 0.11)[GeV] / c^2 # "Higgs boson mass (PDG)"');
   add('%let m_t = (172.57 ± 0.29)[GeV] / c^2 # "Top quark mass (PDG, direct measurements)"');
   add('%let alpha_s = 0.1180 ± 0.0009 # "Strong coupling constant α_s(m_Z) (PDG)"');
-  add('%let sin2thetaW = const["weak mixing angle"] # "Weak mixing angle sin²θ_W (on-shell)"');
+  add('%let sin2theta_W = const["weak mixing angle"] # "Weak mixing angle sin²θ_W (on-shell)"');
   add('%let lambda_C = const["Compton wavelength"] # "Electron Compton wavelength"');
   add('%let r_e = const["classical electron radius"] # "Classical electron radius"');
   add('%let a_0 = const["Bohr radius"] # "Bohr radius"');
-  add('%let muN = const["nuclear magneton"] # "Nuclear magneton"');
+  add('%let mu_N = const["nuclear magneton"] # "Nuclear magneton"');
   add('%let K_J = const["Josephson constant"] # "Josephson constant"');
   add('%let R_K = const["von Klitzing constant"] # "von Klitzing constant"');
-  add('%let Phi0 = const["mag. flux quantum"] # "Magnetic flux quantum"');
-  add('%let G0 = const["conductance quantum"] # "Conductance quantum"');
+  add('%let Phi_0 = const["mag. flux quantum"] # "Magnetic flux quantum"');
+  add('%let G_0 = const["conductance quantum"] # "Conductance quantum"');
   add('%let sigma_T = const["Thomson cross section"] # "Thomson cross section"');
   add('%let b_Wien = const["Wien wavelength displacement law constant"] # "Wien wavelength displacement constant"');
   add('%let c_1 = const["first radiation constant"] # "First radiation constant"');
   add('%let c_2 = const["second radiation constant"] # "Second radiation constant"');
   // astronomy (IAU 2015 nominal solar values and others)
-  add('%let GMsun_N = 1.3271244e20[m^3 s^-2] # "Nominal solar mass parameter (IAU 2015)"');
-  add('%let Rsun_N = 6.957e8[m] # "Nominal solar radius (IAU 2015)"');
-  add('%let Lsun_N = 3.828e26[W] # "Nominal solar luminosity (IAU 2015)"');
-  add('%let Teff_sun = 5772[K] # "Nominal solar effective temperature (IAU 2015)"');
-  add('%let Mbol_sun = 4.74 # "Solar absolute bolometric magnitude (IAU 2015)"');
+  add('%let GM_Sun_N = 1.3271244e20[m^3 s^-2] # "Nominal solar mass parameter (IAU 2015)"');
+  add('%let R_Sun_N = 6.957e8[m] # "Nominal solar radius (IAU 2015)"');
+  add('%let L_Sun_N = 3.828e26[W] # "Nominal solar luminosity (IAU 2015)"');
+  add('%let T_eff_Sun = 5772[K] # "Nominal solar effective temperature (IAU 2015)"');
+  add('%let M_bol_Sun = 4.74 # "Solar absolute bolometric magnitude (IAU 2015)"');
   add('%let F_AB = 3631[Jy] # "AB magnitude zero point"');
-  add('%let M_Ch = 1.44 * Msun # "Chandrasekhar mass (≈)"');
+  add('%let M_Ch = 1.44 * M_Sun # "Chandrasekhar mass (≈)"');
   add('%let R_GC = 8.18[kpc] # "Distance of the Sun from the Galactic centre (≈)"');
   add('%let v_circ = 230[km/s] # "Galactic circular speed at the Sun (≈)"');
   add('%let tropicalyear = 365.24219[day] # "Tropical year"');
+  add('%let R_Earth_eq = 6378137[m] # "Equatorial radius of the Earth (WGS 84)"');
+  add('%let R_Jupiter_eq = 71492[km] # "Equatorial radius of Jupiter (IAU nominal)"');
   // Earth
   add('%newunit Gal=1[cm/s^2] # "Gal (gravity acceleration)"');
   add('%let GM_Earth = 3.986004418e14[m^3 s^-2] # "Earth gravitational parameter (WGS 84)"');
@@ -4645,12 +4834,12 @@ function extraDefs() {
   add('%let b_WGS84 = 6356752.314245[m] # "Earth polar radius (WGS 84)"');
   add('%let f_WGS84 = 1 / 298.257223563 # "Earth flattening (WGS 84)"');
   add('%let omega_Earth = 7.292115e-5[rad/s] # "Earth rotation rate (WGS 84)"');
-  add('%let J2_Earth = 1.08263e-3 # "Earth dynamic form factor J₂"');
+  add('%let J_2_Earth = 1.08263e-3 # "Earth dynamic form factor J₂"');
   add('%let g_eq = 9.7803253359[m/s^2] # "Normal gravity at the equator (WGS 84)"');
   add('%let g_pole = 9.8321849378[m/s^2] # "Normal gravity at the poles (WGS 84)"');
   add('%let dg_fa = 0.3086[mGal/m] # "Free-air gravity gradient"');
   add('%let rho_crust = 2670[kg/m^3] # "Bouguer reduction density of the crust"');
-  add('%let S_sun = 1361[W/m^2] # "Solar constant, total solar irradiance at 1 au (≈)"');
+  add('%let S_Sun = 1361[W/m^2] # "Solar constant, total solar irradiance at 1 au (≈)"');
   add('%let rho_sea = 1025[kg/m^3] # "Density of seawater at the surface (≈)"');
   add('%let T_Earth = 288[K] # "Mean surface temperature of the Earth (≈)"');
   add('%let dTdz = 25[K/km] # "Typical continental geothermal gradient (≈ 25–30 K/km)"');
@@ -4663,9 +4852,9 @@ function extraDefs() {
   add('%let p_std = const["standard-state pressure"] # "Standard-state pressure, 1 bar"');
   add('%let V_T = k * 298.15[K] / e # "Thermal voltage kT/e at 25 °C"');
   add('%let rho_water = 997.05[kg/m^3] # "Density of water at 25 °C"');
-  add('%let cp_water = 4181.3[J/(kg K)] # "Specific heat of water at 25 °C"');
-  add('%let Lvap_water = 2.2564e6[J/kg] # "Latent heat of vaporisation of water at 100 °C"');
-  add('%let Lfus_water = 3.3355e5[J/kg] # "Latent heat of fusion of water at 0 °C"');
+  add('%let c_p_water = 4181.3[J/(kg K)] # "Specific heat of water at 25 °C"');
+  add('%let L_vap_water = 2.2564e6[J/kg] # "Latent heat of vaporisation of water at 100 °C"');
+  add('%let L_fus_water = 3.3355e5[J/kg] # "Latent heat of fusion of water at 0 °C"');
   add('%let K_w = 1.0e-14[mol^2 L^-2] # "Ionic product of water at 25 °C (≈)"');
   for (const [, sym, name, w, unstable] of ELEMENTS) {
     add(`%let M_${sym} = ${w}[g/mol] # "Molar mass of ${name.toLowerCase()}${unstable ? ` (mass number of the most stable isotope)` : ""}"`);
@@ -4682,7 +4871,7 @@ function extraDefs() {
   add('%let a_ISA = 340.294[m/s] # "ISA sea-level speed of sound"');
   add('%let L_ISA = 6.5[K/km] # "ISA temperature lapse rate (troposphere)"');
   add('%let R_air = 287.053[J/(kg K)] # "Specific gas constant of dry air"');
-  add('%let cp_air = 1005[J/(kg K)] # "Specific heat of air at constant pressure (≈)"');
+  add('%let c_p_air = 1005[J/(kg K)] # "Specific heat of air at constant pressure (≈)"');
   add('%let gamma_air = 1.4 # "Heat capacity ratio of air"');
   add('%let mu_air = 1.789e-5[Pa s] # "Dynamic viscosity of air (ISA sea level)"');
   add('%let mu_water = 1.002e-3[Pa s] # "Dynamic viscosity of water at 20 °C"');
@@ -4691,16 +4880,16 @@ function extraDefs() {
     const l = label.toLowerCase();
     add(`%let rho_${m} = ${rho}[kg/m^3] # "Density of ${l} (≈)"`);
     add(`%let E_${m} = ${E}[GPa] # "Young's modulus of ${l} (≈)"`);
-    add(`%let kth_${m} = ${kth}[W/(m K)] # "Thermal conductivity of ${l} (≈)"`);
+    add(`%let k_th_${m} = ${kth}[W/(m K)] # "Thermal conductivity of ${l} (≈)"`);
     add(`%let c_${m} = ${c}[J/(kg K)] # "Specific heat of ${l} (≈)"`);
     add(`%let alpha_${m} = ${alpha}[K^-1] # "Linear thermal expansion of ${l} (≈)"`);
-    if (rhoe !== null) add(`%let rhoe_${m} = ${rhoe}[ohm m] # "Electrical resistivity of ${l} (≈)"`);
+    if (rhoe !== null) add(`%let rho_e_${m} = ${rhoe}[ohm m] # "Electrical resistivity of ${l} (≈)"`);
   }
   // nuclides
   for (const [n, label, [t, u], mass] of NUCLIDES) {
-    add(`%let T12_${n} = ${t}[${u}] # "Half-life of ${label} (≈)"`);
-    add(`%let tau_${n} = T12_${n} / ln(2) # "Mean life of ${label}"`);
-    add(`%let lambda_${n} = ln(2) / T12_${n} # "Decay constant of ${label}"`);
+    add(`%let T_half_${n} = ${t}[${u}] # "Half-life of ${label} (≈)"`);
+    add(`%let tau_${n} = T_half_${n} / ln(2) # "Mean life of ${label}"`);
+    add(`%let lambda_${n} = ln(2) / T_half_${n} # "Decay constant of ${label}"`);
     add(`%let m_${n} = ${mass}[u] # "Atomic mass of ${label}"`);
   }
   // information
@@ -4849,17 +5038,17 @@ function betaIN(a, b, x) {
 const STATS_DOCS = {
   erf: "Error function: erf(x)",
   erfc: "Complementary error function 1 − erf(x): erfc(x)",
-  erfinv: "Inverse error function: erfinv(y)",
+  erf_inv: "Inverse error function: erf_inv(y)",
   Phi: "Standard normal cumulative distribution: Phi(x)",
-  Phiinv: "Inverse standard normal distribution (probit): Phiinv(p)",
+  Phi_inv: "Inverse standard normal distribution (probit): Phi_inv(p)",
   pvalue: "One-sided Gaussian tail probability of n σ: pvalue(5) = 2.87e-7",
   nsigma: "Gaussian significance (one-sided) of a p-value: nsigma(2.87e-7) = 5",
   conf: "Probability inside ±n σ of a Gaussian: conf(1) = 0.6827",
   lgamma: "Logarithm of the Γ function: lgamma(x)",
-  beta: "Beta function B(a, b) = Γ(a)Γ(b)/Γ(a+b): beta(a, b)",
+  Beta: "Beta function B(a, b) = Γ(a)Γ(b)/Γ(a+b): Beta(a, b)",
   binom: "Binomial coefficient: binom(n, k)",
-  chi2_p: "Upper-tail probability of χ² with k degrees of freedom: chi2_p(x, k)",
-  t_p: "Two-sided tail probability of Student's t with ν degrees of freedom: t_p(t, nu)",
+  p_chi2: "Upper-tail probability of χ² with k degrees of freedom: p_chi2(x, k)",
+  p_t: "Two-sided tail probability of Student's t with ν degrees of freedom: p_t(t, nu)",
   R_s: "Schwarzschild radius 2GM/c²: R_s(M)",
   L_Edd: "Eddington luminosity 4πGM m_p c / σ_T: L_Edd(M)",
 };
@@ -4887,20 +5076,20 @@ function addExtras(calc) {
   };
   pureFn("erf", 1, erfN);
   pureFn("erfc", 1, erfcN);
-  pureFn("erfinv", 1, (y) => PhiinvN((y + 1) / 2) / SQRT2);
+  pureFn("erf_inv", 1, (y) => PhiinvN((y + 1) / 2) / SQRT2);
   pureFn("Phi", 1, PhiN);
-  pureFn("Phiinv", 1, PhiinvN);
+  pureFn("Phi_inv", 1, PhiinvN);
   pureFn("pvalue", 1, (n) => 0.5 * erfcN(n / SQRT2));
   pureFn("nsigma", 1, (p) => -PhiinvN(p));
   pureFn("conf", 1, (n) => erfN(n / SQRT2));
   pureFn("lgamma", 1, lgammaN);
-  pureFn("beta", 2, (x, y) => Math.exp(lgammaN(x) + lgammaN(y) - lgammaN(x + y)));
+  pureFn("Beta", 2, (x, y) => Math.exp(lgammaN(x) + lgammaN(y) - lgammaN(x + y)));
   pureFn("binom", 2, (n, k) => {
     const v = Math.exp(lgammaN(n + 1) - lgammaN(k + 1) - lgammaN(n - k + 1));
     return Number.isInteger(n) && Number.isInteger(k) && v < 2 ** 53 ? Math.round(v) : v;
   });
-  pureFn("chi2_p", 2, (x, k) => gammaQN(k / 2, x / 2));
-  pureFn("t_p", 2, (t, nu) => betaIN(nu / 2, 0.5, nu / (nu + t * t)));
+  pureFn("p_chi2", 2, (x, k) => gammaQN(k / 2, x / 2));
+  pureFn("p_t", 2, (t, nu) => betaIN(nu / 2, 0.5, nu / (nu + t * t)));
 
   const getQ = (name) => {
     let v = env.vars.get(name);
@@ -4921,7 +5110,7 @@ function addExtras(calc) {
   };
   b.L_Edd = (M) => {
     const num = env.mul(env.mul(env.mul(new Q(4 * Math.PI), getQ("G")), mass(M, "L_Edd")), env.mul(getQ("m_p"), getQ("c")));
-    return show(env.div(num, getQ("sigma_T")), "Lsun");
+    return show(env.div(num, getQ("sigma_T")), "L_Sun");
   };
   for (const k of Object.keys(STATS_DOCS)) SCIENCE.add(k);
   Object.assign(functionDocs, STATS_DOCS);
@@ -5134,7 +5323,7 @@ const ACTIONS = {
 // {fn | name, label, desc}
 const FN_SECTIONS = [
   ["Math", 5, 4, [
-    ["√", "fn", "f:sqrt("], ["∛", "fn", "f:cbrt("], ["|x|", "fn small", "f:abs("], ["n!", "fn small", "f:factorial("], ["Γ", "fn", "f:gamma("],
+    ["√", "fn", "f:sqrt("], ["∛", "fn", "f:cbrt("], ["|x|", "fn small", "f:abs("], ["n!", "fn small", "f:factorial("], ["Γ", "fn", "f:Gamma("],
     ["ln", "fn small", "f:ln("], ["log₁₀", "fn small", "f:log10("], ["log₂", "fn small", "f:log2("], ["eˣ", "fn small", "f:exp("], ["π", "fn", "n:pi"],
     ["10ˣ", "fn small", "10^"], ["x⁻¹", "fn small", "pow-1"], ["round", "fn small", "f:round("], ["value", "fn small", "f:nominal("], ["error", "fn small", "f:err("],
     ["ans", "fn small", "n:ans"], ["floor", "fn small", "f:floor("], ["f(x) =", "fn small", "deffn"], ["◀", "fn", "left"], ["▶", "fn", "right"],
@@ -5148,20 +5337,20 @@ const FN_SECTIONS = [
   ["Cosmology", 4, 3, [
     { fn: "D_C", desc: "Comoving" }, { fn: "D_M", desc: "Transverse" }, { fn: "D_A", desc: "Angular diam." }, { fn: "D_L", desc: "Luminosity" },
     { fn: "distmod", label: "μ(z)", desc: "Dist. modulus" }, { fn: "scale", label: "kpc/″", desc: "Proper scale" },
-    { fn: "Hubble", label: "H(z)", desc: "Hubble param." }, { fn: "Ez", label: "E(z)", desc: "H(z)/H₀" },
+    { fn: "H", label: "H(z)", desc: "Hubble param." }, { fn: "E", label: "E(z)", desc: "H(z)/H₀" },
     { fn: "t_L", desc: "Lookback time" }, { fn: "age", label: "age", desc: "Age at z" }, { fn: "V_C", desc: "Comov. volume" },
     { model: true },
   ]],
   ["Lensing", 4, 2, [
-    { fn: "Sigma_cr", desc: "Critical density" }, { fn: "thetaE", desc: "Point mass" }, { fn: "thetaSIS", desc: "Isothermal" }, { fn: "M_E", desc: "Mass in θ_E" },
+    { fn: "Sigma_cr", desc: "Critical density" }, { fn: "theta_E", desc: "Point mass" }, { fn: "theta_E_SIS", desc: "Isothermal" }, { fn: "M_E", desc: "Mass in θ_E" },
     { fn: "D_A", desc: "Angular diam." }, { fn: "D_dt", desc: "Time delay" }, { fn: "scale", label: "kpc/″", desc: "Proper scale" },
     { model: true },
   ]],
   ["Stats", 4, 4, [
-    { fn: "Phi", desc: "Normal CDF" }, { fn: "Phiinv", desc: "Normal quantile" }, { fn: "pvalue", desc: "p-value of nσ" }, { fn: "nsigma", desc: "nσ of a p-value" },
-    { fn: "conf", label: "CL(nσ)", desc: "Inside ±nσ" }, { fn: "erf", label: "erf", desc: "Error function" }, { fn: "erfc", label: "erfc", desc: "1 − erf" }, { fn: "erfinv", desc: "Inverse erf" },
-    { fn: "chi2_p", desc: "χ² tail (x, k)" }, { fn: "t_p", desc: "Student t tail" }, { fn: "lgamma", desc: "log Γ(x)" }, { fn: "beta", desc: "Beta function" },
-    { fn: "binom", label: "binom", desc: "n choose k" }, { name: "fwhm", label: "FWHM/σ", desc: "2√(2 ln 2)" }, { name: "sqrt(2 pi)", label: "√2π", desc: "2.5066" }, { name: "gammaE", desc: "Euler–Mascheroni" },
+    { fn: "Phi", desc: "Normal CDF" }, { fn: "Phi_inv", desc: "Normal quantile" }, { fn: "pvalue", desc: "p-value of nσ" }, { fn: "nsigma", desc: "nσ of a p-value" },
+    { fn: "conf", label: "CL(nσ)", desc: "Inside ±nσ" }, { fn: "erf", label: "erf", desc: "Error function" }, { fn: "erfc", label: "erfc", desc: "1 − erf" }, { fn: "erf_inv", desc: "Inverse erf" },
+    { fn: "p_chi2", desc: "χ² tail (x, k)" }, { fn: "p_t", desc: "Student t tail" }, { fn: "lgamma", desc: "log Γ(x)" }, { fn: "Beta", desc: "Beta function" },
+    { fn: "binom", label: "binom", desc: "n choose k" }, { name: "fwhm", label: "FWHM/σ", desc: "2√(2 ln 2)" }, { name: "sqrt(2 pi)", label: "√2π", desc: "2.5066" }, { name: "gamma_E", desc: "Euler–Mascheroni" },
   ]],
   ["Yours", 3, 0, []],
 ];
@@ -5172,7 +5361,7 @@ const USAGE = {
   cbrt: "cbrt(x): cube root; cbrt(8 m^3) = 2 m",
   abs: "abs(x): absolute value",
   factorial: "factorial(n): n! = 1·2·…·n",
-  gamma: "gamma(x): Euler's Γ function, Γ(n) = (n − 1)!",
+  Gamma: "Gamma(x): Euler's Γ function, Γ(n) = (n − 1)!",
   ln: "ln(x): natural logarithm of a pure number (same as log)",
   log: "log(x): natural logarithm of a pure number",
   log10: "log10(x): decimal logarithm of a pure number",
@@ -5202,7 +5391,7 @@ const USAGE = {
 };
 
 const KEY_HELP = {
-  assign: "Assignment: name = value, e.g. H0 = 67.4 km/s/Mpc; or a function, f(x, y) = x^2 + y^2",
+  assign: "Assignment: name = value, e.g. H_0 = 67.4 km/s/Mpc; or a function, f(x, y) = x^2 + y^2",
   deffn: "Start a function definition: f(x) = …",
   "@": "Convert: value @ unit, e.g. 3 ft @ cm; several units with |, 20 m/s @ km|hour gives 72 km/hour",
   EE: "Power of ten: 6.674e-11",
@@ -5241,8 +5430,8 @@ function modelText() {
       return qShort(q).replace(/\[([^\]]*)\]/, " $1");
     } catch { return "?"; }
   };
-  return `ΛCDM model: H₀ = ${val("H0", "km/s/Mpc")}, Ω_M = ${val("OmegaM")}, Ω_Λ = ${val("OmegaL")}, Ω_K = ${val("OmegaK")}. ` +
-    "Set the default in Settings, or change it here with e.g. OmegaM = 0.315. Long-press a function for its arguments.";
+  return `ΛCDM model: H₀ = ${val("H_0", "km/s/Mpc")}, Ω_M = ${val("Omega_M")}, Ω_Λ = ${val("Omega_L")}, Ω_K = ${val("Omega_K")}. ` +
+    "Set the default in Settings, or change it here with e.g. Omega_M = 0.315. Long-press a function for its arguments.";
 }
 
 const ABC = {
@@ -5479,9 +5668,9 @@ const U = (unit, desc) => ({ unit, desc });
 
 const CONST_SECTIONS = [
   ["Math", [
-    K("pi", "Pi"), K("euler", "Euler's number"), K("gammaE", "Euler–Mascheroni"), K("golden", "Golden ratio"),
+    K("pi", "Pi"), K("euler", "Euler's number"), K("gamma_E", "Euler–Mascheroni"), K("golden", "Golden ratio"),
     K("sqrt(2)", "Square root of 2", "√2"), K("ln(2)", "Natural log of 2", "ln 2"), K("sqrt(2 pi)", "Gaussian normalization", "√2π"),
-    K("zeta3", "Apéry's constant"), K("fwhm", "Gaussian FWHM / σ", "FWHM/σ"),
+    K("zeta_3", "Apéry's constant"), K("fwhm", "Gaussian FWHM / σ", "FWHM/σ"),
     K("conf(1)", "Inside ±1σ: 68.27 %", "CL 1σ"), K("conf(2)", "Inside ±2σ: 95.45 %", "CL 2σ"), K("conf(3)", "Inside ±3σ: 99.73 %", "CL 3σ"),
     K("pvalue(3)", "3σ one-sided p-value", "p 3σ"), K("pvalue(5)", "5σ one-sided p-value", "p 5σ"),
   ]],
@@ -5490,46 +5679,46 @@ const CONST_SECTIONS = [
     K("m_e", "Electron mass"), K("m_p", "Proton mass"), K("m_n", "Neutron mass"), K("m_d", "Deuteron mass"),
     K("m_alpha", "Alpha particle mass"), K("m_mu", "Muon mass"), K("m_tau", "Tau mass"), K("m_pi", "Charged pion (PDG)"),
     K("m_pi0", "Neutral pion (PDG)"), K("m_W", "W boson (PDG)"), K("m_Z", "Z boson (PDG)"), K("m_H", "Higgs boson (PDG)"),
-    K("m_t", "Top quark (PDG)"), K("alpha_s", "Strong coupling at m_Z"), K("Gfermi", "Fermi coupling constant"),
-    K("sin2thetaW", "Weak mixing angle"), K("a_0", "Bohr radius"), K("lambda_C", "Compton wavelength"),
-    K("r_e", "Classical electron radius"), K("muBohr", "Bohr magneton"), K("muN", "Nuclear magneton"),
+    K("m_t", "Top quark (PDG)"), K("alpha_s", "Strong coupling at m_Z"), K("G_F", "Fermi coupling constant"),
+    K("sin2theta_W", "Weak mixing angle"), K("a_0", "Bohr radius"), K("lambda_C", "Compton wavelength"),
+    K("r_e", "Classical electron radius"), K("mu_B", "Bohr magneton"), K("mu_N", "Nuclear magneton"),
     U("E_h", "Hartree energy"), K('const["Rydberg constant"]', "Rydberg constant", "R<sub>∞</sub>"),
-    K("K_J", "Josephson constant"), K("R_K", "von Klitzing constant"), K("Phi0", "Flux quantum"),
-    K("G0", "Conductance quantum"), K("sigma_T", "Thomson cross section"), K("b_Wien", "Wien constant"),
+    K("K_J", "Josephson constant"), K("R_K", "von Klitzing constant"), K("Phi_0", "Flux quantum"),
+    K("G_0", "Conductance quantum"), K("sigma_T", "Thomson cross section"), K("b_Wien", "Wien constant"),
     K("c_1", "First radiation constant"), K("c_2", "Second radiation constant"),
   ]],
   ["Astro", [
-    K("Msun", "Solar mass"), K("Rsun", "Solar radius"), K("Lsun", "Solar luminosity"),
-    K("GMsun_N", "IAU nominal GM☉"), K("Rsun_N", "IAU nominal radius"), K("Lsun_N", "IAU nominal luminosity"),
-    K("Teff_sun", "Solar T_eff (IAU)"), K("Mbol_sun", "Solar M_bol (IAU)"), K("F_AB", "AB zero point"),
+    K("M_Sun", "Solar mass"), K("R_Sun", "Solar radius"), K("L_Sun", "Solar luminosity"),
+    K("GM_Sun_N", "IAU nominal GM☉"), K("R_Sun_N", "IAU nominal radius"), K("L_Sun_N", "IAU nominal luminosity"),
+    K("T_eff_Sun", "Solar T_eff (IAU)"), K("M_bol_Sun", "Solar M_bol (IAU)"), K("F_AB", "AB zero point"),
     K("R_s(", "Schwarzschild radius"), K("L_Edd(", "Eddington luminosity"), K("M_Ch", "Chandrasekhar mass ≈"),
-    K("H0", "Hubble constant"), K("T_CMB", "CMB temperature"), K("rho_c", "Critical density"), K("dH", "Hubble distance"),
+    K("H_0", "Hubble constant"), K("T_CMB", "CMB temperature"), K("rho_c", "Critical density"), K("d_H", "Hubble distance"),
     K("R_GC", "Sun–Galactic centre ≈"), K("v_circ", "Galactic rotation ≈"),
     K("siderealday", "Sidereal day", "sid. day"), K("siderealyear", "Sidereal year", "sid. yr"), K("tropicalyear", "Tropical year", "trop. yr"),
-    U("Mearth", "Earth mass (unit)"), U("Rearth", "Earth radius (unit)"), U("Mjup", "Jupiter mass (unit)"),
-    U("Rjup", "Jupiter radius (unit)"), U("au", "Astronomical unit"), U("pc", "Parsec"), U("ly", "Light year"), U("Jy", "Jansky"),
+    U("M_Earth", "Earth mass (unit)"), U("R_Earth", "Earth radius (unit)"), U("M_Jupiter", "Jupiter mass (unit)"),
+    U("R_Jupiter", "Jupiter radius (unit)"), K("R_Earth_eq", "Earth equatorial radius"), K("R_Jupiter_eq", "Jupiter equatorial radius"), U("au", "Astronomical unit"), U("pc", "Parsec"), U("ly", "Light year"), U("Jy", "Jansky"),
   ]],
   ["Solar system", "picker"],
   ["Earth", [
     K("GM_Earth", "GM (WGS 84)"), K("a_WGS84", "Equatorial radius"), K("b_WGS84", "Polar radius"), K("f_WGS84", "Flattening"),
-    K("omega_Earth", "Rotation rate"), K("J2_Earth", "Form factor J₂"), K("g", "Standard gravity"), K("g_eq", "Normal gravity, equator"),
+    K("omega_Earth", "Rotation rate"), K("J_2_Earth", "Form factor J₂"), K("g", "Standard gravity"), K("g_eq", "Normal gravity, equator"),
     K("g_pole", "Normal gravity, poles"), K("dg_fa", "Free-air gradient"), K("rho_crust", "Bouguer density"),
-    K("rho_Earth", "Mean density"), K("S_sun", "Solar constant ≈"), K("rho_sea", "Seawater density ≈"),
+    K("rho_Earth", "Mean density"), K("S_Sun", "Solar constant ≈"), K("rho_sea", "Seawater density ≈"),
     K("T_Earth", "Mean surface temp. ≈"), K("dTdz", "Geothermal gradient ≈"), U("Gal", "Gal = 1 cm/s²"), U("mGal", "Milligal"),
   ]],
   ["Chemistry", [
-    K("Nav", "Avogadro constant"), K("R", "Molar gas constant"), K("faraday", "Faraday constant", "F"), K("V_m", "Molar volume, 0 °C 1 atm"),
+    K("N_A", "Avogadro constant"), K("R", "Molar gas constant"), K("faraday", "Faraday constant", "F"), K("V_m", "Molar volume, 0 °C 1 atm"),
     K("n_0", "Loschmidt constant"), K("m_u", "Atomic mass constant"), K("k", "Boltzmann constant"), K("T_STP", "0 °C"),
     K("T_SATP", "25 °C"), K("p_std", "Standard pressure, 1 bar"), K("atmosphere", "Standard atmosphere", "atm"),
-    K("V_T", "kT/e at 25 °C"), K("rho_water", "Water, 25 °C"), K("cp_water", "Water, 25 °C"), K("Lvap_water", "Vaporisation"),
-    K("Lfus_water", "Fusion"), K("K_w", "Ionic product ≈"), K("M_air", "Molar mass of air"),
+    K("V_T", "kT/e at 25 °C"), K("rho_water", "Water, 25 °C"), K("c_p_water", "Water, 25 °C"), K("L_vap_water", "Vaporisation"),
+    K("L_fus_water", "Fusion"), K("K_w", "Ionic product ≈"), K("M_air", "Molar mass of air"),
   ]],
   ["Elements", "elements"],
   ["Engineering", [
     K("g", "Standard gravity"), K("T_ISA", "ISA temperature"), K("p_ISA", "ISA pressure"), K("rho_ISA", "ISA air density"),
-    K("a_ISA", "ISA speed of sound"), K("L_ISA", "ISA lapse rate"), K("R_air", "Gas constant of air"), K("cp_air", "Air ≈"),
+    K("a_ISA", "ISA speed of sound"), K("L_ISA", "ISA lapse rate"), K("R_air", "Gas constant of air"), K("c_p_air", "Air ≈"),
     K("gamma_air", "Air c_p/c_v"), K("mu_air", "Air viscosity"), K("mu_water", "Water, 20 °C"), K("nu_water", "Water, 20 °C"),
-    K("rho_water", "Water, 25 °C"), K("cp_water", "Water, 25 °C"), U("bar", "Bar"), U("psi", "psi"), U("hp", "Horsepower"), U("kWh", "Kilowatt-hour"),
+    K("rho_water", "Water, 25 °C"), K("c_p_water", "Water, 25 °C"), U("bar", "Bar"), U("psi", "psi"), U("hp", "Horsepower"), U("kWh", "Kilowatt-hour"),
   ]],
   ["Materials", "picker"],
   ["Nuclear", "picker"],
@@ -5540,7 +5729,7 @@ const CONST_SECTIONS = [
   ["Yours", "yours"],
 ];
 const CONST_NAMES = CONST_SECTIONS.map((s) => s[0]);
-const ASTRO_CONSTS = ["Msun", "Rsun", "Lsun", "H0", "T_CMB", "rho_c", "dH"];
+const ASTRO_CONSTS = ["M_Sun", "R_Sun", "L_Sun", "H_0", "T_CMB", "rho_c", "d_H"];
 
 // 4 significant digits, ×10ⁿ
 function fmt4(x) {
@@ -5567,7 +5756,7 @@ const PICKERS = {
       const prim = BODIES.find((b) => b[0] === item)[1];
       if (p.k === "a" && prim === "Sun") return "au";
       if (p.k === "P" && n0 > 1000 * 86400) return "yr";
-      if (p.k === "Prot" && Math.abs(n0) > 100 * 3600) return "day";
+      if (p.k === "P_rot" && Math.abs(n0) > 100 * 3600) return "day";
       return p.unit;
     },
   },
@@ -5575,8 +5764,8 @@ const PICKERS = {
     key: "material", def: "steel", cols: 3, rows: 2,
     items: () => MATERIALS.map((m) => [m[0], esc(m[1].replace(/ \(.*\)/, "")), true]),
     props: () => [
-      { k: "rho", sym: "ρ", unit: "kg/m^3" }, { k: "E", sym: "E", unit: "GPa" }, { k: "kth", sym: "k<sub>th</sub>", unit: "W/m/K" },
-      { k: "c", sym: "c", unit: "J/kg/K" }, { k: "alpha", sym: "α", unit: "K^-1" }, { k: "rhoe", sym: "ρ<sub>e</sub>", unit: "ohm m" },
+      { k: "rho", sym: "ρ", unit: "kg/m^3" }, { k: "E", sym: "E", unit: "GPa" }, { k: "k_th", sym: "k<sub>th</sub>", unit: "W/m/K" },
+      { k: "c", sym: "c", unit: "J/kg/K" }, { k: "alpha", sym: "α", unit: "K^-1" }, { k: "rho_e", sym: "ρ<sub>e</sub>", unit: "ohm m" },
     ],
     unitFor: (p) => p.unit,
   },
@@ -5584,7 +5773,7 @@ const PICKERS = {
     key: "nuclide", def: "C14", cols: 2, rows: 2,
     items: () => NUCLIDES.map((n) => [n[0], isoHTML(n[0]), true]),
     props: () => [
-      { k: "T12", sym: "T<sub>½</sub>", unit: "time" }, { k: "tau", sym: "τ", unit: "time" },
+      { k: "T_half", sym: "T<sub>½</sub>", unit: "time" }, { k: "tau", sym: "τ", unit: "time" },
       { k: "lambda", sym: "λ", unit: "rate" }, { k: "m", sym: "m", unit: "u", digits: 9 },
     ],
     unitFor: (p, item, n0) => (p.unit === "time" ? timeUnit(n0) : p.unit === "rate" ? timeUnit(1 / n0) + "^-1" : p.unit),
@@ -5997,6 +6186,7 @@ keypadEl.addEventListener("click", (ev) => {
   const b = ev.target.closest("button");
   if (!b || b.disabled) return;
   if (held) { held = false; return; }
+  if (!b.dataset.tab && !b.dataset.cat && !b.dataset.fncat && !b.dataset.constcat && !b.dataset.pick) endRecall();
   if (b.dataset.tab) return selectTab(b.dataset.tab);
   if (b.dataset.complete !== undefined) {
     insert(b.dataset.complete, { replaceBefore: Number(b.dataset.len) });
@@ -6083,6 +6273,45 @@ function editorMenu(x, y) {
   showMenu(x, y, items);
 }
 
+// History recall with ↑ ↓: the recalled entry is highlighted, and going
+// past the newest one brings back what was being typed
+function markRecalled() {
+  for (const el of historyEl.querySelectorAll(".entry.recalled")) el.classList.remove("recalled");
+  if (state.recall < 0) return;
+  const el = historyEl.querySelector(`.entry[data-i="${state.recall}"]`);
+  if (el) {
+    el.classList.add("recalled");
+    el.scrollIntoView({ block: "nearest" });
+  }
+}
+
+function recallStep(dir) {
+  const n = state.history.length;
+  if (state.recall < 0) {
+    if (dir > 0) return;
+    state.draft = { text: state.text, caret: state.caret };
+    state.recall = n - 1;
+  } else {
+    state.recall += dir;
+  }
+  if (state.recall < 0) state.recall = 0;
+  if (state.recall >= n) {
+    state.recall = -1;
+    const d = state.draft || { text: "", caret: 0 };
+    setInput(d.text, d.caret);
+  } else {
+    setInput(state.history[state.recall].input);
+  }
+  markRecalled();
+}
+
+// any edit keeps the recalled text as the new draft
+function endRecall() {
+  if (state.recall < 0) return;
+  state.recall = -1;
+  markRecalled();
+}
+
 // Hardware keyboard: the document receives the keys, no field has focus
 document.addEventListener("keydown", (ev) => {
   if (!sheet.hidden || !menuEl.hidden) return;
@@ -6091,12 +6320,12 @@ document.addEventListener("keydown", (ev) => {
   const k = ev.key;
   const handled = () => ev.preventDefault();
   if (k === "Enter") { handled(); evaluate(); }
-  else if (k === "Backspace") { handled(); backspace(); }
+  else if (k === "Backspace") { handled(); endRecall(); backspace(); }
   else if (k === "Delete") {
     handled();
     if (state.caret < state.text.length) setInput(state.text.slice(0, state.caret) + state.text.slice(state.caret + 1), state.caret);
   }
-  else if (k === "Escape") { handled(); setInput(""); }
+  else if (k === "Escape") { handled(); endRecall(); setInput(""); }
   else if (k === "ArrowLeft") { handled(); setCaret(state.caret - 1, -1); }
   else if (k === "ArrowRight") { handled(); setCaret(state.caret + 1, 1); }
   else if (k === "Home") { handled(); setCaret(0); }
@@ -6105,16 +6334,12 @@ document.addEventListener("keydown", (ev) => {
     const first = suggestEl.querySelector("button");
     if (first) { handled(); first.click(); }
   } else if (k === "ArrowUp" || k === "ArrowDown") {
-    const inputs = state.history.map((e) => e.input);
-    if (!inputs.length) return;
+    if (!state.history.length) return;
     handled();
-    if (k === "ArrowUp") state.recall = state.recall < 0 ? inputs.length - 1 : Math.max(0, state.recall - 1);
-    else state.recall = state.recall < 0 ? -1 : state.recall + 1;
-    if (state.recall >= inputs.length || state.recall < 0) { state.recall = -1; setInput(""); }
-    else setInput(inputs[state.recall]);
+    recallStep(k === "ArrowUp" ? -1 : 1);
   } else if (k.length === 1 || /^[\p{L}\p{S}\p{P}]$/u.test(k)) {
     handled();
-    state.recall = -1;
+    endRecall();
     insert(k);
   }
 });
@@ -6563,14 +6788,14 @@ function setupCosmoSettings(root, save) {
   };
   const apply = () => {
     // a redefinition in the calculator would hide the new default
-    const re = new RegExp(`^\\s*(${COSMO_NAMES.join("|")})\\s*=`);
+    const target = (l) => { const m = /^\s*([\p{L}_][\p{L}\p{N}_]*)\s*=/u.exec(l); return m ? env().vars.resolve(m[1]) : null; };
     const before = state.session.length;
-    state.session = state.session.filter((l) => !re.test(l));
+    state.session = state.session.filter((l) => !COSMO_NAMES.includes(target(l)));
     if (state.session.length !== before) store.set("session", state.session);
     save();
     build();
     refresh();
-    toast(`Cosmology: H₀ = ${s.cosmo.H0}, Ω_M = ${s.cosmo.Om}, Ω_Λ = ${Math.round(env().vars.get("OmegaL").x.n * 1e6) / 1e6}`);
+    toast(`Cosmology: H₀ = ${s.cosmo.H0}, Ω_M = ${s.cosmo.Om}, Ω_Λ = ${Math.round(env().vars.get("Omega_L").x.n * 1e6) / 1e6}`);
   };
   $("#set-cosmo", root).addEventListener("change", (ev) => {
     const p = COSMO_PRESETS[ev.target.value];
@@ -6723,18 +6948,21 @@ const HELP = [
   ["Variables, functions, constants", "Assign with =. Define functions as f(x) = …. NIST constants are in const[\"…\"].", [
     ["v = 50 km/hour # \"Town speed\"", "with a doc string"], ["kinetic(m, v) = m v^2 / 2", ""], ["kinetic(1200 kg, 50 km/h) @ kJ", ""], ["const[\"Rydberg constant\"]", ""], ["m_e c^2 @ MeV", ""], ["10 USD @ EUR", "currencies"],
   ]],
-  ["Cosmology and lensing", "Distances, times and volumes for ΛCDM with the current H0, OmegaM and OmegaL (redefine them to change the model). Lensing functions take the lens and source redshifts. All are on the f(x) keys.", [
-    ["D_L(1) @ Gpc", "luminosity distance"], ["scale(0.5)", "kpc per arcsec"], ["age(0)", ""], ["OmegaM = 0.315", "change the model"],
-    ["thetaE(1e12 Msun, 0.5, 2)", "Einstein radius"], ["Sigma_cr(0.3, 1.5)", ""], ["thetaSIS(250 km/s, 0.5, 2)", ""],
+  ["Cosmology and lensing", "Distances, times and volumes for ΛCDM with the current H_0, Omega_M and Omega_L (set the default in Settings, or redefine them). Lensing functions take the lens and source redshifts. All are on the f(x) keys.", [
+    ["D_L(1) @ Gpc", "luminosity distance"], ["scale(0.5)", "kpc per arcsec"], ["age(0)", ""], ["Omega_M = 0.315", "change the model"],
+    ["theta_E(1e12 M_Sun, 0.5, 2)", "Einstein radius"], ["Sigma_cr(0.3, 1.5)", ""], ["theta_E_SIS(250 km/s, 0.5, 2)", ""], ["H(1)", ""],
   ]],
-  ["Solar system", "Planets, dwarf planets and major moons (NASA fact sheets): M_, R_, rho_, g_, vesc_, a_, P_, Prot_ and e_ followed by the body name. Also the units Mearth, Rearth, Mjup, Rjup. On the Const keys under Solar system.", [
-    ["g_Mars / g_Earth", ""], ["rho_Saturn @ g/cm^3", ""], ["M_Jupiter @ Mearth", ""], ["a_Io", "around Jupiter"], ["P_Neptune @ yr", ""], ["sqrt(G M_Earth / a_Moon) @ km/s", "orbital speed"],
+  ["Solar system", "Planets, dwarf planets and major moons (NASA fact sheets): M_, R_, rho_, g_, v_esc_, a_, P_, P_rot_ and e_ followed by the body name. M_Earth, R_Earth, M_Jupiter, R_Jupiter, M_Sun, R_Sun and L_Sun are also units. On the Const keys under Solar system.", [
+    ["g_Mars / g_Earth", ""], ["rho_Saturn @ g/cm^3", ""], ["M_Jupiter @ M_Earth", ""], ["a_Io", "around Jupiter"], ["P_Neptune @ yr", ""], ["sqrt(G M_Earth / a_Moon) @ km/s", "orbital speed"],
   ]],
   ["Statistics", "Gaussian and other distributions on the f(x) Stats keys; uncertainties propagate.", [
     ["pvalue(5)", "5σ, one-sided"], ["nsigma(0.05)", ""], ["conf(2)", "inside ±2σ"], ["chi2_p(12.3, 5)", "χ² tail"], ["t_p(2.1, 9)", "two-sided"], ["Phiinv(0.975)", ""], ["2.3 fwhm", "σ → FWHM"],
   ]],
-  ["More data", "The Const keys have sections for mathematics, particles (PDG masses), astronomy (IAU nominal values), Earth (WGS 84), chemistry, elements and molecules (molar masses M_Fe, M_H2O), engineering (ISA), materials (typical values), nuclides (T12_C14, lambda_C14, m_C14) and information units (bit, B, KiB…).", [
-    ["18 g / M_H2O @ mol", ""], ["T12_C14 log2(1 / 0.3)", "age when 30 % is left"], ["1 GiB / (100[Mbit/s]) @ s", ""], ["E_steel * 1e-3 @ GPa", ""], ["GM_Earth / a_WGS84^2", ""], ["m_Z c^2 @ GeV", ""], ["L_Edd(10 Msun)", ""],
+  ["More data", "The Const keys have sections for mathematics, particles (PDG masses), astronomy (IAU nominal values), Earth (WGS 84), chemistry, elements and molecules (molar masses M_Fe, M_H2O), engineering (ISA), materials (typical values), nuclides (T_half_C14, lambda_C14, m_C14) and information units (bit, B, KiB…).", [
+    ["18 g / M_H2O @ mol", ""], ["T_half_C14 log2(1 / 0.3)", "age when 30 % is left"], ["1 GiB / (100[Mbit/s]) @ s", ""], ["E_steel * 1e-3 @ GPa", ""], ["GM_Earth / a_WGS84^2", ""], ["m_Z c^2 @ GeV", ""], ["L_Edd(10 M_Sun)", ""],
+  ]],
+  ["Names", "Subscripts are written with _: Omega_M, m_e, L_Sun, v_esc_Mars. Names that look the same are the same: π is pi, Ω_M is Omega_M, ε_0 is epsilon_0. Prefixes, units and variables are separate: after a number h is an hour, alone it is Planck's constant. √ and ∛ work as operators.", [
+    ["π (2 m)^2", ""], ["Ω_M", ""], ["√2", ""], ["∛(27 m^3)", ""], ["2 h", "hours"], ["h c / (500 nm) @ eV", "Planck"],
   ]],
   ["Help and discovery", "name! shows documentation, text!! searches it, %compatible lists units of the same kind.", [
     ["pc!", ""], ["mile!!", ""], ["%compatible [J]", ""], ["%newunit furlong=220[yd] # \"Furlong\"", "define units"],
