@@ -82,6 +82,13 @@
   --key-shadow: none;
 }
 
+/* page selection colour (cyan, as the app icon) */
+:root { --tab: #0e7f99; --tab-text: #ffffff; --tab-soft: #ddf3f7; --tab-soft-text: #0a5a6d; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --tab: #22d3ee; --tab-text: #05252d; --tab-soft: #0c2f37; --tab-soft-text: #8be9f7; }
+}
+:root[data-theme="dark"] { --tab: #22d3ee; --tab-text: #05252d; --tab-soft: #0c2f37; --tab-soft-text: #8be9f7; }
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -373,7 +380,10 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
   color: var(--muted);
 }
 
-.tab[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--key-shadow); }
+/* main tabs: a segmented control, the current page in the accent colour */
+.tabs { background: var(--bg); border-radius: 12px; padding: 3px; gap: 2px; box-shadow: inset 0 0 0 1px var(--line); }
+.tab { color: var(--muted); font-weight: 600; letter-spacing: 0.01em; }
+.tab[aria-selected="true"] { background: var(--tab); color: var(--tab-text); font-weight: 700; box-shadow: 0 1px 3px rgb(0 0 0 / 0.18); }
 
 .pages { height: calc(5 * var(--key-h) + 4 * var(--gap)); }
 
@@ -495,7 +505,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
   font-weight: 600;
 }
 
-.cat[aria-selected="true"] { background: var(--text); color: var(--bg); }
+.cat[aria-selected="true"] { background: var(--tab-soft); color: var(--tab-soft-text); box-shadow: inset 0 0 0 1.5px var(--tab); }
 
 .prefix {
   flex: 0 0 auto;
@@ -548,7 +558,13 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 /* Constants page */
 .const-left { display: flex; flex-direction: column; gap: 5px; min-height: 0; }
 .const-left .const-grid { flex: 1; min-height: 0; }
-.const-grid.fixed { grid-template-rows: repeat(3, 1fr); grid-auto-rows: 0; overflow: hidden; }
+.const-grid.fixed { grid-template-columns: repeat(var(--ccols, 3), 1fr); grid-template-rows: repeat(var(--rows, 3), 1fr); grid-auto-rows: 0; overflow: hidden; }
+.const-grid.elements { grid-template-columns: repeat(5, 1fr); grid-auto-rows: max(42px, calc(var(--key-h) - 6px)); }
+.key.const.elem b { font-size: 17px; color: var(--text); position: relative; }
+.key.const.elem .z { position: absolute; left: -1.1em; top: -0.35em; font-size: 9px; color: var(--muted); font-weight: 500; }
+.key.const.elem small { font-size: 9.5px; }
+.key.const.elem.long b { font-size: 12.5px; }
+.key.const.off { opacity: 0.35; }
 .const-grid.fixed .key.const small { -webkit-line-clamp: 1; font-size: 10.5px; color: var(--text); }
 .key.const.unitk b { color: var(--unit); }
 .bodies { flex: none; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
@@ -934,6 +950,8 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .row input.num { width: 6.5em; text-align: right; font-variant-numeric: tabular-nums; }
 .row input.num:disabled { opacity: 0.55; }
 .row .lbl sub { font-size: 0.7em; vertical-align: -0.25em; line-height: 0; }
+.toast.has-act { display: flex; align-items: center; gap: 14px; padding-right: 8px; }
+.toast-act { color: var(--accent); background: var(--bg); font-weight: 700; padding: 5px 12px; border-radius: 14px; font-size: 14px; }
 </style></head><body>
 <div id="app" class="app">
   <section class="calc-pane">
@@ -941,6 +959,9 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
       <div class="title">iMKS <span>Units</span></div>
       <button class="icon-btn" id="btn-ref" aria-label="Reference">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10a2 2 0 0 1 2 2v14a1.6 1.6 0 0 0-1.6-1.6H5.5A1.5 1.5 0 0 1 4 16.9zM20 5.5A1.5 1.5 0 0 0 18.5 4H14a2 2 0 0 0-2 2v14a1.6 1.6 0 0 1 1.6-1.6h4.9a1.5 1.5 0 0 0 1.5-1.5z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-clear" aria-label="New session">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9.5 7V4.8h5V7M6.5 7l.9 12.2a1.5 1.5 0 0 0 1.5 1.3h6.2a1.5 1.5 0 0 0 1.5-1.3L17.5 7M10 11v6M14 11v6"/></svg>
       </button>
       <button class="icon-btn" id="btn-help" aria-label="Help">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6M12 17.2v.1"/></svg>
@@ -3358,7 +3379,7 @@ const state = {
   unitCat: store.get("unitCat", "SI"),
   fnCat: store.get("fnCat", "Math"),
   constCat: store.get("constCat", "Physics"),
-  body: store.get("body", "Earth"),
+  picks: store.get("picks", {}),
   prefix: "",
   shift: 0,          // abc keyboard: 0 lower, 1 one capital, 2 caps lock
   layer: "abc",      // abc keyboard layer: abc, sym, greek
@@ -3451,8 +3472,13 @@ const NAME_HTML = {
   Nav: "N" + sub("A"), muBohr: "μ" + sub("B"), me: "m" + sub("e"), mp: "m" + sub("p"),
   ke: "k" + sub("e"), dH: "d" + sub("H"), tH: "t" + sub("H"), OmegaL: "Ω" + sub("Λ"),
   inf: "∞",
+  euler: "ℯ", golden: "φ", zeta3: "ζ(3)", sin2thetaW: "sin²θ" + sub("W"), m_pi: "m" + sub("π±"), m_pi0: "m" + sub("π⁰"),
+  GMsun_N: "GM" + sub("☉") + "<sup>N</sup>", Rsun_N: "R" + sub("☉") + "<sup>N</sup>", Lsun_N: "L" + sub("☉") + "<sup>N</sup>",
+  Teff_sun: "T" + sub("eff,☉"), Mbol_sun: "M" + sub("bol,☉"), GM_Earth: "GM" + sub("⊕"), omega_Earth: "ω" + sub("⊕"),
+  J2_Earth: "J" + sub("2"), T_Earth: "T" + sub("⊕"), dTdz: "dT/dz", dg_fa: "dg/dh", S_sun: "S" + sub("☉"),
+  Gfermi: "G" + sub("F"), E_Landauer: "E" + sub("Landauer"), M_air: "M" + sub("air"),
 };
-const FN_HTML = { sqrt: "√", cbrt: "∛" };
+const FN_HTML = { sqrt: "√", cbrt: "∛", Phiinv: "Φ<sup>−1</sup>", erfinv: "erf<sup>−1</sup>", lgamma: "lnΓ", beta: "B", chi2_p: "p<sub>χ²</sub>", t_p: "p<sub>t</sub>", pvalue: "p<sub>nσ</sub>", nsigma: "n<sub>σ</sub>" };
 const UNIT_HTML = { Mearth: "M" + sub("⊕"), Rearth: "R" + sub("⊕"), Mjup: "M" + sub("J"), Rjup: "R" + sub("J"), deg: "°", arcmin: "′", arcsec: "″", ohm: "Ω", Ang: "Å", Msun: "M" + sub("☉"), Lsun: "L" + sub("☉") };
 
 // alpha, epsilon0, OmegaM -> α, ε₀, Ω_M
@@ -3485,6 +3511,21 @@ function prettyName(w, { fn = false, unit = null } = {}) {
     return m ? esc(m[1]) + sub(esc(m[2])) : null;
   }
   if (NAME_HTML[w]) return NAME_HTML[w];
+  const mm = /^(rho|E|kth|c|alpha|rhoe)_([a-z]+)$/.exec(w);
+  if (mm && typeof MATERIAL_NAMES !== "undefined" && MATERIAL_NAMES.has(mm[2])) {
+    const sym = { rho: "ρ", E: "E", kth: "k", c: "c", alpha: "α", rhoe: "ρ" }[mm[1]];
+    return sym + sub((mm[1] === "kth" ? "th," : mm[1] === "rhoe" ? "e," : "") + esc(mm[2]));
+  }
+  const nm = /^(T12|tau|lambda|m)_([A-Z][a-z]?\d+m?)$/.exec(w);
+  if (nm && typeof NUCLIDE_NAMES !== "undefined" && NUCLIDE_NAMES.has(nm[2])) {
+    const sym = { T12: "T" + sub("½"), tau: "τ", lambda: "λ", m: "m" }[nm[1]];
+    const iso = /^([A-Z][a-z]?)(\d+)(m?)$/.exec(nm[2]);
+    return `${sym}(<sup>${iso[2]}${iso[3]}</sup>${iso[1]})`;
+  }
+  const cm = /^M_([A-Za-z][A-Za-z0-9]*)$/.exec(w);
+  if (cm && typeof CHEM_NAMES !== "undefined" && CHEM_NAMES.has(cm[1])) {
+    return "M" + sub(cm[1].replace(/\d+/g, (d) => [...d].map((c) => "₀₁₂₃₄₅₆₇₈₉"[c]).join("")));
+  }
   const pm = /^(M|R|rho|g|vesc|a|P|Prot|e)_([A-Z][a-z]+)$/.exec(w);
   if (pm && BODY_NAMES.has(pm[2])) {
     return PROP_SYM[pm[1]] + sub((PROP_SUB[pm[1]] || "") + (pm[2] === "Earth" ? "⊕" : esc(pm[2])));
@@ -3540,7 +3581,9 @@ const PREFIX_EXP = { y: -24, z: -21, a: -18, f: -15, p: -12, n: -9, "µ": -6, m:
 
 // Constants keypad: [label, expression, description]
 const CONSTS = [
+  ["π", "pi", "Pi"],
   ["c", "c", "Speed of light"],
+  ["g", "g", "Standard gravity"],
   ["G", "G", "Gravitational constant"],
   ["h", "h", "Planck constant"],
   ["ħ", "hbar", "Reduced Planck constant"],
@@ -3558,7 +3601,6 @@ const CONSTS = [
   ["μ_B", "muBohr", "Bohr magneton"],
   ["a<sub>0</sub>", 'const["Bohr radius"]', "Bohr radius"],
   ["R<sub>∞</sub>", 'const["Rydberg constant"]', "Rydberg constant"],
-  ["g", "g", "Standard gravity"],
   ["M☉", "Msun", "Solar mass"],
   ["R☉", "Rsun", "Solar radius"],
   ["L☉", "Lsun", "Solar luminosity"],
@@ -3566,8 +3608,6 @@ const CONSTS = [
   ["T_CMB", "T_CMB", "CMB temperature"],
   ["ρ_c", "rho_c", "Critical density"],
   ["d_H", "dH", "Hubble distance"],
-  ["π", "pi", "Pi"],
-  ["τ", "tau", "2π"],
 ];
 
 // ---------------------------------------------------------------------
@@ -3599,6 +3639,7 @@ function build() {
   });
   addScience(calc);
   addPlanets(calc);
+  addExtras(calc);
   state.startupErrors = errors;
   state.userErrors = userErrors;
   applySettings(calc);
@@ -4479,6 +4520,414 @@ function addPlanets(calc) {
 }
 
 // ---------------------------------------------------------------------
+// More constants and data: mathematics, particles, astronomy, Earth,
+// chemistry (elements and molecules), engineering, materials, nuclides,
+// information. Values marked ≈ are typical or conventional.
+
+const ELEMENTS = [
+  // Z, symbol, name, standard atomic weight (g/mol; [A] = most stable isotope)
+  [1, "H", "Hydrogen", 1.008], [2, "He", "Helium", 4.0026], [3, "Li", "Lithium", 6.94], [4, "Be", "Beryllium", 9.0122],
+  [5, "B", "Boron", 10.81], [6, "C", "Carbon", 12.011], [7, "N", "Nitrogen", 14.007], [8, "O", "Oxygen", 15.999],
+  [9, "F", "Fluorine", 18.998], [10, "Ne", "Neon", 20.180], [11, "Na", "Sodium", 22.990], [12, "Mg", "Magnesium", 24.305],
+  [13, "Al", "Aluminium", 26.982], [14, "Si", "Silicon", 28.085], [15, "P", "Phosphorus", 30.974], [16, "S", "Sulfur", 32.06],
+  [17, "Cl", "Chlorine", 35.45], [18, "Ar", "Argon", 39.95], [19, "K", "Potassium", 39.098], [20, "Ca", "Calcium", 40.078],
+  [21, "Sc", "Scandium", 44.956], [22, "Ti", "Titanium", 47.867], [23, "V", "Vanadium", 50.942], [24, "Cr", "Chromium", 51.996],
+  [25, "Mn", "Manganese", 54.938], [26, "Fe", "Iron", 55.845], [27, "Co", "Cobalt", 58.933], [28, "Ni", "Nickel", 58.693],
+  [29, "Cu", "Copper", 63.546], [30, "Zn", "Zinc", 65.38], [31, "Ga", "Gallium", 69.723], [32, "Ge", "Germanium", 72.630],
+  [33, "As", "Arsenic", 74.922], [34, "Se", "Selenium", 78.971], [35, "Br", "Bromine", 79.904], [36, "Kr", "Krypton", 83.798],
+  [37, "Rb", "Rubidium", 85.468], [38, "Sr", "Strontium", 87.62], [39, "Y", "Yttrium", 88.906], [40, "Zr", "Zirconium", 91.224],
+  [41, "Nb", "Niobium", 92.906], [42, "Mo", "Molybdenum", 95.95], [43, "Tc", "Technetium", 97, true], [44, "Ru", "Ruthenium", 101.07],
+  [45, "Rh", "Rhodium", 102.91], [46, "Pd", "Palladium", 106.42], [47, "Ag", "Silver", 107.87], [48, "Cd", "Cadmium", 112.41],
+  [49, "In", "Indium", 114.82], [50, "Sn", "Tin", 118.71], [51, "Sb", "Antimony", 121.76], [52, "Te", "Tellurium", 127.60],
+  [53, "I", "Iodine", 126.90], [54, "Xe", "Xenon", 131.29], [55, "Cs", "Caesium", 132.91], [56, "Ba", "Barium", 137.33],
+  [57, "La", "Lanthanum", 138.91], [58, "Ce", "Cerium", 140.12], [59, "Pr", "Praseodymium", 140.91], [60, "Nd", "Neodymium", 144.24],
+  [61, "Pm", "Promethium", 145, true], [62, "Sm", "Samarium", 150.36], [63, "Eu", "Europium", 151.96], [64, "Gd", "Gadolinium", 157.25],
+  [65, "Tb", "Terbium", 158.93], [66, "Dy", "Dysprosium", 162.50], [67, "Ho", "Holmium", 164.93], [68, "Er", "Erbium", 167.26],
+  [69, "Tm", "Thulium", 168.93], [70, "Yb", "Ytterbium", 173.05], [71, "Lu", "Lutetium", 174.97], [72, "Hf", "Hafnium", 178.49],
+  [73, "Ta", "Tantalum", 180.95], [74, "W", "Tungsten", 183.84], [75, "Re", "Rhenium", 186.21], [76, "Os", "Osmium", 190.23],
+  [77, "Ir", "Iridium", 192.22], [78, "Pt", "Platinum", 195.08], [79, "Au", "Gold", 196.97], [80, "Hg", "Mercury", 200.59],
+  [81, "Tl", "Thallium", 204.38], [82, "Pb", "Lead", 207.2], [83, "Bi", "Bismuth", 208.98], [84, "Po", "Polonium", 209, true],
+  [85, "At", "Astatine", 210, true], [86, "Rn", "Radon", 222, true], [87, "Fr", "Francium", 223, true], [88, "Ra", "Radium", 226, true],
+  [89, "Ac", "Actinium", 227, true], [90, "Th", "Thorium", 232.04], [91, "Pa", "Protactinium", 231.04], [92, "U", "Uranium", 238.03],
+  [93, "Np", "Neptunium", 237, true], [94, "Pu", "Plutonium", 244, true], [95, "Am", "Americium", 243, true],
+];
+
+const MOLECULES = [
+  // formula, name, composition
+  ["H2O", "Water", { H: 2, O: 1 }], ["CO2", "Carbon dioxide", { C: 1, O: 2 }], ["O2", "Oxygen", { O: 2 }],
+  ["N2", "Nitrogen", { N: 2 }], ["H2", "Hydrogen", { H: 2 }], ["CH4", "Methane", { C: 1, H: 4 }],
+  ["NH3", "Ammonia", { N: 1, H: 3 }], ["NaCl", "Sodium chloride", { Na: 1, Cl: 1 }], ["HCl", "Hydrogen chloride", { H: 1, Cl: 1 }],
+  ["NaOH", "Sodium hydroxide", { Na: 1, O: 1, H: 1 }], ["H2SO4", "Sulfuric acid", { H: 2, S: 1, O: 4 }],
+  ["CaCO3", "Calcium carbonate", { Ca: 1, C: 1, O: 3 }], ["C2H5OH", "Ethanol", { C: 2, H: 6, O: 1 }],
+  ["C6H12O6", "Glucose", { C: 6, H: 12, O: 6 }],
+];
+const CHEM_NAMES = new Set([...ELEMENTS.map((e) => e[1]), ...MOLECULES.map((m) => m[0]), "air"]);
+
+const MATERIALS = [
+  // name, label, density kg/m³, Young's modulus GPa, thermal conductivity W/(m K), specific heat J/(kg K), expansion 1/K, resistivity Ω m
+  ["steel", "Steel", 7850, 200, 50, 490, 12e-6, 1.7e-7],
+  ["stainless", "Stainless steel", 8000, 193, 16.2, 500, 17.3e-6, 7.2e-7],
+  ["aluminium", "Aluminium", 2700, 69, 237, 897, 23.1e-6, 2.65e-8],
+  ["copper", "Copper", 8960, 117, 401, 385, 16.5e-6, 1.68e-8],
+  ["titanium", "Titanium", 4506, 116, 21.9, 523, 8.6e-6, 4.2e-7],
+  ["gold", "Gold", 19300, 79, 318, 129, 14.2e-6, 2.44e-8],
+  ["silver", "Silver", 10490, 83, 429, 235, 18.9e-6, 1.59e-8],
+  ["lead", "Lead", 11340, 16, 35.3, 129, 28.9e-6, 2.08e-7],
+  ["silicon", "Silicon", 2329, 150, 149, 705, 2.6e-6, 2.3e3],
+  ["glass", "Glass (soda-lime)", 2500, 70, 1.0, 840, 9e-6, 1e12],
+  ["concrete", "Concrete", 2400, 30, 1.7, 880, 12e-6, null],
+  ["ice", "Ice", 917, 9, 2.2, 2050, 51e-6, null],
+  ["wood", "Wood (pine, along grain)", 500, 10, 0.12, 1700, 5e-6, null],
+];
+const MATERIAL_NAMES = new Set(MATERIALS.map((m) => m[0]));
+
+const NUCLIDES = [
+  // name, label, half-life [value, unit], atomic mass (u)
+  ["H3", "Tritium", [12.32, "yr"], 3.01604928], ["Be7", "Beryllium-7", [53.22, "day"], 7.01692872],
+  ["C14", "Carbon-14", [5700, "yr"], 14.00324199], ["F18", "Fluorine-18", [109.77, "min"], 18.0009380],
+  ["Al26", "Aluminium-26", [7.17e5, "yr"], 25.98689186], ["K40", "Potassium-40", [1.248e9, "yr"], 39.96399817],
+  ["Co60", "Cobalt-60", [5.2714, "yr"], 59.9338163], ["Sr90", "Strontium-90", [28.79, "yr"], 89.9077279],
+  ["Rb87", "Rubidium-87", [4.97e10, "yr"], 86.9091805], ["Tc99m", "Technetium-99m", [6.0067, "hour"], 98.9062546],
+  ["I131", "Iodine-131", [8.0252, "day"], 130.9061263], ["Cs137", "Caesium-137", [30.08, "yr"], 136.9070895],
+  ["Rn222", "Radon-222", [3.8235, "day"], 222.0175782], ["Ra226", "Radium-226", [1600, "yr"], 226.0254103],
+  ["Th232", "Thorium-232", [1.40e10, "yr"], 232.0380558], ["U235", "Uranium-235", [7.04e8, "yr"], 235.0439301],
+  ["U238", "Uranium-238", [4.468e9, "yr"], 238.0507884], ["Pu239", "Plutonium-239", [24110, "yr"], 239.0521636],
+  ["Am241", "Americium-241", [432.6, "yr"], 241.0568293],
+];
+const NUCLIDE_NAMES = new Set(NUCLIDES.map((n) => n[0]));
+
+function extraDefs() {
+  const L = [];
+  const add = (s) => L.push(s);
+  // mathematics and statistics
+  add('%let euler = exp(1) # "Euler\'s number e = 2.71828… (the name e is the elementary charge)"');
+  add('%let gammaE = 0.57721566490153286 # "Euler–Mascheroni constant"');
+  add('%let golden = (1 + sqrt(5)) / 2 # "Golden ratio φ"');
+  add('%let zeta3 = 1.2020569031595943 # "Apéry\'s constant ζ(3)"');
+  add('%let fwhm = 2 * sqrt(2 * ln(2)) # "FWHM / σ of a Gaussian"');
+  // atomic and particle physics
+  add('%let m_alpha = const["alpha particle mass"] # "Alpha particle mass"');
+  add('%let m_pi = (139.57039 ± 0.00018)[MeV] / c^2 # "Charged pion mass (PDG)"');
+  add('%let m_pi0 = (134.9768 ± 0.0005)[MeV] / c^2 # "Neutral pion mass (PDG)"');
+  add('%let m_W = (80.3692 ± 0.0133)[GeV] / c^2 # "W boson mass (PDG)"');
+  add('%let m_Z = (91.1876 ± 0.0021)[GeV] / c^2 # "Z boson mass (PDG)"');
+  add('%let m_H = (125.20 ± 0.11)[GeV] / c^2 # "Higgs boson mass (PDG)"');
+  add('%let m_t = (172.57 ± 0.29)[GeV] / c^2 # "Top quark mass (PDG, direct measurements)"');
+  add('%let alpha_s = 0.1180 ± 0.0009 # "Strong coupling constant α_s(m_Z) (PDG)"');
+  add('%let sin2thetaW = const["weak mixing angle"] # "Weak mixing angle sin²θ_W (on-shell)"');
+  add('%let lambda_C = const["Compton wavelength"] # "Electron Compton wavelength"');
+  add('%let r_e = const["classical electron radius"] # "Classical electron radius"');
+  add('%let a_0 = const["Bohr radius"] # "Bohr radius"');
+  add('%let muN = const["nuclear magneton"] # "Nuclear magneton"');
+  add('%let K_J = const["Josephson constant"] # "Josephson constant"');
+  add('%let R_K = const["von Klitzing constant"] # "von Klitzing constant"');
+  add('%let Phi0 = const["mag. flux quantum"] # "Magnetic flux quantum"');
+  add('%let G0 = const["conductance quantum"] # "Conductance quantum"');
+  add('%let sigma_T = const["Thomson cross section"] # "Thomson cross section"');
+  add('%let b_Wien = const["Wien wavelength displacement law constant"] # "Wien wavelength displacement constant"');
+  add('%let c_1 = const["first radiation constant"] # "First radiation constant"');
+  add('%let c_2 = const["second radiation constant"] # "Second radiation constant"');
+  // astronomy (IAU 2015 nominal solar values and others)
+  add('%let GMsun_N = 1.3271244e20[m^3 s^-2] # "Nominal solar mass parameter (IAU 2015)"');
+  add('%let Rsun_N = 6.957e8[m] # "Nominal solar radius (IAU 2015)"');
+  add('%let Lsun_N = 3.828e26[W] # "Nominal solar luminosity (IAU 2015)"');
+  add('%let Teff_sun = 5772[K] # "Nominal solar effective temperature (IAU 2015)"');
+  add('%let Mbol_sun = 4.74 # "Solar absolute bolometric magnitude (IAU 2015)"');
+  add('%let F_AB = 3631[Jy] # "AB magnitude zero point"');
+  add('%let M_Ch = 1.44 * Msun # "Chandrasekhar mass (≈)"');
+  add('%let R_GC = 8.18[kpc] # "Distance of the Sun from the Galactic centre (≈)"');
+  add('%let v_circ = 230[km/s] # "Galactic circular speed at the Sun (≈)"');
+  add('%let tropicalyear = 365.24219[day] # "Tropical year"');
+  // Earth
+  add('%newunit Gal=1[cm/s^2] # "Gal (gravity acceleration)"');
+  add('%let GM_Earth = 3.986004418e14[m^3 s^-2] # "Earth gravitational parameter (WGS 84)"');
+  add('%let a_WGS84 = 6378137[m] # "Earth equatorial radius (WGS 84)"');
+  add('%let b_WGS84 = 6356752.314245[m] # "Earth polar radius (WGS 84)"');
+  add('%let f_WGS84 = 1 / 298.257223563 # "Earth flattening (WGS 84)"');
+  add('%let omega_Earth = 7.292115e-5[rad/s] # "Earth rotation rate (WGS 84)"');
+  add('%let J2_Earth = 1.08263e-3 # "Earth dynamic form factor J₂"');
+  add('%let g_eq = 9.7803253359[m/s^2] # "Normal gravity at the equator (WGS 84)"');
+  add('%let g_pole = 9.8321849378[m/s^2] # "Normal gravity at the poles (WGS 84)"');
+  add('%let dg_fa = 0.3086[mGal/m] # "Free-air gravity gradient"');
+  add('%let rho_crust = 2670[kg/m^3] # "Bouguer reduction density of the crust"');
+  add('%let S_sun = 1361[W/m^2] # "Solar constant, total solar irradiance at 1 au (≈)"');
+  add('%let rho_sea = 1025[kg/m^3] # "Density of seawater at the surface (≈)"');
+  add('%let T_Earth = 288[K] # "Mean surface temperature of the Earth (≈)"');
+  add('%let dTdz = 25[K/km] # "Typical continental geothermal gradient (≈ 25–30 K/km)"');
+  // chemistry
+  add('%let V_m = const["molar volume of ideal gas (273.15 K, 101.325 kPa)"] # "Molar volume of an ideal gas at 0 °C, 1 atm"');
+  add('%let n_0 = const["Loschmidt constant (273.15 K, 101.325 kPa)"] # "Loschmidt constant at 0 °C, 1 atm"');
+  add('%let m_u = const["atomic mass constant"] # "Atomic mass constant"');
+  add('%let T_STP = 273.15[K] # "Standard temperature, 0 °C"');
+  add('%let T_SATP = 298.15[K] # "Standard ambient temperature, 25 °C"');
+  add('%let p_std = const["standard-state pressure"] # "Standard-state pressure, 1 bar"');
+  add('%let V_T = k * 298.15[K] / e # "Thermal voltage kT/e at 25 °C"');
+  add('%let rho_water = 997.05[kg/m^3] # "Density of water at 25 °C"');
+  add('%let cp_water = 4181.3[J/(kg K)] # "Specific heat of water at 25 °C"');
+  add('%let Lvap_water = 2.2564e6[J/kg] # "Latent heat of vaporisation of water at 100 °C"');
+  add('%let Lfus_water = 3.3355e5[J/kg] # "Latent heat of fusion of water at 0 °C"');
+  add('%let K_w = 1.0e-14[mol^2 L^-2] # "Ionic product of water at 25 °C (≈)"');
+  for (const [, sym, name, w, unstable] of ELEMENTS) {
+    add(`%let M_${sym} = ${w}[g/mol] # "Molar mass of ${name.toLowerCase()}${unstable ? ` (mass number of the most stable isotope)` : ""}"`);
+  }
+  for (const [f, name, comp] of MOLECULES) {
+    const expr = Object.entries(comp).map(([el, n]) => (n === 1 ? `M_${el}` : `${n} * M_${el}`)).join(" + ");
+    add(`%let M_${f} = ${expr} # "Molar mass of ${name.toLowerCase()} (${f})"`);
+  }
+  add('%let M_air = 28.9647[g/mol] # "Molar mass of dry air"');
+  // engineering
+  add('%let T_ISA = 288.15[K] # "ISA sea-level temperature"');
+  add('%let p_ISA = 101325[Pa] # "ISA sea-level pressure"');
+  add('%let rho_ISA = 1.225[kg/m^3] # "ISA sea-level air density"');
+  add('%let a_ISA = 340.294[m/s] # "ISA sea-level speed of sound"');
+  add('%let L_ISA = 6.5[K/km] # "ISA temperature lapse rate (troposphere)"');
+  add('%let R_air = 287.053[J/(kg K)] # "Specific gas constant of dry air"');
+  add('%let cp_air = 1005[J/(kg K)] # "Specific heat of air at constant pressure (≈)"');
+  add('%let gamma_air = 1.4 # "Heat capacity ratio of air"');
+  add('%let mu_air = 1.789e-5[Pa s] # "Dynamic viscosity of air (ISA sea level)"');
+  add('%let mu_water = 1.002e-3[Pa s] # "Dynamic viscosity of water at 20 °C"');
+  add('%let nu_water = 1.004e-6[m^2/s] # "Kinematic viscosity of water at 20 °C"');
+  for (const [m, label, rho, E, kth, c, alpha, rhoe] of MATERIALS) {
+    const l = label.toLowerCase();
+    add(`%let rho_${m} = ${rho}[kg/m^3] # "Density of ${l} (≈)"`);
+    add(`%let E_${m} = ${E}[GPa] # "Young's modulus of ${l} (≈)"`);
+    add(`%let kth_${m} = ${kth}[W/(m K)] # "Thermal conductivity of ${l} (≈)"`);
+    add(`%let c_${m} = ${c}[J/(kg K)] # "Specific heat of ${l} (≈)"`);
+    add(`%let alpha_${m} = ${alpha}[K^-1] # "Linear thermal expansion of ${l} (≈)"`);
+    if (rhoe !== null) add(`%let rhoe_${m} = ${rhoe}[ohm m] # "Electrical resistivity of ${l} (≈)"`);
+  }
+  // nuclides
+  for (const [n, label, [t, u], mass] of NUCLIDES) {
+    add(`%let T12_${n} = ${t}[${u}] # "Half-life of ${label} (≈)"`);
+    add(`%let tau_${n} = T12_${n} / ln(2) # "Mean life of ${label}"`);
+    add(`%let lambda_${n} = ln(2) / T12_${n} # "Decay constant of ${label}"`);
+    add(`%let m_${n} = ${mass}[u] # "Atomic mass of ${label}"`);
+  }
+  // information
+  add('%newunit bit=1 # "Bit"');
+  add('%newunit byte=B=8[bit] # "Byte"');
+  add('%newprefix Ki=1024 # "Kibi (2¹⁰)"');
+  add('%newprefix Mi=1024^2 # "Mebi (2²⁰)"');
+  add('%newprefix Gi=1024^3 # "Gibi (2³⁰)"');
+  add('%newprefix Ti=1024^4 # "Tebi (2⁴⁰)"');
+  add('%newprefix Pi=1024^5 # "Pebi (2⁵⁰)"');
+  add('%newprefix Ei=1024^6 # "Exbi (2⁶⁰)"');
+  add('%let E_Landauer = k * 300[K] * ln(2) # "Landauer limit kT ln 2 at 300 K"');
+  return L;
+}
+
+// ---------------------------------------------------------------------
+// Statistics: special functions on plain numbers
+
+const SQRT2 = Math.SQRT2, SQRTPI = Math.sqrt(Math.PI);
+
+function erfN(x) {
+  if (x < 0) return -erfN(-x);
+  if (x < 2.5) {
+    let p = x, s = x;
+    for (let n = 1; n < 300; n++) {
+      p *= -x * x / n;
+      const t = p / (2 * n + 1);
+      s += t;
+      if (Math.abs(t) < 1e-17 * Math.abs(s)) break;
+    }
+    return (2 / SQRTPI) * s;
+  }
+  return 1 - erfcN(x);
+}
+
+function erfcN(x) {
+  if (x < 0) return 2 - erfcN(-x);
+  if (x < 2.5) return 1 - erfN(x);
+  let f = x;
+  for (let n = 80; n >= 1; n--) f = x + (n / 2) / f;
+  return Math.exp(-x * x) / SQRTPI / f;
+}
+
+const PhiN = (x) => 0.5 * erfcN(-x / SQRT2);
+
+// Inverse normal CDF: Acklam's approximation refined by Halley steps
+function PhiinvN(p) {
+  if (p === 0) return -Infinity;
+  if (p === 1) return Infinity;
+  if (!(p > 0 && p < 1)) throw new UnitError("the probability must be between 0 and 1");
+  if (p > 0.5) return -PhiinvN(1 - p);
+  const a = [-3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.383577518672690e2, -3.066479806614716e1, 2.506628277459239];
+  const b = [-5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1, -1.328068155288572e1];
+  const c = [-7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416];
+  let x;
+  if (p < 0.02425) {
+    const q = Math.sqrt(-2 * Math.log(p));
+    x = (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  } else {
+    const q = p - 0.5, r = q * q;
+    x = (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+  }
+  for (let i = 0; i < 2; i++) {
+    const e = PhiN(x) - p;
+    const u = e * Math.sqrt(2 * Math.PI) * Math.exp(x * x / 2);
+    x -= u / (1 + x * u / 2);
+  }
+  return x;
+}
+
+const LANCZOS = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+  -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+
+function lgammaN(x) {
+  if (x < 0.5) return Math.log(Math.PI / Math.abs(Math.sin(Math.PI * x))) - lgammaN(1 - x);
+  x -= 1;
+  let a = LANCZOS[0];
+  const t = x + 7.5;
+  for (let i = 1; i < 9; i++) a += LANCZOS[i] / (x + i);
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+
+const TINY = 1e-300;
+
+// Regularized upper incomplete gamma Q(a, x)
+function gammaQN(a, x) {
+  if (x <= 0) return 1;
+  const pre = Math.exp(-x + a * Math.log(x) - lgammaN(a));
+  if (x < a + 1) {
+    let ap = a, sum = 1 / a, del = sum;
+    for (let n = 0; n < 1000; n++) {
+      ap++;
+      del *= x / ap;
+      sum += del;
+      if (Math.abs(del) < Math.abs(sum) * 1e-16) break;
+    }
+    return 1 - sum * pre;
+  }
+  let b = x + 1 - a, c = 1 / TINY, d = 1 / b, h = d;
+  for (let i = 1; i < 1000; i++) {
+    const an = -i * (i - a);
+    b += 2;
+    d = an * d + b; if (Math.abs(d) < TINY) d = TINY;
+    c = b + an / c; if (Math.abs(c) < TINY) c = TINY;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < 1e-16) break;
+  }
+  return pre * h;
+}
+
+function betacf(a, b, x) {
+  const qab = a + b, qap = a + 1, qam = a - 1;
+  let c = 1, d = 1 - qab * x / qap;
+  if (Math.abs(d) < TINY) d = TINY;
+  d = 1 / d;
+  let h = d;
+  for (let m = 1; m < 1000; m++) {
+    const m2 = 2 * m;
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+    d = 1 + aa * d; if (Math.abs(d) < TINY) d = TINY;
+    c = 1 + aa / c; if (Math.abs(c) < TINY) c = TINY;
+    d = 1 / d;
+    h *= d * c;
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    d = 1 + aa * d; if (Math.abs(d) < TINY) d = TINY;
+    c = 1 + aa / c; if (Math.abs(c) < TINY) c = TINY;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < 1e-16) break;
+  }
+  return h;
+}
+
+// Regularized incomplete beta I_x(a, b)
+function betaIN(a, b, x) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const bt = Math.exp(lgammaN(a + b) - lgammaN(a) - lgammaN(b) + a * Math.log(x) + b * Math.log(1 - x));
+  return x < (a + 1) / (a + b + 2) ? bt * betacf(a, b, x) / a : 1 - bt * betacf(b, a, 1 - x) / b;
+}
+
+const STATS_DOCS = {
+  erf: "Error function: erf(x)",
+  erfc: "Complementary error function 1 − erf(x): erfc(x)",
+  erfinv: "Inverse error function: erfinv(y)",
+  Phi: "Standard normal cumulative distribution: Phi(x)",
+  Phiinv: "Inverse standard normal distribution (probit): Phiinv(p)",
+  pvalue: "One-sided Gaussian tail probability of n σ: pvalue(5) = 2.87e-7",
+  nsigma: "Gaussian significance (one-sided) of a p-value: nsigma(2.87e-7) = 5",
+  conf: "Probability inside ±n σ of a Gaussian: conf(1) = 0.6827",
+  lgamma: "Logarithm of the Γ function: lgamma(x)",
+  beta: "Beta function B(a, b) = Γ(a)Γ(b)/Γ(a+b): beta(a, b)",
+  binom: "Binomial coefficient: binom(n, k)",
+  chi2_p: "Upper-tail probability of χ² with k degrees of freedom: chi2_p(x, k)",
+  t_p: "Two-sided tail probability of Student's t with ν degrees of freedom: t_p(t, nu)",
+  R_s: "Schwarzschild radius 2GM/c²: R_s(M)",
+  L_Edd: "Eddington luminosity 4πGM m_p c / σ_T: L_Edd(M)",
+};
+
+function addExtras(calc) {
+  const env = calc.env;
+  const b = calc.builtins;
+  const known = new Set(env.vars.keys());
+  for (const line of extraDefs()) {
+    const r = calc.run(line);
+    if (r.kind === "error") console.warn("extra defs:", line, r.message);
+  }
+  if (calc.systemNames) for (const k of env.vars.keys()) if (!known.has(k)) calc.systemNames.add(k);
+
+  // pure-number function with error propagation
+  const pureFn = (name, n, f) => {
+    b[name] = (...args) => {
+      if (args.length !== n) throw new UnitError(`${name} expects ${n} argument${n > 1 ? "s" : ""}`);
+      const xs = args.map((a, i) => {
+        if (!(a instanceof Q)) throw new UnitError(`${name}: argument ${i + 1} is missing`);
+        return env.checkPure(a, name);
+      });
+      return new Q(propagate((v) => f(...v), xs));
+    };
+  };
+  pureFn("erf", 1, erfN);
+  pureFn("erfc", 1, erfcN);
+  pureFn("erfinv", 1, (y) => PhiinvN((y + 1) / 2) / SQRT2);
+  pureFn("Phi", 1, PhiN);
+  pureFn("Phiinv", 1, PhiinvN);
+  pureFn("pvalue", 1, (n) => 0.5 * erfcN(n / SQRT2));
+  pureFn("nsigma", 1, (p) => -PhiinvN(p));
+  pureFn("conf", 1, (n) => erfN(n / SQRT2));
+  pureFn("lgamma", 1, lgammaN);
+  pureFn("beta", 2, (x, y) => Math.exp(lgammaN(x) + lgammaN(y) - lgammaN(x + y)));
+  pureFn("binom", 2, (n, k) => {
+    const v = Math.exp(lgammaN(n + 1) - lgammaN(k + 1) - lgammaN(n - k + 1));
+    return Number.isInteger(n) && Number.isInteger(k) && v < 2 ** 53 ? Math.round(v) : v;
+  });
+  pureFn("chi2_p", 2, (x, k) => gammaQN(k / 2, x / 2));
+  pureFn("t_p", 2, (t, nu) => betaIN(nu / 2, 0.5, nu / (nu + t * t)));
+
+  const getQ = (name) => {
+    let v = env.vars.get(name);
+    if (v && v.lazy) v = v.lazy();
+    return v;
+  };
+  const show = (q, spec) => {
+    try { return env.convert(q, [spec]); } catch { return q; }
+  };
+  const mass = (M, fn) => {
+    if (!(M instanceof Q)) throw new UnitError(`${fn}: the mass is missing`);
+    env.checkCompatible(M, env.unit("kg"), `${fn} (mass)`);
+    return M;
+  };
+  b.R_s = (M) => {
+    const r = env.div(env.mul(env.mul(new Q(2), getQ("G")), mass(M, "R_s")), env.mul(getQ("c"), getQ("c")));
+    return show(r, "km");
+  };
+  b.L_Edd = (M) => {
+    const num = env.mul(env.mul(env.mul(new Q(4 * Math.PI), getQ("G")), mass(M, "L_Edd")), env.mul(getQ("m_p"), getQ("c")));
+    return show(env.div(num, getQ("sigma_T")), "Lsun");
+  };
+  for (const k of Object.keys(STATS_DOCS)) SCIENCE.add(k);
+  Object.assign(functionDocs, STATS_DOCS);
+}
+
+// ---------------------------------------------------------------------
 // Suggestions
 
 const suggestEl = $("#suggest");
@@ -4708,6 +5157,12 @@ const FN_SECTIONS = [
     { fn: "D_A", desc: "Angular diam." }, { fn: "D_dt", desc: "Time delay" }, { fn: "scale", label: "kpc/″", desc: "Proper scale" },
     { model: true },
   ]],
+  ["Stats", 4, 4, [
+    { fn: "Phi", desc: "Normal CDF" }, { fn: "Phiinv", desc: "Normal quantile" }, { fn: "pvalue", desc: "p-value of nσ" }, { fn: "nsigma", desc: "nσ of a p-value" },
+    { fn: "conf", label: "CL(nσ)", desc: "Inside ±nσ" }, { fn: "erf", label: "erf", desc: "Error function" }, { fn: "erfc", label: "erfc", desc: "1 − erf" }, { fn: "erfinv", desc: "Inverse erf" },
+    { fn: "chi2_p", desc: "χ² tail (x, k)" }, { fn: "t_p", desc: "Student t tail" }, { fn: "lgamma", desc: "log Γ(x)" }, { fn: "beta", desc: "Beta function" },
+    { fn: "binom", label: "binom", desc: "n choose k" }, { name: "fwhm", label: "FWHM/σ", desc: "2√(2 ln 2)" }, { name: "sqrt(2 pi)", label: "√2π", desc: "2.5066" }, { name: "gammaE", desc: "Euler–Mascheroni" },
+  ]],
   ["Yours", 3, 0, []],
 ];
 
@@ -4857,8 +5312,8 @@ function buildKeypad() {
       ${actionsHTML("fn")}
     </div>
     <div class="page" data-page="const"><div class="left const-left">
-      <div class="cats" id="const-cats">${CONST_SECTIONS.map((n) => `<button class="cat" data-constcat="${esc(n)}">${esc(n)}</button>`).join("")}</div>
-      <div class="bodies" id="bodies">${BODIES.map(([n, prim]) => `<button class="body${prim === "Sun" ? " planet" : ""}" data-body="${esc(n)}">${esc(n)}</button>`).join("")}</div>
+      <div class="cats" id="const-cats">${CONST_NAMES.map((n) => `<button class="cat" data-constcat="${esc(n)}">${esc(n)}</button>`).join("")}</div>
+      <div class="bodies" id="picker" hidden></div>
       <div class="const-grid" id="const-grid"></div>
     </div>${rightHTML("const")}</div>
     <div class="page abc-page" data-page="abc" id="abc-page"></div>`;
@@ -5000,6 +5455,7 @@ function renderFnGrid() {
   const subs = (s) => esc(s).replace(/([A-Za-zθσ])_([A-Za-z]+)/g, "$1<sub>$2</sub>");
   const described = (k) => {
     if (k.model) return `<button class="key const model" data-key="model"><b>ΛCDM</b><small>Parameters</small></button>`;
+    if (k.name) return `<button class="key const" data-const="${esc(k.name)}"><b>${k.label ? esc(k.label) : prettyName(k.name, { unit: false }) || esc(k.name)}</b><small>${esc(k.desc)}</small></button>`;
     const label = k.label ? esc(k.label) : prettyName(k.fn, { fn: true }) || esc(k.fn);
     return `<button class="key const" data-key="f:${esc(k.fn)}("><b>${label}</b><small>${subs(k.desc)}</small></button>`;
   };
@@ -5014,25 +5470,77 @@ function renderFnGrid() {
   grid.innerHTML = keys.map((k) => (Array.isArray(k) ? keyHTML(k) : described(k))).join("");
 }
 
-const CONST_SECTIONS = ["Physics", "Astro", "Solar system", "Yours"];
+// ---------------------------------------------------------------------
+// Const page: sections of keys, pickers (a row of items and a grid of
+// their properties) and the element table
+
+const K = (expr, desc, label) => ({ expr, desc, label });
+const U = (unit, desc) => ({ unit, desc });
+
+const CONST_SECTIONS = [
+  ["Math", [
+    K("pi", "Pi"), K("euler", "Euler's number"), K("gammaE", "Euler–Mascheroni"), K("golden", "Golden ratio"),
+    K("sqrt(2)", "Square root of 2", "√2"), K("ln(2)", "Natural log of 2", "ln 2"), K("sqrt(2 pi)", "Gaussian normalization", "√2π"),
+    K("zeta3", "Apéry's constant"), K("fwhm", "Gaussian FWHM / σ", "FWHM/σ"),
+    K("conf(1)", "Inside ±1σ: 68.27 %", "CL 1σ"), K("conf(2)", "Inside ±2σ: 95.45 %", "CL 2σ"), K("conf(3)", "Inside ±3σ: 99.73 %", "CL 3σ"),
+    K("pvalue(3)", "3σ one-sided p-value", "p 3σ"), K("pvalue(5)", "5σ one-sided p-value", "p 5σ"),
+  ]],
+  ["Physics", null],
+  ["Particles", [
+    K("m_e", "Electron mass"), K("m_p", "Proton mass"), K("m_n", "Neutron mass"), K("m_d", "Deuteron mass"),
+    K("m_alpha", "Alpha particle mass"), K("m_mu", "Muon mass"), K("m_tau", "Tau mass"), K("m_pi", "Charged pion (PDG)"),
+    K("m_pi0", "Neutral pion (PDG)"), K("m_W", "W boson (PDG)"), K("m_Z", "Z boson (PDG)"), K("m_H", "Higgs boson (PDG)"),
+    K("m_t", "Top quark (PDG)"), K("alpha_s", "Strong coupling at m_Z"), K("Gfermi", "Fermi coupling constant"),
+    K("sin2thetaW", "Weak mixing angle"), K("a_0", "Bohr radius"), K("lambda_C", "Compton wavelength"),
+    K("r_e", "Classical electron radius"), K("muBohr", "Bohr magneton"), K("muN", "Nuclear magneton"),
+    U("E_h", "Hartree energy"), K('const["Rydberg constant"]', "Rydberg constant", "R<sub>∞</sub>"),
+    K("K_J", "Josephson constant"), K("R_K", "von Klitzing constant"), K("Phi0", "Flux quantum"),
+    K("G0", "Conductance quantum"), K("sigma_T", "Thomson cross section"), K("b_Wien", "Wien constant"),
+    K("c_1", "First radiation constant"), K("c_2", "Second radiation constant"),
+  ]],
+  ["Astro", [
+    K("Msun", "Solar mass"), K("Rsun", "Solar radius"), K("Lsun", "Solar luminosity"),
+    K("GMsun_N", "IAU nominal GM☉"), K("Rsun_N", "IAU nominal radius"), K("Lsun_N", "IAU nominal luminosity"),
+    K("Teff_sun", "Solar T_eff (IAU)"), K("Mbol_sun", "Solar M_bol (IAU)"), K("F_AB", "AB zero point"),
+    K("R_s(", "Schwarzschild radius"), K("L_Edd(", "Eddington luminosity"), K("M_Ch", "Chandrasekhar mass ≈"),
+    K("H0", "Hubble constant"), K("T_CMB", "CMB temperature"), K("rho_c", "Critical density"), K("dH", "Hubble distance"),
+    K("R_GC", "Sun–Galactic centre ≈"), K("v_circ", "Galactic rotation ≈"),
+    K("siderealday", "Sidereal day", "sid. day"), K("siderealyear", "Sidereal year", "sid. yr"), K("tropicalyear", "Tropical year", "trop. yr"),
+    U("Mearth", "Earth mass (unit)"), U("Rearth", "Earth radius (unit)"), U("Mjup", "Jupiter mass (unit)"),
+    U("Rjup", "Jupiter radius (unit)"), U("au", "Astronomical unit"), U("pc", "Parsec"), U("ly", "Light year"), U("Jy", "Jansky"),
+  ]],
+  ["Solar system", "picker"],
+  ["Earth", [
+    K("GM_Earth", "GM (WGS 84)"), K("a_WGS84", "Equatorial radius"), K("b_WGS84", "Polar radius"), K("f_WGS84", "Flattening"),
+    K("omega_Earth", "Rotation rate"), K("J2_Earth", "Form factor J₂"), K("g", "Standard gravity"), K("g_eq", "Normal gravity, equator"),
+    K("g_pole", "Normal gravity, poles"), K("dg_fa", "Free-air gradient"), K("rho_crust", "Bouguer density"),
+    K("rho_Earth", "Mean density"), K("S_sun", "Solar constant ≈"), K("rho_sea", "Seawater density ≈"),
+    K("T_Earth", "Mean surface temp. ≈"), K("dTdz", "Geothermal gradient ≈"), U("Gal", "Gal = 1 cm/s²"), U("mGal", "Milligal"),
+  ]],
+  ["Chemistry", [
+    K("Nav", "Avogadro constant"), K("R", "Molar gas constant"), K("faraday", "Faraday constant", "F"), K("V_m", "Molar volume, 0 °C 1 atm"),
+    K("n_0", "Loschmidt constant"), K("m_u", "Atomic mass constant"), K("k", "Boltzmann constant"), K("T_STP", "0 °C"),
+    K("T_SATP", "25 °C"), K("p_std", "Standard pressure, 1 bar"), K("atmosphere", "Standard atmosphere", "atm"),
+    K("V_T", "kT/e at 25 °C"), K("rho_water", "Water, 25 °C"), K("cp_water", "Water, 25 °C"), K("Lvap_water", "Vaporisation"),
+    K("Lfus_water", "Fusion"), K("K_w", "Ionic product ≈"), K("M_air", "Molar mass of air"),
+  ]],
+  ["Elements", "elements"],
+  ["Engineering", [
+    K("g", "Standard gravity"), K("T_ISA", "ISA temperature"), K("p_ISA", "ISA pressure"), K("rho_ISA", "ISA air density"),
+    K("a_ISA", "ISA speed of sound"), K("L_ISA", "ISA lapse rate"), K("R_air", "Gas constant of air"), K("cp_air", "Air ≈"),
+    K("gamma_air", "Air c_p/c_v"), K("mu_air", "Air viscosity"), K("mu_water", "Water, 20 °C"), K("nu_water", "Water, 20 °C"),
+    K("rho_water", "Water, 25 °C"), K("cp_water", "Water, 25 °C"), U("bar", "Bar"), U("psi", "psi"), U("hp", "Horsepower"), U("kWh", "Kilowatt-hour"),
+  ]],
+  ["Materials", "picker"],
+  ["Nuclear", "picker"],
+  ["Info", [
+    U("bit", "Bit"), U("B", "Byte"), U("KiB", "2¹⁰ bytes"), U("MiB", "2²⁰ bytes"), U("GiB", "2³⁰ bytes"), U("TiB", "2⁴⁰ bytes"),
+    U("kbit", "Kilobit"), U("Mbit", "Megabit"), U("Gbit", "Gigabit"), K("E_Landauer", "Landauer limit, 300 K"),
+  ]],
+  ["Yours", "yours"],
+];
+const CONST_NAMES = CONST_SECTIONS.map((s) => s[0]);
 const ASTRO_CONSTS = ["Msun", "Rsun", "Lsun", "H0", "T_CMB", "rho_c", "dH"];
-
-function setConstCat(name) {
-  if (!CONST_SECTIONS.includes(name)) name = "Physics";
-  state.constCat = name;
-  store.set("constCat", name);
-  for (const c of document.querySelectorAll("[data-constcat]")) c.setAttribute("aria-selected", String(c.dataset.constcat === name));
-  const g = $("#const-grid");
-  if (g) g.scrollTop = 0;
-  renderConstGrid();
-}
-
-function setBody(name) {
-  if (!BODY_NAMES.has(name)) name = "Earth";
-  state.body = name;
-  store.set("body", name);
-  renderConstGrid();
-}
 
 // 4 significant digits, ×10ⁿ
 function fmt4(x) {
@@ -5043,62 +5551,165 @@ function fmt4(x) {
   return s.replace(/^-/, "−");
 }
 
-function bodyValue(prop, name, primary) {
+const isoHTML = (n) => {
+  const m = /^([A-Z][a-z]?)(\d+)(m?)$/.exec(n);
+  return m ? `<sup>${m[2]}${m[3]}</sup>${m[1]}` : esc(n);
+};
+
+const timeUnit = (s) => (Math.abs(s) < 7200 ? "min" : Math.abs(s) < 2 * 86400 ? "hour" : Math.abs(s) < 2 * 365.25 * 86400 ? "day" : "yr");
+
+const PICKERS = {
+  "Solar system": {
+    key: "body", def: "Earth", cols: 3, rows: 3,
+    items: () => BODIES.map((b) => [b[0], esc(b[0]), b[1] === "Sun"]),
+    props: () => BODY_PROPS.map(([k, sym, , unit]) => ({ k, sym: sym + (PROP_SUB[k] ? `<sub>${PROP_SUB[k].replace(",", "")}</sub>` : ""), unit })),
+    unitFor: (p, item, n0) => {
+      const prim = BODIES.find((b) => b[0] === item)[1];
+      if (p.k === "a" && prim === "Sun") return "au";
+      if (p.k === "P" && n0 > 1000 * 86400) return "yr";
+      if (p.k === "Prot" && Math.abs(n0) > 100 * 3600) return "day";
+      return p.unit;
+    },
+  },
+  Materials: {
+    key: "material", def: "steel", cols: 3, rows: 2,
+    items: () => MATERIALS.map((m) => [m[0], esc(m[1].replace(/ \(.*\)/, "")), true]),
+    props: () => [
+      { k: "rho", sym: "ρ", unit: "kg/m^3" }, { k: "E", sym: "E", unit: "GPa" }, { k: "kth", sym: "k<sub>th</sub>", unit: "W/m/K" },
+      { k: "c", sym: "c", unit: "J/kg/K" }, { k: "alpha", sym: "α", unit: "K^-1" }, { k: "rhoe", sym: "ρ<sub>e</sub>", unit: "ohm m" },
+    ],
+    unitFor: (p) => p.unit,
+  },
+  Nuclear: {
+    key: "nuclide", def: "C14", cols: 2, rows: 2,
+    items: () => NUCLIDES.map((n) => [n[0], isoHTML(n[0]), true]),
+    props: () => [
+      { k: "T12", sym: "T<sub>½</sub>", unit: "time" }, { k: "tau", sym: "τ", unit: "time" },
+      { k: "lambda", sym: "λ", unit: "rate" }, { k: "m", sym: "m", unit: "u", digits: 9 },
+    ],
+    unitFor: (p, item, n0) => (p.unit === "time" ? timeUnit(n0) : p.unit === "rate" ? timeUnit(1 / n0) + "^-1" : p.unit),
+  },
+};
+
+function setConstCat(name) {
+  if (!CONST_NAMES.includes(name)) name = "Physics";
+  state.constCat = name;
+  store.set("constCat", name);
+  const g = $("#const-grid");
+  if (g) g.scrollTop = 0;
+  renderConstGrid();
+  const cats = $("#const-cats");
+  const active = cats && cats.querySelector(`[data-constcat="${CSS.escape(name)}"]`);
+  if (active) {
+    const l = active.offsetLeft - cats.offsetLeft, r = l + active.offsetWidth;
+    if (l < cats.scrollLeft) cats.scrollLeft = l - 8;
+    else if (r > cats.scrollLeft + cats.clientWidth) cats.scrollLeft = r - cats.clientWidth + 8;
+  }
+}
+
+function setPick(item) {
+  const pk = PICKERS[state.constCat];
+  if (!pk) return;
+  state.picks = { ...(state.picks || {}), [pk.key]: item };
+  store.set("picks", state.picks);
+  renderConstGrid();
+}
+
+function valueHTML(name, unitFor, digits) {
   const e = env();
-  let unit = BODY_PROPS.find((p) => p[0] === prop)[3];
   let q;
-  try { q = state.calc.lookup(`${prop}_${name}`); } catch { return ""; }
+  try { q = state.calc.lookup(name); } catch { return null; }
+  if (!(q instanceof Q)) return null;
   const n0 = q.x.n;
-  if (prop === "a" && primary === "Sun") unit = "au";
-  if (prop === "P" && n0 > 1000 * 86400) unit = "yr";
-  if (prop === "Prot" && Math.abs(n0) > 100 * 3600) unit = "day";
+  const unit = unitFor ? unitFor(n0) : "";
   if (!unit) return fmt4(n0);
   try {
-    const u = e.unit(unit);
-    return `${fmt4(n0 / u.x.n)} ${unitLabelHTML(unit === "hour" ? "h" : unit)}`;
+    const v = n0 / e.unit(unit).x.n;
+    return `${digits ? String(Number(v.toPrecision(digits))) : fmt4(v)} ${unitLabelHTML(unit === "hour" ? "h" : unit)}`;
   } catch { return fmt4(n0); }
+}
+
+function constKeyHTML(k) {
+  const e = env();
+  if (k.unit) {
+    return `<button class="key const unitk" data-unit="${esc(k.unit)}"><b>${unitLabelHTML(k.unit)}</b><small>${esc(k.desc || "")}</small></button>`;
+  }
+  const x = k.expr;
+  let label;
+  if (k.label) label = k.label.includes("<") ? k.label : esc(k.label);
+  else if (x.endsWith("(")) label = (prettyName(x.slice(0, -1), { fn: true }) || esc(x.slice(0, -1))) + "(…)";
+  else {
+    const c = CONSTS.find((c) => c[1] === x);
+    label = constLabel(c ? c[0] : x, x);
+  }
+  let desc = k.desc;
+  if (!desc) {
+    const v = e.vars.get(x);
+    desc = (v && v.doc && firstLine(v.doc)) || "";
+  }
+  return `<button class="key const" data-const="${esc(x)}"><b>${label}</b><small>${esc(desc)}</small></button>`;
 }
 
 function renderConstGrid() {
   const grid = $("#const-grid");
   if (!grid || !state.calc) return;
   const e = env();
-  const sec = CONST_SECTIONS.includes(state.constCat) ? state.constCat : "Physics";
+  const sec = CONST_NAMES.includes(state.constCat) ? state.constCat : "Physics";
+  const spec = CONST_SECTIONS.find((s) => s[0] === sec)[1];
   for (const c of document.querySelectorAll("[data-constcat]")) c.setAttribute("aria-selected", String(c.dataset.constcat === sec));
-  const bodiesEl = $("#bodies");
-  bodiesEl.hidden = sec !== "Solar system";
-  grid.classList.toggle("fixed", sec === "Solar system");
-  const key = (label, expr, desc, html = false) =>
-    `<button class="key const" data-const="${esc(expr)}"><b>${constLabel(label, expr.replace(/\($/, ""))}</b><small>${html ? desc : esc(desc)}</small></button>`;
-  if (sec === "Physics") {
-    grid.innerHTML = CONSTS.filter((c) => !ASTRO_CONSTS.includes(c[1])).map(([l, x, d]) => key(l, x, d)).join("") +
-      `<button class="key const more" data-key="nist"><b>NIST</b><small>All CODATA constants</small></button>`;
-  } else if (sec === "Astro") {
-    const units = [["Mearth", "Earth mass"], ["Rearth", "Earth radius"], ["Mjup", "Jupiter mass"], ["Rjup", "Jupiter radius"], ["au", "Astronomical unit"], ["pc", "Parsec"]];
-    grid.innerHTML = CONSTS.filter((c) => ASTRO_CONSTS.includes(c[1])).map(([l, x, d]) => key(l, x, d)).join("") +
-      units.map(([u, d]) => `<button class="key const unitk" data-unit="${esc(u)}"><b>${unitLabelHTML(u)}</b><small>${esc(d)} (unit)</small></button>`).join("");
-  } else if (sec === "Solar system") {
-    const body = BODY_NAMES.has(state.body) ? state.body : "Earth";
-    const primary = BODIES.find((b) => b[0] === body)[1];
-    for (const c of bodiesEl.querySelectorAll("[data-body]")) c.setAttribute("aria-selected", String(c.dataset.body === body));
-    grid.innerHTML = BODY_PROPS.map(([k, sym, desc]) => {
-      const name = `${k}_${body}`;
-      const label = sym + (PROP_SUB[k] ? `<sub>${PROP_SUB[k].replace(",", "")}</sub>` : "");
-      return `<button class="key const body-prop" data-const="${esc(name)}"><b>${label}</b><small>${bodyValue(k, body, primary)}</small></button>`;
-    }).join("");
-    const active = bodiesEl.querySelector(`[data-body="${CSS.escape(body)}"]`);
-    if (active) {
-      const l = active.offsetLeft - bodiesEl.offsetLeft, r = l + active.offsetWidth;
-      if (l < bodiesEl.scrollLeft) bodiesEl.scrollLeft = l - 8;
-      else if (r > bodiesEl.scrollLeft + bodiesEl.clientWidth) bodiesEl.scrollLeft = r - bodiesEl.clientWidth + 8;
+  const pickEl = $("#picker");
+  const pk = spec === "picker" ? PICKERS[sec] : null;
+  pickEl.hidden = !pk;
+  grid.classList.toggle("fixed", Boolean(pk));
+  grid.classList.toggle("elements", spec === "elements");
+  grid.style.setProperty("--rows", pk ? pk.rows : 1);
+  grid.style.setProperty("--ccols", pk ? pk.cols : spec === "elements" ? 5 : 3);
+  if (pk) {
+    const picks = state.picks || {};
+    const items = pk.items();
+    const item = items.some((i) => i[0] === picks[pk.key]) ? picks[pk.key] : pk.def;
+    if (pickEl.dataset.sec !== sec) {
+      pickEl.dataset.sec = sec;
+      pickEl.innerHTML = items.map(([id, html, main]) => `<button class="body${main ? " planet" : ""}" data-pick="${esc(id)}">${html}</button>`).join("");
     }
-  } else {
+    for (const c of pickEl.querySelectorAll("[data-pick]")) c.setAttribute("aria-selected", String(c.dataset.pick === item));
+    grid.innerHTML = pk.props().map((p) => {
+      const name = `${p.k}_${item}`;
+      const v = valueHTML(name, (n0) => pk.unitFor(p, item, n0), p.digits);
+      if (v === null) return `<button class="key const body-prop off" disabled><b>${p.sym}</b><small>—</small></button>`;
+      return `<button class="key const body-prop" data-const="${esc(name)}"><b>${p.sym}</b><small>${v}</small></button>`;
+    }).join("");
+    const active = pickEl.querySelector(`[data-pick="${CSS.escape(item)}"]`);
+    if (active) {
+      const l = active.offsetLeft - pickEl.offsetLeft, r = l + active.offsetWidth;
+      if (l < pickEl.scrollLeft) pickEl.scrollLeft = l - 8;
+      else if (r > pickEl.scrollLeft + pickEl.clientWidth) pickEl.scrollLeft = r - pickEl.clientWidth + 8;
+    }
+    return;
+  }
+  if (spec === "elements") {
+    const sub = (f) => f.replace(/\d+/g, (d) => [...d].map((c) => "₀₁₂₃₄₅₆₇₈₉"[c]).join(""));
+    const mk = (name, label, small, long) => `<button class="key const elem${long ? " long" : ""}" data-const="M_${esc(name)}"><b>${label}</b><small>${small}</small></button>`;
+    grid.innerHTML = `<div class="ghead">Molecules: molar mass M, e.g. 18 g / M_H2O</div>` +
+      MOLECULES.map(([f]) => mk(f, esc(sub(f)), fmt4(e.vars.get(`M_${f}`).x.n / e.unit("g/mol").x.n), f.length > 4)).join("") + mk("air", "air", "28.96") +
+      `<div class="ghead">Elements: standard atomic weight (g/mol)</div>` +
+      ELEMENTS.map(([z, sym, , w, unstable]) => mk(sym, `<span class="z">${z}</span>${esc(sym)}`, unstable ? `[${w}]` : String(w))).join("");
+    return;
+  }
+  if (spec === "yours") {
     const mine = [...e.vars.keys()].filter((k) => k !== "ans" && !state.calc.systemNames.has(k));
     grid.innerHTML = mine.length ? mine.map((k) => {
       const v = e.vars.get(k);
-      return key(k, v && v.fn ? k + "(" : k, v && v.fn ? "function" : (v && v.doc) || "variable");
+      return constKeyHTML(K(v && v.fn ? k + "(" : k, v && v.fn ? "your function" : (v && v.doc) || "variable"));
     }).join("") : `<p class="fn-note">Variables you define, like <code>zl = 0.5</code>, appear here.</p>`;
+    return;
   }
+  if (spec === null) {
+    grid.innerHTML = CONSTS.filter((c) => !ASTRO_CONSTS.includes(c[1])).map(([l, x, d]) => constKeyHTML(K(x, d, l))).join("") +
+      `<button class="key const more" data-key="nist"><b>NIST</b><small>All CODATA constants</small></button>`;
+    return;
+  }
+  grid.innerHTML = spec.map(constKeyHTML).join("");
 }
 
 // Word predictions for the abc keyboard
@@ -5337,7 +5948,7 @@ function explain(b) {
       const q = evalPreview(x.replace(/\($/, ""));
       const c = CONSTS.find((c) => c[1] === x);
       const v = env().vars.get(x);
-      return `${c ? c[2] : (v && v.doc) || x}${q ? " = " + qShort(q) : ""}`;
+      return `${c ? c[2] : (v && v.doc && firstLine(v.doc)) || x}${q ? " = " + qShort(q) : ""}`;
     } catch { return x; }
   }
   return "";
@@ -5395,7 +6006,7 @@ keypadEl.addEventListener("click", (ev) => {
   if (b.dataset.cat) return setUnitCat(b.dataset.cat);
   if (b.dataset.fncat) return setFnCat(b.dataset.fncat);
   if (b.dataset.constcat) return setConstCat(b.dataset.constcat);
-  if (b.dataset.body) return setBody(b.dataset.body);
+  if (b.dataset.pick) return setPick(b.dataset.pick);
   if (b.dataset.prefix) {
     if (b.dataset.prefix === "*" && lastAt(before()) < 0) {
       toast("* (any prefix) works after @: 1200 m @ *m gives 1.2 km");
@@ -5639,9 +6250,17 @@ function flash(el) {
 // Toast
 
 let toastTimer = null;
-function toast(msg, ms = 2200) {
+function toast(msg, ms = 2200, action = null) {
   const t = $("#toast");
   t.textContent = msg;
+  if (action) {
+    const b = document.createElement("button");
+    b.className = "toast-act";
+    b.textContent = action[0];
+    b.addEventListener("click", () => { t.hidden = true; action[1](); });
+    t.appendChild(b);
+  }
+  t.classList.toggle("has-act", Boolean(action));
   t.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.hidden = true; }, ms);
@@ -6111,6 +6730,12 @@ const HELP = [
   ["Solar system", "Planets, dwarf planets and major moons (NASA fact sheets): M_, R_, rho_, g_, vesc_, a_, P_, Prot_ and e_ followed by the body name. Also the units Mearth, Rearth, Mjup, Rjup. On the Const keys under Solar system.", [
     ["g_Mars / g_Earth", ""], ["rho_Saturn @ g/cm^3", ""], ["M_Jupiter @ Mearth", ""], ["a_Io", "around Jupiter"], ["P_Neptune @ yr", ""], ["sqrt(G M_Earth / a_Moon) @ km/s", "orbital speed"],
   ]],
+  ["Statistics", "Gaussian and other distributions on the f(x) Stats keys; uncertainties propagate.", [
+    ["pvalue(5)", "5σ, one-sided"], ["nsigma(0.05)", ""], ["conf(2)", "inside ±2σ"], ["chi2_p(12.3, 5)", "χ² tail"], ["t_p(2.1, 9)", "two-sided"], ["Phiinv(0.975)", ""], ["2.3 fwhm", "σ → FWHM"],
+  ]],
+  ["More data", "The Const keys have sections for mathematics, particles (PDG masses), astronomy (IAU nominal values), Earth (WGS 84), chemistry, elements and molecules (molar masses M_Fe, M_H2O), engineering (ISA), materials (typical values), nuclides (T12_C14, lambda_C14, m_C14) and information units (bit, B, KiB…).", [
+    ["18 g / M_H2O @ mol", ""], ["T12_C14 log2(1 / 0.3)", "age when 30 % is left"], ["1 GiB / (100[Mbit/s]) @ s", ""], ["E_steel * 1e-3 @ GPa", ""], ["GM_Earth / a_WGS84^2", ""], ["m_Z c^2 @ GeV", ""], ["L_Edd(10 Msun)", ""],
+  ]],
   ["Help and discovery", "name! shows documentation, text!! searches it, %compatible lists units of the same kind.", [
     ["pc!", ""], ["mile!!", ""], ["%compatible [J]", ""], ["%newunit furlong=220[yd] # \"Furlong\"", "define units"],
   ]],
@@ -6181,6 +6806,40 @@ function applyTheme() {
   else document.documentElement.setAttribute("data-theme", t);
 }
 
+// Clearing, with a way back
+function clearMenu(x, y) {
+  const nvars = state.session.filter((l) => /=/.test(l)).length;
+  showMenu(x, y, [
+    [`Clear results (${state.history.length})`, () => resetSession(false)],
+    [`Start over: results and ${nvars} variable${nvars === 1 ? "" : "s"}`, () => resetSession(true), "danger"],
+  ]);
+}
+
+function resetSession(vars) {
+  const saved = { history: state.history, session: state.session, text: state.text };
+  state.history = [];
+  saveHistory();
+  if (vars) {
+    state.session = [];
+    store.set("session", []);
+    build();
+  }
+  state.recall = -1;
+  setInput("");
+  renderHistory();
+  toast(vars ? "Started over" : "Results cleared", 6000, ["Undo", () => {
+    state.history = saved.history;
+    saveHistory();
+    if (vars) {
+      state.session = saved.session;
+      store.set("session", state.session);
+      build();
+    }
+    renderHistory();
+    setInput(saved.text);
+  }]);
+}
+
 function renderSide() {
   const side = $("#side-pane");
   if (getComputedStyle(side).display !== "none" && !side._ready) {
@@ -6211,6 +6870,10 @@ async function boot() {
   $("#btn-ref").addEventListener("click", () => openSheet("Reference", (root) => renderReference(root)));
   $("#btn-settings").addEventListener("click", () => openSheet("Settings", renderSettings));
   $("#btn-help").addEventListener("click", () => openSheet("Help", renderHelp));
+  $("#btn-clear").addEventListener("click", (ev) => {
+    const r = ev.currentTarget.getBoundingClientRect();
+    clearMenu(r.left, r.bottom + 4);
+  });
   // lets :active styles work on iOS
   document.addEventListener("touchstart", () => {}, { passive: true });
 
