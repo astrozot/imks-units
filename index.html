@@ -5418,6 +5418,16 @@ function unitsMath(raw) {
   return `<mrow class="mu">${out.join("")}</mrow>`;
 }
 
+// Safari picks a much larger radical (and pins the content to its top)
+// once a one-line radicand reaches about 1 em of height plus depth, as in
+// "kg". Capping the measured size of single-line radicands keeps the
+// normal radical; fractions and nested roots keep their real size.
+function flatRadicand(m) {
+  if (/<m(frac|sqrt|root|over|under)/.test(m)) return m;
+  const sup = /<msup|<msubsup/.test(m);
+  return `<mpadded height="${sup ? 0.85 : 0.75}em" depth="${sup ? 0.1 : 0.2}em">${m}</mpadded>`;
+}
+
 const LP = '<mo lspace="0" rspace="0">(</mo>', RP = '<mo lspace="0" rspace="0">)</mo>';
 const PAREN = (m) => `<mrow>${LP}${m}${RP}</mrow>`;
 
@@ -5440,7 +5450,7 @@ function nodeMath(node) {
       const u = unitsMath(node.raw);
       if (u === null) throw new Error("units");
       const t = R(node.target);
-      return { m: `<mrow>${wrap(t, 2)}<mspace width="0.25em"/>${u}</mrow>`, p: 2 };
+      return { m: `<mrow>${wrap(t, 2)}<mo lspace="0.22em" rspace="0">&#x2062;</mo>${u}</mrow>`, p: 2 };
     }
     case "un": {
       const a = R(node.a);
@@ -5458,15 +5468,15 @@ function nodeMath(node) {
           const bm = wrap(b, 2), am = wrap(a, 2);
           const numeric = node.b.t === "num" || (node.b.t === "unit" && node.b.target.t === "num") ||
             (node.b.t === "bin" && node.b.op === "^" && node.b.a.t === "num");
-          return { m: `<mrow>${am}${numeric ? "<mo>×</mo>" : '<mo>&#x2062;</mo><mspace width="0.12em"/>'}${bm}</mrow>`, p: 2 };
+          return { m: `<mrow>${am}${numeric ? "<mo>×</mo>" : '<mo lspace="0.12em" rspace="0.12em">&#x2062;</mo>'}${bm}</mrow>`, p: 2 };
         }
         default: throw new Error("op");
       }
     }
     case "call": {
       const args = node.args.map(R);
-      if (node.f === "sqrt" && args.length === 1) return { m: `<msqrt>${args[0].m}</msqrt>`, p: 9 };
-      if (node.f === "cbrt" && args.length === 1) return { m: `<mroot>${args[0].m}<mn>3</mn></mroot>`, p: 9 };
+      if (node.f === "sqrt" && args.length === 1) return { m: `<msqrt>${flatRadicand(args[0].m)}</msqrt>`, p: 9 };
+      if (node.f === "cbrt" && args.length === 1) return { m: `<mroot>${flatRadicand(args[0].m)}<mn>3</mn></mroot>`, p: 9 };
       if (node.f === "abs" && args.length === 1) return { m: `<mrow><mo>|</mo>${args[0].m}<mo>|</mo></mrow>`, p: 9 };
       if (node.f === "exp" && args.length === 1) return { m: `<msup><mi>e</mi>${args[0].m}</msup>`, p: 4 };
       const list = args.map((a) => a.m).join('<mo separator="true">,</mo>');
