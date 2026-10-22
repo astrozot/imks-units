@@ -147,7 +147,13 @@ button:focus-visible, .expr:focus-visible { outline: 2px solid var(--accent); ou
 }
 
 .topbar .title {
-  flex: 1;
+  flex: none;
+  margin-right: auto;
+  text-align: left;
+  border-radius: 10px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  padding-right: 8px;
   font-weight: 650;
   font-size: 17px;
   letter-spacing: -0.01em;
@@ -738,6 +744,55 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 
 /* narrower spaces in expressions (monospace spaces look too wide) */
 .expr .sp, .entry .in .sp, .history .empty .sp { letter-spacing: -0.28em; }
+
+/* About dialog */
+.about { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; }
+.about-backdrop { position: absolute; inset: 0; background: rgb(0 0 0 / 0.42); }
+.about-card {
+  position: relative; width: min(420px, 100%); max-height: calc(100% - 20px); overflow-y: auto;
+  background: var(--surface); color: var(--text); border-radius: 22px; padding: 22px 22px 16px;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.3); text-align: center;
+}
+.about-icon {
+  width: 64px; height: 64px; margin: 0 auto 10px; border-radius: 15px; background: #0b0c10; color: #22e5ff;
+  display: grid; place-items: center; font-family: var(--mono); font-weight: 700; font-size: 22px;
+  text-shadow: 0 0 8px rgb(34 229 255 / 0.45);
+}
+.about-card h2 { margin: 0; font-size: 20px; }
+.about-card p { margin: 10px 0; line-height: 1.45; }
+.about-card .about-ver { margin-top: 2px; color: var(--muted); font-size: 13px; }
+.about-card .small { font-size: 13px; text-align: left; }
+.about-card .muted { color: var(--muted); }
+.about-card a { color: var(--accent-ink); }
+.about-ok { margin-top: 8px; width: 100%; height: 42px; border-radius: 12px; background: var(--tab); color: var(--tab-text); font-weight: 650; }
+
+/* Palette chooser */
+.row.pal-row { flex-direction: column; align-items: stretch; gap: 8px; }
+.pals { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.pal { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px 6px; border-radius: 12px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }
+.pal.on { box-shadow: inset 0 0 0 2px var(--tab); background: var(--tab-soft); }
+.pal b { font-size: 12.5px; font-weight: 600; }
+.pal .dots { display: flex; gap: 4px; padding: 4px 6px; border-radius: 8px; box-shadow: inset 0 0 0 1px rgb(128 128 128 / 0.25); }
+.pal .dots i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+
+/* Typeset (2D) formulas */
+.math2d {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 2px 2px;
+  margin-top: 2px;
+  border-top: 1px dashed var(--line);
+  scrollbar-width: thin;
+}
+.math2d math, .entry .in2d math {
+  margin: 0;
+  font-family: "STIX Two Math", "Cambria Math", "Latin Modern Math", math;
+}
+.math2d math { font-size: 21px; }
+.entry .in.in2d { overflow-x: auto; overflow-y: hidden; padding: 4px 0; font-family: var(--font); }
+.entry .in.in2d { text-align: right; }
+.entry .in2d math { font-size: 17px; color: var(--muted); }
+math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
 /* Sheet */
 .sheet {
   position: fixed;
@@ -961,7 +1016,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 <div id="app" class="app">
   <section class="calc-pane">
     <header class="topbar">
-      <div class="title">iMKS <span>Units</span></div>
+      <button class="title" id="btn-about" aria-label="About iMKS Units">iMKS <span>Units</span></button>
       <button class="icon-btn" id="btn-ref" aria-label="Reference">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10a2 2 0 0 1 2 2v14a1.6 1.6 0 0 0-1.6-1.6H5.5A1.5 1.5 0 0 1 4 16.9zM20 5.5A1.5 1.5 0 0 0 18.5 4H14a2 2 0 0 0-2 2v14a1.6 1.6 0 0 1 1.6-1.6h4.9a1.5 1.5 0 0 0 1.5-1.5z"/></svg>
       </button>
@@ -978,6 +1033,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
     <div class="history" id="history" aria-live="polite"></div>
     <div class="editor">
       <div class="expr" id="expr" role="textbox" aria-readonly="true" aria-label="Expression" tabindex="0"></div>
+      <div class="math2d" id="math2d" hidden></div>
       <div class="preview" id="preview"></div>
     </div>
     <div class="suggest" id="suggest" role="listbox" aria-label="Suggestions"></div>
@@ -1001,6 +1057,14 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
       <button class="text-btn" data-close>Done</button>
     </div>
     <div class="sheet-body" id="sheet-body"></div>
+  </div>
+</div>
+
+<div class="about" id="about" hidden>
+  <div class="about-backdrop" data-about-close></div>
+  <div class="about-card" role="dialog" aria-modal="true" aria-labelledby="about-title">
+    <div id="about-body"></div>
+    <button class="about-ok" id="about-close" data-about-close>Close</button>
   </div>
 </div>
 
@@ -3373,6 +3437,8 @@ const DEFAULT_SETTINGS = {
   autoCurrency: true,
   oxrId: "",
   theme: "auto",
+  palette: "classic",
+  typeset: true,
   brackets: true,
   cosmo: { preset: "concordance", H0: 70, Om: 0.3, OL: 0.7, OR: 0, flat: true },
 };
@@ -3720,7 +3786,8 @@ function renderEntry(e, i) {
   } else if (e.kind === "done") {
     out = `<div class="out small">${esc(e.text)}</div>`;
   }
-  div.innerHTML = `<div class="in" title="Tap to edit">${exprHTML(e.input)}</div>${out}`;
+  const m2 = state.settings.typeset && state.calc ? mathML(e.input) : "";
+  div.innerHTML = `<div class="in${m2 ? " in2d" : ""}" title="${esc(e.input)}">${m2 || exprHTML(e.input)}</div>${out}`;
   return div;
 }
 
@@ -4160,7 +4227,18 @@ function evalPreview(src) {
   return v instanceof Q ? v : null;
 }
 
+function updateMath2d() {
+  const el = $("#math2d");
+  const m = state.settings.typeset ? mathML(state.text) : "";
+  if (m !== el._m) {
+    el._m = m;
+    el.innerHTML = m;
+  }
+  el.hidden = !m;
+}
+
 function updatePreview() {
+  updateMath2d();
   clearTimeout(previewTimer);
   previewEl.classList.remove("error");
   const src = state.text;
@@ -5114,6 +5192,323 @@ function addExtras(calc) {
   };
   for (const k of Object.keys(STATS_DOCS)) SCIENCE.add(k);
   Object.assign(functionDocs, STATS_DOCS);
+}
+
+// ---------------------------------------------------------------------
+// Colour palettes: a few base colours per mode, the rest is derived
+
+const PALETTES = {
+  classic: {
+    name: "Classic",
+    light: { accent: "#2f6fde", tab: "#0e7f99", unit: "#8a4b00" },
+    dark: { accent: "#4d8bf5", tab: "#22d3ee", tabText: "#05252d", unit: "#f0b35c" },
+  },
+  ocean: {
+    name: "Ocean",
+    light: { accent: "#0f766e", tab: "#1e3a8a", unit: "#b45309" },
+    dark: { accent: "#2dd4bf", accentText: "#032b27", tab: "#93a8ff", tabText: "#0b1640", unit: "#fbbf24" },
+  },
+  nebula: {
+    name: "Nebula",
+    light: { accent: "#6d28d9", tab: "#be185d", unit: "#0f766e" },
+    dark: { accent: "#a78bfa", accentText: "#1d0f3d", tab: "#f472b6", tabText: "#3b0a22", unit: "#5eead4" },
+  },
+  forest: {
+    name: "Forest",
+    light: { accent: "#2f7d32", tab: "#6b4f12", unit: "#9a3412" },
+    dark: { accent: "#6fd66f", accentText: "#0b2a0c", tab: "#e0b46a", tabText: "#2b1d05", unit: "#fb923c" },
+  },
+  sunset: {
+    name: "Sunset",
+    light: { accent: "#c2410c", tab: "#7e22ce", unit: "#1d4ed8" },
+    dark: { accent: "#ff8a5c", accentText: "#2d0e00", tab: "#c084fc", tabText: "#24083f", unit: "#93c5fd" },
+  },
+  graphite: {
+    name: "Graphite",
+    light: { accent: "#2b2f36", tab: "#2b2f36", unit: "#5b5f69" },
+    dark: { accent: "#e8e8ea", accentText: "#111214", tab: "#e8e8ea", tabText: "#111214", unit: "#c9c9cf" },
+  },
+  terminal: {
+    name: "Terminal",
+    light: { accent: "#0e7f99", tab: "#111827", unit: "#3f7a0b" },
+    dark: {
+      accent: "#22d3ee", accentText: "#04212a", tab: "#22d3ee", tabText: "#04212a", unit: "#a3e635",
+      bg: "#05070a", surface: "#0e1217", surface2: "#151a21", surface3: "#1d242d",
+    },
+  },
+  paper: {
+    name: "Paper",
+    light: {
+      accent: "#9a3412", tab: "#3f6212", unit: "#1e40af",
+      bg: "#f5efe3", surface: "#fffdf8", surface2: "#ebe2d0", surface3: "#ded3bd",
+    },
+    dark: {
+      accent: "#fb923c", accentText: "#2a1205", tab: "#bef264", tabText: "#1a2a05", unit: "#93c5fd",
+      bg: "#16130e", surface: "#211d16", surface2: "#2b261d", surface3: "#363026",
+    },
+  },
+};
+
+function hexMix(a, b, t) {
+  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const x = p(a), y = p(b);
+  return "#" + x.map((v, i) => Math.round(v * (1 - t) + y[i] * t).toString(16).padStart(2, "0")).join("");
+}
+
+function paletteVars(c, dark) {
+  const surface = c.surface || (dark ? "#1c1d22" : "#ffffff");
+  const v = {
+    "--accent": c.accent,
+    "--accent-text": c.accentText || "#ffffff",
+    "--accent-soft": dark ? hexMix(c.accent, surface, 0.78) : hexMix(c.accent, "#ffffff", 0.86),
+    "--accent-ink": dark ? hexMix(c.accent, "#ffffff", 0.45) : hexMix(c.accent, "#000000", 0.18),
+    "--op": dark ? hexMix(c.accent, surface, 0.8) : hexMix(c.accent, "#ffffff", 0.88),
+    "--op-ink": dark ? hexMix(c.accent, "#ffffff", 0.55) : hexMix(c.accent, "#000000", 0.25),
+    "--tab": c.tab,
+    "--tab-text": c.tabText || "#ffffff",
+    "--tab-soft": dark ? hexMix(c.tab, surface, 0.8) : hexMix(c.tab, "#ffffff", 0.86),
+    "--tab-soft-text": dark ? hexMix(c.tab, "#ffffff", 0.4) : hexMix(c.tab, "#000000", 0.3),
+    "--unit": c.unit,
+  };
+  if (c.bg) Object.assign(v, { "--bg": c.bg, "--surface": c.surface, "--surface-2": c.surface2, "--surface-3": c.surface3 });
+  return Object.entries(v).map(([k, x]) => `${k}: ${x};`).join(" ");
+}
+
+function applyPalette() {
+  const id = PALETTES[state.settings.palette] ? state.settings.palette : "classic";
+  let el = document.getElementById("palette-style");
+  if (!el) {
+    el = document.createElement("style");
+    el.id = "palette-style";
+    document.head.appendChild(el);
+  }
+  const p = PALETTES[id];
+  el.textContent = id === "classic" ? "" :
+    `:root { ${paletteVars(p.light, false)} }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { ${paletteVars(p.dark, true)} } }
+:root[data-theme="dark"] { ${paletteVars(p.dark, true)} }`;
+}
+
+function paletteChipsHTML(current) {
+  return Object.entries(PALETTES).map(([id, p]) => {
+    const dots = (c) => [c.tab, c.accent, c.unit].map((x) => `<i style="background:${x}"></i>`).join("");
+    return `<button class="pal${id === current ? " on" : ""}" data-pal="${id}" aria-pressed="${id === current}">
+      <span class="dots light" style="background:${p.light.surface || "#ffffff"}">${dots(p.light)}</span>
+      <span class="dots dark" style="background:${p.dark.surface || "#1c1d22"}">${dots(p.dark)}</span>
+      <b>${esc(p.name)}</b></button>`;
+  }).join("");
+}
+
+// ---------------------------------------------------------------------
+// About
+
+const APP_VERSION = "2026.10";
+
+function openAbout() {
+  const e = state.calc && env();
+  const rates = e && e.currencyTime ? esc(e.currencyTime) : "—";
+  $("#about-body").innerHTML = `
+    <div class="about-icon" aria-hidden="true">[@]</div>
+    <h2 id="about-title">iMKS Units</h2>
+    <p class="about-ver">Version ${APP_VERSION}</p>
+    <p>Copyright © 2026 Marco Lombardi.</p>
+    <p class="small">This program is free software: you can redistribute it and/or modify it under the terms of the
+      <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License</a>
+      as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+      It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.</p>
+    <p class="small">Source code: <a href="https://github.com/astrozot/imks-units" target="_blank" rel="noopener">github.com/astrozot/imks-units</a></p>
+    <p class="small muted">Unit system after iMKS. Data: NIST CODATA constants; NASA planetary fact sheets; Particle Data Group;
+      IAU 2015 nominal values; WGS 84; IUPAC atomic weights; nuclide half-lives from evaluated nuclear data.
+      Exchange rates of ${rates}.</p>`;
+  $("#about").hidden = false;
+  $("#about-close").focus();
+}
+
+function closeAbout() {
+  $("#about").hidden = true;
+}
+
+// ---------------------------------------------------------------------
+// Typeset (2D) view: the parsed expression drawn as MathML, so fractions
+// stack, roots get a radical and powers are raised. It is built from the
+// same syntax tree the engine evaluates, so it shows exactly what is computed.
+
+const xmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const SUPCHARS = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", "−": "⁻", "-": "⁻", m: "ᵐ", N: "ᴺ" };
+
+// Typeset name (from prettyName) -> MathML
+function nameMath(name, { unit = false, fn = false } = {}) {
+  let html = null;
+  try { html = prettyName(name, fn ? { fn: true } : { unit }); } catch { html = null; }
+  html = html || esc(name);
+  const plain = (h) => h.replace(/<sup>(.*?)<\/sup>/g, (_, x) => [...x].map((c) => SUPCHARS[c] || c).join(""))
+    .replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
+  let base = html, subTxt = null, supTxt = null;
+  const si = html.indexOf("<sub>");
+  if (si >= 0) {
+    const se = html.lastIndexOf("</sub>");
+    base = html.slice(0, si);
+    subTxt = plain(html.slice(si + 5, se));
+    const tail = html.slice(se + 6);
+    const sm = /^<sup>(.*)<\/sup>$/.exec(tail);
+    if (sm) supTxt = plain(sm[1]);
+  } else {
+    const sm = /^(.*?)<sup>([^<]*)<\/sup>$/.exec(html);
+    if (sm) { base = sm[1]; supTxt = sm[2]; }
+  }
+  const b = plain(base);
+  const upright = unit || fn || [...b].length > 1;
+  let m = `<mi${upright ? ' mathvariant="normal"' : ""}>${xmlEsc(b)}</mi>`;
+  if (subTxt !== null) m = `<msub>${m}<mi mathvariant="normal">${xmlEsc(subTxt)}</mi></msub>`;
+  if (supTxt !== null) m = `<msup>${m}<mn>${xmlEsc(supTxt)}</mn></msup>`;
+  return m;
+}
+
+function numText(n) {
+  if (!Number.isFinite(n)) return n > 0 ? "∞" : n < 0 ? "−∞" : "NaN";
+  const s = Math.abs(n) >= 1e6 || (n !== 0 && Math.abs(n) < 1e-4) ? n.toExponential() : String(Number(n.toPrecision(12)));
+  return s;
+}
+
+function numMath(x) {
+  const one = (n) => {
+    const s = numText(Math.abs(n));
+    const m = /^([\d.]+)e([-+]\d+)$/.exec(s);
+    const body = m
+      ? `<mrow><mn>${m[1]}</mn><mo>×</mo><msup><mn>10</mn><mn>${String(Number(m[2])).replace("-", "−")}</mn></msup></mrow>`
+      : `<mn>${s}</mn>`;
+    return n < 0 ? `<mrow><mo>−</mo>${body}</mrow>` : body;
+  };
+  if (!x.c) return { m: one(x.n), p: x.n < 0 || /e/.test(numText(x.n)) ? 2 : 9 };
+  let s2 = 0;
+  for (const v of x.c.values()) s2 += v * v;
+  return { m: `<mrow>${one(x.n)}<mo>±</mo>${one(Math.sqrt(s2))}</mrow>`, p: 1.5 };
+}
+
+// Units, inline: m/s^2 -> m·s⁻²
+function unitsMath(raw) {
+  const re = /\s*(?:('[^']*'|"[^"]*")|(\*?[\p{L}_°µΩÅ][\p{L}\p{N}_]*|\*)|\^\s*\(?\s*(-?\d+(?:\.\d+)?(?:\s*\/\s*\d+)?)\s*\)?|(\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)|(\/)|([()])|(\|))/uy;
+  const items = [];
+  let sign = 1, m, last = null;
+  while (re.lastIndex < raw.length && (m = re.exec(raw))) {
+    if (m[1]) { last = { m: `<mrow><mo>${m[1][0] === "'" ? "‘" : "“"}</mo>${nameMath(m[1].slice(1, -1), { unit: false })}<mo>${m[1][0] === "'" ? "’" : "”"}</mo></mrow>`, e: sign }; items.push(last); }
+    else if (m[2]) { last = { m: m[2][0] === "*" ? `<mrow><mo>*</mo>${m[2].length > 1 ? nameMath(m[2].slice(1), { unit: true }) : ""}</mrow>` : nameMath(m[2], { unit: true }), e: sign }; items.push(last); }
+    else if (m[3] && last) {
+      const [p, q] = m[3].split("/").map((v) => Number(v.trim()));
+      last.e = sign * (q ? p / q : p);
+      last.frac = q ? [Math.abs(p), q, p < 0] : null;
+    } else if (m[4]) { last = { m: `<mn>${m[4]}</mn>`, e: 1 }; items.push(last); }
+    else if (m[5]) sign = -1;
+    else if (m[7]) { items.push({ sep: true }); sign = 1; last = null; }
+  }
+  if (re.lastIndex < raw.length) return null;
+  const out = [];
+  let first = true;
+  for (const it of items) {
+    if (it.sep) { out.push('<mo lspace="0.3em" rspace="0.3em">|</mo>'); first = true; continue; }
+    if (!first) out.push('<mo lspace="0.1em" rspace="0.1em">·</mo>');
+    first = false;
+    if (it.e === 1) out.push(it.m);
+    else {
+      const ex = it.frac ? `${it.e < 0 ? "−" : ""}${it.frac[0]}/${it.frac[1]}` : String(it.e).replace("-", "−");
+      out.push(`<msup>${it.m}<mn>${ex}</mn></msup>`);
+    }
+  }
+  return `<mrow class="mu">${out.join("")}</mrow>`;
+}
+
+const LP = '<mo lspace="0" rspace="0">(</mo>', RP = '<mo lspace="0" rspace="0">)</mo>';
+const PAREN = (m) => `<mrow>${LP}${m}${RP}</mrow>`;
+
+// node -> { m: MathML, p: precedence }  (higher binds tighter)
+function nodeMath(node) {
+  const R = nodeMath;
+  const wrap = (r, min) => (r.p < min ? PAREN(r.m) : r.m);
+  switch (node.t) {
+    case "num": return numMath(node.x);
+    case "name": {
+      // a name that is only a unit is drawn as one
+      const unit = !env().vars.has(node.v) && !["pi", "tau", "inf", "ans"].includes(node.v) && isBareUnit(node.v);
+      return { m: unit ? `<mrow class="mu">${nameMath(node.v, { unit: true })}</mrow>` : nameMath(node.v), p: 9 };
+    }
+    case "str": return { m: `<mrow><mo>‘</mo>${nameMath(node.v)}<mo>’</mo></mrow>`, p: 9 };
+    case "unit": {
+      if (node.target.t === "name" && node.target.v === "const") {
+        return { m: `<mrow><mi mathvariant="normal">const</mi><mtext>[${xmlEsc(node.raw.replace(/^"|"$/g, ""))}]</mtext></mrow>`, p: 9 };
+      }
+      const u = unitsMath(node.raw);
+      if (u === null) throw new Error("units");
+      const t = R(node.target);
+      return { m: `<mrow>${wrap(t, 2)}<mspace width="0.25em"/>${u}</mrow>`, p: 2 };
+    }
+    case "un": {
+      const a = R(node.a);
+      if (node.op === "~") return { m: `<mrow><mo>~</mo>${wrap(a, 3)}</mrow>`, p: 3 };
+      return { m: `<mrow><mo>${node.op === "-" ? "−" : "+"}</mo>${wrap(a, 3)}</mrow>`, p: 3 };
+    }
+    case "bin": {
+      const a = R(node.a), b = R(node.b);
+      switch (node.op) {
+        case "+": return { m: `<mrow>${wrap(a, 1)}<mo>+</mo>${wrap(b, 1.01)}</mrow>`, p: 1 };
+        case "-": return { m: `<mrow>${wrap(a, 1)}<mo>−</mo>${wrap(b, 1.01)}</mrow>`, p: 1 };
+        case "/": return { m: `<mfrac>${a.m}${b.m}</mfrac>`, p: 2.5 };
+        case "^": return { m: `<msup>${wrap(a, 9)}${b.m}</msup>`, p: 4 };
+        case "*": {
+          const bm = wrap(b, 2), am = wrap(a, 2);
+          const numeric = node.b.t === "num" || (node.b.t === "unit" && node.b.target.t === "num") ||
+            (node.b.t === "bin" && node.b.op === "^" && node.b.a.t === "num");
+          return { m: `<mrow>${am}${numeric ? "<mo>×</mo>" : '<mo>&#x2062;</mo><mspace width="0.12em"/>'}${bm}</mrow>`, p: 2 };
+        }
+        default: throw new Error("op");
+      }
+    }
+    case "call": {
+      const args = node.args.map(R);
+      if (node.f === "sqrt" && args.length === 1) return { m: `<msqrt>${args[0].m}</msqrt>`, p: 9 };
+      if (node.f === "cbrt" && args.length === 1) return { m: `<mroot>${args[0].m}<mn>3</mn></mroot>`, p: 9 };
+      if (node.f === "abs" && args.length === 1) return { m: `<mrow><mo>|</mo>${args[0].m}<mo>|</mo></mrow>`, p: 9 };
+      if (node.f === "exp" && args.length === 1) return { m: `<msup><mi>e</mi>${args[0].m}</msup>`, p: 4 };
+      const list = args.map((a) => a.m).join('<mo separator="true">,</mo>');
+      return { m: `<mrow>${nameMath(node.f, { fn: true })}<mo lspace="0" rspace="0">&#x2061;</mo><mrow>${LP}${list}${RP}</mrow></mrow>`, p: 9 };
+    }
+    case "tuple": return { m: PAREN(node.items.map((x) => R(x).m).join('<mo separator="true">,</mo>')), p: 9 };
+    case "convert": {
+      const u = unitsMath(node.spec.trim());
+      if (u === null) throw new Error("spec");
+      return { m: `<mrow>${R(node.a).m}<mo lspace="0.4em" rspace="0.4em">→</mo>${u}</mrow>`, p: 0 };
+    }
+    case "assign": return { m: `<mrow>${nameMath(node.name)}<mo>=</mo>${R(node.value).m}</mrow>`, p: 0 };
+    case "def": return {
+      m: `<mrow>${nameMath(node.name, { fn: true })}<mo lspace="0" rspace="0">&#x2061;</mo><mrow>${LP}${node.params.map((x) => nameMath(x)).join('<mo separator="true">,</mo>')}${RP}</mrow><mo>=</mo>${R(node.body).m}</mrow>`,
+      p: 0,
+    };
+    default: throw new Error("node " + node.t);
+  }
+}
+
+// does the tree have anything a linear line shows badly?
+function hasStructure(node) {
+  if (!node || typeof node !== "object") return false;
+  if (node.t === "bin" && (node.op === "/" || node.op === "^")) return true;
+  if (node.t === "call" && ["sqrt", "cbrt", "abs", "exp"].includes(node.f)) return true;
+  if (node.t === "unit" && /\^|\//.test(node.raw) && node.target.t !== "num") return true;
+  return ["a", "b", "value", "body", "target"].some((k) => hasStructure(node[k])) ||
+    (node.args || node.items || []).some(hasStructure);
+}
+
+// MathML for an expression, or "" when there is nothing to typeset
+function mathML(src, { always = false } = {}) {
+  try {
+    const { code } = splitComment(src);
+    const t = code.trim();
+    if (!t || t[0] === "%" || /!$/.test(t)) return "";
+    const node = parse(normalize(t), env());
+    if (!node || (!always && !hasStructure(node))) return "";
+    return `<math displaystyle="true">${nodeMath(node).m}</math>`;
+  } catch {
+    return "";
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -6667,10 +7062,14 @@ function renderSettings(root) {
         <select id="set-digits">${[4, 6, 8, 10, 12, 15].map((x) => `<option ${x === s.digits ? "selected" : ""}>${x}</option>`).join("")}</select></div>
       <div class="row"><div class="lbl">Show uncertainties<small>Errors of constants and ± inputs</small></div>
         <input type="checkbox" class="switch" id="set-errors" ${s.errors ? "checked" : ""}></div>
+      <div class="row"><div class="lbl">Typeset formulas<small>Fractions, roots and powers drawn in 2D</small></div>
+        <input type="checkbox" class="switch" id="set-typeset" ${s.typeset !== false ? "checked" : ""}></div>
       <div class="row"><div class="lbl">Units in brackets<small>Unit keys after a number give 9.8[m/s^2]</small></div>
         <input type="checkbox" class="switch" id="set-brackets" ${s.brackets !== false ? "checked" : ""}></div>
       <div class="row"><div class="lbl">Appearance</div>
         <select id="set-theme">${["auto", "light", "dark"].map((x) => `<option ${x === s.theme ? "selected" : ""}>${x}</option>`).join("")}</select></div>
+      <div class="row pal-row"><div class="lbl">Colours</div>
+        <div class="pals" id="set-palette">${paletteChipsHTML(s.palette || "classic")}</div></div>
     </div>
 
     <div class="group-title">Cosmology</div>
@@ -6721,7 +7120,19 @@ function renderSettings(root) {
   $("#set-system", root).addEventListener("change", (ev) => { s.system = ev.target.value; save(); applySettings(state.calc); refresh(); });
   $("#set-digits", root).addEventListener("change", (ev) => { s.digits = Number(ev.target.value); save(); applySettings(state.calc); refresh(); });
   $("#set-errors", root).addEventListener("change", (ev) => { s.errors = ev.target.checked; save(); applySettings(state.calc); refresh(); });
+  $("#set-typeset", root).addEventListener("change", (ev) => { s.typeset = ev.target.checked; save(); renderHistory(); updateMath2d(); });
   $("#set-brackets", root).addEventListener("change", (ev) => { s.brackets = ev.target.checked; save(); });
+  $("#set-palette", root).addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-pal]");
+    if (!b) return;
+    s.palette = b.dataset.pal;
+    save();
+    applyPalette();
+    for (const x of root.querySelectorAll("[data-pal]")) {
+      x.classList.toggle("on", x === b);
+      x.setAttribute("aria-pressed", String(x === b));
+    }
+  });
   $("#set-theme", root).addEventListener("change", (ev) => { s.theme = ev.target.value; save(); applyTheme(); });
   setupCosmoSettings(root, save);
   if (!ARTIFACT) {
@@ -6961,6 +7372,9 @@ const HELP = [
   ["More data", "The Const keys have sections for mathematics, particles (PDG masses), astronomy (IAU nominal values), Earth (WGS 84), chemistry, elements and molecules (molar masses M_Fe, M_H2O), engineering (ISA), materials (typical values), nuclides (T_half_C14, lambda_C14, m_C14) and information units (bit, B, KiB…).", [
     ["18 g / M_H2O @ mol", ""], ["T_half_C14 log2(1 / 0.3)", "age when 30 % is left"], ["1 GiB / (100[Mbit/s]) @ s", ""], ["E_steel * 1e-3 @ GPa", ""], ["GM_Earth / a_WGS84^2", ""], ["m_Z c^2 @ GeV", ""], ["L_Edd(10 M_Sun)", ""],
   ]],
+  ["Typeset view", "Expressions with fractions, roots or powers are also drawn in 2D under the input line and in the history, exactly as the calculator reads them: 1/2 pi shows ½·π, not 1/(2π). Turn it off in Settings → Typeset formulas.", [
+    ["1/2 pi", ""], ["1/(2 pi)", ""], ["sqrt(G M_Sun / R_Sun) @ km/s", ""], ["exp(-1.5^2/2) / sqrt(2 pi)", ""],
+  ]],
   ["Names", "Subscripts are written with _: Omega_M, m_e, L_Sun, v_esc_Mars. Names that look the same are the same: π is pi, Ω_M is Omega_M, ε_0 is epsilon_0. Prefixes, units and variables are separate: after a number h is an hour, alone it is Planck's constant. √ and ∛ work as operators.", [
     ["π (2 m)^2", ""], ["Ω_M", ""], ["√2", ""], ["∛(27 m^3)", ""], ["2 h", "hours"], ["h c / (500 nm) @ eV", "Planck"],
   ]],
@@ -7078,6 +7492,7 @@ function renderSide() {
 
 async function boot() {
   applyTheme();
+  applyPalette();
   const [constants, bundled] = window.IMKS_DATA
     ? [window.IMKS_DATA.constants, window.IMKS_DATA.currencies]
     : await Promise.all([
@@ -7098,6 +7513,9 @@ async function boot() {
   $("#btn-ref").addEventListener("click", () => openSheet("Reference", (root) => renderReference(root)));
   $("#btn-settings").addEventListener("click", () => openSheet("Settings", renderSettings));
   $("#btn-help").addEventListener("click", () => openSheet("Help", renderHelp));
+  $("#btn-about").addEventListener("click", openAbout);
+  $("#about").addEventListener("click", (ev) => { if (ev.target.closest("[data-about-close]")) closeAbout(); });
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("#about").hidden) closeAbout(); });
   $("#btn-clear").addEventListener("click", (ev) => {
     const r = ev.currentTarget.getBoundingClientRect();
     clearMenu(r.left, r.bottom + 4);
