@@ -1,7 +1,7 @@
 // Offline support for iMKS Units: the app's own files are served from
 // the cache and refreshed in the background; other requests (exchange
 // rates) go to the network.
-const CACHE = "imks-v14";
+const CACHE = "imks-v15";
 const FILES = ["./", "index.html", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png"];
 
 self.addEventListener("install", (ev) => {

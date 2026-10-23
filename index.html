@@ -273,6 +273,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 /* Editor: drawn by the app, never focused, so no system keyboard */
 .editor {
   flex: none;
+  touch-action: pan-y;
   margin: 2px 0 6px;
   background: var(--surface);
   border-radius: var(--radius);
@@ -793,6 +794,8 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .entry .in.in2d { text-align: right; }
 .entry .in2d math { font-size: 17px; color: var(--muted); }
 math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
+
+.chip.fnc { color: var(--accent-ink); }
 /* Sheet */
 .sheet {
   position: fixed;
@@ -4027,7 +4030,7 @@ function insertOp(op) {
   const unary = !b.trim() || /[([^,=*/+\-±@|~]\s*$/.test(b) || /\d[eE]$/.test(b);
   if (op === "-" && unary) return insert("-");
   if (op === "+" && /\d[eE]$/.test(b)) return insert("+");
-  insert((/\s$/.test(b) ? "" : " ") + op + " ");
+  insert(op);   // no spaces around operators
 }
 
 function backspace() {
@@ -5670,7 +5673,7 @@ function computeSuggestions() {
   const text = state.text;
   const b = before();
   const atIdx = lastAt(b);
-  const inSpec = atIdx >= 0;
+  const inSpec = atIdx >= 0 && bracketDepth(b) === 0;
   let leftQ = null;
   if (inSpec) {
     try { leftQ = evalPreview(text.slice(0, atIdx)); } catch { leftQ = null; }
@@ -5683,31 +5686,99 @@ function computeSuggestions() {
     .map((it) => chipHTML(it.label, `data-complete="${esc(it.insertText)}" data-len="${word.length}"`, "chip", it.kind === "unit" ? "" : it.kind[0]))
     .join("");
   const unitChip = (u) => chipHTML(supHTML(u), `data-unit="${esc(u)}"`, "chip unit", "", true);
+  const ctx = unitContext(b);
   let html = "";
   if (inSpec) {
     if (word && !(known && leftQ && targetsFor(leftQ).includes(word))) html = completeChips(completions(word, true, leftQ));
     else if (leftQ && !word) html = targetsFor(leftQ).slice(0, 40).map(unitChip).join("");
-  } else if (text.trim()) {
-    let q = null;
-    try { q = evalPreview(text); } catch { q = null; }
-    const afterNumber = word && /\d\s*$/.test(b.slice(0, b.length - word.length));
-    if (word && (!known || !q)) {
-      html = completeChips(afterNumber ? completions(word, true, null).filter((it) => it.kind === "unit") : completions(word, false, null));
-    } else if (q && /[\d.)]\s*$/.test(b) && q.pure && unitContext(b) === "bare") {
-      // a bare number: offer the SI units
-      html = SI_SUGGEST.map(unitChip).join("");
-    } else if (q && (!q.pure || (q.show && q.show.tree))) {
-      html = targetsFor(q).slice(0, 30).map((u) => chipHTML("→ " + supHTML(u), `data-convert="${esc(u)}"`, "chip conv", "", true)).join("");
-    }
+  } else if (word) {
+    // completing a name (after a number only units make sense); a complete
+    // name first offers what can follow it
+    const afterNumber = /[\d.]\s*$/.test(b.slice(0, b.length - word.length)) || ctx === "inside";
+    const items = afterNumber ? completions(word, true, null).filter((it) => it.kind === "unit") : completions(word, false, null);
+    html = (known ? afterValueChips(text) : "") + completeChips(items);
+  } else if (/\^\s*$/.test(b)) {
+    // an exponent
+    html = [["2", "2"], ["3", "3"], ["−1", "-1"], ["½", "(1/2)"], ["−2", "-2"], ["⅓", "(1/3)"]]
+      .map(([l, x]) => chipHTML(l, `data-complete="${esc(x)}" data-len="0"`)).join("");
+  } else if ((ctx === "bare" && /[\d.]\s*$/.test(b)) || (ctx === "inside" && /[[\s/(*]$/.test(b))) {
+    // a number (or an open unit bracket): units, angles first inside trig functions
+    const angles = /\b(sin|cos|tan)\(\s*[^()]*$/.test(b) ? ["deg", "rad", "arcmin", "arcsec"] : [];
+    html = dedupe([...angles, ...recentNames("u", 8), ...SI_SUGGEST]).slice(0, 26).map(unitChip).join("");
+  } else if (!text.trim() || /(^|[-+*/(,=|~±])\s*$/.test(b)) {
+    // start of an operand: last result, your names, common constants and functions
+    html = operandChips(b);
   } else {
-    const names = ["pi", "c", "G", "h", "hbar", "k", "e", "m_e", "m_p", "g"];
-    html = (lastValue() ? chipHTML("ans", 'data-const="ans"') : "") +
-      names.map((n) => { const c = CONSTS.find((c) => c[1] === n); return chipHTML(constLabel(c ? c[0] : n, n), `data-const="${esc(n)}"`, "chip", "", true); }).join("");
+    html = afterValueChips(text);
   }
   suggestEl.innerHTML = html;
   suggestEl.scrollLeft = 0;
   updatePredictions();
   updateAtKeys();
+}
+
+const dedupe = (xs) => [...new Set(xs)];
+
+// Names used recently in the history: "u" units, "v" variables, "f" functions
+function recentNames(cls, n) {
+  const out = [];
+  const e = env();
+  for (let i = state.history.length - 1; i >= 0 && out.length < n; i--) {
+    const t = state.history[i].input;
+    let segs;
+    try { segs = segments(t); } catch { continue; }
+    for (let j = segs.length - 1; j >= 0; j--) {
+      const sg = segs[j];
+      if (sg.cls !== cls) continue;
+      let name = t.slice(sg.s, sg.e);
+      if (cls === "u") {
+        if (!isBareUnit(name) || LEGACY_UNITS.has(name)) continue;
+      } else if (cls === "v") {
+        name = e.vars.resolve(name);
+        if (!e.vars.has(name) || name === "ans") continue;
+      } else if (cls === "f") {
+        if (!state.calc.builtins[name] && !(e.vars.get(name) || {}).fn) continue;
+      }
+      if (!out.includes(name)) out.push(name);
+      if (out.length >= n) break;
+    }
+  }
+  return out;
+}
+
+const OPERAND_DEFAULTS = ["pi", "c", "G", "h", "hbar", "k", "e", "m_e", "m_p", "g", "N_A", "M_Sun"];
+
+function operandChips(b) {
+  const e = env();
+  const chips = [];
+  if (lastValue()) chips.push(chipHTML("ans", 'data-const="ans"'));
+  const mine = [...e.vars.keys()].filter((k) => k !== "ans" && !state.calc.systemNames.has(k) && !(e.vars.get(k) || {}).fn);
+  const names = dedupe([...recentNames("v", 6), ...mine.slice(-4), ...OPERAND_DEFAULTS]).slice(0, 16);
+  for (const n of names) {
+    const c = CONSTS.find((c) => c[1] === n);
+    chips.push(chipHTML(constLabel(c ? c[0] : n, n), `data-const="${esc(n)}"`, "chip", "", true));
+  }
+  // functions you used, then a few common ones (not right after a function name)
+  const fns = dedupe([...recentNames("f", 4), "sqrt", "ln", "sin", "cos", "exp"]).slice(0, 6);
+  for (const f of fns) {
+    const label = (prettyName(f, { fn: true }) || esc(f)) + "(";
+    chips.push(chipHTML(label, `data-fn="${esc(f)}("`, "chip fnc", "", true));
+  }
+  return chips.join("");
+}
+
+// After a complete value: conversions of its units
+function afterValueChips(text) {
+  let q = null;
+  try { q = evalPreview(text); } catch { q = null; }
+  if (q && (!q.pure || (q.show && q.show.tree))) {
+    return targetsFor(q).slice(0, 30).map((u) => chipHTML("→ " + supHTML(u), `data-convert="${esc(u)}"`, "chip conv", "", true)).join("");
+  }
+  if (q && q.pure && unitContext(before()) === "bare") {
+    return dedupe([...recentNames("u", 8), ...SI_SUGGEST]).slice(0, 26)
+      .map((u) => chipHTML(supHTML(u), `data-unit="${esc(u)}"`, "chip unit", "", true)).join("");
+  }
+  return "";
 }
 
 suggestEl.addEventListener("click", (ev) => {
@@ -5717,6 +5788,7 @@ suggestEl.addEventListener("click", (ev) => {
   else if (b.dataset.unit) insertUnit(b.dataset.unit);
   else if (b.dataset.const) insertName(b.dataset.const);
   else if (b.dataset.convert) convertTo(b.dataset.convert);
+  else if (b.dataset.fn) insertFunction(b.dataset.fn);
 });
 
 // Replace (or add) the @ part of the current input
@@ -6442,7 +6514,7 @@ function keyAction(k) {
     case "pow3": insertPower(3); break;
     case "+": case "-": case "*": case "/": case "^": insertOp(k); break;
     case "EE": insert(/[\d.]$/.test(before()) ? "e" : "1e"); break;
-    case "±": insert(/\s$/.test(before()) ? "± " : " ± "); break;
+    case "±": insert("±"); break;
     case "shift": state.shift = state.shift === 0 ? 1 : 0; renderAbc(); break;
     case "nist":
       sheetBody._tab = "Constants";
@@ -6687,7 +6759,32 @@ exprEl.addEventListener("contextmenu", (ev) => {
   clearTimeout(edTimer);
   if (!edLong) editorMenu(ev.clientX, ev.clientY);
 });
+// Horizontal swipes on the input area change the keypad page
+const editorEl = $(".editor");
+let swipe = null, swiped = false;
+editorEl.addEventListener("pointerdown", (ev) => {
+  swipe = { x: ev.clientX, y: ev.clientY, t: Date.now() };
+  swiped = false;
+});
+editorEl.addEventListener("pointerup", (ev) => {
+  if (!swipe) return;
+  const dx = ev.clientX - swipe.x, dy = ev.clientY - swipe.y;
+  const fast = Date.now() - swipe.t < 700;
+  swipe = null;
+  if (!fast || Math.abs(dx) < 45 || Math.abs(dx) < 2 * Math.abs(dy)) return;
+  // let a wide formula scroll instead
+  const m = $("#math2d");
+  if (!m.hidden && m.contains(ev.target) && m.scrollWidth > m.clientWidth + 2) return;
+  const i = TABS.findIndex(([id]) => id === state.tab);
+  const j = Math.max(0, Math.min(TABS.length - 1, i + (dx < 0 ? 1 : -1)));
+  swiped = true;
+  clearTimeout(edTimer);
+  if (j !== i) selectTab(TABS[j][0]);
+});
+editorEl.addEventListener("pointercancel", () => { swipe = null; });
+
 exprEl.addEventListener("click", (ev) => {
+  if (swiped) { swiped = false; return; }
   if (edLong) { edLong = false; return; }
   setCaret(caretIndexAt(ev.clientX, ev.clientY));
 });
@@ -7431,7 +7528,8 @@ function renderHelp(root) {
     ${HELP.map(([title, text, ex]) => `<h3>${esc(title)}</h3><p>${esc(text)}</p>
       <div class="ex">${ex.map(([x, note]) => `<button data-ex="${esc(x)}">${esc(x)}<span>${esc(note)}</span></button>`).join("")}</div>`).join("")}
     <h3>Keypad tips</h3>
-    <p>Tap a result to insert it, tap an expression to edit it, and long-press an entry for more options. Tap inside the expression to move the cursor; long-press it to paste.</p>
+    <p>Tap a result to insert it, tap an expression to edit it, and long-press an entry for more options. Tap inside the expression to move the cursor; long-press it to paste. Swipe left or right on it to change keypad page.</p>
+    <p>The bar above the keypad adapts to the cursor: units after a number (angles inside sin, cos, tan), your recent names and common constants after an operator or an opening parenthesis, exponents after ^, and conversions after a value with units.</p>
     <p>On the <b>Units</b> page, tap a prefix and then a unit: <b>k</b> then <b>m</b> gives km. Long-press a unit, prefix or constant to see what it is. After <b>@</b>, the units of the current quantity open automatically and compatible units appear above the keypad.</p>
     <p>Use <b>abc</b> to type names: the row above the letters guesses the name you are typing. <b>Const</b> has physical constants and your own variables, and <b>f(x)</b> has functions by topic, including cosmology and lensing. Long-press any function key for its arguments.</p>
     <p>For conversions, the Units page has a <b>Systems</b> section (SI, easy, astro, planck…, formats like hms, and quotes for variables as units), a <b>*</b> key for any prefix (after @), and a <b>[ ]</b> key for unit brackets; with a prefix selected after @, a "prefix only" key gives conversions like 1200 s @ k. On the Const page, after @, <b>'x'</b> and <b>"x"</b> keep or remove a constant as a unit.</p>
