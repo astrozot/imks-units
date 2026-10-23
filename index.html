@@ -3786,7 +3786,7 @@ function renderEntry(e, i) {
   } else if (e.kind === "done") {
     out = `<div class="out small">${esc(e.text)}</div>`;
   }
-  const m2 = state.settings.typeset && state.calc ? mathML(e.input) : "";
+  const m2 = state.settings.typeset && state.calc ? mathML(e.input, { always: true }) : "";
   div.innerHTML = `<div class="in${m2 ? " in2d" : ""}" title="${esc(e.input)}">${m2 || exprHTML(e.input)}</div>${out}`;
   return div;
 }
@@ -5450,12 +5450,13 @@ function nodeMath(node) {
       const u = unitsMath(node.raw);
       if (u === null) throw new Error("units");
       const t = R(node.target);
-      return { m: `<mrow>${wrap(t, 2)}<mo lspace="0.22em" rspace="0">&#x2062;</mo>${u}</mrow>`, p: 2 };
+      const gap = /^\s*(deg|°|arcmin|arcsec)\s*$/.test(node.raw) ? "0" : "0.22em";   // 30°, but 3 kg
+      return { m: `<mrow>${wrap(t, 2)}<mo lspace="${gap}" rspace="0">&#x2062;</mo>${u}</mrow>`, p: 2 };
     }
     case "un": {
       const a = R(node.a);
       if (node.op === "~") return { m: `<mrow><mo>~</mo>${wrap(a, 3)}</mrow>`, p: 3 };
-      return { m: `<mrow><mo>${node.op === "-" ? "−" : "+"}</mo>${wrap(a, 3)}</mrow>`, p: 3 };
+      return { m: `<mrow><mo>${node.op === "-" ? "−" : "+"}</mo>${a.paren ? a.m : wrap(a, 3)}</mrow>`, p: 3 };
     }
     case "bin": {
       const a = R(node.a), b = R(node.b);
@@ -5463,12 +5464,15 @@ function nodeMath(node) {
         case "+": return { m: `<mrow>${wrap(a, 1)}<mo>+</mo>${wrap(b, 1.01)}</mrow>`, p: 1 };
         case "-": return { m: `<mrow>${wrap(a, 1)}<mo>−</mo>${wrap(b, 1.01)}</mrow>`, p: 1 };
         case "/": return { m: `<mfrac>${a.m}${b.m}</mfrac>`, p: 2.5 };
-        case "^": return { m: `<msup>${wrap(a, 9)}${b.m}</msup>`, p: 4 };
+        case "^": return { m: `<msup>${a.paren ? PAREN(a.m) : wrap(a, 9)}${b.m}</msup>`, p: 4 };
         case "*": {
-          const bm = wrap(b, 2), am = wrap(a, 2);
+          const bm = wrap(b, 2), am = a.paren || a.tailParen || wrap(a, 2);
           const numeric = node.b.t === "num" || (node.b.t === "unit" && node.b.target.t === "num") ||
             (node.b.t === "bin" && node.b.op === "^" && node.b.a.t === "num");
-          return { m: `<mrow>${am}${numeric ? "<mo>×</mo>" : '<mo lspace="0.12em" rspace="0.12em">&#x2062;</mo>'}${bm}</mrow>`, p: 2 };
+          const op = numeric ? "<mo>×</mo>" : '<mo lspace="0.12em" rspace="0.12em">&#x2062;</mo>';
+          // y sin x is fine, but sin x · y is not: keep a way back to parentheses
+          const tail = b.paren || b.tailParen;
+          return { m: `<mrow>${am}${op}${bm}</mrow>`, p: 2, tailParen: tail ? `<mrow>${am}${op}${tail}</mrow>` : null };
         }
         default: throw new Error("op");
       }
@@ -5480,6 +5484,15 @@ function nodeMath(node) {
       if (node.f === "abs" && args.length === 1) return { m: `<mrow><mo>|</mo>${args[0].m}<mo>|</mo></mrow>`, p: 9 };
       if (node.f === "exp" && args.length === 1) return { m: `<msup><mi>e</mi>${args[0].m}</msup>`, p: 4 };
       const list = args.map((a) => a.m).join('<mo separator="true">,</mo>');
+      if (BARE_FNS[node.f] !== undefined && args.length === 1) {
+        // sin x, ln 2, sin π/2: no parentheses around a simple argument
+        const fname = BARE_FNS[node.f];
+        const paren = `<mrow>${fname}<mo lspace="0" rspace="0">&#x2061;</mo><mrow>${LP}${list}${RP}</mrow></mrow>`;
+        if (simpleArg(node.args[0])) {
+          return { m: `<mrow>${fname}<mo lspace="0" rspace="0.17em">&#x2061;</mo>${args[0].m}</mrow>`, p: 2.2, paren };
+        }
+        return { m: paren, p: 9 };
+      }
       return { m: `<mrow>${nameMath(node.f, { fn: true })}<mo lspace="0" rspace="0">&#x2061;</mo><mrow>${LP}${list}${RP}</mrow></mrow>`, p: 9 };
     }
     case "tuple": return { m: PAREN(node.items.map((x) => R(x).m).join('<mo separator="true">,</mo>')), p: 9 };
@@ -5495,6 +5508,25 @@ function nodeMath(node) {
     };
     default: throw new Error("node " + node.t);
   }
+}
+
+// functions usually written without parentheses, and how they are shown
+const BARE_FNS = Object.fromEntries([
+  ...["sin", "cos", "tan", "sinh", "cosh", "tanh", "ln", "log"].map((f) => [f, `<mi mathvariant="normal">${f}</mi>`]),
+  ...["asin", "acos", "atan", "asinh", "acosh", "atanh"].map((f) => [f, `<mi mathvariant="normal">arc${f.slice(1)}</mi>`]),
+  ["log10", '<msub><mi mathvariant="normal">log</mi><mn>10</mn></msub>'],
+  ["log2", '<msub><mi mathvariant="normal">log</mi><mn>2</mn></msub>'],
+]);
+
+// an argument that reads unambiguously without parentheses
+function simpleArg(n) {
+  if (!n) return false;
+  if (n.t === "num") return !n.x.c && n.x.n >= 0;
+  if (n.t === "name" || n.t === "str") return true;
+  if (n.t === "bin" && n.op === "/") return true;
+  if (n.t === "unit") return n.target.t === "num" && !n.target.x.c && n.target.x.n >= 0;
+  if (n.t === "call") return ["sqrt", "cbrt", "abs"].includes(n.f);
+  return false;
 }
 
 // does the tree have anything a linear line shows badly?
