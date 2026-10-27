@@ -252,6 +252,7 @@ button:focus-visible, .expr:focus-visible { outline: 2px solid var(--accent); ou
 
 .entry .out.small { font-size: 17px; }
 .entry .name { color: var(--muted); font-size: 17px; margin-right: 6px; }
+.entry .rid { float: left; color: var(--muted); font-size: 13px; line-height: 30px; opacity: 0.8; }
 .entry.error .out { color: var(--danger); font-size: 16px; }
 .entry .info { text-align: left; font-size: 15px; white-space: pre-wrap; line-height: 1.45; color: var(--text); }
 .entry .info h3 { font-size: 15px; margin: 0 0 4px; color: var(--muted); font-weight: 600; }
@@ -3990,7 +3991,10 @@ function build() {
   state.startupErrors = errors;
   state.userErrors = userErrors;
   applySettings(calc);
+  resultNames = [];
+  installResults(calc);
   for (const line of state.session) calc.run(line);
+  resampleResults(calc);
   state.calc = calc;
   categoryDims = null;
   if (pagesEl.childElementCount) { renderConstGrid(); renderFnGrid(); }
@@ -4060,7 +4064,8 @@ function renderEntry(e, i) {
   div.dataset.i = i;
   let out = "";
   if (e.kind === "value") {
-    out = `<div class="out">${e.name ? `<span class="name">${(state.calc && prettyName(e.name, { unit: false })) || esc(e.name)} =</span>` : ""}${e.html}</div>`;
+    const rid = hasResult(e) ? `<span class="rid" title="Tap to insert ans_${e.rid}">${(state.calc && prettyName(`ans_${e.rid}`, { unit: false })) || `ans_${e.rid}`}</span>` : "";
+    out = `<div class="out">${rid}${e.name ? `<span class="name">${(state.calc && prettyName(e.name, { unit: false })) || esc(e.name)} =</span>` : ""}${e.html}</div>`;
   } else if (e.kind === "error") {
     out = `<div class="out">${esc(e.message)}</div>`;
   } else if (e.kind === "info") {
@@ -4088,7 +4093,7 @@ function renderHistory() {
   const frag = document.createDocumentFragment();
   const hint = document.createElement("div");
   hint.className = "hist-hint";
-  hint.textContent = "Tap an expression to reuse it, a result to insert it";
+  hint.textContent = "Tap an expression to reuse it, a result to insert it as ans_n";
   frag.appendChild(hint);
   state.history.forEach((e, i) => frag.appendChild(renderEntry(e, i)));
   historyEl.appendChild(frag);
@@ -4112,6 +4117,100 @@ function scrollHistory() {
 }
 
 const lastValue = () => state.history.some((e) => e.kind === "value");
+
+// Results: the n-th one since the last clear is ans_n, the latest also ans.
+// The value lives in memory with its samples and correlations; each entry
+// keeps a copy (value, linear errors, units) so that it survives a reload.
+let results = new Map();       // rid -> Q
+let restoredIds = new Map();   // error source ids of a saved session -> new ids
+let resultNames = [];          // the ans_n now defined in the calculator
+const restored = new Set();    // rids restored from their saved copy
+
+function packResult(q) {
+  if (!Number.isFinite(q.x.n)) return null;
+  try {
+    return JSON.parse(JSON.stringify({ n: q.x.n, c: q.x.c ? [...q.x.c] : null, d: q.d, zero: q.zero, show: q.show }));
+  } catch {
+    return null;
+  }
+}
+
+function unpackResult(v) {
+  const id = (k) => restoredIds.get(k) ?? restoredIds.set(k, newSourceId()).get(k);
+  const c = v.c ? new Map(v.c.map(([k, s]) => [id(k), s])) : null;
+  return new Q(new UNum(v.n, c), v.d, v.zero, v.show || null);
+}
+
+function newRid() {
+  const rid = Math.max(store.get("rid", 0), ...state.history.map((e) => e.rid || 0)) + 1;
+  store.set("rid", rid);
+  return rid;
+}
+
+const hasResult = (e) => e.rid && (results.has(e.rid) || e.val);
+
+// define ans_n and ans for the results in the history (and only those)
+function installResults(calc = state.calc) {
+  if (!calc) return;
+  const vars = calc.env.vars;
+  for (const k of resultNames) vars.delete(k);
+  resultNames = [];
+  const live = new Map();
+  let last = null;
+  for (const e of state.history) {
+    if (e.kind !== "value" || !e.rid) continue;
+    let q = results.get(e.rid);
+    if (!q && e.val) {
+      q = unpackResult(e.val);
+      if (e.val.c) restored.add(e.rid);
+    }
+    if (!q) continue;
+    // samples from another sample size are redrawn from the linear errors
+    if (q.x.s && q.x.s.length !== MC.N) q = new Q(new UNum(q.x.n, q.x.c), q.d, q.zero, q.show);
+    live.set(e.rid, q);
+    const name = `ans_${e.rid}`;
+    vars.set(name, q);
+    calc.systemNames.add(name);
+    resultNames.push(name);
+    last = q;
+  }
+  results = live;
+  for (const rid of restored) if (!live.has(rid)) restored.delete(rid);
+  if (last) vars.set("ans", last);
+  else vars.delete("ans");
+}
+
+// Restored Monte Carlo results have no samples: evaluate their expressions
+// again, in order, and keep the new value (with samples consistent with the
+// other results) when it agrees with the saved one, since the variables used
+// may have changed since; the others stay Gaussian
+function resampleResults(calc) {
+  if (!MC.on || !restored.size) return;
+  const vars = calc.env.vars;
+  const t0 = performance.now();
+  vars.delete("ans");
+  for (const e of state.history) {
+    const q0 = e.kind === "value" && results.get(e.rid);
+    if (!q0) continue;
+    if (restored.has(e.rid) && performance.now() - t0 < 1000) {
+      let q = null;
+      try { q = evalPreview(e.input, calc); } catch {}
+      if (q && sameResult(q, e.val)) {
+        results.set(e.rid, q);
+        vars.set(`ans_${e.rid}`, q);
+      }
+    }
+    vars.set("ans", results.get(e.rid));
+  }
+  restored.clear();
+}
+
+function sameResult(q, v) {
+  const close = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b));
+  const sd = (c) => Math.hypot(...(c ? [...c].map(([, s]) => s) : []));
+  return close(q.x.n, v.n) && close(sd(q.x.c), sd(v.c)) && dimEq(q.d, v.d) &&
+    (q.zero === false ? v.zero === false : v.zero !== false && close(q.zero, v.zero));
+}
 
 // ---------------------------------------------------------------------
 // Expression editor
@@ -4509,13 +4608,14 @@ function caretIndexAt(x, y) {
 
 let previewTimer = null;
 
-function evalPreview(src) {
+// The value of src (for an assignment, of its right side) without running it
+function evalPreview(src, calc = state.calc) {
   const { code } = splitComment(src);
   const t = code.trim();
   if (!t || t[0] === "%" || /!$/.test(t)) return null;
-  const node = parse(normalize(t), env());
+  const node = parse(normalize(t), calc.env);
   if (!node || node.t === "def") return null;
-  const v = state.calc.evalNode(node.t === "assign" ? node.value : node);
+  const v = calc.evalNode(node.t === "assign" ? node.value : node);
   return v instanceof Q ? v : null;
 }
 
@@ -4587,15 +4687,11 @@ function evaluate() {
     entry.text = qText(r.q);
     const dist = distSummary(r.q);
     if (dist) entry.dist = dist;
-    if (r.q && r.q.x && !r.q.x.exact) {
-      // keep the value itself (with its samples) under ans_N for "Insert result"
-      state.rid = Math.max(state.rid || 0, store.get("rid", 0)) + 1;
-      store.set("rid", state.rid);
-      const name = `ans_${state.rid}`;
-      env().vars.set(name, r.q);
-      state.calc.systemNames.add(name);
-      entry.rid = state.rid;
-    }
+    entry.rid = newRid();
+    results.set(entry.rid, r.q);
+    restored.delete(entry.rid);
+    const val = packResult(r.q);
+    if (val) entry.val = val;
     if (r.name) entry.name = r.name;
   } else if (r.kind === "info") {
     entry.title = r.title;
@@ -4626,6 +4722,7 @@ function evaluate() {
     renderFnGrid();
   }
   appendEntry(entry);
+  installResults();
   state.recall = -1;
   state.draft = null;
   setInput("");
@@ -7709,13 +7806,14 @@ function entryAt(el) {
   return div ? { div, e: state.history[Number(div.dataset.i)], i: Number(div.dataset.i) } : null;
 }
 
-function insertResult(e) {
+// a result is inserted as itself (ans_n), with all its samples and
+// correlations, or as its text with asText
+const resultRef = (e) => (e.rid && resultNames.includes(`ans_${e.rid}`) ? `ans_${e.rid}` : null);
+
+function insertResult(e, asText = false) {
   if (!e || e.kind !== "value") return;
-  // an uncertain result is inserted as itself (ans_N), with all its samples
-  // and correlations; only its text when it is no longer in memory
-  const ref = e.rid ? `ans_${e.rid}` : null;
-  if (ref && Map.prototype.has.call(env().vars, ref)) return insertName(ref);
-  if (ref && MC.on) toast("This result is no longer in memory: inserted as median ± error");
+  const ref = resultRef(e);
+  if (ref && !asText) return insertName(ref);
   let t = e.text;
   if (/\s/.test(t.replace(/\[[^\]]*\]/g, ""))) t = "(" + t + ")";
   const b = before();
@@ -7755,7 +7853,9 @@ function entryMenu(x, y, ent) {
   const items = [];
   if (e.kind === "value") {
     if (e.dist) items.push(["Distribution", () => openDistribution(e)]);
-    items.push(["Insert result", () => insertResult(e)]);
+    const ref = resultRef(e);
+    if (ref) items.push([`Insert ${ref}`, () => insertResult(e)]);
+    items.push([ref ? "Insert value" : "Insert result", () => insertResult(e, true)]);
     items.push(["Copy result", () => copy(e.text)]);
   }
   items.push(["Edit expression", () => setInput(e.input)]);
@@ -7763,6 +7863,7 @@ function entryMenu(x, y, ent) {
   items.push(["Delete", () => {
     state.history.splice(i, 1);
     saveHistory();
+    installResults();
     renderHistory();
   }, "danger"]);
   showMenu(x, y, items);
@@ -8129,6 +8230,8 @@ function renderSettings(root) {
   confirmButton($("#clear-hist", root), () => {
     state.history = [];
     saveHistory();
+    store.set("rid", 0);
+    installResults();
     renderHistory();
     renderSettings(root);
   });
@@ -8331,6 +8434,10 @@ async function importData(file) {
     state.session = Array.isArray(data.session) ? data.session : [];
     state.defs = typeof data.defs === "string" ? data.defs : "";
     state.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}), oxrId: state.settings.oxrId };
+    results = new Map();
+    restoredIds = new Map();
+    restored.clear();
+    store.set("rid", 0);
     saveHistory();
     store.set("session", state.session);
     store.set("defs", state.defs);
@@ -8386,7 +8493,7 @@ const HELP = [
   ["More data", "The Const keys have sections for mathematics, particles (PDG masses), astronomy (IAU nominal values), Earth (WGS 84), chemistry, elements and molecules (molar masses M_Fe, M_H2O; ionization energies E_ion_Fe; for elements also T_m_Fe, T_b_Fe, rho_Fe and the electronegativity chi_Fe; for molecules T_m, T_b, H_fus, H_vap, C_p, rho, T_c, p_c, as in T_b_H2O), engineering (ISA), materials (typical values), nuclides (T_half_C14, lambda_C14, m_C14) and information units (bit, B, KiB…).", [
     ["18 g / M_H2O @ mol", ""], ["E_ion_H N_A @ kJ/mol", "ionization energy"], ["H_vap_H2O / M_H2O @ MJ/kg", "latent heat"], ["T_b_C2H5OH @ °C", ""], ["T_m_W @ °C", ""], ["chi_O - chi_H", "bond polarity"], ["T_half_C14 log2(1 / 0.3)", "age when 30 % is left"], ["1 GiB / (100[Mbit/s]) @ s", ""], ["E_steel * 1e-3 @ GPa", ""], ["GM_Earth / a_WGS84^2", ""], ["m_Z c^2 @ GeV", ""], ["L_Edd(10 M_Sun)", ""],
   ]],
-  ["Uncertainties", "Write errors as 3.2 ± 0.1 (or +/-) or 3.2(1). Errors propagate with correlations, including the CODATA correlations between constants. Settings → Uncertainties switches to Monte Carlo, where distributions can be used: N(μ, σ), U(a, b), LogN(m, s), Gamma(k, θ), Beta(a, b), T(ν, μ, s), Tri(a, c, b), truncated with trunc(X, lo, hi). Results then show the median and the 68 % interval, as 12.24 +0.32 −0.27 when the two sides differ; tap MC on a result for its distribution. Tapping an uncertain result inserts it as ans_N, the result itself with all its samples and correlations (kept until the app is reloaded). The f(x) Distributions keys list all distributions and switch the engine.", [
+  ["Uncertainties", "Write errors as 3.2 ± 0.1 (or +/-) or 3.2(1). Errors propagate with correlations, including the CODATA correlations between constants. Settings → Uncertainties switches to Monte Carlo, where distributions can be used: N(μ, σ), U(a, b), LogN(m, s), Gamma(k, θ), Beta(a, b), T(ν, μ, s), Tri(a, c, b), truncated with trunc(X, lo, hi). Results then show the median and the 68 % interval, as 12.24 +0.32 −0.27 when the two sides differ; tap MC on a result for its distribution. Tapping a result inserts it as ans_n, the result itself with all its samples and correlations (after a reload, the samples are redrawn from the errors). The f(x) Distributions keys list all distributions and switch the engine.", [
     ["m_p / m_e", "correlated constants"], ["x = U(1, 3)", ""], ["exp(x)", ""], ["trunc(N(1.4 M_Sun, 0.5 M_Sun), 0 kg)", ""], ["Gamma(2, 3 s)", ""],
   ]],
   ["Typeset view", "Expressions with fractions, roots or powers are also drawn in 2D under the input line and in the history, exactly as the calculator reads them: 1/2 pi shows ½·π, not 1/(2π). Turn it off in Settings → Typeset formulas.", [
@@ -8406,7 +8513,7 @@ function renderHelp(root) {
     ${HELP.map(([title, text, ex]) => `<h3>${esc(title)}</h3><p>${esc(text)}</p>
       <div class="ex">${ex.map(([x, note]) => `<button data-ex="${esc(x)}">${esc(x)}<span>${esc(note)}</span></button>`).join("")}</div>`).join("")}
     <h3>Keypad tips</h3>
-    <p>Tap a result to insert it, tap an expression to edit it, and long-press an entry for more options. Tap inside the expression to move the cursor; long-press it to paste. Swipe left or right on it to change keypad page.</p>
+    <p>Tap a result to insert it as ans_n (the n-th result; the last one is also ans), tap an expression to edit it, and long-press an entry for more options, such as inserting the value itself. Clearing the results numbers them again from ans_1. Tap inside the expression to move the cursor; long-press it to paste. Swipe left or right on it to change keypad page.</p>
     <p>The bar above the keypad adapts to the cursor: units after a number (angles inside sin, cos, tan), your recent names and common constants after an operator or an opening parenthesis, exponents after ^, and conversions after a value with units.</p>
     <p>On the <b>Units</b> page, tap a prefix and then a unit: <b>k</b> then <b>m</b> gives km. Long-press a unit, prefix or constant to see what it is. After <b>@</b>, the units of the current quantity open automatically and compatible units appear above the keypad.</p>
     <p>Use <b>abc</b> to type names: the row above the letters guesses the name you are typing. <b>Const</b> has physical constants and your own variables, and <b>f(x)</b> has functions by topic, including cosmology and lensing. Long-press any function key for its arguments.</p>
@@ -8476,25 +8583,28 @@ function clearMenu(x, y) {
 }
 
 function resetSession(vars) {
-  const saved = { history: state.history, session: state.session, text: state.text };
+  const saved = { history: state.history, session: state.session, text: state.text, results };
   state.history = [];
   saveHistory();
+  // results are numbered again from ans_1
+  store.set("rid", 0);
   if (vars) {
     state.session = [];
     store.set("session", []);
     build();
-  }
+  } else installResults();
   state.recall = -1;
   setInput("");
   renderHistory();
   toast(vars ? "Started over" : "Results cleared", 6000, ["Undo", () => {
     state.history = saved.history;
+    results = saved.results;
     saveHistory();
     if (vars) {
       state.session = saved.session;
       store.set("session", state.session);
       build();
-    }
+    } else installResults();
     renderHistory();
     setInput(saved.text);
   }]);
