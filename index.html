@@ -245,7 +245,6 @@ button:focus-visible, .expr:focus-visible { outline: 2px solid var(--accent); ou
 .entry .out {
   font-size: 24px;
   text-align: right;
-  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
   line-height: 1.25;
   padding: 2px 0;
@@ -331,7 +330,6 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
   text-align: right;
   font-size: 17px;
   color: var(--muted);
-  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 
@@ -815,6 +813,13 @@ math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
 .hist-axis { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 .dist-in { font-family: var(--mono); color: var(--muted); text-align: center; margin: 4px 0 0; }
 .fn-grid .key.const.long b { font-size: 13.5px; white-space: nowrap; letter-spacing: -0.01em; }
+
+/* results break only between value, unit factors and the MC flag */
+.nb, .uf, .mcb { white-space: nowrap; }
+.mcb { display: inline-block; }
+.entry .out, .preview { overflow-x: auto; overflow-y: hidden; }
+.key.const.cosmo small { color: var(--text); font-size: 10px; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.key.const.cosmo small .nb, .key.const.cosmo small .uf { white-space: nowrap; }
 /* Sheet */
 .sheet {
   position: fixed;
@@ -3639,14 +3644,31 @@ const DEFAULT_SETTINGS = {
   mcN: 5000,
   typeset: true,
   brackets: true,
-  cosmo: { preset: "concordance", H0: 70, Om: 0.3, OL: 0.7, OR: 0, flat: true },
+  cosmo: { preset: "concordance", H0: 70, Om: 0.3, Ob: 0.05, OL: 0.7, OR: 0, flat: true, errors: false, sH0: 0, sOm: 0, rho: 0 },
 };
 
 // Cosmologies offered in Settings (radiation neglected)
 const COSMO_PRESETS = {
-  concordance: { name: "Concordance (70, 0.3, 0.7)", H0: 70, Om: 0.3, OL: 0.7, OR: 0, flat: true },
-  planck18: { name: "Planck 2018", H0: 67.66, Om: 0.3111, OL: 0.6889, OR: 0, flat: true },
-  wmap9: { name: "WMAP 9", H0: 69.32, Om: 0.2865, OL: 0.7135, OR: 0, flat: true },
+  concordance: { name: "Concordance (70, 0.3, 0.7)", H0: 70, Om: 0.3, Ob: 0.05, OL: 0.7, OR: 0, flat: true, sH0: 0, sOm: 0, rho: 0 },
+  // H0, Omega_M, Omega_b (and Omega_K) with their full covariance, from the chains
+  // (omega_b h^2, omega_c h^2, h, Omega_K) summaries; 16384 scrambled Sobol draws.
+  // Planck: one massive neutrino (0.06 eV) in Omega_M; WMAP 9: massless neutrinos.
+  planck18: {
+    name: "Planck 2018 (flat ΛCDM)", H0: 67.3599, Om: 0.315282, Ob: 0.0493147, Ok: 0, OL: 0.6846385, OR: 7.966e-05, flat: true,
+    cov: {params: ["H0", "Om", "Ob"], m: [[0.286634, -0.00389021, -0.000298439], [-0.00389021, 5.37098e-05, 4.22653e-06], [-0.000298439, 4.22653e-06, 3.62675e-07]]},
+  },
+  planck18k: {
+    name: "Planck 2018 + BAO (curved)", H0: 67.8615, Om: 0.309991, Ob: 0.0486416, Ok: 0.000729453, OL: 0.6892012, OR: 7.848e-05, flat: false,
+    cov: {params: ["H0", "Om", "Ob", "Ok"], m: [[0.42823, -0.00367935, -0.000603921, 0.000942374], [-0.00367935, 3.92231e-05, 4.7145e-06, -4.80781e-06], [-0.000603921, 4.7145e-06, 9.60253e-07, -1.63777e-06], [0.000942374, -4.80781e-06, -1.63777e-06, 3.6713e-06]]},
+  },
+  wmap9: {
+    name: "WMAP 9 (flat ΛCDM)", H0: 70.0333, Om: 0.279427, Ob: 0.0462525, Ok: 0, OL: 0.7204877, OR: 8.529e-05, flat: true,
+    cov: {params: ["H0", "Om", "Ob"], m: [[4.77999, -0.0547272, -0.00491152], [-0.0547272, 0.000656073, 5.9655e-05], [-0.00491152, 5.9655e-05, 5.69836e-06]]},
+  },
+  wmap9k: {
+    name: "WMAP 9 + BAO (curved)", H0: 68.188, Om: 0.293047, Ob: 0.0486975, Ok: -0.00365548, OL: 0.7105187, OR: 8.997e-05, flat: false,
+    cov: {params: ["H0", "Om", "Ob", "Ok"], m: [[1.15313, -0.00762969, -0.00134499, 0.00245769], [-0.00762969, 0.00012737, 7.48339e-06, 1.06568e-05], [-0.00134499, 7.48339e-06, 2.53427e-06, -5.14909e-06], [0.00245769, 1.06568e-05, -5.14909e-06, 1.94742e-05]]},
+  },
   custom: { name: "Custom" },
 };
 
@@ -3756,7 +3778,7 @@ const sub = (s) => `<sub>${s}</sub>`;
 const SUBDIGITS = (d) => [...d].map((c) => "₀₁₂₃₄₅₆₇₈₉"[c]).join("");
 
 // Names with their own glyph; everything else follows the rules below
-const NAME_HTML = { hbar: "ħ", euler: "ℯ", inf: "∞" };
+const NAME_HTML = { hbar: "ħ", euler: "ℯ", inf: "∞", Omega_L: "Ω" + "<sub>Λ</sub>" };
 const FN_HTML = { sqrt: "√", cbrt: "∛" };
 const UNIT_HTML = { deg: "°", arcmin: "′", arcsec: "″", ohm: "Ω", Ang: "Å" };
 const BASE_HTML = { sin2theta: "sin²θ" };
@@ -3837,13 +3859,13 @@ function treeHTML(tree) {
       base = treeHTML(u);
       if (u.length > 1) base = "(" + base + ")";
     }
-    if (Math.abs(ex - 1) < 1e-9) parts.push(base);
+    if (Math.abs(ex - 1) < 1e-9) parts.push(`<span class="uf">${base}</span>`);
     else {
       const [p, q] = fraction(ex);
-      parts.push(`${base}<sup>${(q === 1 ? String(p) : `${p}/${q}`).replace("-", "−")}</sup>`);
+      parts.push(`<span class="uf">${base}<sup>${(q === 1 ? String(p) : `${p}/${q}`).replace("-", "−")}</sup></span>`);
     }
   }
-  return parts.join("·");
+  return parts.join("\u2009");   // SI: a thin space between units
 }
 
 const PREFIXES = ["y", "z", "a", "f", "p", "n", "µ", "m", "c", "d", "da", "h", "k", "M", "G", "T", "P", "E", "Z", "Y"];
@@ -3897,8 +3919,58 @@ function applySettings(calc) {
   calc.run(`%let Omega_M = ${om}   # "Mass density parameter"`);
   calc.run(`%let Omega_L = ${ol}   # "Cosmological constant parameter"`);
   calc.run(`%let Omega_R = ${or}   # "Radiation density parameter"`);
-  calc.run('%lazy Omega_K = 1 - Omega_M - Omega_L - Omega_R   # "Curvature parameter"');
-  if (calc.systemNames) calc.systemNames.add("Omega_R");
+  calc.run(`%let Omega_b = ${num(c.Ob, 0.05)}   # "Baryon density parameter"`);
+  if (c.flat) calc.run('%let Omega_K = 0   # "Curvature parameter (flat model)"');
+  else calc.run('%lazy Omega_K = 1 - Omega_M - Omega_L - Omega_R   # "Curvature parameter"');
+  const cov = cosmoCovariance(c);
+  if (c.errors && cov) {
+    // correlated errors: one source per parameter, mixed by the Cholesky factor
+    const e = calc.env;
+    const L = cholesky(cov.m);
+    const ids = cov.params.map(() => newSourceId());
+    const value = (p, i) => {
+      const comps = new Map();
+      for (let k = 0; k <= i; k++) if (L[i][k]) comps.set(ids[k], L[i][k]);
+      return UNum.fromComponents(p, comps);
+    };
+    const mean = { H0: num(c.H0, 70), Om: om, Ob: num(c.Ob, 0.05), Ok: num(c.Ok, 0) };
+    const set = (name, q) => {
+      const old = e.vars.get(name);
+      if (old && old.doc) q.doc = old.doc;
+      e.vars.set(name, q);
+    };
+    cov.params.forEach((p, i) => {
+      if (p === "H0") set("H_0", e.mul(new Q(value(mean.H0, i)), e.unit("km s^-1 Mpc^-1")));
+      if (p === "Om") set("Omega_M", new Q(value(mean.Om, i)));
+      if (p === "Ob") set("Omega_b", new Q(value(mean.Ob, i)));
+      if (p === "Ok") set("Omega_K", new Q(value(mean.Ok, i)));
+    });
+    if (cov.params.includes("Ok")) calc.run('%lazy Omega_L = 1 - Omega_M - Omega_K - Omega_R   # "Cosmological constant parameter"');
+    else if (c.flat) calc.run('%lazy Omega_L = 1 - Omega_M - Omega_R   # "Cosmological constant parameter (flat model)"');
+  }
+  if (calc.systemNames) { calc.systemNames.add("Omega_R"); calc.systemNames.add("Omega_b"); }
+}
+
+// covariance of the cosmological parameters: a preset's matrix, or the
+// two errors and correlation given in Settings
+function cosmoCovariance(c) {
+  if (c.cov && c.cov.params) return c.cov;
+  const sH = Math.abs(Number(c.sH0) || 0), sO = Math.abs(Number(c.sOm) || 0);
+  const rho = Math.max(-1, Math.min(1, Number(c.rho) || 0));
+  if (!(sH > 0 || sO > 0)) return null;
+  return { params: ["H0", "Om"], m: [[sH * sH, rho * sH * sO], [rho * sH * sO, sO * sO]] };
+}
+
+function cholesky(A) {
+  const n = A.length, L = A.map(() => new Array(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j <= i; j++) {
+      let s = A[i][j];
+      for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k];
+      L[i][j] = i === j ? Math.sqrt(Math.max(s, 0)) : (L[j][j] ? s / L[j][j] : 0);
+    }
+  }
+  return L;
 }
 
 function build() {
@@ -3951,7 +4023,7 @@ function numHTML(u) {
 
 function qHTML(q) {
   const html = qHTMLraw(q);
-  return MC.on && env().showErrors && q.x && (q.x.s || q.x.c) && q.x.std > 0 ? html + '<span class="mcb" title="Monte Carlo">MC</span>' : html;
+  return MC.on && env().showErrors && q.x && (q.x.s || q.x.c) && q.x.std > 0 ? html + '<wbr><span class="mcb" title="Monte Carlo">MC</span>' : html;
 }
 
 function qHTMLraw(q) {
@@ -3960,7 +4032,7 @@ function qHTMLraw(q) {
   const unit = treeHTML(r.tree);
   let num = numHTML(r.num);
   if (unit && num.includes("±") && !num.startsWith("(")) num = `(${num})`;
-  return (r.tilde ? '<span class="tilde">~</span>' : "") + num + (unit ? `<span class="u">${unit}</span>` : "");
+  return `<span class="nb">${r.tilde ? '<span class="tilde">~</span>' : ""}${num}</span>` + (unit ? `<wbr><span class="u">${unit}</span>` : "");
 }
 
 function qText(q) {
@@ -5669,7 +5741,7 @@ function openAbout() {
       MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.</p>
     <p class="small">Source code: <a href="https://github.com/astrozot/imks-units" target="_blank" rel="noopener">github.com/astrozot/imks-units</a></p>
     <p class="small muted">Unit system after iMKS. Data: NIST CODATA constants; NASA planetary fact sheets; Particle Data Group;
-      IAU 2015 nominal values; WGS 84; IUPAC atomic weights; nuclide half-lives from evaluated nuclear data.
+      IAU 2015 nominal values; Planck 2018 and WMAP 9-year cosmological parameters (with and without BAO); WGS 84; IUPAC atomic weights; nuclide half-lives from evaluated nuclear data.
       Exchange rates of ${rates}.</p>`;
   $("#about").hidden = false;
   $("#about-close").focus();
@@ -5757,7 +5829,7 @@ function unitsMath(raw) {
   let first = true;
   for (const it of items) {
     if (it.sep) { out.push('<mo lspace="0.3em" rspace="0.3em">|</mo>'); first = true; continue; }
-    if (!first) out.push('<mo lspace="0.1em" rspace="0.1em">·</mo>');
+    if (!first) out.push('<mo lspace="0" rspace="0.17em">&#x2062;</mo>');   // thin space
     first = false;
     if (it.e === 1) out.push(it.m);
     else {
@@ -6597,7 +6669,7 @@ function modelText() {
       return qShort(q).replace(/\[([^\]]*)\]/, " $1");
     } catch { return "?"; }
   };
-  return `ΛCDM model: H₀ = ${val("H_0", "km/s/Mpc")}, Ω_M = ${val("Omega_M")}, Ω_Λ = ${val("Omega_L")}, Ω_K = ${val("Omega_K")}. ` +
+  return `ΛCDM model: H₀ = ${val("H_0", "km/s/Mpc")}, Ω_M = ${val("Omega_M")}, Ω_b = ${val("Omega_b")}, Ω_Λ = ${val("Omega_L")}, Ω_K = ${val("Omega_K")}. ` +
     "Set the default in Settings, or change it here with e.g. Omega_M = 0.315. Long-press a function for its arguments.";
 }
 
@@ -6857,6 +6929,7 @@ const CONST_SECTIONS = [
     K("G_0", "Conductance quantum"), K("sigma_T", "Thomson cross section"), K("b_Wien", "Wien constant"),
     K("c_1", "First radiation constant"), K("c_2", "Second radiation constant"),
   ]],
+  ["Cosmology", "cosmo"],
   ["Astro", [
     K("M_Sun", "Solar mass"), K("R_Sun", "Solar radius"), K("L_Sun", "Solar luminosity"),
     K("GM_Sun_N", "IAU nominal GM☉"), K("R_Sun_N", "IAU nominal radius"), K("L_Sun_N", "IAU nominal luminosity"),
@@ -7009,6 +7082,33 @@ function constKeyHTML(k) {
   return `<button class="key const" data-const="${esc(x)}"><b>${label}</b><small>${esc(desc)}</small></button>`;
 }
 
+// Cosmology section: the current model, with values and errors
+const COSMO_KEYS = [
+  ["H_0", "km/s/Mpc", "Hubble constant"], ["Omega_M", "", "Matter"], ["Omega_b", "", "Baryons"],
+  ["Omega_L", "", "Cosmological constant"], ["Omega_K", "", "Curvature"], ["Omega_R", "", "Radiation"],
+  ["age(0)", "Gyr", "Age of the universe"], ["t_H", "Gyr", "Hubble time"], ["d_H", "Mpc", "Hubble distance"],
+  ["rho_c", "kg/m^3", "Critical density"], ["T_CMB", "K", "CMB temperature"], ["n_CMB", "cm^-3", "CMB photons"],
+  ["Omega_CMB", "", "CMB density"], ["T_nu", "K", "Neutrino temperature"], ["n_nu", "cm^-3", "Neutrinos"],
+];
+
+function cosmoValueHTML(expr, unit) {
+  let q;
+  try {
+    q = /\(/.test(expr) ? evalPreview(expr) : state.calc.lookup(expr);
+    if (q && q.lazy) q = q.lazy();
+    if (!(q instanceof Q)) return "";
+    if (unit) q = env().convert(q, [unit]);
+  } catch { return ""; }
+  const r = env().display(q);
+  if (r.format) return esc(r.text);
+  const exact = (x) => {
+    const s = Number(x.toPrecision(6));
+    return Math.abs(s) >= 1e5 || (s !== 0 && Math.abs(s) < 1e-3) ? fmt4(s) : String(s);
+  };
+  const num = q.x.std > 0 && env().showErrors ? numHTML(r.num) : exact(r.num.n);
+  return num + (unit ? " " + unitLabelHTML(unit) : "");
+}
+
 function renderConstGrid() {
   const grid = $("#const-grid");
   if (!grid || !state.calc) return;
@@ -7072,6 +7172,13 @@ function renderConstGrid() {
       MOLECULES.map(([f]) => mk(f, esc(sub(f)), fmt4(e.vars.get(`M_${f}`).x.n / e.unit("g/mol").x.n), f.length > 4)).join("") + mk("air", "air", "28.96") +
       `<div class="ghead">Elements: tap for molar mass, ionization energy, electronegativity, melting and boiling points, density</div>` +
       ELEMENTS.map(([z, sym, , w, unstable]) => mk(sym, `<span class="z">${z}</span>${esc(sym)}`, unstable ? `[${w}]` : String(w))).join("");
+    return;
+  }
+  if (spec === "cosmo") {
+    grid.innerHTML = COSMO_KEYS.map(([x, unit, desc]) => {
+      const label = x === "age(0)" ? "age" : prettyName(x, { unit: false }) || esc(x);
+      return `<button class="key const cosmo" data-const="${esc(x)}" title="${esc(desc)}"><b>${label}</b><small>${cosmoValueHTML(x, unit)}</small></button>`;
+    }).join("");
     return;
   }
   if (spec === "yours") {
@@ -7928,9 +8035,15 @@ function renderSettings(root) {
         <select id="set-cosmo">${Object.entries(COSMO_PRESETS).map(([k, v]) => `<option value="${k}" ${k === (s.cosmo?.preset || "concordance") ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
       <div class="row"><div class="lbl">H<sub>0</sub><small>km/s/Mpc</small></div><input type="text" inputmode="decimal" class="num" data-cp="H0"></div>
       <div class="row"><div class="lbl">Ω<sub>M</sub><small>Matter density</small></div><input type="text" inputmode="decimal" class="num" data-cp="Om"></div>
+      <div class="row"><div class="lbl">Ω<sub>b</sub><small>Baryon density</small></div><input type="text" inputmode="decimal" class="num" data-cp="Ob"></div>
       <div class="row"><div class="lbl">Ω<sub>R</sub><small>Radiation density</small></div><input type="text" inputmode="decimal" class="num" data-cp="OR"></div>
       <div class="row"><div class="lbl">Flat<small>Ω<sub>Λ</sub> = 1 − Ω<sub>M</sub> − Ω<sub>R</sub></small></div><input type="checkbox" class="switch" id="set-flat"></div>
       <div class="row"><div class="lbl">Ω<sub>Λ</sub><small>Cosmological constant</small></div><input type="text" inputmode="decimal" class="num" data-cp="OL"></div>
+      <div class="row"><div class="lbl">Parameter uncertainties<small>Correlated errors on H<sub>0</sub>, Ω<sub>M</sub>, Ω<sub>b</sub> (and Ω<sub>K</sub>) in all cosmology and lensing results</small></div><input type="checkbox" class="switch" id="set-cerr"></div>
+      <div class="row cinfo"><div class="lbl" id="cosmo-covinfo"></div></div>
+      <div class="row cerr"><div class="lbl">σ(H<sub>0</sub>)<small>km/s/Mpc</small></div><input type="text" inputmode="decimal" class="num" data-cp="sH0"></div>
+      <div class="row cerr"><div class="lbl">σ(Ω<sub>M</sub>)</div><input type="text" inputmode="decimal" class="num" data-cp="sOm"></div>
+      <div class="row cerr"><div class="lbl">Correlation ρ(H<sub>0</sub>, Ω<sub>M</sub>)<small>Between −1 and 1</small></div><input type="text" inputmode="decimal" class="num" data-cp="rho"></div>
     </div>
 
     <div class="group-title">Exchange rates</div>
@@ -8056,6 +8169,42 @@ function setupCosmoSettings(root, save) {
     }
     flat.checked = Boolean(c.flat);
     $('[data-cp="OL"]', root).disabled = Boolean(c.flat);
+    $("#set-cerr", root).checked = Boolean(c.errors);
+    // a preset with a covariance matrix shows it; otherwise σ and ρ can be edited
+    for (const r of root.querySelectorAll(".row.cerr")) r.hidden = !c.errors || Boolean(c.cov);
+    const info = root.querySelector(".row.cinfo");
+    info.hidden = !c.errors || !c.cov;
+    if (c.cov) {
+      const lab = { H0: "H<sub>0</sub>", Om: "Ω<sub>M</sub>", Ob: "Ω<sub>b</sub>", Ok: "Ω<sub>K</sub>" };
+      const P = c.cov.params, M = c.cov.m;
+      const sd = P.map((_, i) => Math.sqrt(M[i][i]));
+      const fmt = (x) => String(Number(x.toPrecision(2)));
+      const sig = P.map((p, i) => `σ(${lab[p]}) = ${fmt(sd[i])}`).join(", ");
+      const cor = [];
+      for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) cor.push(`ρ(${lab[P[i]]}, ${lab[P[j]]}) = ${(M[i][j] / (sd[i] * sd[j])).toFixed(3)}`);
+      $("#cosmo-covinfo", root).innerHTML = `Full covariance of the preset<small>${sig}<br>${cor.join(", ")}</small>`;
+    }
+    if (c.Ok && !c.flat) $('[data-cp="OL"]', root).disabled = true;
+  };
+  $("#set-cerr", root).addEventListener("change", (ev) => {
+    s.cosmo.errors = ev.target.checked;
+    fill();
+    apply();
+  });
+  // leave a preset: keep the values, reduce a covariance to σ(H0), σ(Ω_M), ρ
+  const toCustom = () => {
+    const c = s.cosmo;
+    if (c.cov) {
+      const iH = c.cov.params.indexOf("H0"), iO = c.cov.params.indexOf("Om"), M = c.cov.m;
+      c.sH0 = Math.sqrt(M[iH][iH]);
+      c.sOm = Math.sqrt(M[iO][iO]);
+      c.rho = M[iH][iO] / (c.sH0 * c.sOm);
+      if (c.Ok) { c.OL = 1 - c.Om - c.Ok - c.OR; c.flat = false; }
+      delete c.cov;
+      delete c.Ok;
+    }
+    c.preset = "custom";
+    $("#set-cosmo", root).value = "custom";
   };
   const apply = () => {
     // a redefinition in the calculator would hide the new default
@@ -8066,11 +8215,13 @@ function setupCosmoSettings(root, save) {
     save();
     build();
     refresh();
-    toast(`Cosmology: H₀ = ${s.cosmo.H0}, Ω_M = ${s.cosmo.Om}, Ω_Λ = ${Math.round(env().vars.get("Omega_L").x.n * 1e6) / 1e6}`);
+    const el = env().vars.get("Omega_L");
+    const olv = el && el.x ? el.x.n : 1 - s.cosmo.Om - s.cosmo.OR;
+    toast(modelText().replace(/ Set the default.*$/, ""), 5000);
   };
   $("#set-cosmo", root).addEventListener("change", (ev) => {
     const p = COSMO_PRESETS[ev.target.value];
-    s.cosmo = p.H0 ? { ...p, preset: ev.target.value } : { ...s.cosmo, preset: "custom" };
+    s.cosmo = p.H0 ? { ...p, preset: ev.target.value, errors: s.cosmo.errors } : { ...s.cosmo, preset: "custom" };
     delete s.cosmo.name;
     fill();
     apply();
@@ -8078,15 +8229,18 @@ function setupCosmoSettings(root, save) {
   for (const f of fields) {
     f.addEventListener("change", () => {
       const v = Number(f.value.replace(",", "."));
-      if (!Number.isFinite(v) || (f.dataset.cp === "H0" && v <= 0)) { fill(); toast("Not a valid number"); return; }
+      const bad = !Number.isFinite(v) || (f.dataset.cp === "H0" && v <= 0) || (f.dataset.cp === "rho" && Math.abs(v) > 1) ||
+        (/^s/.test(f.dataset.cp) && v < 0);
+      if (bad) { fill(); toast("Not a valid number"); return; }
+      toCustom();
       s.cosmo[f.dataset.cp] = v;
-      s.cosmo.preset = "custom";
       $("#set-cosmo", root).value = "custom";
       fill();
       apply();
     });
   }
   flat.addEventListener("change", () => {
+    toCustom();
     s.cosmo.flat = flat.checked;
     if (!flat.checked) s.cosmo.OL = 1 - s.cosmo.Om - s.cosmo.OR;
     s.cosmo.preset = "custom";
@@ -8219,7 +8373,7 @@ const HELP = [
   ["Variables, functions, constants", "Assign with =. Define functions as f(x) = …. NIST constants are in const[\"…\"].", [
     ["v = 50 km/hour # \"Town speed\"", "with a doc string"], ["kinetic(m, v) = m v^2 / 2", ""], ["kinetic(1200 kg, 50 km/h) @ kJ", ""], ["const[\"Rydberg constant\"]", ""], ["m_e c^2 @ MeV", ""], ["10 USD @ EUR", "currencies"],
   ]],
-  ["Cosmology and lensing", "Distances, times and volumes for ΛCDM with the current H_0, Omega_M and Omega_L (set the default in Settings, or redefine them). Lensing functions take the lens and source redshifts. All are on the f(x) keys.", [
+  ["Cosmology and lensing", "Distances, times and volumes for ΛCDM with the current H_0, Omega_M and Omega_L (Omega_b is also available) (set the default in Settings, or redefine them; Settings can also add the correlated uncertainties of H_0 and Omega_M of the chosen model, which then propagate to every result). Lensing functions take the lens and source redshifts. All are on the f(x) keys.", [
     ["D_L(1) @ Gpc", "luminosity distance"], ["scale(0.5)", "kpc per arcsec"], ["age(0)", ""], ["Omega_M = 0.315", "change the model"],
     ["theta_E(1e12 M_Sun, 0.5, 2)", "Einstein radius"], ["Sigma_cr(0.3, 1.5)", ""], ["theta_E_SIS(250 km/s, 0.5, 2)", ""], ["H(1)", ""],
   ]],
