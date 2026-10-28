@@ -426,6 +426,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .chip small { color: var(--faint); font-size: 12px; }
 .chip.unit { color: var(--unit); font-weight: 550; }
 .chip.conv { background: var(--accent-soft); color: var(--accent-ink); box-shadow: none; }
+.chip.var { background: var(--tab-soft); color: var(--tab-soft-text); box-shadow: none; font-style: italic; }
 .chip:active { filter: brightness(0.92); }
 
 /* Keypad */
@@ -514,6 +515,8 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .key.small, .split .key.small { font-size: 15px; }
 .key:active { filter: brightness(0.88); transform: scale(0.97); }
 .key sup { font-size: 0.6em; }
+.key.has-alt { position: relative; }
+.key .alt { position: absolute; bottom: 9px; right: 12px; font-size: 20px; font-weight: 600; color: var(--muted); line-height: 1; }
 
 /* Units and f(x) pages: full width, actions in a bottom row */
 .page.wide-page.active {
@@ -2913,7 +2916,7 @@ const functionDocs = {
 Object.assign(functionDocs, {
   linspace: "List of n equally spaced values from a to b: linspace(a, b, n)",
   logspace: "List of n values from a to b in equal ratios: logspace(a, b, n)",
-  sum: "Sum of a list: sum(list)",
+  sum: "Sum of a list, sum(list), or of an expression over whole numbers, sum(f(k), k, a, b)",
   mean: "Mean of a list: mean(list)",
   len: "Number of values in a list: len(list)",
   dot: "Scalar product of two vectors: dot(a, b)",
@@ -2923,12 +2926,13 @@ Object.assign(functionDocs, {
   plot: "Plot: plot(f(x), x, a, b), plot(ys) or plot(xs, ys); a tuple of expressions or lists gives several curves",
 });
 
-// solve, integrate, diff and plot see their first argument as an
+// solve, integrate, diff, plot and sum see their first argument as an
 // expression in the variable named by the second one, so their arguments
-// are not evaluated in advance (plot only in the form plot(f(x), x, a, b))
-const CALCULUS = new Set(["solve", "integrate", "diff", "plot"]);
+// are not evaluated in advance (plot and sum only in the forms
+// plot(f(x), x, a, b) and sum(f(k), k, a, b))
+const CALCULUS = new Set(["solve", "integrate", "diff", "plot", "sum"]);
 const isCalculus = (node) => CALCULUS.has(node.f) &&
-  (node.f !== "plot" || (node.args.length === 4 && node.args[1].t === "name"));
+  (!["plot", "sum"].includes(node.f) || (node.args.length === 4 && node.args[1].t === "name"));
 
 // built-in functions that take whole lists; the others apply elementwise
 const LIST_FNS = new Set(["sum", "mean", "len", "min", "max", "linspace", "logspace", "plot", "hypot", "dot", "cross", "norm", "angle"]);
@@ -3055,7 +3059,10 @@ class Interpreter {
     };
     b.min = extreme("min", -1);
     b.max = extreme("max", 1);
-    b.sum = (...xs) => values("sum", xs).reduce((a, c) => env.add(a, c));
+    b.sum = (...xs) => {
+      if (xs.length !== 1) throw new CalcError("Usage: sum(list) or sum(f(k), k, a, b)");
+      return values("sum", xs).reduce((a, c) => env.add(a, c));
+    };
     b.mean = (...xs) => env.div(b.sum(...xs), new Q(xs[0].length));
     b.len = (...xs) => {
       if (xs.length !== 1 || !Array.isArray(xs[0])) throw new CalcError("len expects one list");
@@ -3226,7 +3233,7 @@ class Interpreter {
     const env = this.env;
     const name = node.f;
     const [body, v, ...rest] = node.args;
-    const [least, most] = { solve: [0, 2], integrate: [2, 2], diff: [1, 2], plot: [2, 2] }[name];
+    const [least, most] = { solve: [0, 2], integrate: [2, 2], diff: [1, 2], plot: [2, 2], sum: [2, 2] }[name];
     const usage = () => new CalcError(`Usage: ${functionDocs[name].replace(/^[^:]*:\s*/, "")}`);
     if (!body || !v || v.t !== "name" || rest.length < least || rest.length > most) throw usage();
     const expr = body.t === "eq" && name === "solve" ? { t: "bin", op: "-", a: body.a, b: body.b } : body;
@@ -3251,7 +3258,7 @@ class Interpreter {
       local.set(v.v, x);
       try {
         let r = this.evalNode(expr, local);
-        if (Array.isArray(r) && name !== "plot") {
+        if (Array.isArray(r) && name !== "plot" && name !== "sum") {
           // an expression giving a list is solved (integrated…) per element
           if (element === null) throw new ListValue(r.length);
           r = r[element];
@@ -3938,7 +3945,23 @@ function makePlot(env, xs, series, opts) {
   return new PlotData(xs, series, opts);
 }
 
-const CALCULUS_FNS = { solve: calcSolve, integrate: calcIntegrate, diff: calcDiff };
+// sum(f(k), k, a, b): f at k = a, a + 1, …, b; a list f gives a list of sums
+function calcSum(env, f, limits, name) {
+  const [a, b] = limits.map((q, i) => {
+    const k = env.checkPure(q, `${name} (${i ? "last" : "first"} index)`).n;
+    if (!Number.isInteger(k)) throw new CalcError(`${name}: the first and last index must be whole numbers`);
+    return k;
+  });
+  if (b - a >= 100000) throw new CalcError(`${name}: at most 100000 terms`);
+  let s = null;
+  for (let k = a; k <= b; k++) {
+    const t = f(new Q(k));
+    s = s === null ? t : broadcast((x, y) => env.add(x, y), [s, t]);
+  }
+  return s === null ? new Q(0) : s;
+}
+
+const CALCULUS_FNS = { solve: calcSolve, integrate: calcIntegrate, diff: calcDiff, sum: calcSum };
 
 function firstLine(doc) {
   return (doc || "").split("\n")[0];
@@ -5439,6 +5462,12 @@ function insertName(name) {
   // after a number, a name that is also a unit (h, g) would be read as the unit
   if (ctx === "bare" && !["M_Sun", "L_Sun", "R_Sun", "M_Earth", "R_Earth", "M_Jupiter", "R_Jupiter"].includes(name) && isBareUnit(name.replace(/\[.*$/, ""))) sep = /\s$/.test(b) ? "* " : " * ";
   insert(sep + name);
+}
+
+// ", " between arguments and list items
+function insertComma() {
+  const sp = /\s+$/.exec(before());
+  insert(", ", { replaceBefore: sp ? sp[0].length : 0 });
 }
 
 function insertFunction(f) {
@@ -7084,6 +7113,9 @@ function nodeMath(node) {
           p: 2,
         };
       }
+      if (node.f === "sum" && args.length === 4 && v.t === "name" && !env().vars.has("sum")) {
+        return { m: `<mrow><munderover><mo>∑</mo><mrow>${args[1].m}<mo>=</mo>${args[2].m}</mrow>${args[3].m}</munderover>${wrap(args[0], 1.01)}</mrow>`, p: 1 };
+      }
       if (node.f === "sqrt" && args.length === 1) return { m: `<msqrt>${flatRadicand(args[0].m)}</msqrt>`, p: 9 };
       if (node.f === "cbrt" && args.length === 1) return { m: `<mroot>${flatRadicand(args[0].m)}<mn>3</mn></mroot>`, p: 9 };
       if (node.f === "abs" && args.length === 1) return { m: `<mrow><mo>|</mo>${args[0].m}<mo>|</mo></mrow>`, p: 9 };
@@ -7139,6 +7171,7 @@ function hasStructure(node) {
   if (!node || typeof node !== "object") return false;
   if (node.t === "bin" && (node.op === "/" || node.op === "^")) return true;
   if (node.t === "call" && ["sqrt", "cbrt", "abs", "exp", "integrate", "diff"].includes(node.f)) return true;
+  if (node.t === "call" && node.f === "sum" && node.args.length === 4) return true;
   if (node.t === "unit" && /\^|\//.test(node.raw) && node.target.t !== "num") return true;
   return ["a", "b", "value", "body", "target"].some((k) => hasStructure(node[k])) ||
     (node.args || node.items || []).some(hasStructure);
@@ -7603,12 +7636,16 @@ function computeSuggestions() {
     html = (known ? afterValueChips(text) : "") + completeChips(items);
   } else if (/\^\s*$/.test(b)) {
     // an exponent
-    html = [["2", "2"], ["3", "3"], ["−1", "-1"], ["½", "(1/2)"], ["−2", "-2"], ["⅓", "(1/3)"]]
-      .map(([l, x]) => chipHTML(l, `data-complete="${esc(x)}" data-len="0"`)).join("");
+    const vars = contextVariables(b, text).filter((v) => v !== "inf");
+    html = vars.map((v) => chipHTML(prettyName(v, { unit: false }) || esc(v), `data-const="${esc(v)}"`, "chip var", "", true)).join("") +
+      [["2", "2"], ["3", "3"], ["−1", "-1"], ["½", "(1/2)"], ["−2", "-2"], ["⅓", "(1/3)"]]
+        .map(([l, x]) => chipHTML(l, `data-complete="${esc(x)}" data-len="0"`)).join("");
   } else if ((ctx === "bare" && /[\d.]\s*$/.test(b)) || (ctx === "inside" && /[[\s/(*]$/.test(b))) {
     // a number (or an open unit bracket): units, angles first inside trig functions
     const angles = /\b(sin|cos|tan)\(\s*[^()]*$/.test(b) ? ["deg", "rad", "arcmin", "arcsec"] : [];
-    html = dedupe([...angles, ...recentNames("u", 8), ...SI_SUGGEST]).slice(0, 26).map(unitChip).join("");
+    const vars = ctx === "bare" ? contextVariables(b, text).filter((v) => v !== "inf") : [];
+    html = vars.map((v) => chipHTML(prettyName(v, { unit: false }) || esc(v), `data-const="${esc(v)}"`, "chip var", "", true)).join("") +
+      dedupe([...angles, ...recentNames("u", 8), ...SI_SUGGEST]).slice(0, 26).map(unitChip).join("");
   } else if (!text.trim() || /(^|[-+*/(,=|~±])\s*$/.test(b)) {
     // start of an operand: last result, your names, common constants and functions
     html = operandChips(b);
@@ -7652,9 +7689,54 @@ function recentNames(cls, n) {
 
 const OPERAND_DEFAULTS = ["pi", "c", "G", "h", "hbar", "k", "e", "m_e", "m_p", "g", "N_A", "M_Sun"];
 
+// functions with a variable of their own, and names often chosen for it
+const BINDERS = { solve: ["x", "t", "z"], integrate: ["x", "t", "z"], diff: ["x", "t", "z"], plot: ["x", "t", "z"], sum: ["k", "n", "i"] };
+
+// the arguments of a call, from just after its "(" (up to its ")")
+function topArgs(s) {
+  const args = [""];
+  let depth = 0;
+  for (const c of s) {
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) { if (!depth) break; depth--; }
+    else if (c === "," && !depth) { args.push(""); continue; }
+    args[args.length - 1] += c;
+  }
+  return args;
+}
+
+// Names the cursor is likely to want: inside solve, integrate… their
+// variable (common names while it is still to be chosen), ∞ in integration
+// limits, and in the body of f(x, y) = … the parameters
+function contextVariables(b, text) {
+  const out = [];
+  let depth = 0, arg = 0;
+  for (let i = b.length - 1; i >= 0; i--) {
+    const c = b[i];
+    if (c === ")" || c === "]") depth++;
+    else if (c === "," && !depth) arg++;
+    else if (c === "(" || c === "[") {
+      if (depth) { depth--; continue; }
+      if (c === "[") return [];
+      const m = /([\p{L}_][\p{L}\p{N}_]*)\s*$/u.exec(b.slice(0, i));
+      if (m && BINDERS[m[1]]) {
+        const v = /^\s*([\p{L}_][\p{L}\p{N}_]*)\s*$/u.exec(topArgs(text.slice(i + 1))[1] || "");
+        if (arg === 0) out.push(...(v ? [v[1]] : BINDERS[m[1]]));
+        else if (arg === 1) out.push(...BINDERS[m[1]]);
+        else if (m[1] === "integrate") out.push("inf");
+      }
+      arg = 0;
+    }
+  }
+  const def = /^\s*[\p{L}_][\p{L}\p{N}_]*\s*\(([^()]*)\)\s*=(?!=)/u.exec(text);
+  if (def && b.length >= def[0].length) out.push(...def[1].split(",").map((p) => p.trim()).filter(Boolean));
+  return dedupe(out);
+}
+
 function operandChips(b) {
   const e = env();
-  const chips = [];
+  const chips = contextVariables(b, state.text).map((v) =>
+    chipHTML(v === "inf" ? "∞" : prettyName(v, { unit: false }) || esc(v), `data-const="${esc(v)}"`, "chip var", "", true));
   if (lastValue()) chips.push(chipHTML("ans", 'data-const="ans"'));
   const mine = [...e.vars.keys()].filter((k) => k !== "ans" && !state.calc.systemNames.has(k) && !(e.vars.get(k) || {}).fn);
   const names = dedupe([...recentNames("v", 6), ...mine.slice(-4), ...OPERAND_DEFAULTS]).slice(0, 16);
@@ -7810,7 +7892,7 @@ const USAGE = {
   plot: "plot(f(x), x, a, b): a curve; plot((f(x), g(x)), x, a, b) several. plot(ys) or plot(xs, ys) for lists. Errors show as a band",
   linspace: "linspace(a, b, n): n values from a to b in equal steps, as in z = linspace(0, 3, 7)",
   logspace: "logspace(a, b, n): n values from a to b in equal ratios, as in logspace(1, 1000, 4)",
-  sum: "sum(list): sum of the values",
+  sum: "sum(list): sum of the values; sum(f(k), k, a, b): f(a) + f(a + 1) + … + f(b), as sum(1/k^2, k, 1, 1000)",
   mean: "mean(list): average of the values",
   len: "len(list): number of values",
   dot: "dot(a, b): scalar product a · b of two vectors; dot((3, 4) N, (2, 0) m) = 6 J",
@@ -7907,7 +7989,9 @@ const ARIA = { backspace: "Delete", enter: "Evaluate" };
 function keyHTML([label, cls = "", action]) {
   const svg = label.startsWith("<svg");
   const aria = svg && ARIA[action] ? ` aria-label="${ARIA[action]}"` : "";
-  return `<button class="key ${cls}" data-key="${esc(action ?? label)}"${aria}>${svg ? label : `<span>${esc(label)}</span>`}</button>`;
+  // the decimal point gives a comma on a long press
+  const alt = (action ?? label) === "." ? '<small class="alt" aria-hidden="true">,</small>' : "";
+  return `<button class="key ${cls}${alt ? " has-alt" : ""}" data-key="${esc(action ?? label)}"${aria}>${svg ? label : `<span>${esc(label)}</span>`}${alt}</button>`;
 }
 
 const actionsHTML = (page) => `<div class="actions" style="--n:${ACTIONS[page].length}">${ACTIONS[page].map(keyHTML).join("")}</div>`;
@@ -8508,6 +8592,7 @@ function keyAction(k) {
     case "+": case "-": case "*": case "/": case "^": insertOp(k); break;
     case "EE": insert(/[\d.]$/.test(before()) ? "e" : "1e"); break;
     case "±": insert("±"); break;
+    case ",": insertComma(); break;
     case "shift": state.shift = state.shift === 0 ? 1 : 0; renderAbc(); break;
     case "nist":
       sheetBody._tab = "Constants";
@@ -8663,6 +8748,14 @@ keypadEl.addEventListener("pointerdown", (ev) => {
     held = true;   // the click must not delete again
     clearInterval(repeatTimer);
     repeatTimer = setTimeout(() => { repeatTimer = setInterval(backspace, 70); }, 420);
+    return;
+  }
+  if (b.dataset.key === ".") {
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => {
+      held = true;
+      insertComma();
+    }, 400);
     return;
   }
   if (b.dataset.key === "shift") {
@@ -9631,8 +9724,8 @@ const HELP = [
     ["solve(x^2 = 2, x)", ""], ["solve(D_L(z) = 1 Gpc, z, 0, 5)", "redshift at 1 Gpc"], ["solve(age(z) = 1 Gyr, z, 1)", ""], ["solve(cos(x) = x, x, 0, 1)", ""],
     ["integrate(exp(-x^2), x, -inf, inf)", "√π"], ["integrate(9.81 m/s^2, t, 0 s, 2 s)", ""], ["diff(age(z), z, 1) @ Gyr", ""], ["diff(x^3, x, 2)", ""],
   ]],
-  ["Lists and tables", "A list is written in parentheses, or made with linspace and logspace. Arithmetic, units, @ and functions apply to each value; sum, mean, len, min and max take the whole list. A list of lists is shown as a table, one column per list. Tap a value to insert it; long-press to copy as CSV.", [
-    ["z = (0.1, 0.5, 1, 2)", ""], ["D_L(z) @ Gpc", ""], ["(z, D_L(z) @ Gpc, age(z))", "a table"], ["linspace(0 m, 10 m, 6)", ""], ["logspace(1, 1000, 4)", ""], ["sum((3, 4, 5) kg)", ""],
+  ["Lists and tables", "A list is written in parentheses, or made with linspace and logspace. Arithmetic, units, @ and functions apply to each value; sum, mean, len, min and max take the whole list. sum(f(k), k, a, b) adds f over k = a, a + 1, …, b. A list of lists is shown as a table, one column per list. Tap a value to insert it; long-press to copy as CSV.", [
+    ["z = (0.1, 0.5, 1, 2)", ""], ["D_L(z) @ Gpc", ""], ["(z, D_L(z) @ Gpc, age(z))", "a table"], ["linspace(0 m, 10 m, 6)", ""], ["logspace(1, 1000, 4)", ""], ["sum((3, 4, 5) kg)", ""], ["sum(1/k^2, k, 1, 1000)", "≈ π²/6"], ["sum(2^k / factorial(k), k, 0, 20)", "≈ e²"],
   ]],
   ["Vectors", "A vector is a list of components with compatible units. Arithmetic is per component; dot, cross, norm and angle take whole vectors. On the f(x) Lists keys.", [
     ["F = (3, 4, 0) N", ""], ["d = (2, 0, 1) m", ""], ["dot(F, d)", "work"], ["cross(d, F)", "torque"], ["norm(F)", ""], ["angle(F, d) @ deg", ""],
