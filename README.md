@@ -11,6 +11,11 @@ Open `index.html` from any web server. Served over HTTPS (for example
 GitHub Pages) it can be installed with **Add to Home Screen** and then
 works offline. Exchange rates are refreshed daily when online.
 
+The scripts are ES modules, so the page does not work when opened as a
+local file. To try it locally, run `python3 -m http.server 8000` in this
+folder and open `http://localhost:8000/` (use Shift-reload after editing,
+as the service worker serves the cached copy first).
+
 ## Publishing on GitHub Pages
 
 1. Create a new public repository (e.g. `imks-units`).
@@ -20,5 +25,6 @@ works offline. Exchange rates are refreshed daily when online.
    Branch: `main`, folder `/ (root)` → Save.
 4. After a minute the app is at `https://<user>.github.io/imks-units/`.
 
-To publish a new version, replace `index.html` and bump `CACHE` in `sw.js`
+To publish a new version, upload the changed files (`index.html`,
+`styles.css`, `js/`) and bump `CACHE` in `sw.js`
 (e.g. `imks-v2`) so installed copies pick it up.
