@@ -1635,10 +1635,14 @@ function calcSum(env, f, limits, name) {
 //   − f′(N)/12 + …, which needs f between whole numbers; N = 500 and 1000
 //   must agree;
 // - alternating terms (or if that fails): Levin's u transform of the
-//   partial sums, at the order where successive orders agree best.
+//   partial sums, at the order where successive orders agree best;
+// - signs that change irregularly, as sin(k)/k (or if that fails): Wynn's
+//   ε algorithm on the partial sums, where neighbouring estimates agree.
 // Terms that do not decrease (as k^−1 for terms of one sign) diverge.
-// Errors propagate: the integral and derivative carry them, and the Levin
-// weights (from nominal values) combine the partial sums as quantities.
+// Errors propagate: the integral and derivative carry them, the Levin
+// weights (from nominal values) combine the partial sums as quantities,
+// and ε is differentiated along each error source (in Monte Carlo mode,
+// applied to every sample).
 const SUM_N = 1000;
 function sumToInf(env, t, a, name) {
   const vals = [], partial = [];
@@ -1651,7 +1655,7 @@ function sumToInf(env, t, a, name) {
     if (!isFinite(v)) throw fail(`the term at ${a + i} is not finite`);
     s = s === null ? q : env.add(s, q);
     vals.push(v);
-    if (i < 40) partial.push(s);
+    if (i < 60) partial.push(s);
     // fast convergence: the last 10 ratios at most 0.9, the term negligible
     if (i >= 10 && Math.abs(v) <= EPS * Math.abs(s.x.n) / 8) {
       let fast = true;
@@ -1659,9 +1663,10 @@ function sumToInf(env, t, a, name) {
       if (fast || vals.slice(i - 9).every((x) => x === 0)) return s;
     }
   }
-  // the decay of the terms, as a power of k, from k − a = 250 to 1000
-  const at = (i) => Math.abs(vals[i - 1]);
-  const decay = Math.log(at(250) / at(SUM_N)) / Math.log((a + SUM_N + 1) / (a + 251));
+  // the decay of the terms, as a power of k, from k − a ≈ 250 to 950 (the
+  // mean size of the terms near there, for terms that oscillate)
+  const top = (i) => vals.slice(i - 50, i + 50).reduce((t, v) => t + Math.abs(v), 0);
+  const decay = Math.log(top(250) / top(SUM_N - 50)) / Math.log((a + SUM_N - 50) / (a + 250));
   const tail = vals.slice(SUM_N / 2);
   const oneSign = tail.every((v) => v > 0) || tail.every((v) => v < 0);
   const alternating = tail.every((v, i) => !i || sgn(v) * sgn(tail[i - 1]) < 0);
@@ -1686,12 +1691,21 @@ function sumToInf(env, t, a, name) {
     } catch (e) {
       if (!(e instanceof CalcError || e instanceof UnitError)) throw e;
     }
-  } else if (!alternating) {
-    throw fail("the terms change sign irregularly; only terms of one sign, or alternating ones, can be summed to infinity");
   }
+  if (oneSign || alternating) {
+    const r = levinSum(env, vals, partial);
+    if (r) return r;
+  }
+  const r = epsSum(env, partial);
+  if (r) return r;
+  throw fail("no convergence (the sum may diverge)");
+}
 
-  // Levin u transform: L = Σ w_j s_j with w_j ∝ (−1)^j C(k, j) ((1 + j)/(1 + k))^(k−1) / ω_j,
-  // ω_j = (1 + j) t_j
+
+// Levin u transform of the partial sums (quantities) of the terms vals:
+// L = Σ w_j s_j with w_j ∝ (−1)^j C(k, j) ((1 + j)/(1 + k))^(k−1) / ω_j,
+// ω_j = (1 + j) t_j; null if no order converges
+function levinSum(env, vals, partial) {
   const levin = (k) => {
     const w = [];
     let c = 1, sum = 0;
@@ -1717,16 +1731,71 @@ function sumToInf(env, t, a, name) {
     prev = cur;
   }
   const scale = Math.max(...partial_n.slice(0, 31).map(Math.abs));
-  if (!best || !(best.d <= 1e-9 * scale)) throw fail("no convergence (the sum may diverge)");
+  if (!best || !(best.d <= 1e-9 * scale)) return null;
   return best.w.map((w, j) => env.mul(partial[j], new Q(w))).reduce((x, y) => env.add(x, y));
+}
+
+// Wynn's ε algorithm: E[c + 1][n] is ε_c of S_n … S_(n+c), an estimate of
+// the limit for even c
+function epsTable(S, cmax) {
+  const E = [new Array(S.length + 1).fill(0), S.slice()];
+  for (let c = 1; c <= Math.min(cmax, S.length - 1); c++) {
+    const prev = E[c - 1], cur = E[c], next = [];
+    for (let n = 0; n + 1 < cur.length; n++) next.push(prev[n + 1] + 1 / (cur[n + 1] - cur[n]));
+    E.push(next);
+  }
+  return E;
+}
+
+// The limit of the partial sums (quantities) by ε, where the neighbouring
+// estimates agree best; null if none agree well enough
+function epsSum(env, partial) {
+  const S = partial.map((q) => q.x.n), CMAX = 24;
+  const E = epsTable(S, CMAX);
+  let best = null;
+  for (let c = 2; c + 1 < E.length; c += 2) {
+    const col = E[c + 1], lower = E[c - 1];
+    for (let n = 1; n < col.length; n++) {
+      const v = col[n];
+      const err = Math.max(Math.abs(v - col[n - 1]), Math.abs(v - lower[n + 1]), Math.abs(v - lower[n + 2]));
+      if (isFinite(v) && err < (best ? best.err : Infinity)) best = { v, err, c, n };
+    }
+  }
+  const scale = Math.max(...S.map(Math.abs));
+  if (!best || !(best.err <= 1e-9 * scale)) return null;
+  // the same estimate of other partial sums: for the errors
+  const { c, n } = best;
+  const at = (xs) => epsTable(xs.slice(n, n + c + 1), c)[c + 1][0];
+  const last = partial[n + c];
+  let cmap = null;
+  const ids = new Set(partial.slice(n, n + c + 1).flatMap((q) => (q.x.c ? [...q.x.c.keys()] : [])));
+  for (const id of ids) {
+    const d = S.map((_, j) => (partial[j].x.c && partial[j].x.c.get(id)) || 0);
+    const size = Math.max(...d.map(Math.abs));
+    if (!size) continue;
+    const eta = 1e-6 * scale / size;
+    const g = (at(S.map((x, j) => x + eta * d[j])) - at(S.map((x, j) => x - eta * d[j]))) / (2 * eta);
+    if (isFinite(g)) (cmap = cmap || new Map()).set(id, g);
+  }
+  let samples = null;
+  const ss = MC.on ? partial.map((q) => q.x.samples()) : [];
+  if (ss.some(Boolean)) {
+    samples = new Float64Array(MC.N);
+    for (let i = 0; i < MC.N; i++) {
+      const v = at(S.map((x, j) => (ss[j] ? ss[j][i] : x)));
+      samples[i] = isFinite(v) ? v : best.v;
+    }
+  }
+  return new Q(new UNum(best.v, cmap, samples), last.d, last.zero, last.show);
 }
 
 // limit(f(x), x, x0): the limit for x → x0, from both sides; limit(f(x),
 // x, x0, 1) from above, limit(f(x), x, x0, -1) from below; x0 can be ±inf.
 // f is evaluated at x0 ± h for h = h0/2^i (at ±2^i towards ±inf) and
 // extrapolated to h = 0 by Richardson's method (as for a series in h), as
-// long as rounding has not taken over, and by Wynn's ε algorithm (for
-// powers of h that are not whole, and logarithms); the estimate whose
+// long as rounding has not taken over, by Wynn's ε algorithm (for powers
+// of h that are not whole), and as a polynomial in 1/i (for values that
+// settle as slowly as 1/log h); the estimate whose
 // neighbours in the tables agree best is taken. The Richardson weights
 // (from the nominal values) combine the values as quantities, so errors
 // propagate; an ε estimate takes the errors of the value closest to the
@@ -1756,6 +1825,10 @@ function calcLimit(env, f, limits, name) {
   if (!up.defined && !down.defined) throw up.error || down.error || new CalcError(`${name}: the expression is not defined near the point`);
   if (!up.defined) return down.q;
   if (!down.defined) return up.q;
+  if (up.v === down.v && !isFinite(up.v)) return up.q;
+  if (!isFinite(up.v) || !isFinite(down.v)) {
+    throw new CalcError(`${name}: the limits from the two sides differ: ${env.format(down.q)} from below, ${env.format(up.q)} from above`);
+  }
   const tol = Math.max(1e3 * (up.err + down.err), 1e-8 * Math.max(Math.abs(up.v), Math.abs(down.v)));
   if (!(Math.abs(up.v - down.v) <= tol)) {
     throw new CalcError(`${name}: the limits from the two sides differ: ${env.format(down.q)} from below, ${env.format(up.q)} from above`);
@@ -1765,9 +1838,9 @@ function calcLimit(env, f, limits, name) {
 
 // The limit of the values at(0), at(1), … (at(i) is null when the steps
 // are too small): {q, v, err, defined}
-function oneSide(env, at, name, which) {
+function oneSide(env, at, name, which, inverse = false) {
   const COLS = 8, ROWS = 60;
-  const qs = [], T = [], W = [];
+  const qs = [], T = [], W = [], P = [], PW = [];
   let best = null, start = 0, error = null;
   // an estimate is good when its error is small against the values it
   // combines, or (a limit 0) when those values are negligible against the
@@ -1778,7 +1851,7 @@ function oneSide(env, at, name, which) {
     let win = 0, last = 0, pre = 0;
     for (const m of e.w.keys()) { win = Math.max(win, mag(m)); last = Math.max(last, m); }
     for (let m = 0; m <= last; m++) pre = Math.max(pre, mag(m));
-    e.zero = win <= 1e-10 * pre && e.err <= 1e-10 * pre;
+    e.zero = (win <= 1e-10 * pre && e.err <= 1e-10 * pre) || (Math.abs(e.v) <= 1e-12 * pre && e.err <= 1e-8 * Math.max(win, Math.abs(e.v)));
     return e.err <= 1e-8 * Math.max(Math.abs(e.v), win) || e.zero;
   };
   for (let i = 0; i < ROWS; i++) {
@@ -1794,7 +1867,7 @@ function oneSide(env, at, name, which) {
     if (q !== undefined && !(q instanceof Q)) throw new CalcError(`${name}: the expression is not a quantity`);
     if (q === undefined || !isFinite(q.x.n)) {
       // not defined here: a fresh table from the next value on
-      qs.push(null); T.push(null); W.push(null);
+      qs.push(null); T.push(null); W.push(null); P.push(null); PW.push(null);
       start = i + 1;
       continue;
     }
@@ -1816,6 +1889,24 @@ function oneSide(env, at, name, which) {
     }
     T.push(row);
     W.push(wrow);
+    // polynomial extrapolation in u = 1/(i + 1), to u = 0 (Neville), for
+    // values that settle as a series in 1/i, as 1/log(h) does
+    const prow = [q.x.n], pwrow = [new Map([[i, 1]])];
+    for (let j = 1; j <= Math.min(i - start, 12); j++) {
+      const um = 1 / (i - j + 1), un = 1 / (i + 1), a = prow[j - 1], b = P[i - 1][j - 1];
+      // P(0) = (u_m P_(m+1..n) − u_n P_(m..n−1)) / (u_m − u_n)
+      const ca = um / (um - un), cb = -un / (um - un);
+      prow.push(ca * a + cb * b);
+      const w = new Map();
+      for (const [m, c] of pwrow[j - 1]) w.set(m, c * ca);
+      for (const [m, c] of PW[i - 1][j - 1]) w.set(m, (w.get(m) || 0) + c * cb);
+      pwrow.push(w);
+      const up = j < P[i - 1].length ? Math.abs(prow[j] - P[i - 1][j]) : Infinity;
+      const err = Math.max(Math.abs(prow[j] - prow[j - 1]), Math.abs(prow[j] - b), up);
+      if (!best || err < best.err) best = { v: prow[j], w, err };
+    }
+    P.push(prow);
+    PW.push(pwrow);
     // rounding has taken over: the table no longer improves
     if (rowErr > 1e3 * best?.err && good(best)) break;
   }
@@ -1850,6 +1941,24 @@ function oneSide(env, at, name, which) {
   }
   const from = which ? ` from ${which}` : "";
   if (!good(best)) {
+    // f → ±∞ where 1/f → 0 and f keeps its sign
+    if (!inverse) {
+      let r = null;
+      try {
+        r = oneSide(env, (i) => { const q = at(i); return q instanceof Q ? env.div(new Q(1), q) : q; }, name, which, true);
+      } catch (e) {
+        if (!(e instanceof CalcError || e instanceof UnitError)) throw e;
+      }
+      if (r && r.defined && r.v === 0) {
+        const tail = qs.filter(Boolean).slice(-10).map((q) => sgn(q.x.n));
+        const last = qs.filter(Boolean).at(-1);
+        if (tail.every((x) => x === tail[0]) && tail[0]) {
+          const v = tail[0] * Infinity;
+          return { q: new Q(new UNum(v), last.d, last.zero, last.show), v, err: 0, defined: true };
+        }
+        throw new CalcError(`${name}: no limit${from}: the expression grows without bound, with changing sign`);
+      }
+    }
     throw new CalcError(`${name}: no limit found${from} (the expression may diverge or oscillate)`);
   }
   let q;
