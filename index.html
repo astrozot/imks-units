@@ -259,6 +259,65 @@ button:focus-visible, .expr:focus-visible { outline: 2px solid var(--accent); ou
 .entry .list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding-top: 4px; }
 .entry .in, .entry .out { border-radius: 8px; margin: 0 -6px; padding-left: 6px; padding-right: 6px; cursor: pointer; }
 .entry .in:active, .entry .out:active { background: var(--surface-2); }
+
+/* Tables (list results) */
+.entry .out.tbl { font-size: 15px; line-height: 1.3; }
+.entry .out.tbl:active { background: none; }
+.entry .tbl-head { display: flex; justify-content: flex-end; align-items: baseline; gap: 6px; }
+.entry .tbl-head:empty { display: none; }
+.entry .tbl-head .rid { float: none; margin-right: auto; line-height: 1.3; }
+.tbl-wrap {
+  max-width: 100%;
+  max-height: clamp(170px, 30vh, 420px);
+  overflow: auto;
+  margin-left: auto;
+  width: fit-content;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+table.vals { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.vals th, table.vals td { padding: 5px 10px; text-align: right; border-bottom: 1px solid var(--line); }
+table.vals tr:last-child td { border-bottom: 0; }
+table.vals th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--surface-2); color: var(--muted);
+  font-weight: 500; font-size: 13px; vertical-align: bottom;
+}
+table.vals th .h { display: block; color: var(--text); font-family: var(--mono); font-size: 13px; white-space: normal; max-width: 10em; margin-left: auto; overflow-wrap: anywhere; }
+table.vals th .u { display: block; color: var(--unit); }
+table.vals .ix { position: sticky; left: 0; background: var(--surface-2); color: var(--muted); font-size: 12px; padding: 5px 6px; text-align: center; }
+table.vals th.ix { z-index: 2; }
+table.vals td[data-v] { cursor: pointer; }
+table.vals td[data-v]:active { background: var(--surface-2); }
+.entry .tbl-more { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+
+/* Plots */
+.entry .out.plot { text-align: left; font-size: 14px; line-height: 1.35; cursor: default; }
+.entry .out.plot:active { background: none; }
+.plot-svg {
+  display: block; width: 100%; max-width: 560px; height: auto; margin: 0 auto;
+  touch-action: pan-y; font-family: inherit; overflow: visible;
+}
+.plot-svg .grid line { stroke: var(--line); stroke-width: 1; }
+.plot-svg .frame { fill: none; stroke: var(--muted); stroke-opacity: 0.5; stroke-width: 1; }
+.plot-svg .curves path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.plot-svg .bands path { fill-opacity: 0.18; stroke: none; }
+.plot-svg text { font-size: 12px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.plot-svg .axis-label { fill: var(--text); font-size: 12.5px; }
+.plot-svg .cursor line { stroke: var(--text); stroke-opacity: 0.45; stroke-width: 1; }
+.plot-svg .cursor circle { stroke: var(--surface); stroke-width: 1.5; }
+.plot-legend { display: flex; flex-wrap: wrap; gap: 2px 14px; max-width: 560px; margin: 2px auto 0; }
+.plot-bar { display: flex; align-items: center; gap: 6px; max-width: 560px; margin: 4px auto 0; }
+.plot-bar .chip { font-size: 13px; padding: 4px 10px; min-height: 30px; }
+.plot-bar .chip.on { background: var(--accent-soft); color: var(--accent-ink); }
+.out.plot .lg { display: inline-flex; align-items: center; gap: 5px; }
+.out.plot .lg i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+.out.plot .lg math { font-size: 15px; }
+.plot-read { flex: 1; min-width: 0; color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.plot-read .u { color: var(--unit); }
+.preview .lp { color: var(--muted); font-size: 0.8em; }
 .entry .flash { animation: flash 0.5s ease; }
 @keyframes flash { from { background: var(--accent-soft); } }
 .hist-hint { color: var(--faint); font-size: 12.5px; text-align: center; padding: 4px 0 8px; }
@@ -1128,6 +1187,16 @@ function newSourceId() {
   return nextId++;
 }
 
+// The next source id, and a way to rewind it: an expression evaluated
+// many times (by solve, integrate, diff) then reuses the same sources.
+function sourceMark() {
+  return nextId;
+}
+
+function sourceReset(id) {
+  nextId = id;
+}
+
 // small deterministic generator
 function rng(seed) {
   let a = seed >>> 0;
@@ -1481,7 +1550,7 @@ function formatAsym(u, threshold = 0.1) {
   return { val: f(st.med), plus: f(ep), minus: f(em), exp: scaleExp };
 }
 
-return { MC, newSourceId, rng, normInv, lhsUniform, mcConfigure, mcStats, UNum, ufuncs, atan2, gamma, formatNumber, formatUNum, formatAsym };
+return { MC, newSourceId, sourceMark, sourceReset, rng, normInv, lhsUniform, mcConfigure, mcStats, UNum, ufuncs, atan2, gamma, formatNumber, formatUNum, formatAsym };
 })();
 
 __m["units"] = (() => {
@@ -2384,8 +2453,8 @@ __m["interp"] = (() => {
 // The imks expression language: tokenizer, parser, evaluator and the
 // %commands used in definition files.
 
-const { UNum, ufuncs, atan2, formatUNum, newSourceId } = __m["unum"];
-const { Env, Q, UnitError, dimEq, dimScale, symbolSource } = __m["units"];
+const { UNum, ufuncs, atan2, formatUNum, newSourceId, MC, sourceMark, sourceReset } = __m["unum"];
+const { Env, Q, UnitError, dimEq, dimScale, dimIsZero, symbolSource } = __m["units"];
 
 class CalcError extends Error {
   constructor(msg) {
@@ -2694,9 +2763,16 @@ function parse(src, env) {
       if (at("(") && node.t === "name") {
         next();
         const args = [];
+        // an argument can be an equation, as in solve(x^2 = 2, x)
+        const arg = () => {
+          const a = expr();
+          if (!at("=")) return a;
+          next();
+          return { t: "eq", a, b: expr() };
+        };
         if (!at(")")) {
-          args.push(expr());
-          while (at(",")) { next(); args.push(expr()); }
+          args.push(arg());
+          while (at(",")) { next(); args.push(arg()); }
         }
         expect(")");
         node = { t: "call", f: node.v, args };
@@ -2829,7 +2905,68 @@ const functionDocs = {
   hypot: "Square root of the sum of squares", gamma: "Gamma function",
   factorial: "Factorial", fraction: "fraction(a, b) = a/b",
   nominal: "Nominal value, without uncertainty", err: "Standard deviation (uncertainty)",
+  solve: "Root of an equation in x: solve(f(x) = y, x, guess) or solve(f(x) = y, x, a, b)",
+  integrate: "Definite integral over x: integrate(f(x), x, a, b); a or b can be ±inf",
+  diff: "Derivative with respect to x at x0: diff(f(x), x, x0)",
 };
+
+Object.assign(functionDocs, {
+  linspace: "List of n equally spaced values from a to b: linspace(a, b, n)",
+  logspace: "List of n values from a to b in equal ratios: logspace(a, b, n)",
+  sum: "Sum of a list: sum(list)",
+  mean: "Mean of a list: mean(list)",
+  len: "Number of values in a list: len(list)",
+  dot: "Scalar product of two vectors: dot(a, b)",
+  cross: "Vector product of two 3-vectors: cross(a, b)",
+  norm: "Length of a vector: norm(v)",
+  angle: "Angle between two vectors, in rad: angle(a, b)",
+  plot: "Plot: plot(f(x), x, a, b), plot(ys) or plot(xs, ys); a tuple of expressions or lists gives several curves",
+});
+
+// solve, integrate, diff and plot see their first argument as an
+// expression in the variable named by the second one, so their arguments
+// are not evaluated in advance (plot only in the form plot(f(x), x, a, b))
+const CALCULUS = new Set(["solve", "integrate", "diff", "plot"]);
+const isCalculus = (node) => CALCULUS.has(node.f) &&
+  (node.f !== "plot" || (node.args.length === 4 && node.args[1].t === "name"));
+
+// built-in functions that take whole lists; the others apply elementwise
+const LIST_FNS = new Set(["sum", "mean", "len", "min", "max", "linspace", "logspace", "plot", "hypot", "dot", "cross", "norm", "angle"]);
+
+// f applied elementwise where args are lists (several lists must have the
+// same length); nested lists are tables
+function broadcast(f, args) {
+  let n = -1;
+  for (const a of args) {
+    if (!Array.isArray(a)) continue;
+    if (n >= 0 && a.length !== n) throw new CalcError(`Lists of different lengths: ${n} and ${a.length}`);
+    n = a.length;
+  }
+  if (n < 0) return f(...args);
+  return Array.from({ length: n }, (_, i) => broadcast(f, args.map((a) => (Array.isArray(a) ? a[i] : a))));
+}
+
+// what plot returns: the x values and one list of y values per curve, as
+// quantities; heads are the expressions of the curves (nodes) when known
+class PlotData {
+  constructor(xs, series, { heads = null, xname = "" } = {}) {
+    this.xs = xs;
+    this.series = series;
+    this.heads = heads;
+    this.xname = xname;
+  }
+}
+
+// a list of quantities, or of lists of them (a table)
+const isQList = (v) => v.length > 0 && v.every((x) => x instanceof Q || (Array.isArray(x) && isQList(x)));
+
+// thrown by the expression of solve, integrate or diff when it gives a list
+class ListValue extends Error {
+  constructor(n) {
+    super("list");
+    this.n = n;
+  }
+}
 
 class Interpreter {
   constructor() {
@@ -2860,16 +2997,109 @@ class Interpreter {
       env.checkCompatible(y, x, "atan2");
       return new Q(atan2(y.relative().x, x.relative().x));
     };
-    b.hypot = (...xs) => {
+    // lists: min(list), or elementwise min(list, 0)
+    const values = (fn, xs) => {
+      if (xs.length !== 1 || !Array.isArray(xs[0])) throw new CalcError(`${fn} expects one list`);
+      if (!xs[0].length) throw new CalcError(`${fn}: the list is empty`);
+      if (xs[0].some(Array.isArray)) throw new CalcError(`${fn}: expected a list of values, not a table`);
+      return xs[0];
+    };
+    // hypot(x, y, …) or hypot(list), the length of a vector
+    const hypot = (...xs) => {
       let s = env.mul(xs[0], xs[0]);
       for (const x of xs.slice(1)) s = env.add(s, env.mul(x, x));
       return b.sqrt(s);
     };
-    b.min = (...xs) => xs.reduce((a, c) => (env.compare(c, a) < 0 ? c : a));
-    b.max = (...xs) => xs.reduce((a, c) => (env.compare(c, a) > 0 ? c : a));
+    b.hypot = (...xs) => (xs.length === 1 && Array.isArray(xs[0]) ? hypot(...values("hypot", xs)) : broadcast(hypot, xs));
+
+    // vectors: lists of components with compatible units
+    const vec = (fn, v, n = 0) => {
+      if (!Array.isArray(v) || v.some(Array.isArray)) throw new CalcError(`${fn}: expected vectors, as (1, 2, 3) m`);
+      if (!v.length) throw new CalcError(`${fn}: the vector is empty`);
+      if (n && v.length !== n) throw new CalcError(`${fn}: expected vectors of ${n} components, got ${v.length}`);
+      for (const c of v) env.checkCompatible(c, v[0], fn);
+      return v;
+    };
+    const pair = (fn, xs, n = 0) => {
+      if (xs.length !== 2) throw new CalcError(`${fn} expects two vectors`);
+      const [a, c] = [vec(fn, xs[0], n), vec(fn, xs[1], n)];
+      if (a.length !== c.length) throw new CalcError(`${fn}: vectors of different lengths: ${a.length} and ${c.length}`);
+      return [a, c];
+    };
+    const dot = (a, c) => a.map((x, i) => env.mul(x, c[i])).reduce((s, t) => env.add(s, t));
+    const cross = (a, c) => [[1, 2], [2, 0], [0, 1]].map(([i, j]) => env.sub(env.mul(a[i], c[j]), env.mul(a[j], c[i])));
+    b.dot = (...xs) => dot(...pair("dot", xs));
+    b.cross = (...xs) => cross(...pair("cross", xs, 3));
+    b.norm = (...xs) => {
+      if (xs.length !== 1) throw new CalcError("norm expects one vector");
+      return hypot(...vec("norm", xs[0]));
+    };
+    // atan2(|a × c|, a · c), accurate also for nearly parallel vectors
+    b.angle = (...xs) => {
+      const [a, c] = pair("angle", xs);
+      const d = dot(a, c);
+      let s;
+      if (a.length === 3) s = hypot(...cross(a, c));
+      else if (a.length === 2) s = b.abs(env.sub(env.mul(a[0], c[1]), env.mul(a[1], c[0])));
+      else {
+        // Lagrange's identity: |a × c|² = |a|² |c|² − (a · c)²
+        const s2 = env.sub(env.mul(dot(a, a), dot(c, c)), env.mul(d, d));
+        s = b.sqrt(s2.x.n < 0 ? env.mul(s2, new Q(0)) : s2);
+      }
+      return b.atan2(s, d);
+    };
+    const extreme = (fn, sgn) => (...xs) => {
+      const pick = (...ys) => ys.reduce((a, c) => (env.compare(c, a) * sgn > 0 ? c : a));
+      if (xs.length === 1 && Array.isArray(xs[0])) return pick(...values(fn, xs));
+      return broadcast(pick, xs);
+    };
+    b.min = extreme("min", -1);
+    b.max = extreme("max", 1);
+    b.sum = (...xs) => values("sum", xs).reduce((a, c) => env.add(a, c));
+    b.mean = (...xs) => env.div(b.sum(...xs), new Q(xs[0].length));
+    b.len = (...xs) => {
+      if (xs.length !== 1 || !Array.isArray(xs[0])) throw new CalcError("len expects one list");
+      return new Q(xs[0].length);
+    };
+    const count = (fn, n) => {
+      if (Array.isArray(n)) throw new CalcError(`${fn}: the number of values must be a number`);
+      const k = env.checkPure(n, `${fn} (n)`).n;
+      if (!(Number.isInteger(k) && k >= 2 && k <= 10000)) throw new CalcError(`${fn}: n must be a whole number from 2 to 10000`);
+      return k;
+    };
+    const ends = (fn, a, c) => {
+      if (Array.isArray(a) || Array.isArray(c) || !(a instanceof Q) || !(c instanceof Q)) throw new CalcError(`Usage: ${functionDocs[fn].replace(/^[^:]*:\s*/, "")}`);
+      env.checkCompatible(a, c, fn);
+    };
+    b.linspace = (a, c, n) => {
+      ends("linspace", a, c);
+      const k = count("linspace", n), w = env.sub(c, a);
+      return Array.from({ length: k }, (_, i) => (i === k - 1 ? c : env.add(a, env.mul(w, new Q(i / (k - 1))))));
+    };
+    b.logspace = (a, c, n) => {
+      ends("logspace", a, c);
+      const k = count("logspace", n), r = env.div(c, a);
+      if (!(env.checkPure(r, "logspace").n > 0)) throw new CalcError("logspace: a and b must have the same sign and not be zero");
+      return Array.from({ length: k }, (_, i) => (i === k - 1 ? c : env.mul(a, env.pow(r, new Q(i / (k - 1))))));
+    };
+    // plot(ys) or plot(xs, ys); plot(f(x), x, a, b) is evaluated in calculus
+    b.plot = (...xs) => {
+      if (xs.length < 1 || xs.length > 2) throw new CalcError(`Usage: ${functionDocs.plot.replace(/^[^:]*:\s*/, "")}`);
+      const ys = xs.at(-1);
+      if (!Array.isArray(ys)) throw new CalcError("plot: give lists of values, or plot(f(x), x, a, b)");
+      const series = ys.some(Array.isArray) ? ys.map((s) => (Array.isArray(s) ? s : [s])) : [ys];
+      const n = series[0].length;
+      if (series.some((s) => s.length !== n)) throw new CalcError("plot: the curves have different lengths");
+      const x = xs.length === 2 ? xs[0] : Array.from({ length: n }, (_, i) => new Q(i + 1));
+      if (!Array.isArray(x) || x.some(Array.isArray)) throw new CalcError("plot: the x values must be a list");
+      if (x.length !== n) throw new CalcError(`plot: ${x.length} x values for ${n} y values`);
+      return makePlot(env, x, series.map((s) => s.map((q) => (q instanceof Q && isFinite(q.x.n) ? q : null))), {});
+    };
     b.fraction = (a, c) => env.div(a, c);
     b.nominal = (a) => new Q(a.x.nominal(), a.d, a.zero);
     b.err = (a) => new Q(new UNum(a.x.std), a.d);
+    // evaluated in evalNode; listed here for help and suggestions
+    for (const f of CALCULUS) b[f] = b[f] || (() => { throw new CalcError(`Usage: ${functionDocs[f].replace(/^[^:]*:\s*/, "")}`); });
     return b;
   }
 
@@ -2900,8 +3130,11 @@ class Interpreter {
     const asQ = (v) => {
       if (v instanceof Q) return v;
       if (typeof v === "number") return new Q(v);
+      if (Array.isArray(v)) throw new CalcError("Expected a quantity, not a list");
       throw new CalcError("Expected a quantity");
     };
+    // a quantity, or a list of them (possibly nested)
+    const val = (v) => (Array.isArray(v) ? v.map(val) : asQ(v));
     switch (node.t) {
       case "num":
         return new Q(node.x);
@@ -2918,49 +3151,57 @@ class Interpreter {
           if (typeof key !== "string") throw new CalcError("Constant names are strings");
           return target.get(key);
         }
-        return env.mul(asQ(target), env.unit(node.raw));
+        const u = env.unit(node.raw);
+        return broadcast((t) => env.mul(t, u), [val(target)]);
       }
-      case "un": {
-        const a = asQ(ev(node.a));
-        if (node.op === "-") return env.neg(a);
-        if (node.op === "~") return env.tilde(a);
-        return a;
-      }
-      case "bin": {
-        const a = asQ(ev(node.a)), b = asQ(ev(node.b));
-        switch (node.op) {
-          case "+": return env.add(a, b);
-          case "-": return env.sub(a, b);
-          case "*": return env.mul(a, b);
-          case "/": return env.div(a, b);
-          case "^": return env.pow(a, b);
-          case "±": {
-            env.checkCompatible(a, b, "±");
-            return new Q(a.x.add(UNum.uncertain(0, b.relative().x.n)), a.d, a.zero);
+      case "un":
+        return broadcast((a) => {
+          if (node.op === "-") return env.neg(a);
+          if (node.op === "~") return env.tilde(a);
+          return a;
+        }, [val(ev(node.a))]);
+      case "bin":
+        return broadcast((a, b) => {
+          switch (node.op) {
+            case "+": return env.add(a, b);
+            case "-": return env.sub(a, b);
+            case "*": return env.mul(a, b);
+            case "/": return env.div(a, b);
+            case "^": return env.pow(a, b);
+            case "±": {
+              env.checkCompatible(a, b, "±");
+              return new Q(a.x.add(UNum.uncertain(0, b.relative().x.n)), a.d, a.zero);
+            }
           }
-        }
-        break;
-      }
+          throw new CalcError("Cannot evaluate expression");
+        }, [val(ev(node.a)), val(ev(node.b))]);
+      case "eq":
+        throw new CalcError("An equation (=) can only be an argument of solve");
       case "call": {
+        if (isCalculus(node) && !(scope && scope.has(node.f)) && !(env.vars.get(node.f) || {}).fn) {
+          return this.calculus(node, scope);
+        }
         const args = node.args.map(ev);
         let f = scope && scope.has(node.f) ? scope.get(node.f) : env.vars.get(node.f);
-        if (f && f.fn) return this.callUser(f.fn, args.map(asQ));
+        // user functions see lists as they are, and apply to them elementwise
+        // as far as their body does
+        if (f && f.fn) return this.callUser(f.fn, args.map(val));
         f = this.builtins[node.f];
         if (!f && args.length === 1 && !(scope && scope.has(node.f))) {
           // a value followed by parentheses multiplies: pi (2 m)^2
           let v = null;
           try { v = this.lookup(node.f, scope); } catch { v = null; }
-          if (v instanceof Q) return env.mul(v, asQ(args[0]));
+          if (v instanceof Q || Array.isArray(v)) return broadcast((a, b) => env.mul(a, b), [val(v), val(args[0])]);
         }
         if (!f) throw new CalcError(`Unknown function '${node.f}'`);
         if (!args.length) throw new CalcError(`${node.f} needs an argument`);
-        return f(...args.map(asQ));
+        if (LIST_FNS.has(node.f)) return f(...args.map(val));
+        return broadcast(f, args.map(val));
       }
       case "convert": {
-        const a = asQ(ev(node.a));
         const spec = splitSpec(node.spec);
         if (!spec.length) throw new CalcError("Missing unit after @");
-        return env.convert(a, spec);
+        return broadcast((a) => env.convert(a, spec), [val(ev(node.a))]);
       }
     }
     throw new CalcError("Cannot evaluate expression");
@@ -2976,6 +3217,72 @@ class Interpreter {
       return this.evalNode(fn.body, scope);
     } finally {
       this.depth--;
+    }
+  }
+
+  // solve, integrate, diff: the first argument is evaluated many times,
+  // with the variable named by the second one bound in a local scope
+  calculus(node, scope) {
+    const env = this.env;
+    const name = node.f;
+    const [body, v, ...rest] = node.args;
+    const [least, most] = { solve: [0, 2], integrate: [2, 2], diff: [1, 2], plot: [2, 2] }[name];
+    const usage = () => new CalcError(`Usage: ${functionDocs[name].replace(/^[^:]*:\s*/, "")}`);
+    if (!body || !v || v.t !== "name" || rest.length < least || rest.length > most) throw usage();
+    const expr = body.t === "eq" && name === "solve" ? { t: "bin", op: "-", a: body.a, b: body.b } : body;
+    const limits = rest.map((n) => {
+      const q = this.evalNode(n, scope);
+      if (!(q instanceof Q) && !(Array.isArray(q) && name !== "plot")) throw usage();
+      return q;
+    });
+    // the units the limits are written in, as in solve(…, x, 1 Gpc)
+    const spec = rest.map((n) => (n.t === "unit" ? n.raw : n.t === "convert" ? n.spec : null)).find(Boolean);
+    const shown = (q) => {
+      if (!spec) return q;
+      try { return env.convert(q, splitSpec(spec)); } catch { return q; }
+    };
+    // every evaluation reuses the same uncertainty sources, so that
+    // x (2 ± 0.1) is one uncertain factor at all points
+    const local = new Map(scope || []);
+    const id0 = sourceMark();
+    let idMax = id0, element = null;
+    const f = (x) => {
+      sourceReset(id0);
+      local.set(v.v, x);
+      try {
+        let r = this.evalNode(expr, local);
+        if (Array.isArray(r) && name !== "plot") {
+          // an expression giving a list is solved (integrated…) per element
+          if (element === null) throw new ListValue(r.length);
+          r = r[element];
+        }
+        const ok = (q) => q instanceof Q || (Array.isArray(q) && q.length && q.every((y) => y instanceof Q));
+        if (!ok(r)) throw new CalcError(`${name}: the expression is not a quantity`);
+        return r;
+      } finally {
+        idMax = Math.max(idMax, sourceMark());
+      }
+    };
+    const one = (...lims) => {
+      try {
+        return CALCULUS_FNS[name](env, f, lims, name);
+      } catch (e) {
+        if (!(e instanceof ListValue)) throw e;
+        const out = [];
+        for (element = 0; element < e.n; element++) out.push(CALCULUS_FNS[name](env, f, lims, name));
+        element = null;
+        return out;
+      }
+    };
+    try {
+      if (name === "plot") {
+        const tuple = body.t === "convert" ? body.a : body;
+        return calcPlot(env, f, limits, { heads: tuple.t === "tuple" ? tuple.items : [body], xname: v.v, shown });
+      }
+      const r = broadcast(one, limits);
+      return name === "solve" ? broadcast(shown, [r]) : r;
+    } finally {
+      sourceReset(Math.max(idMax, sourceMark()));
     }
   }
 
@@ -3021,6 +3328,7 @@ class Interpreter {
       if (!node) return { kind: "none" };
       if (node.t === "assign") {
         let v = this.evalNode(node.value);
+        if (v instanceof PlotData) throw new CalcError("A plot cannot be assigned to a variable");
         if (v instanceof Q && doc) v = v.withDoc(doc);
         this.env.vars.set(node.name, v);
         this.env.touch();
@@ -3032,8 +3340,9 @@ class Interpreter {
         return { kind: "info", title: `${node.name}(${node.params.join(", ")})`, text: "Function defined", define: true };
       }
       let v = this.evalNode(node);
-      if (v instanceof Q) {
-        if (doc) v = v.withDoc(doc);
+      if (v instanceof PlotData) return { kind: "plot", plot: v };
+      if (v instanceof Q || (Array.isArray(v) && isQList(v))) {
+        if (doc && v instanceof Q) v = v.withDoc(doc);
         this.env.vars.set("ans", v);
         return { kind: "value", q: v };
       }
@@ -3179,7 +3488,7 @@ class Interpreter {
     const env = this.env;
     name = name.trim();
     const out = [];
-    const fmt = (q) => env.format(q);
+    const fmt = (q) => (Array.isArray(q) ? "(" + q.map(fmt).join(", ") + ")" : env.format(q));
     if (env.systems.has(name)) {
       const s = env.systems.get(name);
       out.push({ title: `${name} — unit system`, text: (s.doc ? s.doc + "\n\n" : "") + "[" + s.args.join("|") + "]" });
@@ -3212,7 +3521,7 @@ class Interpreter {
         const val = v.lazy ? v.lazy() : v;
         out.push({
           title: `${name} — ${v.lazy ? "lazy variable" : "variable"}`,
-          text: ((val.doc || v.doc) ? (val.doc || v.doc) + "\n\n" : "") + (val instanceof Q ? fmt(val) : String(val)) +
+          text: ((val.doc || v.doc) ? (val.doc || v.doc) + "\n\n" : "") + (val instanceof Q || Array.isArray(val) ? fmt(val) : String(val)) +
             (v.lazy ? `\n\n= ${v.src}` : ""),
         });
       }
@@ -3241,11 +3550,401 @@ class Interpreter {
   }
 }
 
+// ---------------------------------------------------------------------
+// Calculus: solve, integrate, diff
+//
+// f(x) evaluates the expression for a quantity x. Bracketing, adaptive
+// subdivision and convergence use nominal values only (Monte Carlo off);
+// the result is then computed with quantities, so that the errors of the
+// limits and of everything in the expression propagate. In Monte Carlo
+// mode integrals and derivatives reuse the final nodes for every sample,
+// and solve finds the root of every sample.
+
+const EPS = Number.EPSILON;
+
+// The variable as plain numbers: u stands for new Q(u, d, zero), with the
+// dimensions and zero point of the limits; returns the limits as UNum
+function varFrame(env, qs, name) {
+  const finite = qs.filter((q) => isFinite(q.x.n));
+  const ref = finite.find((q) => q.x.n !== 0) || finite[0] || new Q(0);
+  const z = ref.zero === false ? 0 : UNum.of(ref.zero).n;
+  const us = qs.map((q) => {
+    if (!isFinite(q.x.n) && q.pure) return q.x;
+    env.checkCompatible(q, ref, name);
+    return q.relative().x.sub(z);
+  });
+  return { d: ref.d, us, mk: (u) => new Q(u, ref.d, ref.zero) };
+}
+
+// with nominal values only (bracketing and adaptivity)
+function nominally(fn) {
+  const on = MC.on;
+  MC.on = false;
+  try {
+    return fn();
+  } finally {
+    MC.on = on;
+  }
+}
+
+// a result whose variable is a pure number keeps the display units of the
+// expression: integrate(D_L(z), z, 0, 1) is still in Mpc
+function keepShow(r, q, d) {
+  return dimIsZero(d) && q && q.show && dimEq(q.d, r.d) ? new Q(r.x, r.d, r.zero, q.show) : r;
+}
+
+const sgn = (x) => (x > 0 ? 1 : x < 0 ? -1 : 0);
+
+// Search outwards from u0 for a sign change of g: {lo, hi, glo, ghi} or null
+function bracketRoot(g, u0) {
+  const g0 = g(u0);
+  if (!isFinite(g0)) return null;
+  if (g0 === 0) return { lo: u0, hi: u0, glo: 0, ghi: 0 };
+  const safe = (u) => { try { return g(u); } catch { return NaN; } };
+  let step = Math.abs(u0) * 0.1 || 0.1;
+  let r = u0, gr = g0, l = u0, gl = g0, right = true, left = true;
+  for (let k = 0; k < 200 && (right || left); k++, step *= 2) {
+    if (right) {
+      const u = u0 + step, v = safe(u);
+      if (!isFinite(v)) right = false;
+      else if (sgn(v) !== sgn(g0)) return { lo: r, hi: u, glo: gr, ghi: v };
+      else { r = u; gr = v; }
+    }
+    if (left) {
+      const u = u0 - step, v = safe(u);
+      if (!isFinite(v)) left = false;
+      else if (sgn(v) !== sgn(g0)) return { lo: u, hi: l, glo: v, ghi: gl };
+      else { l = u; gl = v; }
+    }
+  }
+  return null;
+}
+
+// Brent's method on a bracket with fa, fb of opposite signs
+function brent(f, a, b, fa, fb) {
+  if (fa === 0) return a;
+  if (fb === 0) return b;
+  const xtol = 1e-15 * Math.abs(b - a);
+  let c = b, fc = fb, d = b - a, e = d;
+  for (let it = 0; it < 300; it++) {
+    if (sgn(fb) === sgn(fc)) { c = a; fc = fa; d = e = b - a; }
+    if (Math.abs(fc) < Math.abs(fb)) { a = b; b = c; c = a; fa = fb; fb = fc; fc = fa; }
+    const tol = 2 * EPS * Math.abs(b) + 0.5 * xtol;
+    const xm = 0.5 * (c - b);
+    if (Math.abs(xm) <= tol || fb === 0) return b;
+    if (Math.abs(e) >= tol && Math.abs(fa) > Math.abs(fb)) {
+      // inverse quadratic interpolation, or secant
+      const s = fb / fa;
+      let p, q;
+      if (a === c) {
+        p = 2 * xm * s;
+        q = 1 - s;
+      } else {
+        const t = fa / fc, r = fb / fc;
+        p = s * (2 * xm * t * (t - r) - (b - a) * (r - 1));
+        q = (t - 1) * (r - 1) * (s - 1);
+      }
+      if (p > 0) q = -q;
+      p = Math.abs(p);
+      if (2 * p < Math.min(3 * xm * q - Math.abs(tol * q), Math.abs(e * q))) { e = d; d = p / q; }
+      else { d = xm; e = d; }
+    } else {
+      d = xm;
+      e = d;
+    }
+    a = b;
+    fa = fb;
+    b += Math.abs(d) > tol ? d : (xm > 0 ? tol : -tol);
+    fb = f(b);
+  }
+  return b;
+}
+
+// The root of every Monte Carlo sample: G(xs) gives the samples of the
+// expression at the sample values xs. Each sample keeps its own bracket,
+// widened where the nominal one does not hold its root, and is refined by
+// secant steps that fall back to bisection.
+function solveSamples(G, root, lo, hi, slope, name) {
+  const N = MC.N;
+  const LO = new Float64Array(N).fill(lo), HI = new Float64Array(N).fill(hi);
+  let gl = G(LO), gh = G(HI);
+  const open = (i) => isNaN(gl[i]) || isNaN(gh[i]) || sgn(gl[i]) * sgn(gh[i]) > 0;
+  for (let k = 0; k < 60; k++) {
+    let any = false;
+    for (let i = 0; i < N; i++) {
+      if (!open(i)) continue;
+      any = true;
+      const w = 1.6 * (HI[i] - LO[i]);
+      if (Math.abs(gl[i]) < Math.abs(gh[i]) || !isFinite(gh[i])) LO[i] -= w;
+      else HI[i] += w;
+    }
+    if (!any) break;
+    gl = G(LO);
+    gh = G(HI);
+  }
+  let missing = 0;
+  for (let i = 0; i < N; i++) if (open(i)) missing++;
+  if (missing) throw new CalcError(`${name}: ${missing} of ${N} Monte Carlo samples have no root`);
+
+  const xtol = 1e-15 * Math.abs(hi - lo);
+  const done = new Uint8Array(N);
+  let X = new Float64Array(N).fill(root), gx = G(X), Xp = null, gp = null;
+  for (let it = 0; it < 100; it++) {
+    let all = true;
+    const Xn = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      Xn[i] = X[i];
+      if (done[i]) continue;
+      if (gx[i] === 0) { done[i] = 1; continue; }
+      if (sgn(gx[i]) === sgn(gl[i])) { LO[i] = X[i]; gl[i] = gx[i]; } else { HI[i] = X[i]; gh[i] = gx[i]; }
+      const inv = Xp ? (X[i] - Xp[i]) / (gx[i] - gp[i]) : 1 / slope;
+      let xn = X[i] - gx[i] * inv;
+      const a = Math.min(LO[i], HI[i]), b = Math.max(LO[i], HI[i]);
+      if (!(xn > a && xn < b) || it >= 40) xn = 0.5 * (a + b);
+      const tol = 4 * EPS * Math.abs(xn) + xtol;
+      if (Math.abs(xn - X[i]) <= tol || b - a <= tol) done[i] = 1;
+      else all = false;
+      Xn[i] = xn;
+    }
+    if (all) return Xn;
+    Xp = X;
+    gp = gx;
+    X = Xn;
+    gx = G(X);
+  }
+  return X;
+}
+
+function calcSolve(env, f, limits, name) {
+  const fr = varFrame(env, limits.length ? limits : [new Q(1)], name);
+  if (fr.us.some((u) => !isFinite(u.n))) throw new CalcError(`${name}: the starting value and the range must be finite`);
+  const g = (u) => f(fr.mk(u)).relative();
+  const gn = (u) => g(u).x.n;
+  const { root, lo, hi, gq, slope } = nominally(() => {
+    let br;
+    if (fr.us.length === 2) {
+      const [a, b] = fr.us.map((u) => u.n);
+      br = { lo: a, hi: b, glo: gn(a), ghi: gn(b) };
+      if (sgn(br.glo) * sgn(br.ghi) > 0) throw new CalcError(`${name}: no sign change between the two limits`);
+      if (!isFinite(br.glo) || !isFinite(br.ghi)) throw new CalcError(`${name}: the expression is not finite at a limit`);
+    } else {
+      br = bracketRoot(gn, fr.us[0].n);
+      if (!br) throw new CalcError(`${name}: no root found; give a range, as in solve(f(x) = y, x, a, b)`);
+    }
+    const root = brent(gn, br.lo, br.hi, br.glo, br.ghi);
+    const gq = g(root);
+    if (!(Math.abs(gq.x.n) <= Math.max(Math.abs(br.glo), Math.abs(br.ghi)))) {
+      throw new CalcError(`${name}: no root, the expression jumps across zero`);
+    }
+    const h = 1e-6 * (Math.abs(root) || Math.abs(br.hi - br.lo) || 1);
+    return { root, lo: br.lo, hi: br.hi, gq, slope: (gn(root + h) - gn(root - h)) / (2 * h) };
+  });
+  // linear errors: g(root) = 0 moves by dg, so the root moves by −dg/g'
+  let c = null;
+  if (gq.x.c && slope && isFinite(1 / slope)) {
+    c = new Map();
+    for (const [k, v] of gq.x.c) c.set(k, -v / slope);
+  }
+  const x = new UNum(root, c);
+  if (MC.on && g(root).x.samples()) {
+    const G = (xs) => {
+      const r = g(new UNum(root, null, xs)).x;
+      return r.samples() || new Float64Array(xs.length).fill(r.n);
+    };
+    x.s = solveSamples(G, root, Math.min(lo, hi), Math.max(lo, hi), slope, name);
+  }
+  return fr.mk(x);
+}
+
+// Gauss–Kronrod 15-point rule (QUADPACK): nodes, Kronrod weights, and the
+// weights of the embedded 7-point Gauss rule (on nodes 1, 3, 5, 7)
+const GK_X = [0.991455371120812639206854697526329, 0.949107912342758524526189684047851,
+  0.864864423359769072789712788640926, 0.741531185599394439863864773280788,
+  0.586087235467691130294144845693013, 0.405845151377397166906606412076961,
+  0.207784955007898467600689403773245, 0];
+const GK_WK = [0.022935322010529224963732008058970, 0.063092092629978553290700663189204,
+  0.104790010322250183839876322541518, 0.140653259715525918745189590510238,
+  0.169004726639267902826583426598550, 0.190350578064785409913256402421014,
+  0.204432940075298892414161999234649, 0.209482141084727828012999174891714];
+const GK_WG = [0.129484966168869693270611432679082, 0.279705391489276667901467771423780,
+  0.381830050505118944950369775488975, 0.417959183673469387755102040816327];
+
+function calcIntegrate(env, f, limits, name) {
+  const fr = varFrame(env, limits, name);
+  let [a, b] = fr.us, sign = 1;
+  const at = (u) => f(fr.mk(u)).relative();
+  if (a.n === b.n) return env.mul(at(isFinite(a.n) ? a : new UNum(0)), new Q(0, fr.d));
+  if (!isFinite(a.n) || !isFinite(b.n)) {
+    if (a.n > b.n) { [a, b] = [b, a]; sign = -1; }
+  }
+  const fn = (u) => at(u).x.n;
+
+  // integration over t: x(t) and dx/dt as UNum, for t in [t0, t1]
+  let X, J, t0 = 0, t1 = 1;
+  if (isFinite(a.n) && isFinite(b.n)) {
+    const w = b.sub(a);
+    X = (t) => a.add(w.scale(t));
+    J = () => w;
+  } else {
+    // infinite ranges: x = a + L t/(1 − t), with a length scale L where
+    // |f(x)| x is largest
+    const two = !isFinite(a.n) && !isFinite(b.n);
+    const base = two ? 0 : isFinite(a.n) ? a.n : b.n;
+    const dir = !isFinite(a.n) && !two ? -1 : 1;
+    let L = Math.abs(base) || 1, best = 0;
+    nominally(() => {
+      for (let k = -40; k <= 40; k++) {
+        const s = 10 ** k;
+        let v;
+        try {
+          v = Math.abs(fn(base + dir * s)) + (two ? Math.abs(fn(base - s)) : 0);
+        } catch { continue; }
+        if (isFinite(v) && v * s > best) { best = v * s; L = s; }
+      }
+    });
+    if (two) {
+      t0 = -1;
+      X = (t) => new UNum(L * t / (1 - t * t));
+      J = (t) => new UNum(L * (1 + t * t) / (1 - t * t) ** 2);
+    } else {
+      const origin = isFinite(a.n) ? a : b;
+      X = (t) => origin.add(dir * L * t / (1 - t));
+      J = (t) => new UNum(L / (1 - t) ** 2);
+    }
+  }
+
+  // one panel: the Kronrod sum as a quantity, its error estimate and ∫|f|
+  let shown = null;
+  const panel = (lo, hi) => {
+    const c = (lo + hi) / 2, h = (hi - lo) / 2;
+    let sum = null, rk = 0, rg = 0, rabs = 0;
+    const vals = [];
+    for (let i = 0; i < 8; i++) {
+      for (const side of i < 7 ? [-1, 1] : [0]) {
+        const t = c + side * h * GK_X[i];
+        const x = X(t), j = J(t);
+        if (!isFinite(x.n) || !isFinite(j.n)) continue;
+        const q = at(x);
+        shown = shown || q;
+        const v = env.mul(q, new Q(j, fr.d));
+        const y = v.x.n;
+        if (!isFinite(y)) throw new CalcError(`${name}: the expression is not finite at a point of the range`);
+        const term = new Q(v.x.scale(GK_WK[i] * h), v.d);
+        sum = sum ? env.add(sum, term) : term;
+        rk += GK_WK[i] * y;
+        if (i % 2) rg += GK_WG[(i - 1) / 2] * y;
+        else if (i === 7) rg += GK_WG[3] * y;
+        rabs += GK_WK[i] * Math.abs(y);
+        vals.push([i, y]);
+      }
+    }
+    // QUADPACK's error estimate
+    const mean = rk / 2;
+    let rasc = 0;
+    for (const [i, y] of vals) rasc += GK_WK[i] * Math.abs(y - mean);
+    let err = Math.abs((rk - rg) * h);
+    rasc *= Math.abs(h);
+    if (rasc && err) err = rasc * Math.min(1, (200 * err / rasc) ** 1.5);
+    err = Math.max(err, 50 * EPS * rabs * Math.abs(h));
+    return { lo, hi, sum, value: rk * h, err, abs: rabs * Math.abs(h) };
+  };
+
+  // adaptive subdivision of the panel with the largest error
+  const total = (ps, k) => ps.reduce((s, p) => s + p[k], 0);
+  const panels = nominally(() => {
+    const ps = [panel(t0, t1)];
+    while (ps.length < 200) {
+      const I = Math.abs(total(ps, "value")), err = total(ps, "err");
+      if (err <= Math.max(1e-12 * I, 1e-14 * total(ps, "abs"))) break;
+      let k = 0;
+      for (let i = 1; i < ps.length; i++) if (ps[i].err > ps[k].err) k = i;
+      const p = ps[k], m = (p.lo + p.hi) / 2;
+      if (!(m > p.lo && m < p.hi)) break;
+      ps.splice(k, 1, panel(p.lo, m), panel(m, p.hi));
+    }
+    return ps;
+  });
+  const I = total(panels, "value"), err = total(panels, "err");
+  if (!(err <= Math.max(1e-6 * Math.abs(I), 1e-9 * total(panels, "abs")))) {
+    throw new CalcError(`${name}: no convergence (the integral may diverge)`);
+  }
+  const sums = MC.on ? panels.map((p) => panel(p.lo, p.hi).sum) : panels.map((p) => p.sum);
+  let r = sums.filter(Boolean).reduce((s, q) => env.add(s, q));
+  if (sign < 0) r = env.neg(r);
+  return keepShow(r, shown, fr.d);
+}
+
+function calcDiff(env, f, limits, name) {
+  const [x0, step] = limits;
+  const fr = varFrame(env, [x0], name);
+  const u0 = fr.us[0];
+  if (!isFinite(u0.n)) throw new CalcError(`${name}: the point must be finite`);
+  if (step) env.checkCompatible(step, x0, name);
+  const h = step ? Math.abs(step.x.n) : Math.abs(u0.n) * 1e-3 || 1e-3;
+  if (!(h > 0 && isFinite(h))) throw new CalcError(`${name}: the step must be finite and not zero`);
+  // five-point central difference, error O(h⁴)
+  let s = null, q0 = null;
+  for (const [k, w] of [[-2, 1], [-1, -8], [1, 8], [2, -1]]) {
+    const q = f(fr.mk(u0.add(k * h))).relative();
+    q0 = q0 || q;
+    const t = new Q(q.x.scale(w), q.d);
+    s = s ? env.add(s, t) : t;
+  }
+  return keepShow(env.div(s, new Q(12 * h, fr.d)), q0, fr.d);
+}
+
+// plot(f(x), x, a, b): the expression at n points, equally spaced, or in
+// equal ratios when a and b are positive and at least a factor 100 apart;
+// points where it fails or is not finite are left out (null)
+function calcPlot(env, f, limits, { heads, xname, shown }) {
+  const fr = varFrame(env, limits, "plot");
+  const [a, b] = fr.us.map((u) => u.n);
+  if (!isFinite(a) || !isFinite(b) || a === b) throw new CalcError("plot: the range must be finite and not empty");
+  const n = MC.on ? 81 : 161;
+  const logx = a > 0 && b > 0 && Math.max(a, b) / Math.min(a, b) >= 100;
+  const xs = [], rows = [];
+  let error = null;
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const x = fr.mk(logx ? a * (b / a) ** t : a + (b - a) * t);
+    xs.push(shown(x));
+    try {
+      const y = f(x);
+      rows.push(Array.isArray(y) ? y : [y]);
+    } catch (e) {
+      if (!(e instanceof CalcError || e instanceof UnitError)) throw e;
+      error = error || e;
+      rows.push(null);
+    }
+  }
+  const k = Math.max(0, ...rows.map((r) => (r ? r.length : 0)));
+  if (!k) throw error || new CalcError("plot: nothing to plot");
+  const series = Array.from({ length: k }, (_, j) => rows.map((r) => (r && r[j] && isFinite(r[j].x.n) ? r[j] : null)));
+  return makePlot(env, xs, series, { heads: heads.length === k ? heads : null, xname });
+}
+
+// checks that the x values, and all the curves, have consistent units
+function makePlot(env, xs, series, opts) {
+  const same = (qs, what) => {
+    const ok = qs.filter(Boolean);
+    if (!ok.length) return;
+    for (const q of ok) {
+      if (!dimEq(q.d, ok[0].d)) throw new CalcError(`plot: the ${what} have different units: [${env.dimString(ok[0].d)}] and [${env.dimString(q.d)}]`);
+    }
+  };
+  same(xs, "x values");
+  same(series.flat(), "curves");
+  if (!series.flat().some(Boolean)) throw new CalcError("plot: no finite values to plot");
+  return new PlotData(xs, series, opts);
+}
+
+const CALCULUS_FNS = { solve: calcSolve, integrate: calcIntegrate, diff: calcDiff };
+
 function firstLine(doc) {
   return (doc || "").split("\n")[0];
 }
 
-return { CalcError, ConstDict, normalize, splitComment, splitSpec, tokenize, parse, functionDocs, Interpreter, firstLine };
+return { CalcError, ConstDict, normalize, splitComment, splitSpec, tokenize, parse, functionDocs, Interpreter, firstLine, PlotData };
 })();
 
 __m["defs"] = (() => {
@@ -4006,7 +4705,7 @@ const env = () => state.calc.env;
 // ---------------------------------------------------------------------
 // Rendering of quantities
 
-function numHTML(u) {
+function numHTML(u, digits = env().digits) {
   // Monte Carlo with clearly different upper and lower errors: 12.24⁺⁰·³²₋₀.₂₇
   const asym = env().showErrors ? formatAsym(u) : null;
   if (asym) {
@@ -4014,7 +4713,7 @@ function numHTML(u) {
     const body = `${neg(asym.val)}<span class="asym"><span>+${asym.plus}</span><span>−${asym.minus}</span></span>`;
     return asym.exp ? `(${body})×10<sup>${String(asym.exp).replace("-", "−")}</sup>` : body;
   }
-  let s = formatUNum(u, env().digits, env().showErrors);
+  let s = formatUNum(u, digits, env().showErrors);
   let exp = null;
   const em = /e([-+]\d+)$/.exec(s);
   if (em) { exp = em[1]; s = s.slice(0, em.index); }
@@ -4046,7 +4745,335 @@ function qText(q) {
 
 // Short text of a quantity for toasts
 function qShort(q) {
-  try { return qText(q); } catch { return ""; }
+  try { return Array.isArray(q) ? listText(q) : qText(q); } catch { return ""; }
+}
+
+// ---------------------------------------------------------------------
+// Tables and plots
+//
+// A list result is a column of values, a list of lists, as (z, D_L(z)),
+// one column per list. Values of a column share the unit in the head when
+// they are shown in the same one. A plot is kept in the history as plain
+// numbers in the units of its axes, and drawn as SVG at render time.
+
+function listText(v) {
+  return "(" + v.map((x) => (Array.isArray(x) ? listText(x) : qText(x))).join(", ") + ")";
+}
+
+// the items of a top-level tuple in src: "(z, D_L(z) @ Gpc)" -> ["z", "D_L(z) @ Gpc"]
+function tupleParts(src) {
+  let t = splitComment(src).code.trim();
+  const m = /^[\p{L}_][\p{L}\p{N}_]*\s*=(?!=)/u.exec(t);
+  if (m) t = t.slice(m[0].length).trim();
+  if (t[0] !== "(" || t.at(-1) !== ")") return null;
+  const parts = [];
+  let depth = 0, cur = "";
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if ("([{".includes(ch)) depth++;
+    else if (")]}".includes(ch)) depth--;
+    if (depth === 0 && i < t.length - 1) return null;
+    if (ch === "," && depth === 1) { parts.push(cur.trim()); cur = ""; }
+    else if (i > 0 && i < t.length - 1) cur += ch;
+  }
+  parts.push(cur.trim());
+  return parts;
+}
+
+// the head of a column: its expression without the conversion
+function headText(s) {
+  const k = lastAt(s);
+  return (k >= 0 ? s.slice(0, k) : s).trim();
+}
+
+// how to show a column of quantities
+function columnFormat(qs) {
+  const e = env();
+  const ds = qs.map((q) => { try { return q instanceof Q ? e.display(q) : null; } catch { return null; } });
+  const key = (r) => (r && !r.format ? (r.tilde ? "~" : "") + e.treeText(r.tree) : null);
+  const k0 = key(ds[0]);
+  const common = k0 !== null && ds.every((r) => key(r) === k0);
+  const tilde = common && ds[0].tilde ? '<span class="tilde">~</span>' : "";
+  return {
+    common,
+    unit: common ? treeHTML(ds[0].tree) : "",
+    unitText: common ? e.treeText(ds[0].tree) : "",
+    html: (i) => (i >= qs.length ? "" : common ? tilde + numHTML(ds[i].num, Math.min(env().digits, 6)) : qs[i] instanceof Q ? qHTMLraw(qs[i]) : esc(listText(qs[i]))),
+    text: (i) => (i >= qs.length ? "" : qs[i] instanceof Q ? qText(qs[i]) : listText(qs[i])),
+    num: (i) => (common && i < qs.length ? ds[i].num : null),
+  };
+}
+
+// a short list (a vector) on one line, its unit once: (3, 4, 0) N
+function inlineList(v) {
+  if (v.length > 4 || !v.every((q) => q instanceof Q)) return null;
+  const f = columnFormat(v);
+  if (!f.common) return `(${v.map(qHTMLraw).join(", ")})`;
+  const nums = v.map((_, i) => `<span class="nb">${numHTML(f.num(i))}</span>`).join(",<wbr> ");
+  return `(${nums})` + (f.unit ? `<wbr><span class="u">${f.unit}</span>` : "");
+}
+
+const TABLE_ROWS = 500;
+
+function tableOf(v, src) {
+  const cols = v.some(Array.isArray) ? v.map((c) => (Array.isArray(c) ? c : [c])) : [v];
+  const n = Math.max(...cols.map((c) => c.length));
+  const fmts = cols.map(columnFormat);
+  const parts = tupleParts(src);
+  const heads = cols.length > 1 && parts && parts.length === cols.length ? parts.map(headText) : cols.map(() => "");
+  const th = fmts.map((f, j) =>
+    `<th>${heads[j] ? `<span class="h">${exprHTML(heads[j])}</span>` : ""}${f.unit ? `<span class="u">${f.unit}</span>` : ""}</th>`).join("");
+  const rows = [];
+  for (let i = 0; i < Math.min(n, TABLE_ROWS); i++) {
+    rows.push(`<tr><td class="ix">${i + 1}</td>${fmts.map((f) => `<td data-v="${esc(f.text(i))}">${f.html(i)}</td>`).join("")}</tr>`);
+  }
+  const more = n > TABLE_ROWS ? `<p class="tbl-more">${n - TABLE_ROWS} more rows: long-press to copy them all</p>` : "";
+  const html = `<div class="tbl-wrap"><table class="vals"><thead><tr><th class="ix">#</th>${th}</tr></thead><tbody>${rows.join("")}</tbody></table></div>${more}`;
+  // CSV: values in the unit of the head, with a σ column where needed
+  const q = (s) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  const hcells = [], getters = [];
+  fmts.forEach((f, j) => {
+    const name = heads[j] || (cols.length > 1 ? `column ${j + 1}` : "value");
+    hcells.push(q(name + (f.unitText ? ` [${f.unitText}]` : "")));
+    if (!f.common) { getters.push((i) => q(f.text(i))); return; }
+    getters.push((i) => { const u = f.num(i); return u ? String(u.n) : ""; });
+    if (cols[j].some((x, i) => f.num(i) && f.num(i).std > 0)) {
+      hcells.push(q(`${name} σ`));
+      getters.push((i) => { const u = f.num(i); return u ? String(u.std) : ""; });
+    }
+  });
+  const csv = [hcells.join(","), ...Array.from({ length: n }, (_, i) => getters.map((g) => g(i)).join(","))].join("\n");
+  return { html, csv };
+}
+
+// The unit an axis is drawn in: the one its largest value is shown in
+function axisOf(qs) {
+  const e = env();
+  const rep = qs.reduce((a, q) => (Math.abs(q.x.n) > Math.abs(a.x.n) ? q : a), qs[0]);
+  let tree = null;
+  try {
+    const r = e.display(new Q(new UNum(rep.x.n), rep.d, rep.zero, rep.show));
+    if (!r.format && !r.tilde) tree = r.tree;
+  } catch { /* base units */ }
+  if (!tree) tree = e.baseTree(rep.d);
+  const u0 = e.treeValue(tree);
+  const s = u0.x.n, z0 = u0.zero === false || u0.zero == null ? 0 : UNum.of(u0.zero).n;
+  return {
+    val: (n, q) => ((q.zero !== false ? n + UNum.of(q.zero).n - z0 : n) / s),
+    unit: e.treeText(tree),
+  };
+}
+
+// A plot as plain numbers: x, and per curve y with the 68 % band lo–hi
+function plotOf(p) {
+  const r7 = (x) => (x === null || !isFinite(x) ? null : Number(x.toPrecision(7)));
+  const xq = p.xs.filter(Boolean), yq = p.series.flat().filter(Boolean);
+  const ax = axisOf(xq), ay = axisOf(yq);
+  let banded = false;
+  const series = p.series.map((s, j) => {
+    const y = [], lo = [], hi = [];
+    for (const q of s) {
+      if (!q) { y.push(null); lo.push(null); hi.push(null); continue; }
+      const st = MC.on && q.x.samples() ? mcStats(q.x) : null;
+      const sd = st ? 0 : q.x.std;
+      y.push(r7(ay.val(st ? st.med : q.x.n, q)));
+      const l = st ? st.lo : sd > 0 ? q.x.n - sd : null, h = st ? st.hi : sd > 0 ? q.x.n + sd : null;
+      if (l !== null && h > l) banded = true;
+      lo.push(l === null ? null : r7(ay.val(l, q)));
+      hi.push(h === null ? null : r7(ay.val(h, q)));
+    }
+    let head = "";
+    if (p.heads && p.heads[j]) {
+      try { head = `<math>${nodeMath(p.heads[j].t === "convert" ? p.heads[j].a : p.heads[j]).m}</math>`; } catch { head = ""; }
+    }
+    return { head: head || (p.series.length > 1 ? `${j + 1}` : ""), y, lo, hi };
+  });
+  if (!banded) for (const s of series) { delete s.lo; delete s.hi; }
+  const x = p.xs.map((q, i) => r7(ax.val(q.x.n, q)));
+  const pos = (vs) => vs.every((v) => v === null || v > 0);
+  const span = (vs) => {
+    const f = vs.filter((v) => v !== null && v > 0);
+    return f.length ? Math.max(...f) / Math.min(...f) : 1;
+  };
+  const ys = series.flatMap((s) => [...s.y, ...(s.lo || []), ...(s.hi || [])]);
+  return {
+    x, xname: p.xname || "", xunit: ax.unit, yunit: ay.unit, series,
+    logx: pos(x) && span(x) >= 100, logy: pos(ys) && span(ys) >= 1000,
+    canlogx: pos(x) && span(x) > 1, canlogy: pos(ys) && span(ys) > 1,
+  };
+}
+
+// ¹²³ for unit exponents in SVG text: "km s^-1" -> "km s⁻¹"
+const SUP = { "-": "⁻", "/": "ᐟ", 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+const supText = (s) => s.replace(/\^(-?[\d/]+)/g, (_, e) => [...e].map((c) => SUP[c]).join(""));
+
+// tick positions and labels for [lo, hi]; linear ticks share a power of
+// ten written once next to the unit
+function axisTicks(lo, hi, log) {
+  if (log) {
+    const a = Math.floor(Math.log10(lo) + 1e-9), b = Math.ceil(Math.log10(hi) - 1e-9);
+    const step = Math.max(1, Math.ceil((b - a) / 5));
+    const ticks = [];
+    for (let k = a; k <= b; k += step) {
+      const v = 10 ** k;
+      if (v >= lo * 0.999 && v <= hi * 1.001) ticks.push({ v, label: k === 0 ? "1" : k === 1 ? "10" : "10" + supText("^" + k) });
+    }
+    if (ticks.length < 2) {
+      // less than a decade: 1, 2, 5 steps
+      ticks.length = 0;
+      for (let k = a - 1; k <= b; k++) {
+        for (const m of [1, 2, 5]) {
+          const v = m * 10 ** k;
+          if (v >= lo * 0.999 && v <= hi * 1.001) ticks.push({ v, label: String(Number(v.toPrecision(3))) });
+        }
+      }
+    }
+    return { ticks, scale: "" };
+  }
+  const raw = (hi - lo) / 4;
+  const p = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s >= raw * 0.999);
+  const big = Math.max(Math.abs(lo), Math.abs(hi));
+  const e = big >= 1e5 || big < 1e-3 ? Math.floor(Math.log10(big)) : 0;
+  const ticks = [];
+  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) {
+    const x = Math.abs(v) < step * 1e-9 ? 0 : v;
+    ticks.push({ v: x, label: String(Number((x / 10 ** e).toPrecision(6))).replace("-", "−") });
+  }
+  return { ticks, scale: e ? "×10" + supText("^" + e) : "" };
+}
+
+const PLOT_W = 340, PLOT_H = 200;
+const PLOT_COLORS = ["var(--accent-ink)", "var(--tab)", "var(--danger)", "var(--unit)"];
+
+// scales of a plot: data -> SVG coordinates
+function plotGeom(p) {
+  const L = 46, R = 10, T = 20, B = 34;
+  const range = (vs, log) => {
+    let f = vs.filter((v) => v !== null && isFinite(v) && (!log || v > 0));
+    if (!f.length) f = [log ? 1 : 0];
+    let lo = Math.min(...f), hi = Math.max(...f);
+    if (log) {
+      if (hi === lo) { lo /= 2; hi *= 2; }
+      return [lo, hi];
+    }
+    if (hi === lo) { const d = Math.abs(lo) * 0.1 || 1; lo -= d; hi += d; }
+    else { const pad = (hi - lo) * 0.04; if (lo !== 0) lo -= pad; if (hi !== 0) hi += pad; }
+    return [lo, hi];
+  };
+  const logx = p.logx && p.canlogx, logy = p.logy && p.canlogy;
+  const [x0, x1] = range(p.x, logx);
+  const [y0, y1] = range(p.series.flatMap((s) => [...s.y, ...(s.lo || []), ...(s.hi || [])]), logy);
+  const tx = (v) => (logx ? Math.log10(v) : v), ty = (v) => (logy ? Math.log10(v) : v);
+  const sx = (v) => L + ((tx(v) - tx(x0)) / (tx(x1) - tx(x0))) * (PLOT_W - L - R);
+  const sy = (v) => PLOT_H - B - ((ty(v) - ty(y0)) / (ty(y1) - ty(y0))) * (PLOT_H - T - B);
+  const ok = (v, log) => v !== null && isFinite(v) && (!log || v > 0);
+  return { L, R, T, B, x0, x1, y0, y1, logx, logy, sx, sy, okx: (v) => ok(v, logx), oky: (v) => ok(v, logy) };
+}
+
+function plotHTML(p) {
+  const g = plotGeom(p);
+  const f1 = (v) => v.toFixed(1);
+  const xt = axisTicks(g.x0, g.x1, g.logx), yt = axisTicks(g.y0, g.y1, g.logy);
+  const grid = [
+    ...xt.ticks.map((t) => `<line x1="${f1(g.sx(t.v))}" x2="${f1(g.sx(t.v))}" y1="${g.T}" y2="${PLOT_H - g.B}"/>`),
+    ...yt.ticks.map((t) => `<line x1="${g.L}" x2="${PLOT_W - g.R}" y1="${f1(g.sy(t.v))}" y2="${f1(g.sy(t.v))}"/>`),
+  ].join("");
+  const labels = [
+    ...xt.ticks.map((t) => `<text x="${f1(g.sx(t.v))}" y="${PLOT_H - g.B + 14}" text-anchor="middle">${esc(t.label)}</text>`),
+    ...yt.ticks.map((t) => `<text x="${g.L - 4}" y="${f1(g.sy(t.v) + 4)}" text-anchor="end">${esc(t.label)}</text>`),
+  ].join("");
+  const xlab = [p.xname, [xt.scale, supText(p.xunit)].filter(Boolean).join(" ")].filter(Boolean).join(" / ");
+  const ylab = [yt.scale, supText(p.yunit)].filter(Boolean).join(" ");
+  // curves, split where values are missing; bands behind them
+  const curves = p.series.map((s, j) => {
+    const color = PLOT_COLORS[j % PLOT_COLORS.length];
+    const dash = j >= PLOT_COLORS.length ? ' stroke-dasharray="5 3"' : "";
+    let line = "", band = "", seg = [], bseg = [];
+    const flush = () => {
+      if (seg.length === 1) line += `<circle cx="${seg[0][0]}" cy="${seg[0][1]}" r="2.5" fill="${color}"/>`;
+      else if (seg.length) line += `<path d="M${seg.map((pt) => pt.join(",")).join("L")}" stroke="${color}"${dash}/>`;
+      if (bseg.length > 1) band += `<path d="M${bseg.map((b) => `${b[0]},${b[1]}`).join("L")}L${bseg.reverse().map((b) => `${b[0]},${b[2]}`).join("L")}Z" fill="${color}"/>`;
+      seg = [];
+      bseg = [];
+    };
+    p.x.forEach((xv, i) => {
+      const yv = s.y[i];
+      if (!g.okx(xv) || !g.oky(yv)) { flush(); return; }
+      const X = f1(g.sx(xv));
+      seg.push([X, f1(g.sy(yv))]);
+      if (s.lo && g.oky(s.lo[i]) && g.oky(s.hi[i])) bseg.push([X, f1(g.sy(s.lo[i])), f1(g.sy(s.hi[i]))]);
+    });
+    flush();
+    return { line, band };
+  });
+  const few = p.x.length <= 30;
+  const dots = few ? p.series.map((s, j) => p.x.map((xv, i) => (g.okx(xv) && g.oky(s.y[i]) ? `<circle cx="${f1(g.sx(xv))}" cy="${f1(g.sy(s.y[i]))}" r="2.2" fill="${PLOT_COLORS[j % PLOT_COLORS.length]}"/>` : "")).join("")).join("") : "";
+  const svg = `<svg class="plot-svg" viewBox="0 0 ${PLOT_W} ${PLOT_H}" role="img" aria-label="Plot">
+    <g class="grid">${grid}</g>
+    <rect class="frame" x="${g.L}" y="${g.T}" width="${PLOT_W - g.L - g.R}" height="${PLOT_H - g.T - g.B}"/>
+    <g class="bands">${curves.map((c) => c.band).join("")}</g>
+    <g class="curves">${curves.map((c) => c.line).join("")}${dots}</g>
+    <g class="ticks">${labels}</g>
+    <text class="axis-label" x="${g.L}" y="${g.T - 7}">${esc(ylab)}</text>
+    <text class="axis-label" x="${PLOT_W - g.R}" y="${PLOT_H - 4}" text-anchor="end">${esc(xlab)}</text>
+    <g class="cursor" visibility="hidden"><line y1="${g.T}" y2="${PLOT_H - g.B}"/>${p.series.map((s, j) => `<circle r="3.5" fill="${PLOT_COLORS[j % PLOT_COLORS.length]}"/>`).join("")}</g>
+  </svg>`;
+  const legend = p.series.length > 1 ? p.series.map((s, j) =>
+    `<span class="lg"><i style="background:${PLOT_COLORS[j % PLOT_COLORS.length]}"></i>${s.head}</span>`).join("") : "";
+  const tog = (ax, can, on) => (can ? `<button class="chip${on ? " on" : ""}" data-plotlog="${ax}" aria-pressed="${on}">log ${ax}</button>` : "");
+  return `${svg}${legend ? `<div class="plot-legend">${legend}</div>` : ""}
+    <div class="plot-bar"><div class="plot-read">Touch the plot to read values</div>${tog("x", p.canlogx, g.logx)}${tog("y", p.canlogy, g.logy)}</div>`;
+}
+
+// the point nearest to clientX: moves the cursor and writes its values
+function plotRead(svg, p, clientX) {
+  const g = plotGeom(p);
+  const box = svg.getBoundingClientRect();
+  const vx = ((clientX - box.left) / box.width) * PLOT_W;
+  let best = -1, bd = Infinity;
+  p.x.forEach((xv, i) => {
+    if (!g.okx(xv) || !p.series.some((s) => g.oky(s.y[i]))) return;
+    const d = Math.abs(g.sx(xv) - vx);
+    if (d < bd) { bd = d; best = i; }
+  });
+  if (best < 0) return;
+  const cur = svg.querySelector(".cursor");
+  const X = g.sx(p.x[best]);
+  cur.setAttribute("visibility", "visible");
+  const line = cur.querySelector("line");
+  line.setAttribute("x1", X);
+  line.setAttribute("x2", X);
+  cur.querySelectorAll("circle").forEach((c, j) => {
+    const y = p.series[j].y[best];
+    c.setAttribute("visibility", g.oky(y) ? "visible" : "hidden");
+    if (g.oky(y)) { c.setAttribute("cx", X); c.setAttribute("cy", g.sy(y)); }
+  });
+  const num = (v) => esc(formatNumber(v, 5)).replace(/^-/, "−");
+  const val = (s) => {
+    const y = s.y[best];
+    if (y === null) return "–";
+    let err = "";
+    if (s.lo && s.lo[best] !== null) {
+      const up = s.hi[best] - y, dn = y - s.lo[best], e2 = (v) => esc(formatNumber(v, 2));
+      err = ` <span class="pm">${Math.abs(up - dn) <= 0.05 * Math.max(up, dn) ? `±${e2(up)}` : `+${e2(up)} −${e2(dn)}`}</span>`;
+    }
+    return num(y) + err;
+  };
+  const xs = `${p.xname ? exprHTML(p.xname) + " = " : ""}${num(p.x[best])}${p.xunit ? ` <span class="u">${esc(p.xunit)}</span>` : ""}`;
+  const ys = p.series.map((s, j) => `<span class="lg"><i style="background:${PLOT_COLORS[j % PLOT_COLORS.length]}"></i>${val(s)}</span>`).join(" ");
+  svg.closest(".plot").querySelector(".plot-read").innerHTML = `${xs} → ${ys}${p.yunit ? ` <span class="u">${esc(p.yunit)}</span>` : ""}`;
+}
+
+function plotCSV(p) {
+  const cols = [[`${p.xname || "x"}${p.xunit ? ` [${p.xunit}]` : ""}`, p.x]];
+  p.series.forEach((s, j) => {
+    const name = p.series.length > 1 ? `y${j + 1}` : "y";
+    const u = p.yunit ? ` [${p.yunit}]` : "";
+    cols.push([name + u, s.y]);
+    if (s.lo) { cols.push([`${name} low${u}`, s.lo]); cols.push([`${name} high${u}`, s.hi]); }
+  });
+  return [cols.map((c) => `"${c[0]}"`).join(","), ...p.x.map((_, i) => cols.map((c) => (c[1][i] ?? "")).join(","))].join("\n");
 }
 
 // ---------------------------------------------------------------------
@@ -4066,7 +5093,12 @@ function renderEntry(e, i) {
   let out = "";
   if (e.kind === "value") {
     const rid = hasResult(e) ? `<span class="rid" title="Tap to insert ans_${e.rid}">${(state.calc && prettyName(`ans_${e.rid}`, { unit: false })) || `ans_${e.rid}`}</span>` : "";
-    out = `<div class="out">${rid}${e.name ? `<span class="name">${(state.calc && prettyName(e.name, { unit: false })) || esc(e.name)} =</span>` : ""}${e.html}</div>`;
+    const name = e.name ? `<span class="name">${(state.calc && prettyName(e.name, { unit: false })) || esc(e.name)} =</span>` : "";
+    out = e.table
+      ? `<div class="out tbl"><div class="tbl-head">${rid}${name}</div>${e.html}</div>`
+      : `<div class="out">${rid}${name}${e.html}</div>`;
+  } else if (e.kind === "plot") {
+    out = `<div class="out plot">${plotHTML(e.plot)}</div>`;
   } else if (e.kind === "error") {
     out = `<div class="out">${esc(e.message)}</div>`;
   } else if (e.kind === "info") {
@@ -4128,6 +5160,10 @@ let resultNames = [];          // the ans_n now defined in the calculator
 const restored = new Set();    // rids restored from their saved copy
 
 function packResult(q) {
+  if (Array.isArray(q)) {
+    const vs = q.map(packResult);
+    return vs.every(Boolean) && q.length <= 2000 ? { list: vs } : null;
+  }
   if (!Number.isFinite(q.x.n)) return null;
   try {
     return JSON.parse(JSON.stringify({ n: q.x.n, c: q.x.c ? [...q.x.c] : null, d: q.d, zero: q.zero, show: q.show }));
@@ -4137,6 +5173,7 @@ function packResult(q) {
 }
 
 function unpackResult(v) {
+  if (v.list) return v.list.map(unpackResult);
   const id = (k) => restoredIds.get(k) ?? restoredIds.set(k, newSourceId()).get(k);
   const c = v.c ? new Map(v.c.map(([k, s]) => [id(k), s])) : null;
   return new Q(new UNum(v.n, c), v.d, v.zero, v.show || null);
@@ -4167,7 +5204,8 @@ function installResults(calc = state.calc) {
     }
     if (!q) continue;
     // samples from another sample size are redrawn from the linear errors
-    if (q.x.s && q.x.s.length !== MC.N) q = new Q(new UNum(q.x.n, q.x.c), q.d, q.zero, q.show);
+    const fit = (v) => (Array.isArray(v) ? v.map(fit) : v.x.s && v.x.s.length !== MC.N ? new Q(new UNum(v.x.n, v.x.c), v.d, v.zero, v.show) : v);
+    q = fit(q);
     live.set(e.rid, q);
     const name = `ans_${e.rid}`;
     vars.set(name, q);
@@ -4610,14 +5648,28 @@ function caretIndexAt(x, y) {
 let previewTimer = null;
 
 // The value of src (for an assignment, of its right side) without running it
-function evalPreview(src, calc = state.calc) {
+function evalPreview(src, calc = state.calc, { lists = false } = {}) {
   const { code } = splitComment(src);
   const t = code.trim();
   if (!t || t[0] === "%" || /!$/.test(t)) return null;
   const node = parse(normalize(t), calc.env);
   if (!node || node.t === "def") return null;
-  const v = calc.evalNode(node.t === "assign" ? node.value : node);
-  return v instanceof Q ? v : null;
+  const target = node.t === "assign" ? node.value : node;
+  if (target.t === "call" && target.f === "plot") return null;   // drawn on ⏎ only
+  const v = calc.evalNode(target);
+  return v instanceof Q || (lists && Array.isArray(v) && v.length) ? v : null;
+}
+
+// "= 4 values: 0.1, 0.5, 1, …" or "= table: 2 columns × 4 rows"
+function listPreview(v) {
+  if (v.some(Array.isArray)) {
+    const rows = Math.max(...v.map((c) => (Array.isArray(c) ? c.length : 1)));
+    return `<span class="eq">=</span><span class="lp">table: ${v.length} columns × ${rows} rows</span>`;
+  }
+  const inline = inlineList(v);
+  if (inline) return `<span class="eq">=</span>${inline}`;
+  const shown = v.slice(0, 3).map((q) => (q instanceof Q ? qHTMLraw(q) : "…")).join(", ");
+  return `<span class="eq">=</span><span class="lp">${v.length} value${v.length > 1 ? "s" : ""}: ${shown}${v.length > 3 ? ", …" : ""}</span>`;
 }
 
 function updateMath2d() {
@@ -4637,8 +5689,8 @@ function updatePreview() {
   const src = state.text;
   if (!src.trim()) { previewEl.innerHTML = ""; return; }
   try {
-    const q = evalPreview(src);
-    previewEl.innerHTML = q ? `<span class="eq">=</span>${qHTML(q)}` : "";
+    const q = evalPreview(src, state.calc, { lists: true });
+    previewEl.innerHTML = !q ? "" : Array.isArray(q) ? listPreview(q) : `<span class="eq">=</span>${qHTML(q)}`;
   } catch (e) {
     previewEl.innerHTML = "";
     previewTimer = setTimeout(() => {
@@ -4683,7 +5735,22 @@ function evaluate() {
     return;
   }
   const entry = { input: src, kind: r.kind };
-  if (r.kind === "value") {
+  if (r.kind === "value" && Array.isArray(r.q)) {
+    // a list or a table
+    const t = tableOf(r.q, src), inline = inlineList(r.q);
+    entry.html = inline || t.html;
+    entry.table = !inline;
+    entry.text = listText(r.q);
+    entry.csv = t.csv;
+    entry.rid = newRid();
+    results.set(entry.rid, r.q);
+    restored.delete(entry.rid);
+    const val = packResult(r.q);
+    if (val) entry.val = val;
+    if (r.name) entry.name = r.name;
+  } else if (r.kind === "plot") {
+    entry.plot = plotOf(r.plot);
+  } else if (r.kind === "value") {
     entry.html = qHTML(r.q);
     entry.text = qText(r.q);
     const dist = distSummary(r.q);
@@ -6003,8 +7070,20 @@ function nodeMath(node) {
         default: throw new Error("op");
       }
     }
+    case "eq": return { m: `<mrow>${R(node.a).m}<mo>=</mo>${R(node.b).m}</mrow>`, p: 0 };
     case "call": {
       const args = node.args.map(R);
+      const v = node.args[1];
+      const D = '<mi mathvariant="normal">d</mi>';
+      if (node.f === "integrate" && args.length === 4 && v.t === "name" && !env().vars.has("integrate")) {
+        return { m: `<mrow><msubsup><mo>∫</mo>${args[2].m}${args[3].m}</msubsup>${wrap(args[0], 1.01)}<mspace width="0.17em"/>${D}${args[1].m}</mrow>`, p: 1 };
+      }
+      if (node.f === "diff" && args.length === 3 && v.t === "name" && !env().vars.has("diff")) {
+        return {
+          m: `<mrow><mfrac>${D}<mrow>${D}${args[1].m}</mrow></mfrac>${wrap(args[0], 2.5)}<msub><mo stretchy="true">|</mo><mrow>${args[1].m}<mo>=</mo>${args[2].m}</mrow></msub></mrow>`,
+          p: 2,
+        };
+      }
       if (node.f === "sqrt" && args.length === 1) return { m: `<msqrt>${flatRadicand(args[0].m)}</msqrt>`, p: 9 };
       if (node.f === "cbrt" && args.length === 1) return { m: `<mroot>${flatRadicand(args[0].m)}<mn>3</mn></mroot>`, p: 9 };
       if (node.f === "abs" && args.length === 1) return { m: `<mrow><mo>|</mo>${args[0].m}<mo>|</mo></mrow>`, p: 9 };
@@ -6059,7 +7138,7 @@ function simpleArg(n) {
 function hasStructure(node) {
   if (!node || typeof node !== "object") return false;
   if (node.t === "bin" && (node.op === "/" || node.op === "^")) return true;
-  if (node.t === "call" && ["sqrt", "cbrt", "abs", "exp"].includes(node.f)) return true;
+  if (node.t === "call" && ["sqrt", "cbrt", "abs", "exp", "integrate", "diff"].includes(node.f)) return true;
   if (node.t === "unit" && /\^|\//.test(node.raw) && node.target.t !== "num") return true;
   return ["a", "b", "value", "body", "target"].some((k) => hasStructure(node[k])) ||
     (node.args || node.items || []).some(hasStructure);
@@ -6668,6 +7747,15 @@ const FN_SECTIONS = [
     ["sinh", "fn small", "f:sinh("], ["cosh", "fn small", "f:cosh("], ["tanh", "fn small", "f:tanh("], ["′", "fn", "u:arcmin"], ["″", "fn", "u:arcsec"],
     ["asinh", "fn small", "f:asinh("], ["acosh", "fn small", "f:acosh("], ["atanh", "fn small", "f:atanh("], ["π", "fn", "n:pi"], ["τ", "fn", "n:tau"],
   ]],
+  ["Calculus", 4, 2, [
+    { fn: "solve", desc: "f(x) = y for x" }, { fn: "integrate", label: "∫ dx", desc: "Integral a…b" }, { fn: "diff", label: "d/dx", desc: "Derivative" }, { fn: "plot", desc: "f(x), x, a, b" },
+    { key: "assign", label: "=", desc: "Equation" }, { key: "n:x", label: "x", desc: "Variable" }, { key: "n:inf", label: "∞", desc: "Infinity" }, { key: "deffn", label: "f(x) =", desc: "Define" },
+  ]],
+  ["Lists", 4, 3, [
+    { fn: "linspace", label: "a…b", desc: "n equal steps" }, { fn: "logspace", label: "a…b log", desc: "n equal ratios" }, { fn: "sum", label: "Σ", desc: "Sum" }, { fn: "mean", desc: "Average" },
+    { fn: "len", desc: "Count" }, { fn: "min", desc: "Smallest" }, { fn: "max", desc: "Largest" }, { fn: "plot", desc: "xs, ys" },
+    { fn: "dot", label: "a · b", desc: "Scalar product" }, { fn: "cross", label: "a × b", desc: "Vector product" }, { fn: "norm", label: "|v|", desc: "Length" }, { fn: "angle", label: "∠(a, b)", desc: "Angle" },
+  ]],
   ["Cosmology", 4, 3, [
     { fn: "D_C", desc: "Comoving" }, { fn: "D_M", desc: "Transverse" }, { fn: "D_A", desc: "Angular diam." }, { fn: "D_L", desc: "Luminosity" },
     { fn: "distmod", label: "μ(z)", desc: "Dist. modulus" }, { fn: "scale", label: "kpc/″", desc: "Proper scale" },
@@ -6714,10 +7802,23 @@ const USAGE = {
   ceil: "ceil(x): round up, in base SI units",
   nominal: "nominal(x): the value without its uncertainty; nominal(3 ± 0.1) = 3",
   err: "err(x): the uncertainty; err(3 ± 0.1) = 0.1",
-  min: "min(a, b, …): smallest argument",
-  max: "max(a, b, …): largest argument",
+  min: "min(a, b, …) or min(list): smallest value",
+  max: "max(a, b, …) or max(list): largest value",
+  solve: "solve(f(x) = y, x, guess) or solve(f(x) = y, x, a, b): the x where both sides are equal; the guess (or the range) gives its units, as in solve(D_L(z) = 1 Gpc, z, 0, 5)",
+  integrate: "integrate(f(x), x, a, b): ∫ f dx from a to b, with units; a or b can be ±inf, as in integrate(exp(-x^2), x, -inf, inf)",
+  diff: "diff(f(x), x, x0): derivative df/dx at x0, as in diff(age(z), z, 1); diff(f(x), x, x0, h) sets the step",
+  plot: "plot(f(x), x, a, b): a curve; plot((f(x), g(x)), x, a, b) several. plot(ys) or plot(xs, ys) for lists. Errors show as a band",
+  linspace: "linspace(a, b, n): n values from a to b in equal steps, as in z = linspace(0, 3, 7)",
+  logspace: "logspace(a, b, n): n values from a to b in equal ratios, as in logspace(1, 1000, 4)",
+  sum: "sum(list): sum of the values",
+  mean: "mean(list): average of the values",
+  len: "len(list): number of values",
+  dot: "dot(a, b): scalar product a · b of two vectors; dot((3, 4) N, (2, 0) m) = 6 J",
+  cross: "cross(a, b): vector product a × b of two 3-vectors, as cross(r, p) for the angular momentum",
+  norm: "norm(v): length of a vector; norm((3, 4) m) = 5 m",
+  angle: "angle(a, b): angle between two vectors, in rad (convert with @ deg)",
   atan2: "atan2(y, x): angle of the point (x, y), in rad (convert with @ deg)",
-  hypot: "hypot(x, y, …): √(x² + y² + …)",
+  hypot: "hypot(x, y, …) or hypot(list): √(x² + y² + …)",
   sin: "sin(x): sine; x in rad or with an angle unit, sin(30 deg)",
   cos: "cos(x): cosine; x in rad or with an angle unit, cos(30 deg)",
   tan: "tan(x): tangent; x in rad or with an angle unit",
@@ -7821,8 +8922,11 @@ function insertResult(e, asText = false) {
   if (!e || e.kind !== "value") return;
   const ref = resultRef(e);
   if (ref && !asText) return insertName(ref);
-  let t = e.text;
-  if (/\s/.test(t.replace(/\[[^\]]*\]/g, ""))) t = "(" + t + ")";
+  insertValueText(e.text);
+}
+
+function insertValueText(t) {
+  if (t[0] !== "(" && /\s/.test(t.replace(/\[[^\]]*\]/g, ""))) t = "(" + t + ")";
   const b = before();
   insert((/[\p{L}\p{N}_.)\]]$/u.test(b) ? " " : "") + t);
 }
@@ -7864,7 +8968,9 @@ function entryMenu(x, y, ent) {
     if (ref) items.push([`Insert ${ref}`, () => insertResult(e)]);
     items.push([ref ? "Insert value" : "Insert result", () => insertResult(e, true)]);
     items.push(["Copy result", () => copy(e.text)]);
+    if (e.csv) items.push(["Copy as CSV", () => copy(e.csv)]);
   }
+  if (e.kind === "plot") items.push(["Copy data (CSV)", () => copy(plotCSV(e.plot))]);
   items.push(["Edit expression", () => setInput(e.input)]);
   items.push(["Copy expression", () => copy(e.input)]);
   items.push(["Delete", () => {
@@ -7876,9 +8982,21 @@ function entryMenu(x, y, ent) {
   showMenu(x, y, items);
 }
 
+// plots: touch or drag to read the values (no long press there)
+function readPlot(ev) {
+  const svg = ev.target.closest(".plot-svg");
+  const ent = svg && entryAt(svg);
+  if (ent && ent.e.plot) plotRead(svg, ent.e.plot, ev.clientX);
+  return Boolean(svg);
+}
+historyEl.addEventListener("pointermove", (ev) => {
+  if (ev.buttons || ev.pointerType === "mouse") readPlot(ev);
+});
+
 historyEl.addEventListener("pointerdown", (ev) => {
   const ent = entryAt(ev.target);
   longPressed = false;
+  if (readPlot(ev)) return;
   if (!ent) return;
   pressed = { x: ev.clientX, y: ev.clientY };
   clearTimeout(pressTimer);
@@ -7907,6 +9025,21 @@ historyEl.addEventListener("click", (ev) => {
   if (ins) { insertName(ins.dataset.insert); return; }
   const ent = entryAt(ev.target);
   if (!ent) return;
+  const lg = ev.target.closest("[data-plotlog]");
+  if (lg && ent.e.plot) {
+    const p = ent.e.plot, k = "log" + lg.dataset.plotlog;
+    p[k] = !(p[k] && p["can" + k]);
+    saveHistory();
+    ent.div.replaceWith(renderEntry(ent.e, ent.i));
+    return;
+  }
+  if (ev.target.closest(".plot")) return;
+  const cell = ev.target.closest("td[data-v]");
+  if (cell && ent.e.kind === "value") {
+    insertValueText(cell.dataset.v);
+    flash(cell);
+    return;
+  }
   if (ev.target.closest(".mcb") && ent.e.dist) { openDistribution(ent.e); return; }
   if (ev.target.closest(".in")) {
     setInput(ent.e.input);
@@ -7947,12 +9080,15 @@ function toast(msg, ms = 2200, action = null) {
 // Sheets
 
 const sheet = $("#sheet");
-const sheetBody = $("#sheet-body");
+let sheetBody = $("#sheet-body");
 
 function openSheet(title, render) {
   $("#sheet-title").textContent = title;
-  sheetBody.innerHTML = "";
-  sheetBody.scrollTop = 0;
+  // a fresh element, so that listeners added by earlier sheets go away
+  const fresh = sheetBody.cloneNode(false);
+  fresh._tab = sheetBody._tab;
+  sheetBody.replaceWith(fresh);
+  sheetBody = fresh;
   render(sheetBody);
   sheet.hidden = false;
 }
@@ -8490,6 +9626,19 @@ const HELP = [
   ["Cosmology and lensing", "Distances, times and volumes for ΛCDM with the current H_0, Omega_M and Omega_L (Omega_b is also available) (set the default in Settings, or redefine them; Settings can also add the correlated uncertainties of H_0 and Omega_M of the chosen model, which then propagate to every result). Lensing functions take the lens and source redshifts. All are on the f(x) keys.", [
     ["D_L(1) @ Gpc", "luminosity distance"], ["scale(0.5)", "kpc per arcsec"], ["age(0)", ""], ["Omega_M = 0.315", "change the model"],
     ["theta_E(1e12 M_Sun, 0.5, 2)", "Einstein radius"], ["Sigma_cr(0.3, 1.5)", ""], ["theta_E_SIS(250 km/s, 0.5, 2)", ""], ["H(1)", ""],
+  ]],
+  ["Solve, integrate, differentiate", "The first argument is an expression in the variable named by the second one. solve finds where the two sides are equal, from a guess or within a range; integrate takes limits, which can be ±inf; diff gives the derivative at a point. Units and errors carry through (in Monte Carlo mode, per sample). On the f(x) Calculus keys.", [
+    ["solve(x^2 = 2, x)", ""], ["solve(D_L(z) = 1 Gpc, z, 0, 5)", "redshift at 1 Gpc"], ["solve(age(z) = 1 Gyr, z, 1)", ""], ["solve(cos(x) = x, x, 0, 1)", ""],
+    ["integrate(exp(-x^2), x, -inf, inf)", "√π"], ["integrate(9.81 m/s^2, t, 0 s, 2 s)", ""], ["diff(age(z), z, 1) @ Gyr", ""], ["diff(x^3, x, 2)", ""],
+  ]],
+  ["Lists and tables", "A list is written in parentheses, or made with linspace and logspace. Arithmetic, units, @ and functions apply to each value; sum, mean, len, min and max take the whole list. A list of lists is shown as a table, one column per list. Tap a value to insert it; long-press to copy as CSV.", [
+    ["z = (0.1, 0.5, 1, 2)", ""], ["D_L(z) @ Gpc", ""], ["(z, D_L(z) @ Gpc, age(z))", "a table"], ["linspace(0 m, 10 m, 6)", ""], ["logspace(1, 1000, 4)", ""], ["sum((3, 4, 5) kg)", ""],
+  ]],
+  ["Vectors", "A vector is a list of components with compatible units. Arithmetic is per component; dot, cross, norm and angle take whole vectors. On the f(x) Lists keys.", [
+    ["F = (3, 4, 0) N", ""], ["d = (2, 0, 1) m", ""], ["dot(F, d)", "work"], ["cross(d, F)", "torque"], ["norm(F)", ""], ["angle(F, d) @ deg", ""],
+  ]],
+  ["Plots", "plot(f(x), x, a, b) draws a curve; a tuple of expressions draws several. plot(ys) and plot(xs, ys) plot lists. Axes take the units of the values (convert with @); errors show as a 68 % band. Wide positive ranges use log axes; toggle them below the plot. Touch or drag on the plot to read values.", [
+    ["plot(sin(x), x, 0, 2 pi)", ""], ["plot((D_L(z), D_A(z)) @ Gpc, z, 0, 5)", "two curves"], ["plot(age(z), z, 0.01, 100)", "log axes"], ["plot((1, 2, 3, 4) s, (1.2, 3.9, 9.1, 16.3) m)", "from lists"],
   ]],
   ["Solar system", "Planets, dwarf planets and major moons (NASA fact sheets): M_, R_, rho_, g_, v_esc_, a_, P_, P_rot_ and e_ followed by the body name. M_Earth, R_Earth, M_Jupiter, R_Jupiter, M_Sun, R_Sun and L_Sun are also units. On the Const keys under Solar system.", [
     ["g_Mars / g_Earth", ""], ["rho_Saturn @ g/cm^3", ""], ["M_Jupiter @ M_Earth", ""], ["a_Io", "around Jupiter"], ["P_Neptune @ yr", ""], ["sqrt(G M_Earth / a_Moon) @ km/s", "orbital speed"],

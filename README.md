@@ -4,7 +4,8 @@
 
 A unit calculator for phones, tablets and computers: numbers carry units,
 `@` converts, uncertainties propagate, and it includes CODATA constants,
-solar-system data, and cosmology and lensing functions.
+solar-system data, cosmology and lensing functions, equation solving,
+integrals and derivatives, lists and tables, and plots.
 
 Open `index.html` from any web server. Served over HTTPS (for example
 GitHub Pages) it can be installed with **Add to Home Screen** and then
