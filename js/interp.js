@@ -2,7 +2,7 @@
 // %commands used in definition files.
 
 import { UNum, ufuncs, atan2, formatUNum, newSourceId, MC, sourceMark, sourceReset } from "./unum.js";
-import { Env, Q, UnitError, dimEq, dimScale, dimIsZero, symbolSource } from "./units.js";
+import { Env, Q, UnitError, dimAdd, dimEq, dimScale, dimIsZero, symbolSource } from "./units.js";
 
 class CalcError extends Error {
   constructor(msg) {
@@ -454,20 +454,23 @@ const functionDocs = {
   factorial: "Factorial", fraction: "fraction(a, b) = a/b",
   nominal: "Nominal value, without uncertainty", err: "Standard deviation (uncertainty)",
   solve: "Root of an equation in x: solve(f(x) = y, x, guess) or solve(f(x) = y, x, a, b)",
+  roots: "All the roots of an equation in x, as a list: roots(f(x) = y, x), roots(f(x) = y, x, a, b); a or b can be ±inf",
   integrate: "Definite integral over x: integrate(f(x), x, a, b); a or b can be ±inf",
   diff: "Derivative with respect to x at x0: diff(f(x), x, x0)",
+  limit: "Limit for x → x0: limit(f(x), x, x0); limit(f(x), x, x0, 1) from above, -1 from below; x0 can be ±inf",
 };
 
 Object.assign(functionDocs, {
   linspace: "List of n equally spaced values from a to b: linspace(a, b, n)",
   logspace: "List of n values from a to b in equal ratios: logspace(a, b, n)",
-  sum: "Sum of a list, sum(list), or of an expression over whole numbers, sum(f(k), k, a, b)",
+  sum: "Sum of a list, sum(list), or of an expression over whole numbers, sum(f(k), k, a, b); b can be inf",
   mean: "Mean of a list: mean(list)",
   len: "Number of values in a list: len(list)",
   dot: "Scalar product of two vectors: dot(a, b)",
   cross: "Vector product of two 3-vectors: cross(a, b)",
   norm: "Length of a vector: norm(v)",
   angle: "Angle between two vectors, in rad: angle(a, b)",
+  polyroots: "Roots of a0 + a1 x + … + an x^n, complex ones too, as a table of real and imaginary parts: polyroots((a0, a1, …, an))",
   plot: "Plot: plot(f(x), x, a, b), plot(ys) or plot(xs, ys); a tuple of expressions or lists gives several curves",
 });
 
@@ -475,12 +478,12 @@ Object.assign(functionDocs, {
 // expression in the variable named by the second one, so their arguments
 // are not evaluated in advance (plot and sum only in the forms
 // plot(f(x), x, a, b) and sum(f(k), k, a, b))
-const CALCULUS = new Set(["solve", "integrate", "diff", "plot", "sum"]);
+const CALCULUS = new Set(["solve", "roots", "limit", "integrate", "diff", "plot", "sum"]);
 const isCalculus = (node) => CALCULUS.has(node.f) &&
   (!["plot", "sum"].includes(node.f) || (node.args.length === 4 && node.args[1].t === "name"));
 
 // built-in functions that take whole lists; the others apply elementwise
-const LIST_FNS = new Set(["sum", "mean", "len", "min", "max", "linspace", "logspace", "plot", "hypot", "dot", "cross", "norm", "angle"]);
+const LIST_FNS = new Set(["sum", "mean", "len", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle"]);
 
 // f applied elementwise where args are lists (several lists must have the
 // same length); nested lists are tables
@@ -647,6 +650,7 @@ class Interpreter {
       if (x.length !== n) throw new CalcError(`plot: ${x.length} x values for ${n} y values`);
       return makePlot(env, x, series.map((s) => s.map((q) => (q instanceof Q && isFinite(q.x.n) ? q : null))), {});
     };
+    b.polyroots = (...xs) => polyRoots(env, xs);
     b.fraction = (a, c) => env.div(a, c);
     b.nominal = (a) => new Q(a.x.nominal(), a.d, a.zero);
     b.err = (a) => new Q(new UNum(a.x.std), a.d);
@@ -778,10 +782,10 @@ class Interpreter {
     const env = this.env;
     const name = node.f;
     const [body, v, ...rest] = node.args;
-    const [least, most] = { solve: [0, 2], integrate: [2, 2], diff: [1, 2], plot: [2, 2], sum: [2, 2] }[name];
+    const [least, most] = { solve: [0, 2], roots: [0, 2], limit: [1, 2], integrate: [2, 2], diff: [1, 2], plot: [2, 2], sum: [2, 2] }[name];
     const usage = () => new CalcError(`Usage: ${functionDocs[name].replace(/^[^:]*:\s*/, "")}`);
     if (!body || !v || v.t !== "name" || rest.length < least || rest.length > most) throw usage();
-    const expr = body.t === "eq" && name === "solve" ? { t: "bin", op: "-", a: body.a, b: body.b } : body;
+    const expr = body.t === "eq" && (name === "solve" || name === "roots") ? { t: "bin", op: "-", a: body.a, b: body.b } : body;
     const limits = rest.map((n) => {
       const q = this.evalNode(n, scope);
       if (!(q instanceof Q) && !(Array.isArray(q) && name !== "plot")) throw usage();
@@ -803,7 +807,7 @@ class Interpreter {
       local.set(v.v, x);
       try {
         let r = this.evalNode(expr, local);
-        if (Array.isArray(r) && name !== "plot" && name !== "sum") {
+        if (Array.isArray(r) && name !== "plot" && (name !== "sum" || element !== null)) {
           // an expression giving a list is solved (integrated…) per element
           if (element === null) throw new ListValue(r.length);
           r = r[element];
@@ -832,7 +836,7 @@ class Interpreter {
         return calcPlot(env, f, limits, { heads: tuple.t === "tuple" ? tuple.items : [body], xname: v.v, shown });
       }
       const r = broadcast(one, limits);
-      return name === "solve" ? broadcast(shown, [r]) : r;
+      return name === "solve" || name === "roots" ? broadcast(shown, [r]) : r;
     } finally {
       sourceReset(Math.max(idMax, sourceMark()));
     }
@@ -1272,25 +1276,37 @@ function calcSolve(env, f, limits, name) {
   if (fr.us.some((u) => !isFinite(u.n))) throw new CalcError(`${name}: the starting value and the range must be finite`);
   const g = (u) => f(fr.mk(u)).relative();
   const gn = (u) => g(u).x.n;
-  const { root, lo, hi, gq, slope } = nominally(() => {
-    let br;
+  const br = nominally(() => {
     if (fr.us.length === 2) {
       const [a, b] = fr.us.map((u) => u.n);
-      br = { lo: a, hi: b, glo: gn(a), ghi: gn(b) };
+      const br = { lo: a, hi: b, glo: gn(a), ghi: gn(b) };
       if (sgn(br.glo) * sgn(br.ghi) > 0) throw new CalcError(`${name}: no sign change between the two limits`);
       if (!isFinite(br.glo) || !isFinite(br.ghi)) throw new CalcError(`${name}: the expression is not finite at a limit`);
-    } else {
-      br = bracketRoot(gn, fr.us[0].n);
-      if (!br) throw new CalcError(`${name}: no root found; give a range, as in solve(f(x) = y, x, a, b)`);
+      return br;
     }
+    const br = bracketRoot(gn, fr.us[0].n);
+    if (!br) throw new CalcError(`${name}: no root found; give a range, as in solve(f(x) = y, x, a, b)`);
+    return br;
+  });
+  const x = rootIn(g, br, name);
+  if (!x) throw new CalcError(`${name}: no root, the expression jumps across zero`);
+  return fr.mk(x);
+}
+
+// The root of g (u -> relative Q) in a bracket {lo, hi, glo, ghi}, as a
+// UNum with linear errors and Monte Carlo samples; null where g jumps
+// across zero instead (a pole)
+function rootIn(g, br, name) {
+  const gn = (u) => g(u).x.n;
+  const r = nominally(() => {
     const root = brent(gn, br.lo, br.hi, br.glo, br.ghi);
     const gq = g(root);
-    if (!(Math.abs(gq.x.n) <= Math.max(Math.abs(br.glo), Math.abs(br.ghi)))) {
-      throw new CalcError(`${name}: no root, the expression jumps across zero`);
-    }
+    if (!(Math.abs(gq.x.n) <= Math.max(Math.abs(br.glo), Math.abs(br.ghi)))) return null;
     const h = 1e-6 * (Math.abs(root) || Math.abs(br.hi - br.lo) || 1);
-    return { root, lo: br.lo, hi: br.hi, gq, slope: (gn(root + h) - gn(root - h)) / (2 * h) };
+    return { root, gq, slope: (gn(root + h) - gn(root - h)) / (2 * h) };
   });
+  if (!r) return null;
+  const { root, gq, slope } = r;
   // linear errors: g(root) = 0 moves by dg, so the root moves by −dg/g'
   let c = null;
   if (gq.x.c && slope && isFinite(1 / slope)) {
@@ -1303,9 +1319,107 @@ function calcSolve(env, f, limits, name) {
       const r = g(new UNum(root, null, xs)).x;
       return r.samples() || new Float64Array(xs.length).fill(r.n);
     };
-    x.s = solveSamples(G, root, Math.min(lo, hi), Math.max(lo, hi), slope, name);
+    x.s = solveSamples(G, root, Math.min(br.lo, br.hi), Math.max(br.lo, br.hi), slope, name);
   }
-  return fr.mk(x);
+  return x;
+}
+
+// Minimum of |g| in [a, b] by golden-section search: [u, |g(u)|]
+function minAbs(gn, a, b) {
+  const r = (Math.sqrt(5) - 1) / 2;
+  let c = b - r * (b - a), d = a + r * (b - a), fc = Math.abs(gn(c)), fd = Math.abs(gn(d));
+  for (let it = 0; it < 200 && Math.abs(b - a) > 4 * EPS * Math.max(Math.abs(a), Math.abs(b)); it++) {
+    if (fc < fd) { b = d; d = c; fd = fc; c = b - r * (b - a); fc = Math.abs(gn(c)); }
+    else { a = c; c = d; fc = fd; d = a + r * (b - a); fd = Math.abs(gn(d)); }
+  }
+  return fc < fd ? [c, fc] : [d, fd];
+}
+
+const MAX_ROOTS = 100;
+
+// roots(f(x) = y, x, a, b): every root in [a, b] (which can reach ±inf),
+// or with no range (or a value that sets the units and the scale) on the
+// whole line. The expression is sampled on an even grid over a finite
+// range and on a grid in equal ratios on both sides of 0 (from 1e-10 to
+// 1e10 times the scale); each sign change is refined as in solve, poles
+// left out, and a local minimum of |g| close to zero is a root where the
+// curve only touches zero (it has no uncertainty). Roots closer than the
+// grid spacing can be missed.
+function calcRoots(env, f, limits, name) {
+  const fr = varFrame(env, limits.length ? limits : [new Q(1)], name);
+  const g = (u) => f(fr.mk(u)).relative();
+  const gn = (u) => g(u).x.n;
+  const [a, b] = fr.us.length === 2 ? fr.us.map((u) => u.n).sort((p, q) => p - q) : [-Infinity, Infinity];
+  if (a === b) throw new CalcError(`${name}: the range is empty`);
+  const finite = isFinite(a) && isFinite(b);
+  let scale = 1;
+  if (fr.us.length === 1) scale = Math.abs(fr.us[0].n) || 1;
+  else if (!finite) scale = Math.abs(isFinite(a) ? a : b) || 1;
+
+  const us = [];
+  if (finite) for (let i = 0; i <= 1000; i++) us.push(a + (b - a) * (i / 1000));
+  else for (const u of [a, b]) if (isFinite(u)) us.push(u);
+  const PER = 60;
+  us.push(0);
+  for (let k = -10 * PER; k <= 10 * PER; k++) {
+    const s = scale * 10 ** (k / PER);
+    us.push(s, -s);
+  }
+  const xs = [...new Set(us.filter((u) => u >= a && u <= b))].sort((p, q) => p - q);
+  let error = null;
+  const safe = (u) => {
+    try {
+      const v = gn(u);
+      return isFinite(v) ? v : NaN;
+    } catch (e) {
+      if (!(e instanceof CalcError || e instanceof UnitError)) throw e;
+      error = error || e;
+      return NaN;
+    }
+  };
+  const gs = nominally(() => xs.map(safe));
+  if (!gs.some((v) => !isNaN(v))) throw error || new CalcError(`${name}: the expression is not finite in the range`);
+
+  const found = [];
+  const add = (x) => {
+    if (found.length >= MAX_ROOTS) throw new CalcError(`${name}: more than ${MAX_ROOTS} roots; give a smaller range`);
+    found.push(x);
+  };
+  // a run of grid intervals that almost all change sign: the expression
+  // oscillates faster than the grid
+  let dense = 0;
+  for (let i = 0; i < xs.length; i++) {
+    const v = gs[i];
+    if (v === 0) {
+      // on the grid: refined between the neighbours for its errors, unless it only touches zero
+      const l = i > 0 ? gs[i - 1] : NaN, r = i + 1 < xs.length ? gs[i + 1] : NaN;
+      const x = sgn(l) * sgn(r) < 0 ? rootIn(g, { lo: xs[i - 1], hi: xs[i + 1], glo: l, ghi: r }, name) : null;
+      add(x || new UNum(xs[i]));
+      dense = 0;
+      continue;
+    }
+    if (i + 1 < xs.length) {
+      const w = gs[i + 1];
+      if (w !== 0 && sgn(v) * sgn(w) < 0) {
+        dense = dense + 1;
+        if (dense >= 6) throw new CalcError(`${name}: the expression changes sign too often near ${env.format(fr.mk(new UNum(xs[i])))} to find all the roots; give a smaller range`);
+        const x = rootIn(g, { lo: xs[i], hi: xs[i + 1], glo: v, ghi: w }, name);
+        if (x) add(x);
+        continue;
+      }
+    }
+    dense = 0;
+    // a local minimum of |g| that is not a sign change: a touching root?
+    if (i > 0 && i + 1 < xs.length && !isNaN(v)) {
+      const l = gs[i - 1], r = gs[i + 1];
+      if (sgn(l) === sgn(v) && sgn(r) === sgn(v) && Math.abs(v) < Math.abs(l) && Math.abs(v) <= Math.abs(r)) {
+        const [u, m] = nominally(() => minAbs(safe, xs[i - 1], xs[i + 1]));
+        if (m <= 1e-9 * Math.max(Math.abs(l), Math.abs(r))) add(new UNum(u));
+      }
+    }
+  }
+  if (!found.length) throw new CalcError(`${name}: no root found${finite ? " in the range" : ""}`);
+  return found.map((x) => fr.mk(x));
 }
 
 // Gauss–Kronrod 15-point rule (QUADPACK): nodes, Kronrod weights, and the
@@ -1490,13 +1604,21 @@ function makePlot(env, xs, series, opts) {
   return new PlotData(xs, series, opts);
 }
 
-// sum(f(k), k, a, b): f at k = a, a + 1, …, b; a list f gives a list of sums
+// sum(f(k), k, a, b): f at k = a, a + 1, …, b; a list f gives a list of
+// sums. a can be -inf and b inf (see sumToInf)
 function calcSum(env, f, limits, name) {
   const [a, b] = limits.map((q, i) => {
     const k = env.checkPure(q, `${name} (${i ? "last" : "first"} index)`).n;
-    if (!Number.isInteger(k)) throw new CalcError(`${name}: the first and last index must be whole numbers`);
+    if (!Number.isInteger(k) && isFinite(k)) throw new CalcError(`${name}: the first and last index must be whole numbers`);
     return k;
   });
+  if (a === Infinity || b === -Infinity) return new Q(0);
+  if (!isFinite(a) && !isFinite(b)) {
+    // both ways: k ≥ 0 and k ≤ −1
+    return env.add(sumToInf(env, f, 0, name), sumToInf(env, (q) => f(env.neg(q)), 1, name));
+  }
+  if (b === Infinity) return sumToInf(env, f, a, name);
+  if (a === -Infinity) return sumToInf(env, (q) => f(env.neg(q)), -b, name);
   if (b - a >= 100000) throw new CalcError(`${name}: at most 100000 terms`);
   let s = null;
   for (let k = a; k <= b; k++) {
@@ -1506,7 +1628,439 @@ function calcSum(env, f, limits, name) {
   return s === null ? new Q(0) : s;
 }
 
-const CALCULUS_FNS = { solve: calcSolve, integrate: calcIntegrate, diff: calcDiff, sum: calcSum };
+// Σ t(k) for k = a, a + 1, … (t takes k as a quantity): the terms are added directly until they
+// fall faster than geometrically and no longer count. Otherwise, from the
+// first 1000 terms,
+// - terms of one sign: Euler–Maclaurin, Σ_{k≥N} f(k) = ∫_N^∞ f dx + f(N)/2
+//   − f′(N)/12 + …, which needs f between whole numbers; N = 500 and 1000
+//   must agree;
+// - alternating terms (or if that fails): Levin's u transform of the
+//   partial sums, at the order where successive orders agree best.
+// Terms that do not decrease (as k^−1 for terms of one sign) diverge.
+// Errors propagate: the integral and derivative carry them, and the Levin
+// weights (from nominal values) combine the partial sums as quantities.
+const SUM_N = 1000;
+function sumToInf(env, t, a, name) {
+  const vals = [], partial = [];
+  let s = null;
+  const fail = (why) => new CalcError(`${name}: ${why}`);
+  for (let i = 0; i < SUM_N; i++) {
+    const q = t(new Q(a + i));
+    if (Array.isArray(q)) throw new ListValue(q.length);
+    const v = q.x.n;
+    if (!isFinite(v)) throw fail(`the term at ${a + i} is not finite`);
+    s = s === null ? q : env.add(s, q);
+    vals.push(v);
+    if (i < 40) partial.push(s);
+    // fast convergence: the last 10 ratios at most 0.9, the term negligible
+    if (i >= 10 && Math.abs(v) <= EPS * Math.abs(s.x.n) / 8) {
+      let fast = true;
+      for (let j = i - 9; j <= i && fast; j++) fast = Math.abs(vals[j]) <= 0.9 * Math.abs(vals[j - 1]);
+      if (fast || vals.slice(i - 9).every((x) => x === 0)) return s;
+    }
+  }
+  // the decay of the terms, as a power of k, from k − a = 250 to 1000
+  const at = (i) => Math.abs(vals[i - 1]);
+  const decay = Math.log(at(250) / at(SUM_N)) / Math.log((a + SUM_N + 1) / (a + 251));
+  const tail = vals.slice(SUM_N / 2);
+  const oneSign = tail.every((v) => v > 0) || tail.every((v) => v < 0);
+  const alternating = tail.every((v, i) => !i || sgn(v) * sgn(tail[i - 1]) < 0);
+  if (!(decay > (oneSign ? 1.02 : 0.05))) throw fail("the terms do not decrease fast enough: the sum diverges (or converges too slowly)");
+
+  if (oneSign) {
+    try {
+      // the sum from k = N on
+      const em = (N) => {
+        const r = env.add(calcIntegrate(env, t, [new Q(N), new Q(Infinity)], name), env.mul(t(new Q(N)), new Q(0.5)));
+        return env.sub(r, env.mul(calcDiff(env, t, [new Q(N)], name), new Q(1 / 12)));
+      };
+      // the sums of the terms before N = a + 500 and a + 1000
+      const N1 = a + SUM_N / 2, N2 = a + SUM_N;
+      const e1 = nominally(() => em(N1).x.n), e2 = nominally(() => em(N2).x.n);
+      let h1 = 0;
+      for (let i = 0; i < SUM_N / 2; i++) h1 += vals[i];
+      let h2 = h1;
+      for (let i = SUM_N / 2; i < SUM_N; i++) h2 += vals[i];
+      const scale = Math.abs(h2) + Math.abs(e2);
+      if (Math.abs(h1 + e1 - (h2 + e2)) <= 1e-9 * scale) return env.add(s, em(N2));
+    } catch (e) {
+      if (!(e instanceof CalcError || e instanceof UnitError)) throw e;
+    }
+  } else if (!alternating) {
+    throw fail("the terms change sign irregularly; only terms of one sign, or alternating ones, can be summed to infinity");
+  }
+
+  // Levin u transform: L = Σ w_j s_j with w_j ∝ (−1)^j C(k, j) ((1 + j)/(1 + k))^(k−1) / ω_j,
+  // ω_j = (1 + j) t_j
+  const levin = (k) => {
+    const w = [];
+    let c = 1, sum = 0;
+    for (let j = 0; j <= k; j++) {
+      if (j) c = c * (k - j + 1) / j;
+      const om = (1 + j) * vals[j];
+      if (!om) return null;
+      w.push(((j % 2 ? -1 : 1) * c * ((1 + j) / (1 + k)) ** (k - 1)) / om);
+      sum += w[j];
+    }
+    let L = 0;
+    for (let j = 0; j <= k; j++) { w[j] /= sum; L += w[j] * partial_n[j]; }
+    return { w, L };
+  };
+  const partial_n = [];
+  for (let j = 0, x = 0; j < partial.length; j++) partial_n.push((x += vals[j]));
+  let best = null, prev = levin(4);
+  for (let k = 5; k <= 30 && prev; k++) {
+    const cur = levin(k);
+    if (!cur) break;
+    const d = Math.abs(cur.L - prev.L);
+    if (!best || d < best.d) best = { d, ...cur };
+    prev = cur;
+  }
+  const scale = Math.max(...partial_n.slice(0, 31).map(Math.abs));
+  if (!best || !(best.d <= 1e-9 * scale)) throw fail("no convergence (the sum may diverge)");
+  return best.w.map((w, j) => env.mul(partial[j], new Q(w))).reduce((x, y) => env.add(x, y));
+}
+
+// limit(f(x), x, x0): the limit for x → x0, from both sides; limit(f(x),
+// x, x0, 1) from above, limit(f(x), x, x0, -1) from below; x0 can be ±inf.
+// f is evaluated at x0 ± h for h = h0/2^i (at ±2^i towards ±inf) and
+// extrapolated to h = 0 by Richardson's method (as for a series in h), as
+// long as rounding has not taken over, and by Wynn's ε algorithm (for
+// powers of h that are not whole, and logarithms); the estimate whose
+// neighbours in the tables agree best is taken. The Richardson weights
+// (from the nominal values) combine the values as quantities, so errors
+// propagate; an ε estimate takes the errors of the value closest to the
+// point. Two sides must agree; a side where f is not defined is left out.
+function calcLimit(env, f, limits, name) {
+  const [x0, side] = limits;
+  let dir = 0;
+  if (side) {
+    const v = env.checkPure(side, `${name} (side)`).n;
+    if (!v || !isFinite(v)) throw new CalcError(`${name}: the side is 1 (from above) or -1 (from below)`);
+    dir = sgn(v);
+  }
+  const inf = !isFinite(x0.x.n);
+  if (inf) {
+    if (isNaN(x0.x.n)) throw new CalcError(`${name}: the point is not a number`);
+    if (dir && dir === sgn(x0.x.n)) throw new CalcError(`${name}: ${x0.x.n > 0 ? "inf" : "-inf"} can only be approached from ${x0.x.n > 0 ? "below" : "above"}`);
+    const s = sgn(x0.x.n);
+    return oneSide(env, (i) => f(new Q(new UNum(s * 2 ** i), x0.d)), name, null).q;
+  }
+  const fr = varFrame(env, [x0], name);
+  const u0 = fr.us[0];
+  const h0 = 0.1 * (Math.abs(u0.n) || 1);
+  const hmin = 2 ** 20 * EPS * Math.abs(u0.n);
+  const at = (d) => (i) => (h0 / 2 ** i >= hmin ? f(fr.mk(u0.add(d * h0 / 2 ** i))) : null);
+  if (dir) return oneSide(env, at(dir), name, null).q;
+  const up = oneSide(env, at(1), name, "above"), down = oneSide(env, at(-1), name, "below");
+  if (!up.defined && !down.defined) throw up.error || down.error || new CalcError(`${name}: the expression is not defined near the point`);
+  if (!up.defined) return down.q;
+  if (!down.defined) return up.q;
+  const tol = Math.max(1e3 * (up.err + down.err), 1e-8 * Math.max(Math.abs(up.v), Math.abs(down.v)));
+  if (!(Math.abs(up.v - down.v) <= tol)) {
+    throw new CalcError(`${name}: the limits from the two sides differ: ${env.format(down.q)} from below, ${env.format(up.q)} from above`);
+  }
+  return env.mul(env.add(up.q, down.q), new Q(0.5));
+}
+
+// The limit of the values at(0), at(1), … (at(i) is null when the steps
+// are too small): {q, v, err, defined}
+function oneSide(env, at, name, which) {
+  const COLS = 8, ROWS = 60;
+  const qs = [], T = [], W = [];
+  let best = null, start = 0, error = null;
+  // an estimate is good when its error is small against the values it
+  // combines, or (a limit 0) when those values are negligible against the
+  // earlier ones
+  const mag = (m) => (qs[m] ? Math.abs(qs[m].x.n) : 0);
+  const good = (e) => {
+    if (!e) return false;
+    let win = 0, last = 0, pre = 0;
+    for (const m of e.w.keys()) { win = Math.max(win, mag(m)); last = Math.max(last, m); }
+    for (let m = 0; m <= last; m++) pre = Math.max(pre, mag(m));
+    e.zero = win <= 1e-10 * pre && e.err <= 1e-10 * pre;
+    return e.err <= 1e-8 * Math.max(Math.abs(e.v), win) || e.zero;
+  };
+  for (let i = 0; i < ROWS; i++) {
+    let q;
+    try {
+      q = at(i);
+    } catch (e) {
+      if (!(e instanceof CalcError || e instanceof UnitError)) throw e;
+      error = error || e;
+      q = undefined;
+    }
+    if (q === null) break;
+    if (q !== undefined && !(q instanceof Q)) throw new CalcError(`${name}: the expression is not a quantity`);
+    if (q === undefined || !isFinite(q.x.n)) {
+      // not defined here: a fresh table from the next value on
+      qs.push(null); T.push(null); W.push(null);
+      start = i + 1;
+      continue;
+    }
+    qs.push(q);
+    const row = [q.x.n], wrow = [new Map([[i, 1]])];
+    let rowErr = Infinity;
+    for (let j = 1; j <= Math.min(i - start, COLS); j++) {
+      const k = 2 ** j - 1, a = row[j - 1], b = T[i - 1][j - 1];
+      row.push(a + (a - b) / k);
+      const w = new Map(wrow[j - 1]);
+      for (const [m, c] of w) w.set(m, c * (1 + 1 / k));
+      for (const [m, c] of W[i - 1][j - 1]) w.set(m, (w.get(m) || 0) - c / k);
+      wrow.push(w);
+      // against its neighbours in the table: left, up-left and up
+      const up = j < T[i - 1].length ? Math.abs(row[j] - T[i - 1][j]) : Infinity;
+      const err = Math.max(Math.abs(row[j] - row[j - 1]), Math.abs(row[j] - b), up);
+      rowErr = Math.min(rowErr, err);
+      if (!best || err < best.err) best = { v: row[j], w, err };
+    }
+    T.push(row);
+    W.push(wrow);
+    // rounding has taken over: the table no longer improves
+    if (rowErr > 1e3 * best?.err && good(best)) break;
+  }
+  if (!qs.some(Boolean)) {
+    if (which) return { defined: false, error };
+    throw error || new CalcError(`${name}: the expression is not defined near the point`);
+  }
+  // Wynn's ε on the last run of defined values: E[c][n] uses s_n … s_(n+c)
+  const s0 = start, sv = qs.slice(s0).map((q) => q.x.n), L = sv.length;
+  if (L >= 5) {
+    const E = [new Array(L + 1).fill(0), sv.slice()];
+    for (let c = 1; c <= Math.min(12, L - 1); c++) {
+      const prev = E[c - 1], cur = E[c], next = [];
+      for (let n = 0; n + c < L; n++) next.push(prev[n + 1] + 1 / (cur[n + 1] - cur[n]));
+      E.push(next);
+    }
+    // even columns c = 2, 4, … (E[c + 1]) are estimates
+    for (let c = 2; c + 1 < E.length; c += 2) {
+      const col = E[c + 1], lower = E[c - 1];
+      for (let n = 1; n < col.length; n++) {
+        const v = col[n];
+        if (!isFinite(v)) continue;
+        const err = Math.max(Math.abs(v - col[n - 1]), Math.abs(v - lower[n + 1]), Math.abs(v - lower[n + 2]));
+        if (!(err < (best ? best.err : Infinity))) continue;
+        // only for converging values: a diverging geometric sequence has an ε "antilimit"
+        if (!(Math.abs(sv[n + c] - sv[n + c - 1]) < Math.abs(sv[n + 1] - sv[n]))) continue;
+        const last = s0 + n + c;
+        best = { v, err, w: new Map([[last, 1]]), eps: true };
+        for (let m = s0 + n; m <= last; m++) best.w.set(m, best.w.get(m) || 0);
+      }
+    }
+  }
+  const from = which ? ` from ${which}` : "";
+  if (!good(best)) {
+    throw new CalcError(`${name}: no limit found${from} (the expression may diverge or oscillate)`);
+  }
+  let q;
+  if (best.eps) {
+    // the value, with the errors of f nearest to the point
+    const near = qs[Math.max(...best.w.keys())];
+    q = env.add(env.sub(near, new Q(new UNum(near.x.n), near.d, near.zero)), new Q(new UNum(best.v), near.d, near.zero));
+  } else {
+    q = [...best.w].map(([m, c]) => env.mul(qs[m], new Q(c))).reduce((x, y) => env.add(x, y));
+  }
+  // indistinguishable from zero
+  if (best.zero || Math.abs(best.v) <= 4 * best.err) q = env.mul(q, new Q(0));
+  return { q, v: q.x.n, err: best.err, defined: true };
+}
+
+// ---------------------------------------------------------------------
+// Polynomial roots: polyroots((a0, a1, …, an)) gives the n roots of
+// a0 + a1 x + … + an x^n as a table of real and imaginary parts. The
+// coefficients can have units, consistent with a single unit for x.
+// Roots are found by Aberth's method in complex arithmetic; errors
+// propagate as dz = −Σ z^k da_k / p′(z), and in Monte Carlo mode every
+// sample is solved again starting from the nominal roots. Multiple roots
+// have no linear errors (use Monte Carlo).
+
+// p(z) and p'(z) by Horner's rule, for real coefficients a (ascending)
+function polyAt(a, zr, zi) {
+  let pr = a[a.length - 1], pi = 0, dr = 0, di = 0;
+  for (let k = a.length - 2; k >= 0; k--) {
+    const tr = dr * zr - di * zi + pr, ti = dr * zi + di * zr + pi;
+    dr = tr; di = ti;
+    const ur = pr * zr - pi * zi + a[k], ui = pr * zi + pi * zr;
+    pr = ur; pi = ui;
+  }
+  return [pr, pi, dr, di];
+}
+
+// Aberth–Ehrlich iteration from the starting roots zs ([re, im] pairs), in
+// place; false if the steps do not become small
+function aberth(a, zs, maxIt = 500) {
+  const n = zs.length;
+  let worst = Infinity;
+  for (let it = 0; it < maxIt; it++) {
+    worst = 0;
+    for (let i = 0; i < n; i++) {
+      const [zr, zi] = zs[i];
+      const [pr, pi, dr, di] = polyAt(a, zr, zi);
+      if (pr === 0 && pi === 0) continue;
+      // ratio = p / p'
+      const dd = dr * dr + di * di;
+      if (!dd) { zs[i] = [zr + 1e-8 * (1 + Math.abs(zr)), zi + 1e-8]; worst = Infinity; continue; }
+      const rr = (pr * dr + pi * di) / dd, ri = (pi * dr - pr * di) / dd;
+      // s = Σ 1/(z_i − z_j)
+      let sr = 0, si = 0;
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        const xr = zr - zs[j][0], xi = zi - zs[j][1], xx = xr * xr + xi * xi;
+        if (xx) { sr += xr / xx; si -= xi / xx; }
+      }
+      // w = ratio / (1 − ratio s)
+      const qr = 1 - (rr * sr - ri * si), qi = -(rr * si + ri * sr), qq = qr * qr + qi * qi;
+      const wr = (rr * qr + ri * qi) / qq, wi = (ri * qr - rr * qi) / qq;
+      if (!isFinite(wr) || !isFinite(wi)) continue;
+      zs[i] = [zr - wr, zi - wi];
+      worst = Math.max(worst, Math.hypot(wr, wi) / (Math.hypot(zr, zi) || 1e-300));
+    }
+    if (worst <= 1e-14) return true;
+  }
+  return worst <= 1e-7;
+}
+
+function polyRoots(env, args) {
+  const name = "polyroots";
+  const cs = args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
+  if (cs.some((c) => !(c instanceof Q))) throw new CalcError(`${name}: the coefficients must be quantities, as polyroots((a0, a1, a2))`);
+  const zero = (q) => q.x.n === 0 && q.x.exact;
+  let lo = 0, hi = cs.length - 1;
+  while (hi >= 0 && zero(cs[hi])) hi--;
+  while (lo < hi && zero(cs[lo])) lo++;
+  if (hi - lo < 1) throw new CalcError(`${name}: the polynomial has no roots; give the coefficients from a0 up, as polyroots((-2, 0, 1)) for x^2 − 2`);
+  if (hi > 100) throw new CalcError(`${name}: at most degree 100`);
+  const q = cs.map((c) => c.relative());
+  // units of x from the lowest and highest coefficients
+  const dx = dimScale(dimAdd(q[lo].d, q[hi].d, -1), 1 / (hi - lo));
+  for (let k = lo; k <= hi; k++) {
+    if (!zero(q[k]) && !dimEq(q[k].d, dimAdd(q[hi].d, dx, hi - k))) {
+      throw new CalcError(`${name}: the coefficients do not have consistent units (a_k must have the units of a_n x^(n−k))`);
+    }
+  }
+  const coef = (pick) => q.slice(lo, hi + 1).map(pick);
+  const a = coef((c) => c.x.n);
+  if (!(a[a.length - 1] !== 0) || a.some((v) => !isFinite(v))) throw new CalcError(`${name}: the coefficients must be finite, the last one not zero`);
+  const n = a.length - 1;
+
+  // start on a circle of the size of the roots (Fujiwara's bound)
+  let r = 0;
+  for (let k = 0; k < n; k++) r = Math.max(r, Math.abs(a[k] / a[n]) ** (1 / (n - k)));
+  r = r || 1;
+  const zs = Array.from({ length: n }, (_, i) => {
+    const t = (2 * Math.PI * i) / n + 0.4;
+    return [r * Math.cos(t), r * Math.sin(t)];
+  });
+  if (!aberth(a, zs)) throw new CalcError(`${name}: no convergence`);
+
+  // a root of multiplicity m comes out as a cluster of m nearby roots
+  // (about ε^(1/m) apart): where p, p′, … p^(m−2) vanish to rounding at
+  // the root of p^(m−1) next to them, they are replaced by that root
+  const size = Math.max(...zs.map(([x, y]) => Math.hypot(x, y)), 1e-300);
+  const group = zs.map((_, i) => i);
+  const top = (i) => (group[i] === i ? i : (group[i] = top(group[i])));
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const d = Math.hypot(zs[i][0] - zs[j][0], zs[i][1] - zs[j][1]);
+      if (d <= 1e-2 * Math.max(Math.hypot(...zs[i]), Math.hypot(...zs[j]), 1e-9 * size)) group[top(j)] = top(i);
+    }
+  }
+  const derivs = [a];
+  for (let k = 1; k < n; k++) derivs.push(derivs[k - 1].slice(1).map((c, i) => c * (i + 1)));
+  const absAt = (c, r) => c.reduceRight((t, x) => t * r + Math.abs(x), 0);
+  const multiple = new Array(n).fill(false);
+  for (let i = 0; i < n; i++) {
+    const m = zs.map((_, j) => j).filter((j) => top(j) === top(i));
+    if (m.length < 2 || m[0] !== i) continue;
+    let re = m.reduce((t, j) => t + zs[j][0], 0) / m.length, im = m.reduce((t, j) => t + zs[j][1], 0) / m.length;
+    // Newton on p^(m−1), which has a simple root there
+    const q = derivs[m.length - 1];
+    for (let it = 0; it < 20; it++) {
+      const [pr, pi, dr, di] = polyAt(q, re, im);
+      const dd = dr * dr + di * di;
+      if (!dd) break;
+      const wr = (pr * dr + pi * di) / dd, wi = (pi * dr - pr * di) / dd;
+      re -= wr; im -= wi;
+      if (Math.hypot(wr, wi) <= 4 * EPS * Math.hypot(re, im)) break;
+    }
+    const r = Math.hypot(re, im);
+    const ok = derivs.slice(0, m.length - 1).every((c) => Math.hypot(...polyAt(c, re, im).slice(0, 2)) <= 1e3 * EPS * absAt(c, r));
+    if (!ok) continue;
+    if (Math.abs(im) <= 1e-12 * r) im = 0;
+    for (const j of m) { zs[j] = [re, im]; multiple[j] = true; }
+  }
+  zs.forEach((z, i) => z.push(multiple[i]));
+
+  // tidy: nearly real roots made real, complex pairs exact conjugates
+  for (const z of zs) if (Math.abs(z[1]) <= 1e-12 * Math.max(Math.hypot(z[0], z[1]), size * 1e-3)) z[1] = 0;
+  zs.sort((u, v) => u[0] - v[0] || u[1] - v[1]);
+  const used = new Array(n).fill(false);
+  for (let i = 0; i < n; i++) {
+    if (used[i] || zs[i][1] >= 0) continue;
+    let best = -1;
+    for (let j = 0; j < n; j++) {
+      if (!used[j] && j !== i && zs[j][1] > 0 && (best < 0 || Math.hypot(zs[j][0] - zs[i][0], zs[j][1] + zs[i][1]) < Math.hypot(zs[best][0] - zs[i][0], zs[best][1] + zs[i][1]))) best = j;
+    }
+    if (best < 0) continue;
+    const re = (zs[i][0] + zs[best][0]) / 2, im = (zs[best][1] - zs[i][1]) / 2;
+    zs[i] = [re, -im, zs[i][2]];
+    zs[best] = [re, im, zs[best][2]];
+    used[i] = used[best] = true;
+  }
+  // order: by real part, + imaginary part first in a pair
+  zs.sort((u, v) => u[0] - v[0] || v[1] - u[1]);
+
+  // linear errors: dz = −Σ z^k da_k / p′(z)
+  const cmaps = coef((c) => c.x.c);
+  const lin = (zr, zi, mult) => {
+    const [, , dr, di] = polyAt(a, zr, zi);
+    if (mult || !(dr || di)) return [null, null];
+    const cr = new Map(), ci = new Map();
+    const dd = dr * dr + di * di;
+    let wr = 1, wi = 0;
+    for (let k = 0; k <= n; k++) {
+      // −z^k / p′
+      const fr = -(wr * dr + wi * di) / dd, fi = -(wi * dr - wr * di) / dd;
+      if (cmaps[k]) {
+        for (const [id, v] of cmaps[k]) {
+          cr.set(id, (cr.get(id) || 0) + v * fr);
+          ci.set(id, (ci.get(id) || 0) + v * fi);
+        }
+      }
+      [wr, wi] = [wr * zr - wi * zi, wr * zi + wi * zr];
+    }
+    return [cr, ci];
+  };
+  const roots = zs.map(([zr, zi, mult]) => {
+    const [cr, ci] = lin(zr, zi, mult);
+    return [new UNum(zr, cr), new UNum(zi, zi === 0 && ci && [...ci.values()].every((v) => Math.abs(v) < 1e-300) ? null : ci)];
+  });
+
+  // Monte Carlo: every sample from the nominal roots
+  const samples = MC.on ? coef((c) => c.x.samples()) : [];
+  if (samples.some(Boolean)) {
+    const N = MC.N;
+    const sr = roots.map(() => new Float64Array(N)), si = roots.map(() => new Float64Array(N));
+    const ak = new Array(n + 1);
+    for (let i = 0; i < N; i++) {
+      for (let k = 0; k <= n; k++) ak[k] = samples[k] ? samples[k][i] : a[k];
+      // a multiple root splits: its copies start a little apart
+      const z = zs.map(([x, y, m], j) => (m ? [x + 1e-4 * size * Math.cos(j), y + 1e-4 * size * Math.sin(j)] : [x, y]));
+      aberth(ak, z, 100);
+      for (let j = 0; j < n; j++) {
+        sr[j][i] = z[j][0];
+        si[j][i] = Math.abs(z[j][1]) <= 1e-12 * Math.hypot(z[j][0], z[j][1]) ? 0 : z[j][1];
+      }
+    }
+    roots.forEach(([x, y], j) => { x.s = sr[j]; y.s = si[j]; });
+  }
+  // the roots at 0 from the coefficients left out at the start
+  const zeros = Array.from({ length: lo }, () => [new UNum(0), new UNum(0)]);
+  const all = [...zeros, ...roots].sort((u, v) => u[0].n - v[0].n || v[1].n - u[1].n);
+  return [all.map(([x]) => new Q(x, dx)), all.map(([, y]) => new Q(y, dx))];
+}
+
+const CALCULUS_FNS = { solve: calcSolve, roots: calcRoots, limit: calcLimit, integrate: calcIntegrate, diff: calcDiff, sum: calcSum };
 
 function firstLine(doc) {
   return (doc || "").split("\n")[0];

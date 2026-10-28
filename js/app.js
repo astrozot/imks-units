@@ -519,7 +519,7 @@ function tableOf(v, src) {
   const cols = v.some(Array.isArray) ? v.map((c) => (Array.isArray(c) ? c : [c])) : [v];
   const n = Math.max(...cols.map((c) => c.length));
   const fmts = cols.map(columnFormat);
-  const parts = tupleParts(src);
+  const parts = cols.length === 2 && /^\s*(?:[\p{L}_][\p{L}\p{N}_]*\s*=(?!=)\s*)?polyroots\s*\(/u.test(splitComment(src || "").code) ? ["Re", "Im"] : tupleParts(src);
   const heads = cols.length > 1 && parts && parts.length === cols.length ? parts.map(headText) : cols.map(() => "");
   const th = fmts.map((f, j) =>
     `<th>${heads[j] ? `<span class="h">${exprHTML(heads[j])}</span>` : ""}${f.unit ? `<span class="u">${f.unit}</span>` : ""}</th>`).join("");
@@ -2790,6 +2790,16 @@ function nodeMath(node) {
           p: 2,
         };
       }
+      if (node.f === "limit" && (args.length === 3 || args.length === 4) && v.t === "name" && !env().vars.has("limit")) {
+        // the side, when written as a number: x → 0⁺, x → 0⁻
+        const sd = node.args[3];
+        const sv = !sd ? 0 : sd.t === "num" ? sd.x.n : sd.t === "un" && sd.a.t === "num" ? (sd.op === "-" ? -1 : 1) * sd.a.x.n : NaN;
+        const sign = !sd ? "" : sv > 0 ? "+" : sv < 0 ? "−" : "?";
+        const to = sign === "+" || sign === "−" ? `<msup>${wrap(args[2], 9)}<mo>${sign}</mo></msup>` : args[2].m;
+        if (sign !== "?") {
+          return { m: `<mrow><munder><mo movablelimits="false">lim</mo><mrow>${args[1].m}<mo>→</mo>${to}</mrow></munder>${wrap(args[0], 1.01)}</mrow>`, p: 1 };
+        }
+      }
       if (node.f === "sum" && args.length === 4 && v.t === "name" && !env().vars.has("sum")) {
         return { m: `<mrow><munderover><mo>∑</mo><mrow>${args[1].m}<mo>=</mo>${args[2].m}</mrow>${args[3].m}</munderover>${wrap(args[0], 1.01)}</mrow>`, p: 1 };
       }
@@ -2849,6 +2859,7 @@ function hasStructure(node) {
   if (node.t === "bin" && (node.op === "/" || node.op === "^")) return true;
   if (node.t === "call" && ["sqrt", "cbrt", "abs", "exp", "integrate", "diff"].includes(node.f)) return true;
   if (node.t === "call" && node.f === "sum" && node.args.length === 4) return true;
+  if (node.t === "call" && node.f === "limit" && (node.args.length === 3 || node.args.length === 4)) return true;
   if (node.t === "unit" && /\^|\//.test(node.raw) && node.target.t !== "num") return true;
   return ["a", "b", "value", "body", "target"].some((k) => hasStructure(node[k])) ||
     (node.args || node.items || []).some(hasStructure);
@@ -3367,7 +3378,7 @@ function recentNames(cls, n) {
 const OPERAND_DEFAULTS = ["pi", "c", "G", "h", "hbar", "k", "e", "m_e", "m_p", "g", "N_A", "M_Sun"];
 
 // functions with a variable of their own, and names often chosen for it
-const BINDERS = { solve: ["x", "t", "z"], integrate: ["x", "t", "z"], diff: ["x", "t", "z"], plot: ["x", "t", "z"], sum: ["k", "n", "i"] };
+const BINDERS = { solve: ["x", "t", "z"], roots: ["x", "t", "z"], limit: ["x", "t", "z"], integrate: ["x", "t", "z"], diff: ["x", "t", "z"], plot: ["x", "t", "z"], sum: ["k", "n", "i"] };
 
 // the arguments of a call, from just after its "(" (up to its ")")
 function topArgs(s) {
@@ -3400,7 +3411,7 @@ function contextVariables(b, text) {
         const v = /^\s*([\p{L}_][\p{L}\p{N}_]*)\s*$/u.exec(topArgs(text.slice(i + 1))[1] || "");
         if (arg === 0) out.push(...(v ? [v[1]] : BINDERS[m[1]]));
         else if (arg === 1) out.push(...BINDERS[m[1]]);
-        else if (m[1] === "integrate") out.push("inf");
+        else if (["integrate", "roots", "sum", "limit"].includes(m[1])) out.push("inf");
       }
       arg = 0;
     }
@@ -3506,9 +3517,10 @@ const FN_SECTIONS = [
     ["sinh", "fn small", "f:sinh("], ["cosh", "fn small", "f:cosh("], ["tanh", "fn small", "f:tanh("], ["′", "fn", "u:arcmin"], ["″", "fn", "u:arcsec"],
     ["asinh", "fn small", "f:asinh("], ["acosh", "fn small", "f:acosh("], ["atanh", "fn small", "f:atanh("], ["π", "fn", "n:pi"], ["τ", "fn", "n:tau"],
   ]],
-  ["Calculus", 4, 2, [
+  ["Calculus", 4, 3, [
     { fn: "solve", desc: "f(x) = y for x" }, { fn: "integrate", label: "∫ dx", desc: "Integral a…b" }, { fn: "diff", label: "d/dx", desc: "Derivative" }, { fn: "plot", desc: "f(x), x, a, b" },
     { key: "assign", label: "=", desc: "Equation" }, { key: "n:x", label: "x", desc: "Variable" }, { key: "n:inf", label: "∞", desc: "Infinity" }, { key: "deffn", label: "f(x) =", desc: "Define" },
+    { fn: "roots", desc: "All the x" }, { fn: "polyroots", desc: "Complex too" }, { fn: "limit", label: "lim", desc: "x → x₀, ±∞" },
   ]],
   ["Lists", 4, 3, [
     { fn: "linspace", label: "a…b", desc: "n equal steps" }, { fn: "logspace", label: "a…b log", desc: "n equal ratios" }, { fn: "sum", label: "Σ", desc: "Sum" }, { fn: "mean", desc: "Average" },
@@ -3564,12 +3576,15 @@ const USAGE = {
   min: "min(a, b, …) or min(list): smallest value",
   max: "max(a, b, …) or max(list): largest value",
   solve: "solve(f(x) = y, x, guess) or solve(f(x) = y, x, a, b): the x where both sides are equal; the guess (or the range) gives its units, as in solve(D_L(z) = 1 Gpc, z, 0, 5)",
+  roots: "roots(f(x) = y, x): every x where both sides are equal, as a list; roots(f(x) = y, x, a, b) within a range (a or b can be ±inf), and roots(f(x) = y, x, 1 m) sets the units and the scale. The expression is sampled from 10⁻¹⁰ to 10¹⁰ times the scale on both sides of 0, so roots closer than the sampling can be missed",
+  polyroots: "polyroots((a0, a1, …, an)): the n roots of a0 + a1 x + … + an x^n, complex ones too, as a table of real (Re) and imaginary (Im) parts; polyroots((1, 0, 1)) gives ±i. Coefficients can have units (x then has the units of a0/a1) and errors; a multiple root has errors only in Monte Carlo mode",
+  limit: "limit(f(x), x, x0): the limit of f for x → x0, as limit(sin(x)/x, x, 0); limit(f(x), x, x0, 1) from above, limit(f(x), x, x0, -1) from below; x0 can be ±inf, as limit((1 + 1/x)^x, x, inf). Found numerically, by extrapolating values ever closer to x0: an expression that diverges or oscillates gives an error",
   integrate: "integrate(f(x), x, a, b): ∫ f dx from a to b, with units; a or b can be ±inf, as in integrate(exp(-x^2), x, -inf, inf)",
   diff: "diff(f(x), x, x0): derivative df/dx at x0, as in diff(age(z), z, 1); diff(f(x), x, x0, h) sets the step",
   plot: "plot(f(x), x, a, b): a curve; plot((f(x), g(x)), x, a, b) several. plot(ys) or plot(xs, ys) for lists. Errors show as a band",
   linspace: "linspace(a, b, n): n values from a to b in equal steps, as in z = linspace(0, 3, 7)",
   logspace: "logspace(a, b, n): n values from a to b in equal ratios, as in logspace(1, 1000, 4)",
-  sum: "sum(list): sum of the values; sum(f(k), k, a, b): f(a) + f(a + 1) + … + f(b), as sum(1/k^2, k, 1, 1000)",
+  sum: "sum(list): sum of the values; sum(f(k), k, a, b): f(a) + f(a + 1) + … + f(b), as sum(1/k^2, k, 1, 1000); b can be inf (and a -inf), as sum(1/k^2, k, 1, inf), for terms of one sign that decrease at least as k^-1.02 and are smooth between whole numbers, or for alternating terms",
   mean: "mean(list): average of the values",
   len: "len(list): number of values",
   dot: "dot(a, b): scalar product a · b of two vectors; dot((3, 4) N, (2, 0) m) = 6 J",
@@ -5397,12 +5412,14 @@ const HELP = [
     ["D_L(1) @ Gpc", "luminosity distance"], ["scale(0.5)", "kpc per arcsec"], ["age(0)", ""], ["Omega_M = 0.315", "change the model"],
     ["theta_E(1e12 M_Sun, 0.5, 2)", "Einstein radius"], ["Sigma_cr(0.3, 1.5)", ""], ["theta_E_SIS(250 km/s, 0.5, 2)", ""], ["H(1)", ""],
   ]],
-  ["Solve, integrate, differentiate", "The first argument is an expression in the variable named by the second one. solve finds where the two sides are equal, from a guess or within a range; integrate takes limits, which can be ±inf; diff gives the derivative at a point. Units and errors carry through (in Monte Carlo mode, per sample). On the f(x) Calculus keys.", [
+  ["Solve, integrate, differentiate", "The first argument is an expression in the variable named by the second one. solve finds where the two sides are equal, from a guess or within a range, and roots finds all such values, as a list (polyroots gives all the roots of a polynomial, complex ones too, from its coefficients a0, a1, …); integrate takes limits, which can be ±inf; diff gives the derivative at a point; limit gives the limit at a point (or at ±inf), from both sides or one. Units and errors carry through (in Monte Carlo mode, per sample). On the f(x) Calculus keys.", [
     ["solve(x^2 = 2, x)", ""], ["solve(D_L(z) = 1 Gpc, z, 0, 5)", "redshift at 1 Gpc"], ["solve(age(z) = 1 Gyr, z, 1)", ""], ["solve(cos(x) = x, x, 0, 1)", ""],
+    ["roots(x^3 - 6x^2 + 11x = 6, x)", "1, 2, 3"], ["roots(sin(x) = 0.5, x, 0, 10)", ""], ["roots(cos(x) = x/10, x)", ""], ["polyroots((1, 0, 1))", "±i"], ["polyroots((-6, 11, -6, 1))", "x³ − 6x² + 11x − 6"],
     ["integrate(exp(-x^2), x, -inf, inf)", "√π"], ["integrate(9.81 m/s^2, t, 0 s, 2 s)", ""], ["diff(age(z), z, 1) @ Gyr", ""], ["diff(x^3, x, 2)", ""],
+    ["limit(sin(x)/x, x, 0)", "1"], ["limit((1 + 1/x)^x, x, inf)", "e"], ["limit(x^x, x, 0, 1)", "from above"],
   ]],
-  ["Lists and tables", "A list is written in parentheses, or made with linspace and logspace. Arithmetic, units, @ and functions apply to each value; sum, mean, len, min and max take the whole list. sum(f(k), k, a, b) adds f over k = a, a + 1, …, b. A list of lists is shown as a table, one column per list. Tap a value to insert it; long-press to copy as CSV.", [
-    ["z = (0.1, 0.5, 1, 2)", ""], ["D_L(z) @ Gpc", ""], ["(z, D_L(z) @ Gpc, age(z))", "a table"], ["linspace(0 m, 10 m, 6)", ""], ["logspace(1, 1000, 4)", ""], ["sum((3, 4, 5) kg)", ""], ["sum(1/k^2, k, 1, 1000)", "≈ π²/6"], ["sum(2^k / factorial(k), k, 0, 20)", "≈ e²"],
+  ["Lists and tables", "A list is written in parentheses, or made with linspace and logspace. Arithmetic, units, @ and functions apply to each value; sum, mean, len, min and max take the whole list. sum(f(k), k, a, b) adds f over k = a, a + 1, …, b; b can be inf, as in sum(1/k^2, k, 1, inf). A list of lists is shown as a table, one column per list. Tap a value to insert it; long-press to copy as CSV.", [
+    ["z = (0.1, 0.5, 1, 2)", ""], ["D_L(z) @ Gpc", ""], ["(z, D_L(z) @ Gpc, age(z))", "a table"], ["linspace(0 m, 10 m, 6)", ""], ["logspace(1, 1000, 4)", ""], ["sum((3, 4, 5) kg)", ""], ["sum(1/k^2, k, 1, inf)", "π²/6"], ["sum((-1)^(k+1)/k, k, 1, inf)", "ln 2"], ["sum(2^k / factorial(k), k, 0, 20)", "≈ e²"],
   ]],
   ["Vectors", "A vector is a list of components with compatible units. Arithmetic is per component; dot, cross, norm and angle take whole vectors. On the f(x) Lists keys.", [
     ["F = (3, 4, 0) N", ""], ["d = (2, 0, 1) m", ""], ["dot(F, d)", "work"], ["cross(d, F)", "torque"], ["norm(F)", ""], ["angle(F, d) @ deg", ""],
