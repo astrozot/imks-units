@@ -4727,18 +4727,32 @@ function explain(b) {
   return "";
 }
 
-// sliding sideways on the space bar (or ◀ ▶) moves the caret, a
-// character every SLIDE_STEP px, as on the iOS keyboard
-const SLIDE_STEP = 9;
-let slide = null;
+// a long press on the space bar (or ◀ ▶) followed by a slide sideways
+// moves the caret, a character every SLIDE_STEP px, as on the iOS keyboard
+const SLIDE_STEP = 9, SLIDE_HOLD = 300;
+let slide = null, slideTimer = null;
 
 keypadEl.addEventListener("pointerdown", (ev) => {
   const b = ev.target.closest("button");
   if (!b || b.disabled) return;
   held = false;
   holdStart = { x: ev.clientX, y: ev.clientY };
+  clearTimeout(slideTimer);
   slide = b.dataset.ch === " " || b.dataset.key === "left" || b.dataset.key === "right"
     ? { b, id: ev.pointerId, x: ev.clientX, caret: state.caret, on: false } : null;
+  if (slide) {
+    const s = slide;
+    slideTimer = setTimeout(() => {
+      // the key does not type once held
+      s.on = true;
+      held = true;
+      s.caret = state.caret;
+      s.b.classList.add("sliding");
+      try { keypadEl.setPointerCapture(s.id); } catch { /* gone */ }
+      navigator.vibrate?.(10);
+    }, SLIDE_HOLD);
+    return;
+  }
   if (b.dataset.key === "backspace") {
     ev.preventDefault();
     backspace();
@@ -4776,21 +4790,16 @@ keypadEl.addEventListener("pointerdown", (ev) => {
 keypadEl.addEventListener("pointermove", (ev) => {
   if (holdStart && Math.hypot(ev.clientX - holdStart.x, ev.clientY - holdStart.y) > 10) clearTimeout(holdTimer);
   if (!slide || ev.pointerId !== slide.id) return;
-  const dx = ev.clientX - slide.x;
   if (!slide.on) {
-    if (Math.abs(dx) < 12) return;
-    // the key does not type once it slides
-    slide.on = true;
-    held = true;
-    slide.x += Math.sign(dx) * 12;
-    slide.b.classList.add("sliding");
-    try { keypadEl.setPointerCapture(ev.pointerId); } catch { /* gone */ }
+    // moving before the long press keeps the key an ordinary tap
+    slide.x = ev.clientX;
     return;
   }
   const c = slide.caret + Math.trunc((ev.clientX - slide.x) / SLIDE_STEP);
   if (c !== state.caret) setCaret(c, Math.sign(c - state.caret));
 });
 const endSlide = () => {
+  clearTimeout(slideTimer);
   if (slide) slide.b.classList.remove("sliding");
   slide = null;
 };

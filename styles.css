@@ -360,7 +360,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .expr .t-f { color: var(--accent-ink); }
 .expr .t-op { color: var(--muted); }
 .expr .t-at { color: var(--accent); font-weight: 700; }
-.expr .pm { background: var(--accent-soft); border-radius: 3px; font-weight: 700; }
+.expr .pm { color: var(--accent-text); background: var(--accent); border-radius: 4px; font-weight: 700; }
 .expr .pm-bad { color: var(--danger); font-weight: 700; }
 
 .caret {
