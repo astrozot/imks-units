@@ -3905,48 +3905,47 @@ const ACTIONS = {
 // {fn | name, label, desc}
 const FN_SECTIONS = [
   ["Math", 5, 4, [
-    ["√", "fn", "f:sqrt("], ["∛", "fn", "f:cbrt("], ["|x|", "fn small", "f:abs("], ["n!", "fn small", "f:factorial("], ["Γ", "fn", "f:Gamma("],
-    ["ln", "fn small", "f:ln("], ["log₁₀", "fn small", "f:log10("], ["log₂", "fn small", "f:log2("], ["eˣ", "fn small", "f:exp("], ["π", "fn", "n:pi"],
-    ["10ˣ", "fn small", "10^"], ["x⁻¹", "fn small", "pow-1"], ["round", "fn small", "f:round("], ["value", "fn small", "f:nominal("], ["error", "fn small", "f:err("],
-    ["ans", "fn small", "n:ans"], ["floor", "fn small", "f:floor("], ["f(x) =", "fn small", "deffn"], ["◀", "fn", "left"], ["▶", "fn", "right"],
+    ["x⁻¹", "fn small", "pow-1"], ["√", "fn", "f:sqrt("], ["∛", "fn", "f:cbrt("], ["eˣ", "fn small", "f:exp("], ["10ˣ", "fn small", "10^"],
+    ["n!", "fn small", "f:factorial("], ["Γ", "fn", "f:Gamma("], ["log₂", "fn small", "f:log2("], ["ln", "fn small", "f:ln("], ["log₁₀", "fn small", "f:log10("],
+    ["|x|", "fn small", "f:abs("], ["round", "fn small", "f:round("], ["floor", "fn small", "f:floor("], ["value", "fn small", "f:nominal("], ["error", "fn small", "f:err("],
+    ["π", "fn", "n:pi"], ["ans", "fn small", "n:ans"], ["f(x) =", "fn small", "deffn"], ["◀", "fn", "left"], ["▶", "fn", "right"],
   ]],
   ["Trig", 5, 4, [
-    ["sin", "fn small", "f:sin("], ["cos", "fn small", "f:cos("], ["tan", "fn small", "f:tan("], ["atan2", "fn small", "f:atan2("], ["°", "fn", "u:deg"],
-    ["asin", "fn small", "f:asin("], ["acos", "fn small", "f:acos("], ["atan", "fn small", "f:atan("], ["hypot", "fn small", "f:hypot("], ["rad", "fn small", "u:rad"],
-    ["sinh", "fn small", "f:sinh("], ["cosh", "fn small", "f:cosh("], ["tanh", "fn small", "f:tanh("], ["′", "fn", "u:arcmin"], ["″", "fn", "u:arcsec"],
-    ["asinh", "fn small", "f:asinh("], ["acosh", "fn small", "f:acosh("], ["atanh", "fn small", "f:atanh("], ["π", "fn", "n:pi"], ["τ", "fn", "n:tau"],
+    ["sin", "fn small", "f:sin("], ["cos", "fn small", "f:cos("], ["tan", "fn small", "f:tan("], ["atan2", "fn small", "f:atan2("], ["rad", "fn small", "u:rad"],
+    ["asin", "fn small", "f:asin("], ["acos", "fn small", "f:acos("], ["atan", "fn small", "f:atan("], ["hypot", "fn small", "f:hypot("], ["°", "fn", "u:deg"],
+    ["sinh", "fn small", "f:sinh("], ["cosh", "fn small", "f:cosh("], ["tanh", "fn small", "f:tanh("], ["π", "fn", "n:pi"], ["′", "fn", "u:arcmin"],
+    ["asinh", "fn small", "f:asinh("], ["acosh", "fn small", "f:acosh("], ["atanh", "fn small", "f:atanh("], ["τ", "fn", "n:tau"], ["″", "fn", "u:arcsec"],
   ]],
   ["Calculus", 4, 3, [
-    { fn: "solve", desc: "f(x) = y for x" }, { fn: "integrate", label: "∫ dx", desc: "Integral a…b" }, { fn: "diff", label: "d/dx", desc: "Derivative" }, { fn: "plot", desc: "f(x), x, a, b" },
-    { key: "assign", label: "=", desc: "Equation" }, { key: "n:x", label: "x", desc: "Variable" }, { key: "n:inf", label: "∞", desc: "Infinity" }, { key: "deffn", label: "f(x) =", desc: "Define" },
-    { fn: "roots", desc: "All the x" }, { fn: "polyroots", desc: "Complex too" }, { fn: "limit", label: "lim", desc: "x → x₀, ±∞" },
+    { fn: "solve", desc: "f(x) = y for x" }, { fn: "roots", desc: "All the x" }, { fn: "polyroots", desc: "Complex too" }, { key: "assign", label: "=", desc: "Equation" },
+    { fn: "limit", label: "lim", desc: "x → x₀, ±∞" }, { fn: "diff", label: "d/dx", desc: "Derivative" }, { fn: "integrate", label: "∫ dx", desc: "Integral a…b" }, { fn: "sum", label: "Σ", desc: "Series k = a…b" },
+    { fn: "plot", desc: "f(x), x, a, b" }, { key: "deffn", label: "f(x) =", desc: "Define" }, { key: "n:x", label: "x", desc: "Variable" }, { key: "n:inf", label: "∞", desc: "Infinity" },
   ]],
   ["Lists", 4, 3, [
-    { fn: "linspace", label: "a…b", desc: "n equal steps" }, { fn: "logspace", label: "a…b log", desc: "n equal ratios" }, { fn: "sum", label: "Σ", desc: "Sum" }, { fn: "mean", desc: "Average" },
-    { fn: "len", desc: "Count" }, { fn: "min", desc: "Smallest" }, { fn: "max", desc: "Largest" }, { fn: "plot", desc: "xs, ys" },
+    { fn: "linspace", label: "a…b", desc: "n equal steps" }, { fn: "logspace", label: "a…b log", desc: "n equal ratios" }, { fn: "len", desc: "Count" }, { fn: "plot", desc: "xs, ys" },
+    { fn: "sum", label: "Σ", desc: "Sum" }, { fn: "mean", desc: "Average" }, { fn: "min", desc: "Smallest" }, { fn: "max", desc: "Largest" },
     { fn: "dot", label: "a · b", desc: "Scalar product" }, { fn: "cross", label: "a × b", desc: "Vector product" }, { fn: "norm", label: "|v|", desc: "Length" }, { fn: "angle", label: "∠(a, b)", desc: "Angle" },
   ]],
   ["Cosmology", 4, 3, [
+    { fn: "H", label: "H(z)", desc: "Hubble param." }, { fn: "E", label: "E(z)", desc: "H(z)/H₀" }, { fn: "t_L", desc: "Lookback time" }, { fn: "age", label: "age", desc: "Age at z" },
     { fn: "D_C", desc: "Comoving" }, { fn: "D_M", desc: "Transverse" }, { fn: "D_A", desc: "Angular diam." }, { fn: "D_L", desc: "Luminosity" },
-    { fn: "distmod", label: "μ(z)", desc: "Dist. modulus" }, { fn: "scale", label: "kpc/″", desc: "Proper scale" },
-    { fn: "H", label: "H(z)", desc: "Hubble param." }, { fn: "E", label: "E(z)", desc: "H(z)/H₀" },
-    { fn: "t_L", desc: "Lookback time" }, { fn: "age", label: "age", desc: "Age at z" }, { fn: "V_C", desc: "Comov. volume" },
+    { fn: "distmod", label: "μ(z)", desc: "Dist. modulus" }, { fn: "scale", label: "kpc/″", desc: "Proper scale" }, { fn: "V_C", desc: "Comov. volume" },
   ]],
   ["Lensing", 4, 2, [
     { fn: "Sigma_cr", desc: "Critical density" }, { fn: "theta_E", desc: "Point mass" }, { fn: "theta_E_SIS", desc: "Isothermal" }, { fn: "M_E", desc: "Mass in θ_E" },
     { fn: "D_A", desc: "Angular diam." }, { fn: "D_dt", desc: "Time delay" }, { fn: "scale", label: "kpc/″", desc: "Proper scale" },
   ]],
   ["Stats", 4, 4, [
-    { fn: "Phi", desc: "Normal CDF" }, { fn: "Phi_inv", desc: "Normal quantile" }, { fn: "pvalue", desc: "p-value of nσ" }, { fn: "nsigma", desc: "nσ of a p-value" },
-    { fn: "conf", label: "CL(nσ)", desc: "Inside ±nσ" }, { fn: "erf", label: "erf", desc: "Error function" }, { fn: "erfc", label: "erfc", desc: "1 − erf" }, { fn: "erf_inv", desc: "Inverse erf" },
-    { fn: "p_chi2", desc: "χ² tail (x, k)" }, { fn: "p_t", desc: "Student t tail" }, { fn: "lgamma", desc: "log Γ(x)" }, { fn: "B", label: "B(a,b)", desc: "Beta function" },
-    { fn: "binom", label: "binom", desc: "n choose k" }, { name: "fwhm", label: "FWHM/σ", desc: "2√(2 ln 2)" }, { name: "sqrt(2 pi)", label: "√2π", desc: "2.5066" }, { name: "gamma_E", desc: "Euler–Mascheroni" },
+    { fn: "pvalue", desc: "p-value of nσ" }, { fn: "nsigma", desc: "nσ of a p-value" }, { fn: "conf", label: "CL(nσ)", desc: "Inside ±nσ" }, { name: "fwhm", label: "FWHM/σ", desc: "2√(2 ln 2)" },
+    { fn: "Phi", desc: "Normal CDF" }, { fn: "Phi_inv", desc: "Normal quantile" }, { fn: "p_chi2", desc: "χ² tail (x, k)" }, { fn: "p_t", desc: "Student t tail" },
+    { fn: "erf", label: "erf", desc: "Error function" }, { fn: "erfc", label: "erfc", desc: "1 − erf" }, { fn: "erf_inv", desc: "Inverse erf" }, { name: "sqrt(2 pi)", label: "√2π", desc: "2.5066" },
+    { fn: "binom", label: "binom", desc: "n choose k" }, { fn: "lgamma", desc: "log Γ(x)" }, { fn: "B", label: "B(a,b)", desc: "Beta function" }, { name: "gamma_E", desc: "Euler–Mascheroni" },
   ]],
   ["Distributions", 4, 3, [
-    { fn: "N", label: "N(μ, σ)", desc: "Normal" }, { fn: "U", label: "U(a, b)", desc: "Uniform" },
+    { fn: "N", label: "N(μ, σ)", desc: "Normal" }, { fn: "T", label: "T(ν, μ, s)", desc: "Student t" },
     { fn: "LogN", label: "LogN(m, s)", desc: "Log-normal" }, { fn: "Gamma", label: "Γ(k, θ)", desc: "Gamma" },
-    { fn: "Beta", label: "Beta(a, b)", desc: "Beta" }, { fn: "T", label: "T(ν, μ, s)", desc: "Student t" },
-    { fn: "Tri", label: "Tri(a, c, b)", desc: "Triangular" }, { fn: "trunc", label: "trunc(X, lo, hi)", desc: "Truncate" },
+    { fn: "U", label: "U(a, b)", desc: "Uniform" }, { fn: "Tri", label: "Tri(a, c, b)", desc: "Triangular" },
+    { fn: "Beta", label: "Beta(a, b)", desc: "Beta" }, { fn: "trunc", label: "trunc(X, lo, hi)", desc: "Truncate" },
     { key: "±", label: "±", desc: "Normal error" }, { key: "f:nominal(", label: "value", desc: "Without error" },
     { key: "f:err(", label: "error", desc: "σ only" }, { engine: true },
   ]],
@@ -6023,7 +6022,7 @@ async function boot() {
   $("#btn-ref").addEventListener("click", () => openSheet("Reference", (root) => renderReference(root)));
   $("#btn-settings").addEventListener("click", () => openSheet("Settings", renderSettings));
   $("#btn-help").addEventListener("click", () => openSheet("Help", renderHelp));
-  $("#btn-about").addEventListener("click", openAbout);
+  $("#btn-about").addEventListener("click", () => openAbout());
   $("#about").addEventListener("click", (ev) => { if (ev.target.closest("[data-about-close]")) closeAbout(); });
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("#about").hidden) closeAbout(); });
   $("#btn-clear").addEventListener("click", (ev) => {
