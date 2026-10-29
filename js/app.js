@@ -45,6 +45,8 @@ const DEFAULT_SETTINGS = {
   mcN: 5000,
   typeset: true,
   brackets: true,
+  bracketMatch: "fill",  // fill, underline, box, none
+  rainbow: false,
   cosmo: { preset: "concordance", H0: 70, Om: 0.3, Ob: 0.05, OL: 0.7, OR: 0, flat: true, errors: false, sH0: 0, sOm: 0, rho: 0 },
 };
 
@@ -1320,33 +1322,43 @@ const SHOW_CHAR = { "*": "×", "-": "−" };
 const showText = (s) => esc(s.replace(/[*-]/g, (c) => SHOW_CHAR[c]));
 
 function segHTML(t, sg, s = sg.s, e = sg.e) {
-  const cls = (sg.cls ? "t-" + sg.cls : "") + (sg.atom ? " atom" : "") + (sg.sp ? " sp" : "") + (sg.pm ? " " + sg.pm : "");
+  const cls = (sg.cls ? "t-" + sg.cls : "") + (sg.atom ? " atom" : "") + (sg.sp ? " sp" : "") + (sg.rb ? " " + sg.rb : "") + (sg.br ? " " + sg.br : "");
   if (sg.atom) return `<span class="${cls}" data-s="${sg.s}" data-e="${sg.e}">${sg.html}</span>`;
   const text = t.slice(s, e);
   return e > s ? `<span class="${cls}" data-s="${s}">${sg.raw ? esc(text) : showText(text)}</span>` : "";
 }
 
-// The bracket next to the caret (before it, else after it) and its
-// partner are marked "pm"; one without a partner, or with the wrong
-// kind, is marked "pm-bad". Brackets inside atoms and strings are skipped.
-const OPENS = { "(": ")", "[": "]", "{": "}" };
-const CLOSES = { ")": "(", "]": "[", "}": "{" };
-
-function markBrackets(segs, t, c) {
-  const br = segs.filter((sg) => !sg.atom && sg.e - sg.s === 1 && (OPENS[t[sg.s]] || CLOSES[t[sg.s]]));
+// Parentheses (outside atoms and strings), both optional in Settings;
+// unit brackets cannot nest, so they are left alone:
+// - match: the parenthesis next to the caret (before it, else after it)
+//   and its partner are marked "br-match"; one without a partner is
+//   marked "br-bad" (drawn as set by data-br on .expr);
+// - rainbow: each pair is coloured by its depth ("rb0"…"rb3"); closing
+//   parentheses without a partner are "br-bad".
+function markBrackets(segs, t, c, { match, rainbow }) {
+  if (!match && !rainbow) return;
+  const br = segs.filter((sg) => !sg.atom && sg.e - sg.s === 1 && (t[sg.s] === "(" || t[sg.s] === ")"));
+  const partners = new Map();
+  const stack = [];
+  for (const sg of br) {
+    if (t[sg.s] === "(") {
+      if (rainbow) sg.rb = "rb" + (stack.length % 4);
+      stack.push(sg);
+      continue;
+    }
+    const o = stack.pop();
+    if (o) { partners.set(sg, o); partners.set(o, sg); }
+    if (rainbow) {
+      if (o) sg.rb = o.rb;
+      else sg.br = "br-bad";
+    }
+  }
+  if (!match) return;
   const at = br.find((sg) => sg.e === c) || br.find((sg) => sg.s === c);
   if (!at) return;
-  const stack = [];
-  let partner = null;
-  for (const sg of br) {
-    if (OPENS[t[sg.s]]) { stack.push(sg); continue; }
-    const o = stack.pop();
-    if (sg === at) { partner = o || null; break; }
-    if (o === at) { partner = sg; break; }
-  }
-  const ok = partner && OPENS[t[Math.min(at.s, partner.s)]] === t[Math.max(at.s, partner.s)];
-  at.pm = ok ? "pm" : "pm-bad";
-  if (partner) partner.pm = at.pm;
+  const partner = partners.get(at);
+  at.br = partner ? "br-match" : "br-bad";
+  if (partner) partner.br = at.br;
 }
 
 // Typeset expression without caret (history)
@@ -1371,7 +1383,9 @@ function renderEditor() {
   }
   const segs = segments(t);
   state.atoms = segs.filter((sg) => sg.atom).map((sg) => [sg.s, sg.e, sg.atom]);
-  markBrackets(segs, t, c);
+  const brStyle = state.settings.bracketMatch || "fill";
+  exprEl.dataset.br = brStyle;
+  markBrackets(segs, t, c, { match: brStyle !== "none", rainbow: Boolean(state.settings.rainbow) });
   let html = "";
   for (const sg of segs) {
     if (sg.atom) {
@@ -5380,6 +5394,10 @@ function renderSettings(root) {
         <input type="checkbox" class="switch" id="set-typeset" ${s.typeset !== false ? "checked" : ""}></div>
       <div class="row"><div class="lbl">Units in brackets<small>Unit keys after a number give 9.8[m/s^2]</small></div>
         <input type="checkbox" class="switch" id="set-brackets" ${s.brackets !== false ? "checked" : ""}></div>
+      <div class="row"><div class="lbl">Matching parentheses<small>The pair at the cursor; unmatched in red</small></div>
+        <select id="set-match">${[["fill", "Filled"], ["underline", "Underline"], ["box", "Box"], ["none", "None"]].map(([v, l]) => `<option value="${v}" ${v === (s.bracketMatch || "fill") ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+      <div class="row"><div class="lbl">Rainbow parentheses<small>Each nesting level in its own colour</small></div>
+        <input type="checkbox" class="switch" id="set-rainbow" ${s.rainbow ? "checked" : ""}></div>
       <div class="row"><div class="lbl">Appearance</div>
         <select id="set-theme">${["auto", "light", "dark"].map((x) => `<option ${x === s.theme ? "selected" : ""}>${x}</option>`).join("")}</select></div>
       <div class="row pal-row"><div class="lbl">Colours</div>
@@ -5449,6 +5467,8 @@ function renderSettings(root) {
   $("#set-digits", root).addEventListener("change", (ev) => { s.digits = Number(ev.target.value); save(); applySettings(state.calc); refresh(); });
   $("#set-errors", root).addEventListener("change", (ev) => { s.errors = ev.target.checked; save(); applySettings(state.calc); refresh(); });
   $("#set-typeset", root).addEventListener("change", (ev) => { s.typeset = ev.target.checked; save(); renderHistory(); updateMath2d(); });
+  $("#set-match", root).addEventListener("change", (ev) => { s.bracketMatch = ev.target.value; save(); renderEditor(); });
+  $("#set-rainbow", root).addEventListener("change", (ev) => { s.rainbow = ev.target.checked; save(); renderEditor(); });
   const mcChange = () => {
     s.mc = $("#set-mc", root).value === "mc";
     s.mcN = Number($("#set-mcn", root).value);
