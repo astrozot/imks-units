@@ -501,10 +501,12 @@ function broadcast(f, args) {
 // what plot returns: the x values and one list of y values per curve, as
 // quantities; heads are the expressions of the curves (nodes) when known.
 // For plot(f(x), x, a, b), range is the x range computed, as numbers that
-// a range override (Interpreter.plotRange) takes back
+// a range override (Interpreter.plotRange) takes back, and asym the
+// asymptotes if it asked for them (see plotAsymptotes)
 class PlotData {
-  constructor(xs, series, { heads = null, xname = "", range = null } = {}) {
+  constructor(xs, series, { heads = null, xname = "", range = null, asym = null } = {}) {
     this.xs = xs;
+    this.asym = asym;
     this.series = series;
     this.heads = heads;
     this.xname = xname;
@@ -1569,7 +1571,8 @@ function calcDiff(env, f, limits, name) {
 // points where it fails or is not finite are left out (null). Where a
 // curve jumps, the interval is halved towards the jump: a jump that does
 // not shrink (a pole or a step) breaks the curve there. range, if given,
-// replaces a and b (in the same frame) and the choice of spacing
+// replaces a and b (in the same frame) and the choice of spacing; its asym
+// asks for the asymptotes too ("v": only the vertical ones)
 function calcPlot(env, f, limits, { heads, xname, shown, range }) {
   const fr = varFrame(env, limits, "plot");
   let [a, b] = fr.us.map((u) => u.n);
@@ -1615,7 +1618,7 @@ function calcPlot(env, f, limits, { heads, xname, shown, range }) {
     });
   }
   jumps.sort((u, v) => v.size - u.size);
-  const extra = [];
+  const extra = [], poles = [];
   let budget = 6 * n;
   for (const { i, j } of jumps) {
     let p0 = pts[i], p1 = pts[i + 1];
@@ -1634,7 +1637,8 @@ function calcPlot(env, f, limits, { heads, xname, shown, range }) {
     if (broken && budget > 0) {
       const row = p0.row.map((q, jj) => (jj === j ? null : q));
       const t = (p0.t + p1.t) / 2;
-      extra.push({ t, x: shown(xAt(t)), row });
+      extra.push({ t, x: shown(xAt(t)), row, cut: true });
+      if (Math.abs(yv(p1, j) - yv(p0, j)) > 2 * jump) poles.push({ j, t0: p0.t, t1: p1.t });
     }
     if (budget <= 0) break;
   }
@@ -1643,7 +1647,95 @@ function calcPlot(env, f, limits, { heads, xname, shown, range }) {
 
   const xs = pts.map((p) => p.x);
   const series = Array.from({ length: k }, (_, j) => pts.map((p) => (p.row && p.row[j]) || null));
-  return makePlot(env, xs, series, { heads: heads.length === k ? heads : null, xname, range: { a, b, log: logx } });
+  const asym = range && range.asym
+    ? nominally(() => plotAsymptotes(env, f, { fr, k, pts, poles, a, b, logx, shown, lines: range.asym === "all" }))
+    : null;
+  return makePlot(env, xs, series, { heads: heads.length === k ? heads : null, xname, range: { a, b, log: logx }, asym });
+}
+
+// The asymptotes of the curves of a plot. Vertical ones: where a limit
+// from one side is ±∞, near the poles found in sampling, near peaks far
+// out of the spread of a curve (found by ternary search) and at the edges
+// of where it is defined (by bisection). With lines, also y = m x + q for
+// x → ±∞, as m = lim y/x and q = lim y − m x. Returns {v: [[j, x]],
+// lines: [{j, p: [[x, y], [x, y]]}] or null} (j: the curve)
+function plotAsymptotes(env, f, { fr, k, pts, poles, a, b, logx, shown, lines }) {
+  const quiet = (fn) => {
+    try {
+      return fn();
+    } catch (e) {
+      if (!(e instanceof CalcError || e instanceof UnitError)) throw e;
+      return null;
+    }
+  };
+  const uAt = (t) => (logx ? a * (b / a) ** t : a + (b - a) * t);
+  const fj = (j) => (x) => { const y = f(x); return Array.isArray(y) ? y[j] : y; };
+  const yAt = (j, t) => quiet(() => { const q = fj(j)(fr.mk(uAt(t))); return q instanceof Q && isFinite(q.x.n) ? q.x.n : null; });
+  // ±∞ from a side (1 above, -1 below) at u rounded, as coarsely as can
+  // be (where f overflows near 1/x → 0 is not the pole), or at u
+  const pole = (j, u, sides) => {
+    for (const u0 of [...[1e-3, 1e-6, 1e-9].map((e) => Math.round(u / (e * Math.abs(b - a))) * e * Math.abs(b - a)), u]) {
+      for (const side of sides) {
+        if (quiet(() => !isFinite(calcLimit(env, fj(j), [fr.mk(u0), new Q(side)], "plot").x.n))) return u0;
+      }
+    }
+    return null;
+  };
+  const v = [], out = [];
+  for (let j = 0; j < k; j++) {
+    // without the points that break the curve at jumps
+    const ps = pts.filter((p) => !p.cut);
+    const ys = ps.map((p) => (p.row && p.row[j] ? p.row[j].x.n : null));
+    const fin = ys.filter((y) => y !== null).sort((p, q) => p - q);
+    if (fin.length < 2) continue;
+    const qu = (s) => fin[Math.round(s * (fin.length - 1))];
+    const med = qu(0.5), w = qu(0.95) - qu(0.05) || fin.at(-1) - fin[0] || Math.abs(med) || 1;
+    const dev = (i) => (ys[i] === null || ys[i] === undefined ? 0 : Math.abs(ys[i] - med));
+    const spans = poles.filter((p) => p.j === j).map((p) => [p.t0, p.t1]), edges = [];
+    ys.forEach((y, i) => {
+      if (y !== null && dev(i) > 10 * w && dev(i) >= dev(i - 1) && dev(i) >= dev(i + 1)) spans.push([ps[Math.max(0, i - 1)].t, ps[Math.min(ps.length - 1, i + 1)].t]);
+      // [defined, not defined]
+      if (i && (y === null) !== (ys[i - 1] === null)) edges.push(y === null ? [ps[i - 1].t, ps[i].t] : [ps[i].t, ps[i - 1].t]);
+    });
+    const near = (u) => v.some(([jj, uu]) => jj === j && Math.abs(uu - u) <= 1e-6 * Math.abs(b - a));
+    const add = (u) => { if (u !== null && !near(u)) v.push([j, u]); };
+    const h = (t) => { const y = yAt(j, t); return y === null ? Infinity : Math.abs(y - med); };
+    for (let [L, R] of spans.slice(0, 20)) {
+      for (let it = 0; it < 100 && R - L > 1e-16; it++) {
+        const m1 = L + (R - L) / 3, m2 = R - (R - L) / 3;
+        if (h(m1) > h(m2)) R = m2;
+        else L = m1;
+      }
+      const u = uAt((L + R) / 2);
+      if (!near(u) && Math.max(h(L), h(R)) > 1e6 * w) add(pole(j, u, [-1, 1]));
+    }
+    for (let [tf, tn] of edges.slice(0, 20)) {
+      for (let it = 0; it < 60; it++) {
+        const t = (tf + tn) / 2;
+        if (yAt(j, t) === null) tn = t;
+        else tf = t;
+      }
+      const u = uAt(tf);
+      if (!near(u)) add(pole(j, u, [-sgn(uAt(tn) - u) || 1]));
+    }
+    if (!lines) continue;
+    for (const s of [1, -1]) {
+      const big = (i) => s * 2 ** i;
+      const m = quiet(() => oneSide(env, (i) => env.div(fj(j)(fr.mk(big(i))), new Q(big(i))), "plot", null).q);
+      if (!m || !isFinite(m.x.n)) continue;
+      const c = quiet(() => oneSide(env, (i) => env.sub(fj(j)(fr.mk(big(i))), env.mul(m, new Q(big(i)))), "plot", null).q);
+      if (!c || !isFinite(c.x.n)) continue;
+      // f − (m x + q) shrinks also away from the powers of 2 limit took
+      const gap = (x) => quiet(() => Math.abs(env.sub(fj(j)(fr.mk(x)), env.add(env.mul(m, new Q(x)), c)).x.n));
+      const g3 = gap(s * Math.PI * 1e3), g6 = gap(s * Math.PI * 1e6);
+      if (g3 === null || g6 === null || !(g6 <= 0.75 * g3 || g6 <= 1e-9 * (Math.abs(c.x.n) + w))) continue;
+      const p = [a, b].map((u) => [shown(fr.mk(u)), env.add(env.mul(m, new Q(u)), c)]);
+      // the same line both ways
+      const same = (o) => o.j === j && o.p.every((pt, i) => Math.abs(pt[1].x.n - p[i][1].x.n) <= 1e-9 * (Math.abs(p[i][1].x.n) + w));
+      if (!out.some(same)) out.push({ j, p });
+    }
+  }
+  return { v: v.map(([j, u]) => [j, shown(fr.mk(u))]), lines: lines ? out : null };
 }
 
 // checks that the x values, and all the curves, have consistent units

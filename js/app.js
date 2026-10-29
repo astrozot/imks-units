@@ -617,10 +617,18 @@ function plotOf(p, prev = null) {
     const end = (q) => ax.val(q.x.n, q);
     Object.assign(out, { range: p.range, home: prev ? prev.home : p.range, xr: [end(p.xs[0]), end(p.xs.at(-1))] });
   }
+  // the asymptotes, if asked: x of the vertical ones (null: not computed
+  // for this range) and two points of each line, kept from prev as they do
+  // not depend on the range
+  const lines = p.asym && p.asym.lines
+    ? p.asym.lines.map(({ p: pts }) => pts.map(([xq, yq]) => [r7(ax.val(xq.x.n, xq)), r7(ay.val(yq.x.n, yq))]))
+    : prev && prev.asym ? prev.asym.lines : null;
+  if (p.asym || lines) out.asym = { v: p.asym ? p.asym.v.map(([, q]) => r7(ax.val(q.x.n, q))) : null, lines };
   if (prev) {
     out.logx = prev.logx;
     out.logy = prev.logy;
     if (prev.view) out.view = prev.view;
+    if (prev.showAsym) out.showAsym = true;
   }
   return out;
 }
@@ -768,16 +776,40 @@ function plotSVG(p, W = PLOT_W, H = PLOT_H) {
   });
   const few = p.x.filter((_, i) => g.inx(i)).length <= 30;
   const dots = few ? p.series.map((s, j) => p.x.map((xv, i) => (g.okx(xv) && g.oky(s.y[i]) ? `<circle cx="${f1(g.sx(xv))}" cy="${f1(g.sy(s.y[i]))}" r="2.2" fill="${PLOT_COLORS[j % PLOT_COLORS.length]}"/>` : "")).join("")).join("") : "";
+  const asym = p.showAsym && p.asym ? asymSVG(p, g) : "";
   const clip = `plot-clip-${++plotClip}`;
   return `<defs><clipPath id="${clip}"><rect x="${g.L}" y="${g.T}" width="${g.pw}" height="${g.ph}"/></clipPath></defs>
     <g class="grid">${grid}</g>
     <rect class="frame" x="${g.L}" y="${g.T}" width="${g.pw}" height="${g.ph}"/>
     <g clip-path="url(#${clip})"><g class="bands">${curves.map((c) => c.band).join("")}</g>
-    <g class="curves">${curves.map((c) => c.line).join("")}${dots}</g></g>
+    ${asym}<g class="curves">${curves.map((c) => c.line).join("")}${dots}</g></g>
     <g class="ticks">${labels}</g>
     <text class="axis-label" x="${g.L}" y="${g.T - 7}">${esc(ylab)}</text>
     <text class="axis-label" x="${W - g.R}" y="${H - 4}" text-anchor="end">${esc(xlab)}</text>
     <g class="cursor" visibility="hidden"><line y1="${g.T}" y2="${H - g.B}"/>${p.series.map((s, j) => `<circle r="3.5" fill="${PLOT_COLORS[j % PLOT_COLORS.length]}"/>`).join("")}</g>`;
+}
+
+// the asymptotes of a plot in view, dashed: the lines are drawn through
+// points across the view, for log axes
+function asymSVG(p, g) {
+  const f1 = (v) => v.toFixed(1);
+  let out = (p.asym.v || []).filter((x) => g.okx(x)).map((x) => `<line x1="${f1(g.sx(x))}" x2="${f1(g.sx(x))}" y1="${g.T}" y2="${g.H - g.B}"/>`).join("");
+  for (const [[xa, ya], [xb, yb]] of p.asym.lines || []) {
+    if ([xa, ya, xb, yb].includes(null) || xa === xb) continue;
+    const T0 = g.tx(g.x0), T1 = g.tx(g.x1);
+    let seg = [];
+    const flush = () => {
+      if (seg.length > 1) out += `<path d="M${seg.join("L")}"/>`;
+      seg = [];
+    };
+    for (let i = 0; i <= 64; i++) {
+      const x = g.ux(T0 + ((T1 - T0) * i) / 64), y = ya + ((x - xa) * (yb - ya)) / (xb - xa);
+      if (g.okx(x) && g.oky(y)) seg.push(`${f1(g.sx(x))},${f1(g.sy(y))}`);
+      else flush();
+    }
+    flush();
+  }
+  return `<g class="asym">${out}</g>`;
 }
 
 // the chips below a plot: log scales, and in the zoom view fit and reset
@@ -785,7 +817,8 @@ function plotChips(p, full) {
   const g = plotGeom(p);
   const tog = (ax, can, on) => (can ? `<button class="chip${on ? " on" : ""}" data-plotlog="${ax}" aria-pressed="${on}">log ${ax}</button>` : "");
   const extra = !full ? ""
-    : (p.view && p.view.y0 !== undefined ? '<button class="chip" data-plotfit>Fit y</button>' : "") +
+    : (p.range ? `<button class="chip${p.showAsym ? " on" : ""}" data-plotasym aria-pressed="${Boolean(p.showAsym)}">Asymptotes</button>` : "") +
+      (p.view && p.view.y0 !== undefined ? '<button class="chip" data-plotfit>Fit y</button>' : "") +
       (p.view ? '<button class="chip" data-plotreset>Reset</button>' : "");
   return `${tog("x", p.canlogx, g.logx)}${tog("y", p.canlogy, g.logy)}${extra}`;
 }
@@ -3303,7 +3336,7 @@ function openDistribution(entry) {
 // recomputes the plot of history entry e if its range or sampling no
 // longer match the view (or, with home, over its first range): the time
 // it took in ms, or null if it failed
-function replot(e, { home = false, quiet = false } = {}) {
+function replot(e, { home = false, quiet = false, force = false } = {}) {
   const p = e.plot;
   if (!p.range) {
     if (home) delete p.view;
@@ -3316,8 +3349,10 @@ function replot(e, { home = false, quiet = false } = {}) {
     want = p.view ? { a: toU(p.view.x0), b: toU(p.view.x1) } : { a, b };
     want.log = g.logx && want.a > 0 && want.b > 0;
     const tol = 1e-9 * Math.abs(want.b - want.a);
-    if (Math.abs(want.a - a) <= tol && Math.abs(want.b - b) <= tol && want.log === p.range.log) return 0;
+    if (!force && Math.abs(want.a - a) <= tol && Math.abs(want.b - b) <= tol && want.log === p.range.log) return 0;
   }
+  // the asymptotes, if shown: the lines only once
+  if (p.showAsym) want = { ...want, asym: !home && p.asym && p.asym.lines ? "v" : "all" };
   const t0 = performance.now();
   const calc = state.calc;
   calc.plotRange = want;
@@ -3332,6 +3367,7 @@ function replot(e, { home = false, quiet = false } = {}) {
     return null;
   }
   e.plot = home ? plotOf(r.plot) : plotOf(r.plot, p);
+  if (home && p.showAsym) e.plot.showAsym = true;
   return performance.now() - t0;
 }
 
@@ -3511,6 +3547,13 @@ function openPlot(e) {
     } else if (ev.target.closest("[data-plotfit]")) {
       fitY();
       return;
+    } else if (ev.target.closest("[data-plotasym]")) {
+      const p = e.plot;
+      p.showAsym = !p.showAsym;
+      if (p.showAsym && !(p.asym && p.asym.v && p.asym.lines)) replot(e, { force: true });
+      const a = e.plot.asym;
+      if (e.plot.showAsym && a && !a.v.length && !(a.lines || []).length) toast("No asymptotes found");
+      saveHistory();
     } else if (ev.target.closest("[data-plotreset]")) {
       replot(e, { home: true });
       saveHistory();

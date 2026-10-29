@@ -73,6 +73,13 @@
 }
 :root[data-theme="dark"] { --rb0: #7aa7ff; --rb1: #f07ad8; --rb2: #5cd08f; --rb3: #f2c14e; }
 
+/* plot asymptotes (magenta, apart from the curve colours) */
+:root { --asym: #b0369e; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --asym: #e889dc; }
+}
+:root[data-theme="dark"] { --asym: #e889dc; }
+
 /* page selection colour (cyan, as the app icon) */
 :root { --tab: #0e7f99; --tab-text: #ffffff; --tab-soft: #ddf3f7; --tab-soft-text: #0a5a6d; }
 @media (prefers-color-scheme: dark) {
@@ -298,6 +305,7 @@ table.vals td[data-v]:active { background: var(--surface-2); }
 .plot-svg .frame { fill: none; stroke: var(--muted); stroke-opacity: 0.5; stroke-width: 1; }
 .plot-svg .curves path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .plot-svg .bands path { fill-opacity: 0.18; stroke: none; }
+.plot-svg .asym line, .plot-svg .asym path { fill: none; stroke: var(--asym); stroke-width: 1.25; stroke-dasharray: 5 4; }
 .plot-svg text { font-size: 12px; fill: var(--muted); font-variant-numeric: tabular-nums; }
 .plot-svg .axis-label { fill: var(--text); font-size: 12.5px; }
 .plot-svg .cursor line { stroke: var(--text); stroke-opacity: 0.45; stroke-width: 1; }
