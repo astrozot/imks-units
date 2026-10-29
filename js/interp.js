@@ -1597,26 +1597,31 @@ function calcPlot(env, f, limits, { heads, xname, shown, range }) {
   if (!k) throw error || new CalcError("plot: nothing to plot");
   const yv = (p, j) => (p.row && p.row[j] ? p.row[j].x.n : null);
 
-  // jumps larger than a tenth of the spread of a curve, largest first
+  // jumps larger than a tenth of the spread of a curve, or much larger
+  // than one of those next to them (a step after a flat part); largest first
   const jumps = [];
   for (let j = 0; j < k; j++) {
     const ys = pts.map((p) => yv(p, j)).filter((y) => y !== null).sort((u, v) => u - v);
     if (ys.length < 2) continue;
     const q = (s) => ys[Math.round(s * (ys.length - 1))];
     const w = q(0.95) - q(0.05) || ys.at(-1) - ys[0];
-    for (let i = 0; i + 1 < n; i++) {
-      const y0 = yv(pts[i], j), y1 = yv(pts[i + 1], j);
-      if (y0 !== null && y1 !== null && Math.abs(y1 - y0) > 0.1 * w) jumps.push({ i, j, size: Math.abs(y1 - y0) / w });
-    }
+    const dy = pts.slice(1).map((p, i) => {
+      const y0 = yv(pts[i], j), y1 = yv(p, j);
+      return y0 === null || y1 === null ? null : Math.abs(y1 - y0);
+    });
+    dy.forEach((d, i) => {
+      if (d === null || !(d > 1e-9 * w)) return;
+      if (d > 0.1 * w || d > 3 * Math.min(dy[i - 1] || 0, dy[i + 1] || 0)) jumps.push({ i, j, size: d / w });
+    });
   }
   jumps.sort((u, v) => v.size - u.size);
   const extra = [];
-  let budget = n;
+  let budget = 6 * n;
   for (const { i, j } of jumps) {
     let p0 = pts[i], p1 = pts[i + 1];
     const jump = Math.abs(yv(p1, j) - yv(p0, j));
     let broken = true;
-    for (let depth = 0; depth < 12 && budget > 0; depth++, budget--) {
+    for (let depth = 0; depth < 8 && budget > 0; depth++, budget--) {
       const m = at((p0.t + p1.t) / 2);
       extra.push(m);
       const ym = yv(m, j);
