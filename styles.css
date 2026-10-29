@@ -855,7 +855,14 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .about-card .small { font-size: 13px; text-align: left; }
 .about-card .muted { color: var(--muted); }
 .about-card a { color: var(--accent-ink); }
-.about-card .about-update { color: var(--accent-ink); font-size: 13px; text-decoration: underline; }
+.about-card .about-update {
+  margin-top: 4px; padding: 0 18px; height: 38px; border-radius: 12px; font-size: 14px; font-weight: 650;
+  background: var(--tab-soft); color: var(--tab-soft-text); box-shadow: inset 0 0 0 1px var(--tab);
+}
+.about-card .about-update:disabled { opacity: 0.6; }
+.about-card .about-status { margin: 6px 0 0; min-height: 1.45em; font-size: 13px; color: var(--muted); }
+.about-card .about-status.ok { color: var(--accent-ink); font-weight: 600; }
+.about-card .about-status.err { color: var(--danger); font-weight: 600; }
 .about-ok { margin-top: 8px; width: 100%; height: 42px; border-radius: 12px; background: var(--tab); color: var(--tab-text); font-weight: 650; }
 
 /* Palette chooser */

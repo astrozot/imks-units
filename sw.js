@@ -18,9 +18,15 @@ self.addEventListener("activate", (ev) => {
   );
 });
 
+// the app asks for the version, to show it and to check for updates
+self.addEventListener("message", (ev) => {
+  if (ev.data === "version" && ev.ports[0]) ev.ports[0].postMessage(CACHE);
+});
+
 self.addEventListener("fetch", (ev) => {
   const req = ev.request;
-  if (req.method !== "GET" || new URL(req.url).origin !== location.origin) return;
+  // no-store requests (the app's update check) go straight to the network
+  if (req.method !== "GET" || req.cache === "no-store" || new URL(req.url).origin !== location.origin) return;
   ev.respondWith(
     caches.open(CACHE).then(async (cache) => {
       const cached = await cache.match(req, { ignoreSearch: true });

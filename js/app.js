@@ -422,7 +422,8 @@ function numHTML(u, digits = env().digits) {
   let out = esc(s)
     .replace("±", '<span class="pm">±</span>')
     .replace(/\((\d+)\)$/, '<span class="pm">($1)</span>')
-    .replace(/^(\(?)-/, "$1−");
+    .replace(/^(\(?)-/, "$1−")
+    .replace(/^(\(?−?)inf$/, "$1∞");
   if (exp) out += `×10<sup>${String(Number(exp)).replace("-", "−")}</sup>`;
   return out;
 }
@@ -2741,15 +2742,19 @@ function paletteChipsHTML(current) {
 // About
 
 const APP_VERSION = "2026.10";
-let checkForUpdate = null; // set once the service worker is registered
+// set once the service worker is registered: checkForUpdate(report) calls
+// report(message, kind) as it goes; appBuild() gives the cached version
+let checkForUpdate = null, appBuild = null;
 
-function openAbout() {
+function openAbout(status = "") {
   const e = state.calc && env();
   const rates = e && e.currencyTime ? esc(e.currencyTime) : "—";
   $("#about-body").innerHTML = `
     <div class="about-icon" aria-hidden="true">[@]</div>
     <h2 id="about-title">iMKS Units</h2>
-    <p class="about-ver">Version ${APP_VERSION}${checkForUpdate ? ` · <button class="about-update" id="about-update">Check for updates</button>` : ""}</p>
+    <p class="about-ver">Version ${APP_VERSION}<span id="about-build"></span></p>
+    ${checkForUpdate ? `<button class="about-update" id="about-update">Check for updates</button>
+    <p class="about-status" id="about-status" role="status" aria-live="polite"></p>` : ""}
     <p>Copyright © 2026 Marco Lombardi.</p>
     <p class="small">This program is free software: you can redistribute it and/or modify it under the terms of the
       <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License</a>
@@ -2760,10 +2765,22 @@ function openAbout() {
     <p class="small muted">Unit system after iMKS. Data: NIST CODATA constants; NASA planetary fact sheets; Particle Data Group;
       IAU 2015 nominal values; Planck 2018 and WMAP 9-year cosmological parameters (with and without BAO); WGS 84; IUPAC atomic weights; nuclide half-lives from evaluated nuclear data.
       Exchange rates of ${rates}.</p>`;
-  $("#about-update")?.addEventListener("click", (ev) => {
-    ev.currentTarget.disabled = true;
-    ev.currentTarget.textContent = "Checking…";
-    checkForUpdate();
+  const report = (msg, kind = "") => {
+    const el = $("#about-status");
+    if (!el) return;
+    el.textContent = msg;
+    el.className = "about-status " + kind;
+  };
+  if (status) report(status, "ok");
+  appBuild?.().then((b) => { if (b && $("#about-build")) $("#about-build").textContent = ` · build ${b}`; });
+  $("#about-update")?.addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    btn.textContent = "Checking…";
+    report("");
+    await checkForUpdate(report);
+    btn.disabled = false;
+    btn.textContent = "Check again";
   });
   $("#about").hidden = false;
   $("#about-close").focus();
@@ -6020,39 +6037,104 @@ async function boot() {
   updateCurrencies();
   if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
     // Installed apps are often resumed rather than reloaded, so look for a
-    // new version at most once a day, when the app is opened or brought to
+    // new version at most once an hour, when the app is opened or brought to
     // the foreground, or when asked from About. A new version is fetched in
     // full before it replaces the cached one, so offline use is unaffected.
-    // When it takes over, reload, but not while an expression is typed.
-    const hadController = Boolean(navigator.serviceWorker.controller);
+    // Once it is active, reload, but not while an expression is typed. This
+    // does not rely on controllerchange, which iOS home-screen apps may miss.
+    const sws = navigator.serviceWorker;
+    const hadController = Boolean(sws.controller);
     let pending = false, asked = false;
     const reloadIfIdle = () => {
       if (pending && (asked || document.hidden || !state.text.trim())) location.reload();
     };
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (!hadController) return; // first install, nothing to update
+    const ready = () => {
+      if (!hadController || pending) return; // first install, nothing to update
+      store.set("updated", asked ? "asked" : "auto");
       pending = true;
       reloadIfIdle();
+    };
+    // the cache version of a worker ("imks-v33"; null from versions before 33)
+    const swVersion = (sw) => new Promise((res) => {
+      if (!sw) return res(null);
+      const ch = new MessageChannel();
+      ch.port1.onmessage = (ev) => res(ev.data);
+      sw.postMessage("version", [ch.port2]);
+      setTimeout(() => res(null), 1500);
     });
-    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
-      const daily = () => {
-        if (Date.now() - store.get("updateCheck", 0) < 864e5) return;
+    const buildOf = (v) => (/^imks-v(\d+)$/.exec(v || "") || [])[1] || null;
+    appBuild = () => sws.ready.then((reg) => swVersion(sws.controller || reg.active)).then(buildOf);
+    // resolves once the worker is active, rejects if it fails or stalls
+    const activated = (sw, ms = 60e3) => new Promise((res, rej) => {
+      const check = () => {
+        if (sw.state === "activated") res();
+        else if (sw.state === "redundant") rej(new Error("install failed"));
+      };
+      sw.addEventListener("statechange", check);
+      setTimeout(() => rej(new Error("timeout")), ms);
+      check();
+    });
+    sws.addEventListener("controllerchange", ready);
+    const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+    sws.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+      const watch = () => { if (reg.installing) activated(reg.installing).then(ready, () => {}); };
+      reg.addEventListener("updatefound", watch);
+      watch();
+      const hourly = () => {
+        if (Date.now() - store.get("updateCheck", 0) < 3600e3) return;
         reg.update().then(() => store.set("updateCheck", Date.now())).catch(() => {});
       };
-      checkForUpdate = () => {
+      checkForUpdate = async (report) => {
+        const current = await swVersion(sws.controller);
+        let latest = null;
+        try {
+          // the published version, straight from the server
+          const res = await fetch("sw.js", { cache: "no-store" });
+          if (res.ok) latest = (/const CACHE = "([^"]+)"/.exec(await res.text()) || [])[1] || null;
+          await reg.update();
+        } catch {
+          return report("Cannot check for updates: are you offline?", "err");
+        }
+        store.set("updateCheck", Date.now());
+        await wait(300); // WebKit may report the new worker late
+        const sw = reg.installing || reg.waiting;
+        const stale = latest && current && latest !== current;
+        if (!sw && !stale) return report(`Up to date (build ${buildOf(current || latest) || "?"})`, "ok");
         asked = true;
-        reg.update().then(() => {
-          store.set("updateCheck", Date.now());
-          if (reg.installing || reg.waiting) toast("Updating…");
-          else toast("iMKS Units is up to date");
-        }).catch(() => toast("Cannot check for updates (offline?)")).finally(closeAbout);
+        report(`Downloading build ${buildOf(latest) || "?"}…`);
+        try {
+          if (sw) await activated(sw);
+          else if ((await swVersion(reg.active)) === current) throw new Error("not installed");
+          report("Updated: restarting…", "ok");
+          store.set("updated", "asked");
+          await wait(800);
+          location.reload();
+        } catch {
+          // the service worker did not take the new version: drop it and
+          // reload from the network, which installs the new one afresh
+          report("Reinstalling…");
+          store.set("updated", "asked");
+          await reg.unregister().catch(() => {});
+          await wait(800);
+          location.reload();
+        }
       };
-      daily();
+      hourly();
       document.addEventListener("visibilitychange", () => {
         if (document.hidden) reloadIfIdle();
-        else daily();
+        else hourly();
       });
-      setInterval(daily, 3600e3);
+      setInterval(hourly, 3600e3);
+      // after an update, say so
+      const updated = store.get("updated", null);
+      if (updated) {
+        store.set("updated", null);
+        appBuild().then((b) => {
+          const msg = `Updated to build ${b || "?"}`;
+          if (updated === "asked") openAbout(msg);
+          else toast(`iMKS Units: ${msg.toLowerCase()}`);
+        });
+      }
     }).catch(() => {});
     for (const t of ["keyup", "click"]) document.addEventListener(t, reloadIfIdle);
   }
