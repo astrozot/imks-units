@@ -1566,8 +1566,10 @@ function calcDiff(env, f, limits, name) {
 
 // plot(f(x), x, a, b): the expression at n points, equally spaced, or in
 // equal ratios when a and b are positive and at least a factor 100 apart;
-// points where it fails or is not finite are left out (null). range, if
-// given, replaces a and b (in the same frame) and the choice of spacing
+// points where it fails or is not finite are left out (null). Where a
+// curve jumps, the interval is halved towards the jump: a jump that does
+// not shrink (a pole or a step) breaks the curve there. range, if given,
+// replaces a and b (in the same frame) and the choice of spacing
 function calcPlot(env, f, limits, { heads, xname, shown, range }) {
   const fr = varFrame(env, limits, "plot");
   let [a, b] = fr.us.map((u) => u.n);
@@ -1575,24 +1577,67 @@ function calcPlot(env, f, limits, { heads, xname, shown, range }) {
   if (range) ({ a, b } = range);
   const n = MC.on ? 81 : 161;
   const logx = a > 0 && b > 0 && (range ? range.log : Math.max(a, b) / Math.min(a, b) >= 100);
-  const xs = [], rows = [];
   let error = null;
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1);
-    const x = fr.mk(logx ? a * (b / a) ** t : a + (b - a) * t);
-    xs.push(shown(x));
+  // the point at t in [0, 1]: x, and the values of the curves (or null)
+  const xAt = (t) => fr.mk(logx ? a * (b / a) ** t : a + (b - a) * t);
+  const at = (t) => {
+    const x = xAt(t);
+    let row = null;
     try {
       const y = f(x);
-      rows.push(Array.isArray(y) ? y : [y]);
+      row = (Array.isArray(y) ? y : [y]).map((q) => (q instanceof Q && isFinite(q.x.n) ? q : null));
     } catch (e) {
       if (!(e instanceof CalcError || e instanceof UnitError)) throw e;
       error = error || e;
-      rows.push(null);
+    }
+    return { t, x: shown(x), row };
+  };
+  const pts = Array.from({ length: n }, (_, i) => at(i / (n - 1)));
+  const k = Math.max(0, ...pts.map((p) => (p.row ? p.row.length : 0)));
+  if (!k) throw error || new CalcError("plot: nothing to plot");
+  const yv = (p, j) => (p.row && p.row[j] ? p.row[j].x.n : null);
+
+  // jumps larger than a tenth of the spread of a curve, largest first
+  const jumps = [];
+  for (let j = 0; j < k; j++) {
+    const ys = pts.map((p) => yv(p, j)).filter((y) => y !== null).sort((u, v) => u - v);
+    if (ys.length < 2) continue;
+    const q = (s) => ys[Math.round(s * (ys.length - 1))];
+    const w = q(0.95) - q(0.05) || ys.at(-1) - ys[0];
+    for (let i = 0; i + 1 < n; i++) {
+      const y0 = yv(pts[i], j), y1 = yv(pts[i + 1], j);
+      if (y0 !== null && y1 !== null && Math.abs(y1 - y0) > 0.1 * w) jumps.push({ i, j, size: Math.abs(y1 - y0) / w });
     }
   }
-  const k = Math.max(0, ...rows.map((r) => (r ? r.length : 0)));
-  if (!k) throw error || new CalcError("plot: nothing to plot");
-  const series = Array.from({ length: k }, (_, j) => rows.map((r) => (r && r[j] && isFinite(r[j].x.n) ? r[j] : null)));
+  jumps.sort((u, v) => v.size - u.size);
+  const extra = [];
+  let budget = n;
+  for (const { i, j } of jumps) {
+    let p0 = pts[i], p1 = pts[i + 1];
+    const jump = Math.abs(yv(p1, j) - yv(p0, j));
+    let broken = true;
+    for (let depth = 0; depth < 12 && budget > 0; depth++, budget--) {
+      const m = at((p0.t + p1.t) / 2);
+      extra.push(m);
+      const ym = yv(m, j);
+      if (ym === null) { broken = false; break; }
+      // on to the half with the larger jump, until it shrinks
+      if (Math.abs(ym - yv(p0, j)) > Math.abs(yv(p1, j) - ym)) p1 = m;
+      else p0 = m;
+      if (Math.abs(yv(p1, j) - yv(p0, j)) < jump / 4) { broken = false; break; }
+    }
+    if (broken && budget > 0) {
+      const row = p0.row.map((q, jj) => (jj === j ? null : q));
+      const t = (p0.t + p1.t) / 2;
+      extra.push({ t, x: shown(xAt(t)), row });
+    }
+    if (budget <= 0) break;
+  }
+  pts.push(...extra);
+  pts.sort((u, v) => u.t - v.t);
+
+  const xs = pts.map((p) => p.x);
+  const series = Array.from({ length: k }, (_, j) => pts.map((p) => (p.row && p.row[j]) || null));
   return makePlot(env, xs, series, { heads: heads.length === k ? heads : null, xname, range: { a, b, log: logx } });
 }
 

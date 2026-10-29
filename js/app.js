@@ -691,15 +691,37 @@ function plotGeom(p, W = PLOT_W, H = PLOT_H) {
   const [x0, x1] = v ? [v.x0, v.x1] : range(p.x, logx);
   const xlo = Math.min(x0, x1), xhi = Math.max(x0, x1);
   const inx = (i) => !v || (p.x[i] !== null && p.x[i] >= xlo && p.x[i] <= xhi);
-  const [y0, y1] = v && v.y0 !== undefined ? [v.y0, v.y1]
-    : range(p.series.flatMap((s) => [s.y, s.lo || [], s.hi || []].flatMap((a) => a.filter((_, i) => inx(i)))), logy);
   const tx = (v) => (logx ? Math.log10(v) : v), ty = (v) => (logy ? Math.log10(v) : v);
+  const ok = (v, log) => v !== null && isFinite(v) && (!log || v > 0);
+  let ys = p.series.flatMap((s) => [s.y, s.lo || [], s.hi || []].flatMap((a) => a.filter((_, i) => inx(i))));
+  if (p.range) {
+    // near a pole a computed curve would squeeze the rest: y fits where
+    // the curves are over 90 % of the x range in view, widened 3 times
+    const pts = [], n = p.x.length;
+    p.x.forEach((xv, i) => {
+      if (!inx(i) || !ok(xv, logx)) return;
+      const nb = (k) => (k >= 0 && k < n && ok(p.x[k], logx) ? tx(p.x[k]) : tx(xv));
+      const w = (nb(i + 1) - nb(i - 1)) / 2;
+      for (const s of p.series) for (const a of [s.y, s.lo, s.hi]) if (a && ok(a[i], logy)) pts.push([ty(a[i]), w]);
+    });
+    pts.sort((u, v) => u[0] - v[0]);
+    const tot = pts.reduce((t, q) => t + q[1], 0);
+    const q = (f) => {
+      let c = 0;
+      return (pts.find((pt) => (c += pt[1]) >= f * tot) || pts.at(-1))[0];
+    };
+    if (pts.length && tot > 0) {
+      const m = q(0.5), s = q(0.95) - q(0.05);
+      const lo = m - 3 * s, hi = m + 3 * s;
+      if (s > 0) ys = ys.map((y) => (ok(y, logy) ? (logy ? 10 ** Math.min(hi, Math.max(lo, ty(y))) : Math.min(hi, Math.max(lo, y))) : y));
+    }
+  }
+  const [y0, y1] = v && v.y0 !== undefined ? [v.y0, v.y1] : range(ys, logy);
   const pw = W - L - R, ph = H - T - B;
   // far outside the frame (clipped) the coordinates are capped
   const cap = (c) => Math.max(-1e4, Math.min(1e4, c));
   const sx = (v) => cap(L + ((tx(v) - tx(x0)) / (tx(x1) - tx(x0))) * pw);
   const sy = (v) => cap(H - B - ((ty(v) - ty(y0)) / (ty(y1) - ty(y0))) * ph);
-  const ok = (v, log) => v !== null && isFinite(v) && (!log || v > 0);
   return {
     L, R, T, B, W, H, pw, ph, x0, x1, y0, y1, logx, logy, sx, sy, tx, ty,
     ux: (t) => (logx ? 10 ** t : t), uy: (t) => (logy ? 10 ** t : t),
