@@ -499,13 +499,16 @@ function broadcast(f, args) {
 }
 
 // what plot returns: the x values and one list of y values per curve, as
-// quantities; heads are the expressions of the curves (nodes) when known
+// quantities; heads are the expressions of the curves (nodes) when known.
+// For plot(f(x), x, a, b), range is the x range computed, as numbers that
+// a range override (Interpreter.plotRange) takes back
 class PlotData {
-  constructor(xs, series, { heads = null, xname = "" } = {}) {
+  constructor(xs, series, { heads = null, xname = "", range = null } = {}) {
     this.xs = xs;
     this.series = series;
     this.heads = heads;
     this.xname = xname;
+    this.range = range;
   }
 }
 
@@ -525,6 +528,8 @@ class Interpreter {
     this.env = new Env();
     this.const = new ConstDict(this.env);
     this.builtins = this.makeBuiltins();
+    // {a, b, log}: replaces the range of plot(f(x), x, a, b), to zoom it
+    this.plotRange = null;
   }
 
   makeBuiltins() {
@@ -833,7 +838,7 @@ class Interpreter {
     try {
       if (name === "plot") {
         const tuple = body.t === "convert" ? body.a : body;
-        return calcPlot(env, f, limits, { heads: tuple.t === "tuple" ? tuple.items : [body], xname: v.v, shown });
+        return calcPlot(env, f, limits, { heads: tuple.t === "tuple" ? tuple.items : [body], xname: v.v, shown, range: this.plotRange });
       }
       const r = broadcast(one, limits);
       return name === "solve" || name === "roots" ? broadcast(shown, [r]) : r;
@@ -1561,13 +1566,15 @@ function calcDiff(env, f, limits, name) {
 
 // plot(f(x), x, a, b): the expression at n points, equally spaced, or in
 // equal ratios when a and b are positive and at least a factor 100 apart;
-// points where it fails or is not finite are left out (null)
-function calcPlot(env, f, limits, { heads, xname, shown }) {
+// points where it fails or is not finite are left out (null). range, if
+// given, replaces a and b (in the same frame) and the choice of spacing
+function calcPlot(env, f, limits, { heads, xname, shown, range }) {
   const fr = varFrame(env, limits, "plot");
-  const [a, b] = fr.us.map((u) => u.n);
+  let [a, b] = fr.us.map((u) => u.n);
   if (!isFinite(a) || !isFinite(b) || a === b) throw new CalcError("plot: the range must be finite and not empty");
+  if (range) ({ a, b } = range);
   const n = MC.on ? 81 : 161;
-  const logx = a > 0 && b > 0 && Math.max(a, b) / Math.min(a, b) >= 100;
+  const logx = a > 0 && b > 0 && (range ? range.log : Math.max(a, b) / Math.min(a, b) >= 100);
   const xs = [], rows = [];
   let error = null;
   for (let i = 0; i < n; i++) {
@@ -1586,7 +1593,7 @@ function calcPlot(env, f, limits, { heads, xname, shown }) {
   const k = Math.max(0, ...rows.map((r) => (r ? r.length : 0)));
   if (!k) throw error || new CalcError("plot: nothing to plot");
   const series = Array.from({ length: k }, (_, j) => rows.map((r) => (r && r[j] && isFinite(r[j].x.n) ? r[j] : null)));
-  return makePlot(env, xs, series, { heads: heads.length === k ? heads : null, xname });
+  return makePlot(env, xs, series, { heads: heads.length === k ? heads : null, xname, range: { a, b, log: logx } });
 }
 
 // checks that the x values, and all the curves, have consistent units

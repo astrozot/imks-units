@@ -86,7 +86,13 @@ html, body {
   touch-action: manipulation;
 }
 
-body { overflow: hidden; }
+body {
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+input, textarea { user-select: text; -webkit-user-select: text; }
 
 button {
   font: inherit;
@@ -298,6 +304,13 @@ table.vals td[data-v]:active { background: var(--surface-2); }
 .out.plot .lg math { font-size: 15px; }
 .plot-read { flex: 1; min-width: 0; color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
 .plot-read .u { color: var(--unit); }
+.plot-in { font-family: var(--mono); color: var(--muted); margin: 4px 0 10px; overflow-wrap: anywhere; }
+.plot-full .plot-svg { max-width: none; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+.plot-full .plot-svg:active { cursor: grabbing; }
+.plot-full .plot-legend, .plot-full .plot-bar { max-width: none; }
+.plot-full .plot-bar { flex-wrap: wrap; justify-content: flex-end; }
+.plot-full .plot-read { flex-basis: 100%; min-height: 2.7em; }
+.plot-chips { display: contents; }
 .preview .lp { color: var(--muted); font-size: 0.8em; }
 .entry .flash { animation: flash 0.5s ease; }
 @keyframes flash { from { background: var(--accent-soft); } }
@@ -347,6 +360,8 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .expr .t-f { color: var(--accent-ink); }
 .expr .t-op { color: var(--muted); }
 .expr .t-at { color: var(--accent); font-weight: 700; }
+.expr .pm { background: var(--accent-soft); border-radius: 3px; font-weight: 700; }
+.expr .pm-bad { color: var(--danger); font-weight: 700; }
 
 .caret {
   display: inline-block;
@@ -695,6 +710,8 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .abc-row .key.fn.on { background: var(--text); color: var(--bg); }
 .abc-row .key.fn.lock { background: var(--accent); color: var(--accent-text); }
 .abc-row .key.space { font-size: 14px; color: var(--muted); }
+.key.space, .key[data-key="left"], .key[data-key="right"] { touch-action: none; }
+.key.sliding { filter: brightness(0.9); }
 .abc-row .key.eq, .abc-row .key.conv, .abc-row .key.op { font-size: 20px; }
 
 /* Side by side: tablets, computers and phones held sideways */

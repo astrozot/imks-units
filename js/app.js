@@ -546,29 +546,36 @@ function tableOf(v, src) {
   return { html, csv };
 }
 
-// The unit an axis is drawn in: the one its largest value is shown in
-function axisOf(qs) {
-  const e = env();
-  const rep = qs.reduce((a, q) => (Math.abs(q.x.n) > Math.abs(a.x.n) ? q : a), qs[0]);
-  let tree = null;
-  try {
-    const r = e.display(new Q(new UNum(rep.x.n), rep.d, rep.zero, rep.show));
-    if (!r.format && !r.tilde) tree = r.tree;
-  } catch { /* base units */ }
-  if (!tree) tree = e.baseTree(rep.d);
-  const u0 = e.treeValue(tree);
-  const s = u0.x.n, z0 = u0.zero === false || u0.zero == null ? 0 : UNum.of(u0.zero).n;
+// The unit an axis is drawn in: the one its largest value is shown in, or
+// fix ({s, z0, unit}, from an earlier axis) when given
+function axisOf(qs, fix = null) {
+  if (!fix) {
+    const e = env();
+    const rep = qs.reduce((a, q) => (Math.abs(q.x.n) > Math.abs(a.x.n) ? q : a), qs[0]);
+    let tree = null;
+    try {
+      const r = e.display(new Q(new UNum(rep.x.n), rep.d, rep.zero, rep.show));
+      if (!r.format && !r.tilde) tree = r.tree;
+    } catch { /* base units */ }
+    if (!tree) tree = e.baseTree(rep.d);
+    const u0 = e.treeValue(tree);
+    fix = { s: u0.x.n, z0: u0.zero === false || u0.zero == null ? 0 : UNum.of(u0.zero).n, unit: e.treeText(tree) };
+  }
+  const { s, z0 } = fix;
   return {
     val: (n, q) => ((q.zero !== false ? n + UNum.of(q.zero).n - z0 : n) / s),
-    unit: e.treeText(tree),
+    unit: fix.unit,
+    fix,
   };
 }
 
-// A plot as plain numbers: x, and per curve y with the 68 % band lo–hi
-function plotOf(p) {
+// A plot as plain numbers: x, and per curve y with the 68 % band lo–hi.
+// A plot recomputed over a new range (see replot) keeps the axes, log
+// scales and view of prev
+function plotOf(p, prev = null) {
   const r7 = (x) => (x === null || !isFinite(x) ? null : Number(x.toPrecision(7)));
   const xq = p.xs.filter(Boolean), yq = p.series.flat().filter(Boolean);
-  const ax = axisOf(xq), ay = axisOf(yq);
+  const ax = axisOf(xq, prev && prev.xaxis), ay = axisOf(yq, prev && prev.yaxis);
   let banded = false;
   const series = p.series.map((s, j) => {
     const y = [], lo = [], hi = [];
@@ -596,11 +603,24 @@ function plotOf(p) {
     return f.length ? Math.max(...f) / Math.min(...f) : 1;
   };
   const ys = series.flatMap((s) => [...s.y, ...(s.lo || []), ...(s.hi || [])]);
-  return {
+  const out = {
     x, xname: p.xname || "", xunit: ax.unit, yunit: ay.unit, series,
     logx: pos(x) && span(x) >= 100, logy: pos(ys) && span(ys) >= 1000,
     canlogx: pos(x) && span(x) > 1, canlogy: pos(ys) && span(ys) > 1,
+    xaxis: ax.fix, yaxis: ay.fix,
   };
+  if (p.range) {
+    // the range computed (home: the first one), and where its ends are
+    // on the axis, to map the axis back to it
+    const end = (q) => ax.val(q.x.n, q);
+    Object.assign(out, { range: p.range, home: prev ? prev.home : p.range, xr: [end(p.xs[0]), end(p.xs.at(-1))] });
+  }
+  if (prev) {
+    out.logx = prev.logx;
+    out.logy = prev.logy;
+    if (prev.view) out.view = prev.view;
+  }
+  return out;
 }
 
 // ¹²³ for unit exponents in SVG text: "km s^-1" -> "km s⁻¹"
@@ -645,9 +665,12 @@ function axisTicks(lo, hi, log) {
 
 const PLOT_W = 340, PLOT_H = 200;
 const PLOT_COLORS = ["var(--accent-ink)", "var(--tab)", "var(--danger)", "var(--unit)"];
+let plotClip = 0;
 
-// scales of a plot: data -> SVG coordinates
-function plotGeom(p) {
+// scales of a plot: data -> SVG coordinates. A view {x0, x1, y0?, y1?}
+// (zoomed) fixes the range of x, and of y when it has y0; else y fits the
+// values in the x range
+function plotGeom(p, W = PLOT_W, H = PLOT_H) {
   const L = 46, R = 10, T = 20, B = 34;
   const range = (vs, log) => {
     let f = vs.filter((v) => v !== null && isFinite(v) && (!log || v > 0));
@@ -662,25 +685,37 @@ function plotGeom(p) {
     return [lo, hi];
   };
   const logx = p.logx && p.canlogx, logy = p.logy && p.canlogy;
-  const [x0, x1] = range(p.x, logx);
-  const [y0, y1] = range(p.series.flatMap((s) => [...s.y, ...(s.lo || []), ...(s.hi || [])]), logy);
+  const v = p.view;
+  const [x0, x1] = v ? [v.x0, v.x1] : range(p.x, logx);
+  const xlo = Math.min(x0, x1), xhi = Math.max(x0, x1);
+  const inx = (i) => !v || (p.x[i] !== null && p.x[i] >= xlo && p.x[i] <= xhi);
+  const [y0, y1] = v && v.y0 !== undefined ? [v.y0, v.y1]
+    : range(p.series.flatMap((s) => [s.y, s.lo || [], s.hi || []].flatMap((a) => a.filter((_, i) => inx(i)))), logy);
   const tx = (v) => (logx ? Math.log10(v) : v), ty = (v) => (logy ? Math.log10(v) : v);
-  const sx = (v) => L + ((tx(v) - tx(x0)) / (tx(x1) - tx(x0))) * (PLOT_W - L - R);
-  const sy = (v) => PLOT_H - B - ((ty(v) - ty(y0)) / (ty(y1) - ty(y0))) * (PLOT_H - T - B);
+  const pw = W - L - R, ph = H - T - B;
+  // far outside the frame (clipped) the coordinates are capped
+  const cap = (c) => Math.max(-1e4, Math.min(1e4, c));
+  const sx = (v) => cap(L + ((tx(v) - tx(x0)) / (tx(x1) - tx(x0))) * pw);
+  const sy = (v) => cap(H - B - ((ty(v) - ty(y0)) / (ty(y1) - ty(y0))) * ph);
   const ok = (v, log) => v !== null && isFinite(v) && (!log || v > 0);
-  return { L, R, T, B, x0, x1, y0, y1, logx, logy, sx, sy, okx: (v) => ok(v, logx), oky: (v) => ok(v, logy) };
+  return {
+    L, R, T, B, W, H, pw, ph, x0, x1, y0, y1, logx, logy, sx, sy, tx, ty,
+    ux: (t) => (logx ? 10 ** t : t), uy: (t) => (logy ? 10 ** t : t),
+    okx: (v) => ok(v, logx), oky: (v) => ok(v, logy), inx,
+  };
 }
 
-function plotHTML(p) {
-  const g = plotGeom(p);
+// what is inside the <svg> of a plot, W × H
+function plotSVG(p, W = PLOT_W, H = PLOT_H) {
+  const g = plotGeom(p, W, H);
   const f1 = (v) => v.toFixed(1);
-  const xt = axisTicks(g.x0, g.x1, g.logx), yt = axisTicks(g.y0, g.y1, g.logy);
+  const xt = axisTicks(Math.min(g.x0, g.x1), Math.max(g.x0, g.x1), g.logx), yt = axisTicks(Math.min(g.y0, g.y1), Math.max(g.y0, g.y1), g.logy);
   const grid = [
-    ...xt.ticks.map((t) => `<line x1="${f1(g.sx(t.v))}" x2="${f1(g.sx(t.v))}" y1="${g.T}" y2="${PLOT_H - g.B}"/>`),
-    ...yt.ticks.map((t) => `<line x1="${g.L}" x2="${PLOT_W - g.R}" y1="${f1(g.sy(t.v))}" y2="${f1(g.sy(t.v))}"/>`),
+    ...xt.ticks.map((t) => `<line x1="${f1(g.sx(t.v))}" x2="${f1(g.sx(t.v))}" y1="${g.T}" y2="${H - g.B}"/>`),
+    ...yt.ticks.map((t) => `<line x1="${g.L}" x2="${W - g.R}" y1="${f1(g.sy(t.v))}" y2="${f1(g.sy(t.v))}"/>`),
   ].join("");
   const labels = [
-    ...xt.ticks.map((t) => `<text x="${f1(g.sx(t.v))}" y="${PLOT_H - g.B + 14}" text-anchor="middle">${esc(t.label)}</text>`),
+    ...xt.ticks.map((t) => `<text x="${f1(g.sx(t.v))}" y="${H - g.B + 14}" text-anchor="middle">${esc(t.label)}</text>`),
     ...yt.ticks.map((t) => `<text x="${g.L - 4}" y="${f1(g.sy(t.v) + 4)}" text-anchor="end">${esc(t.label)}</text>`),
   ].join("");
   const xlab = [p.xname, [xt.scale, supText(p.xunit)].filter(Boolean).join(" ")].filter(Boolean).join(" / ");
@@ -707,33 +742,49 @@ function plotHTML(p) {
     flush();
     return { line, band };
   });
-  const few = p.x.length <= 30;
+  const few = p.x.filter((_, i) => g.inx(i)).length <= 30;
   const dots = few ? p.series.map((s, j) => p.x.map((xv, i) => (g.okx(xv) && g.oky(s.y[i]) ? `<circle cx="${f1(g.sx(xv))}" cy="${f1(g.sy(s.y[i]))}" r="2.2" fill="${PLOT_COLORS[j % PLOT_COLORS.length]}"/>` : "")).join("")).join("") : "";
-  const svg = `<svg class="plot-svg" viewBox="0 0 ${PLOT_W} ${PLOT_H}" role="img" aria-label="Plot">
+  const clip = `plot-clip-${++plotClip}`;
+  return `<defs><clipPath id="${clip}"><rect x="${g.L}" y="${g.T}" width="${g.pw}" height="${g.ph}"/></clipPath></defs>
     <g class="grid">${grid}</g>
-    <rect class="frame" x="${g.L}" y="${g.T}" width="${PLOT_W - g.L - g.R}" height="${PLOT_H - g.T - g.B}"/>
-    <g class="bands">${curves.map((c) => c.band).join("")}</g>
-    <g class="curves">${curves.map((c) => c.line).join("")}${dots}</g>
+    <rect class="frame" x="${g.L}" y="${g.T}" width="${g.pw}" height="${g.ph}"/>
+    <g clip-path="url(#${clip})"><g class="bands">${curves.map((c) => c.band).join("")}</g>
+    <g class="curves">${curves.map((c) => c.line).join("")}${dots}</g></g>
     <g class="ticks">${labels}</g>
     <text class="axis-label" x="${g.L}" y="${g.T - 7}">${esc(ylab)}</text>
-    <text class="axis-label" x="${PLOT_W - g.R}" y="${PLOT_H - 4}" text-anchor="end">${esc(xlab)}</text>
-    <g class="cursor" visibility="hidden"><line y1="${g.T}" y2="${PLOT_H - g.B}"/>${p.series.map((s, j) => `<circle r="3.5" fill="${PLOT_COLORS[j % PLOT_COLORS.length]}"/>`).join("")}</g>
-  </svg>`;
-  const legend = p.series.length > 1 ? p.series.map((s, j) =>
-    `<span class="lg"><i style="background:${PLOT_COLORS[j % PLOT_COLORS.length]}"></i>${s.head}</span>`).join("") : "";
+    <text class="axis-label" x="${W - g.R}" y="${H - 4}" text-anchor="end">${esc(xlab)}</text>
+    <g class="cursor" visibility="hidden"><line y1="${g.T}" y2="${H - g.B}"/>${p.series.map((s, j) => `<circle r="3.5" fill="${PLOT_COLORS[j % PLOT_COLORS.length]}"/>`).join("")}</g>`;
+}
+
+// the chips below a plot: log scales, and in the zoom view fit and reset
+function plotChips(p, full) {
+  const g = plotGeom(p);
   const tog = (ax, can, on) => (can ? `<button class="chip${on ? " on" : ""}" data-plotlog="${ax}" aria-pressed="${on}">log ${ax}</button>` : "");
-  return `${svg}${legend ? `<div class="plot-legend">${legend}</div>` : ""}
-    <div class="plot-bar"><div class="plot-read">Touch the plot to read values</div>${tog("x", p.canlogx, g.logx)}${tog("y", p.canlogy, g.logy)}</div>`;
+  const extra = !full ? ""
+    : (p.view && p.view.y0 !== undefined ? '<button class="chip" data-plotfit>Fit y</button>' : "") +
+      (p.view ? '<button class="chip" data-plotreset>Reset</button>' : "");
+  return `${tog("x", p.canlogx, g.logx)}${tog("y", p.canlogy, g.logy)}${extra}`;
+}
+
+function plotLegend(p) {
+  return p.series.length > 1 ? `<div class="plot-legend">${p.series.map((s, j) =>
+    `<span class="lg"><i style="background:${PLOT_COLORS[j % PLOT_COLORS.length]}"></i>${s.head}</span>`).join("")}</div>` : "";
+}
+
+function plotHTML(p) {
+  return `<svg class="plot-svg" viewBox="0 0 ${PLOT_W} ${PLOT_H}" role="img" aria-label="Plot">${plotSVG(p)}</svg>${plotLegend(p)}
+    <div class="plot-bar"><div class="plot-read">Tap the plot to zoom, drag to read values</div>${plotChips(p, false)}</div>`;
 }
 
 // the point nearest to clientX: moves the cursor and writes its values
 function plotRead(svg, p, clientX) {
-  const g = plotGeom(p);
+  const vb = svg.viewBox.baseVal;
+  const g = plotGeom(p, vb.width, vb.height);
   const box = svg.getBoundingClientRect();
-  const vx = ((clientX - box.left) / box.width) * PLOT_W;
+  const vx = ((clientX - box.left) / box.width) * vb.width;
   let best = -1, bd = Infinity;
   p.x.forEach((xv, i) => {
-    if (!g.okx(xv) || !p.series.some((s) => g.oky(s.y[i]))) return;
+    if (!g.okx(xv) || !g.inx(i) || !p.series.some((s) => g.oky(s.y[i]))) return;
     const d = Math.abs(g.sx(xv) - vx);
     if (d < bd) { bd = d; best = i; }
   });
@@ -746,8 +797,9 @@ function plotRead(svg, p, clientX) {
   line.setAttribute("x2", X);
   cur.querySelectorAll("circle").forEach((c, j) => {
     const y = p.series[j].y[best];
-    c.setAttribute("visibility", g.oky(y) ? "visible" : "hidden");
-    if (g.oky(y)) { c.setAttribute("cx", X); c.setAttribute("cy", g.sy(y)); }
+    const shown = g.oky(y) && g.sy(y) >= g.T && g.sy(y) <= g.H - g.B;
+    c.setAttribute("visibility", shown ? "visible" : "hidden");
+    if (shown) { c.setAttribute("cx", X); c.setAttribute("cy", g.sy(y)); }
   });
   const num = (v) => esc(formatNumber(v, 5)).replace(/^-/, "−");
   const val = (s) => {
@@ -1268,10 +1320,33 @@ const SHOW_CHAR = { "*": "×", "-": "−" };
 const showText = (s) => esc(s.replace(/[*-]/g, (c) => SHOW_CHAR[c]));
 
 function segHTML(t, sg, s = sg.s, e = sg.e) {
-  const cls = (sg.cls ? "t-" + sg.cls : "") + (sg.atom ? " atom" : "") + (sg.sp ? " sp" : "");
+  const cls = (sg.cls ? "t-" + sg.cls : "") + (sg.atom ? " atom" : "") + (sg.sp ? " sp" : "") + (sg.pm ? " " + sg.pm : "");
   if (sg.atom) return `<span class="${cls}" data-s="${sg.s}" data-e="${sg.e}">${sg.html}</span>`;
   const text = t.slice(s, e);
   return e > s ? `<span class="${cls}" data-s="${s}">${sg.raw ? esc(text) : showText(text)}</span>` : "";
+}
+
+// The bracket next to the caret (before it, else after it) and its
+// partner are marked "pm"; one without a partner, or with the wrong
+// kind, is marked "pm-bad". Brackets inside atoms and strings are skipped.
+const OPENS = { "(": ")", "[": "]", "{": "}" };
+const CLOSES = { ")": "(", "]": "[", "}": "{" };
+
+function markBrackets(segs, t, c) {
+  const br = segs.filter((sg) => !sg.atom && sg.e - sg.s === 1 && (OPENS[t[sg.s]] || CLOSES[t[sg.s]]));
+  const at = br.find((sg) => sg.e === c) || br.find((sg) => sg.s === c);
+  if (!at) return;
+  const stack = [];
+  let partner = null;
+  for (const sg of br) {
+    if (OPENS[t[sg.s]]) { stack.push(sg); continue; }
+    const o = stack.pop();
+    if (sg === at) { partner = o || null; break; }
+    if (o === at) { partner = sg; break; }
+  }
+  const ok = partner && OPENS[t[Math.min(at.s, partner.s)]] === t[Math.max(at.s, partner.s)];
+  at.pm = ok ? "pm" : "pm-bad";
+  if (partner) partner.pm = at.pm;
 }
 
 // Typeset expression without caret (history)
@@ -1296,6 +1371,7 @@ function renderEditor() {
   }
   const segs = segments(t);
   state.atoms = segs.filter((sg) => sg.atom).map((sg) => [sg.s, sg.e, sg.atom]);
+  markBrackets(segs, t, c);
   let html = "";
   for (const sg of segs) {
     if (sg.atom) {
@@ -3182,6 +3258,233 @@ function openDistribution(entry) {
 }
 
 // ---------------------------------------------------------------------
+// Zooming plots
+//
+// A plot of lists only changes its view; plot(f(x), x, a, b) is computed
+// again over the x range in view (by running its line with a range
+// override), sampled as the x axis is drawn
+
+// recomputes the plot of history entry e if its range or sampling no
+// longer match the view (or, with home, over its first range): the time
+// it took in ms, or null if it failed
+function replot(e, { home = false, quiet = false } = {}) {
+  const p = e.plot;
+  if (!p.range) {
+    if (home) delete p.view;
+    return 0;
+  }
+  let want = p.home;
+  if (!home) {
+    const g = plotGeom(p), { a, b } = p.range, [v0, v1] = p.xr;
+    const toU = (v) => a + ((v - v0) / (v1 - v0)) * (b - a);
+    want = p.view ? { a: toU(p.view.x0), b: toU(p.view.x1) } : { a, b };
+    want.log = g.logx && want.a > 0 && want.b > 0;
+    const tol = 1e-9 * Math.abs(want.b - want.a);
+    if (Math.abs(want.a - a) <= tol && Math.abs(want.b - b) <= tol && want.log === p.range.log) return 0;
+  }
+  const t0 = performance.now();
+  const calc = state.calc;
+  calc.plotRange = want;
+  let r;
+  try {
+    r = calc.run(e.input);
+  } finally {
+    calc.plotRange = null;
+  }
+  if (r.kind !== "plot") {
+    if (!quiet) toast(r.kind === "error" ? `Cannot recompute the plot: ${r.message}` : "Cannot recompute the plot");
+    return null;
+  }
+  e.plot = home ? plotOf(r.plot) : plotOf(r.plot, p);
+  return performance.now() - t0;
+}
+
+function plotToggleLog(e, axis) {
+  const p = e.plot, k = "log" + axis;
+  p[k] = !(p[k] && p["can" + k]);
+  // a view of linear values may not fit a log axis
+  if (p.view && axis === "y") { delete p.view.y0; delete p.view.y1; }
+  if (p.view && axis === "x" && p[k] && p.view.x0 <= 0) delete p.view;
+  if (axis === "x") replot(e);
+  saveHistory();
+}
+
+// draws history entry e again, as its plot changed
+function refreshEntry(e) {
+  const i = state.history.indexOf(e);
+  const div = historyEl.querySelector(`.entry[data-i="${i}"]`);
+  if (div) div.replaceWith(renderEntry(e, i));
+}
+
+let plotViewResize = null;
+window.addEventListener("resize", () => { if (plotViewResize) plotViewResize(); });
+
+// The zoom view of the plot of history entry e: drag to move, pinch or
+// scroll to zoom (x only; shift: both), tap to read values, double-tap to
+// fit y
+function openPlot(e) {
+  openSheet("Plot", (root) => {
+    root.innerHTML = `<p class="plot-in">${exprHTML(e.input)}</p>
+      <div class="out plot plot-full"><svg class="plot-svg" role="img" aria-label="Plot"></svg>${plotLegend(e.plot)}
+      <div class="plot-bar"><div class="plot-read">Drag to move, pinch or scroll to zoom</div><span class="plot-chips"></span></div></div>`;
+  });
+  const root = sheetBody, svg = root.querySelector(".plot-svg");
+  let W = PLOT_W, H = PLOT_H, raf = 0, fast = false;
+  const draw = () => {
+    svg.innerHTML = plotSVG(e.plot, W, H);
+    root.querySelector(".plot-chips").innerHTML = plotChips(e.plot, true);
+  };
+  const size = () => {
+    W = Math.max(240, Math.round(svg.parentElement.clientWidth));
+    H = Math.round(Math.max(200, Math.min(W * 1.2, window.innerHeight - 260)));
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    draw();
+  };
+  size();
+  plotViewResize = () => { if (svg.isConnected && !sheet.hidden) size(); };
+  // while moving, plots that are fast to compute follow at once
+  const redraw = () => {
+    if (!raf) raf = requestAnimationFrame(() => {
+      raf = 0;
+      if (fast) fast = (replot(e, { quiet: true }) ?? Infinity) < 30;
+      draw();
+    });
+  };
+  const commit = () => {
+    const ms = replot(e);
+    if (ms !== null) fast = ms < 30;
+    saveHistory();
+    draw();
+    refreshEntry(e);
+  };
+  const fitY = () => {
+    const p = e.plot;
+    if (!p.view || p.view.y0 === undefined) return;
+    delete p.view.y0;
+    delete p.view.y1;
+    commit();
+  };
+
+  // gestures: the view at their start (base), in the drawn coordinates
+  // (log10 on a log axis), and the pointers then and now
+  const pts = new Map();
+  let base = null, moved = false, lastTap = null, wheelTimer = null;
+  const local = (ev) => {
+    const b = svg.getBoundingClientRect();
+    return { x: ((ev.clientX - b.left) * W) / b.width, y: ((ev.clientY - b.top) * H) / b.height };
+  };
+  const start = () => {
+    const p = e.plot, g = plotGeom(p, W, H);
+    base = {
+      g, X0: g.tx(g.x0), X1: g.tx(g.x1), Y0: g.ty(g.y0), Y1: g.ty(g.y1),
+      yfix: Boolean(p.view && p.view.y0 !== undefined),
+      pts: new Map([...pts].map(([k, v]) => [k, { ...v }])),
+    };
+  };
+  const setView = (X0, X1, Y0, Y1, sety) => {
+    const g = base.g;
+    const fine = (a, b) => isFinite(a) && isFinite(b) && b - a > 1e-11 * Math.max(Math.abs(a), Math.abs(b));
+    const v = { x0: g.ux(X0), x1: g.ux(X1) };
+    if (!fine(X0, X1) || !fine(v.x0, v.x1)) return;
+    if (sety) {
+      Object.assign(v, { y0: g.uy(Y0), y1: g.uy(Y1) });
+      if (!fine(Y0, Y1) || !fine(v.y0, v.y1)) return;
+    }
+    e.plot.view = v;
+    redraw();
+  };
+  // one axis of a pinch: the point under the middle of the fingers stays
+  // there, the range scales as their distance (c: from the axis origin)
+  const pinch = (c0, d0, c1, d1, T0, T1, len) => {
+    const s0 = Math.abs(c0 - d0), s1 = Math.abs(c1 - d1);
+    const k = s0 > 40 && s1 > 10 ? s0 / s1 : 1;
+    const m0 = (c0 + d0) / 2, m1 = (c1 + d1) / 2;
+    const t = T0 + (m0 / len) * (T1 - T0), span = (T1 - T0) * k;
+    return [t - (m1 / len) * span, t - (m1 / len) * span + span, k !== 1 || Math.abs(m1 - m0) > 20];
+  };
+
+  svg.addEventListener("pointerdown", (ev) => {
+    svg.setPointerCapture(ev.pointerId);
+    pts.set(ev.pointerId, local(ev));
+    if (pts.size === 1) moved = false;
+    start();
+  });
+  svg.addEventListener("pointermove", (ev) => {
+    if (!pts.has(ev.pointerId)) {
+      if (ev.pointerType === "mouse") plotRead(svg, e.plot, ev.clientX);
+      return;
+    }
+    pts.set(ev.pointerId, local(ev));
+    const g = base.g, B = H - g.B;
+    const ids = [...base.pts.keys()].filter((k) => pts.has(k));
+    if (ids.length === 1) {
+      const a0 = base.pts.get(ids[0]), a = pts.get(ids[0]);
+      const dx = a.x - a0.x, dy = a.y - a0.y;
+      if (!moved && Math.hypot(dx, dy) < 6) return;
+      moved = true;
+      // mostly sideways, y keeps fitting the values
+      const sety = base.yfix || Math.abs(dy) > 20;
+      const sx = ((base.X1 - base.X0) * dx) / g.pw, sy = sety ? ((base.Y1 - base.Y0) * dy) / g.ph : 0;
+      setView(base.X0 - sx, base.X1 - sx, base.Y0 + sy, base.Y1 + sy, sety);
+    } else if (ids.length >= 2) {
+      moved = true;
+      const [a0, b0] = ids.map((k) => base.pts.get(k)), [a, b] = ids.map((k) => pts.get(k));
+      const [X0, X1] = pinch(a0.x - g.L, b0.x - g.L, a.x - g.L, b.x - g.L, base.X0, base.X1, g.pw);
+      const [Y0, Y1, ych] = pinch(B - a0.y, B - b0.y, B - a.y, B - b.y, base.Y0, base.Y1, g.ph);
+      const sety = base.yfix || ych;
+      setView(X0, X1, sety ? Y0 : base.Y0, sety ? Y1 : base.Y1, sety);
+    }
+  });
+  const up = (ev) => {
+    if (!pts.has(ev.pointerId)) return;
+    const was = pts.size;
+    pts.delete(ev.pointerId);
+    if (pts.size) { start(); return; }
+    if (!moved && was === 1 && ev.type === "pointerup") {
+      // a tap reads the values; two quick ones fit y
+      const now = Date.now();
+      if (lastTap && now - lastTap.t < 350 && Math.abs(ev.clientX - lastTap.x) < 30) {
+        lastTap = null;
+        fitY();
+        return;
+      }
+      lastTap = { t: now, x: ev.clientX };
+      plotRead(svg, e.plot, ev.clientX);
+      return;
+    }
+    if (moved) commit();
+  };
+  svg.addEventListener("pointerup", up);
+  svg.addEventListener("pointercancel", up);
+  svg.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    start();
+    const g = base.g, c = local(ev);
+    const k = Math.exp((ev.deltaMode ? ev.deltaY * 16 : ev.deltaY) * 0.0015);
+    const at = (T0, T1, f) => { const t = T0 + f * (T1 - T0); return [t - f * (T1 - T0) * k, t + (1 - f) * (T1 - T0) * k]; };
+    const [X0, X1] = at(base.X0, base.X1, (c.x - g.L) / g.pw);
+    const [Y0, Y1] = ev.shiftKey ? at(base.Y0, base.Y1, (H - g.B - c.y) / g.ph) : [base.Y0, base.Y1];
+    setView(X0, X1, Y0, Y1, base.yfix || ev.shiftKey);
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(commit, 250);
+  }, { passive: false });
+  root.addEventListener("click", (ev) => {
+    const lg = ev.target.closest("[data-plotlog]");
+    if (lg) {
+      plotToggleLog(e, lg.dataset.plotlog);
+    } else if (ev.target.closest("[data-plotfit]")) {
+      fitY();
+      return;
+    } else if (ev.target.closest("[data-plotreset]")) {
+      replot(e, { home: true });
+      saveHistory();
+    } else return;
+    draw();
+    refreshEntry(e);
+  });
+}
+
+// ---------------------------------------------------------------------
 // Suggestions
 
 const suggestEl = $("#suggest");
@@ -3532,12 +3835,10 @@ const FN_SECTIONS = [
     { fn: "distmod", label: "μ(z)", desc: "Dist. modulus" }, { fn: "scale", label: "kpc/″", desc: "Proper scale" },
     { fn: "H", label: "H(z)", desc: "Hubble param." }, { fn: "E", label: "E(z)", desc: "H(z)/H₀" },
     { fn: "t_L", desc: "Lookback time" }, { fn: "age", label: "age", desc: "Age at z" }, { fn: "V_C", desc: "Comov. volume" },
-    { model: true },
   ]],
   ["Lensing", 4, 2, [
     { fn: "Sigma_cr", desc: "Critical density" }, { fn: "theta_E", desc: "Point mass" }, { fn: "theta_E_SIS", desc: "Isothermal" }, { fn: "M_E", desc: "Mass in θ_E" },
     { fn: "D_A", desc: "Angular diam." }, { fn: "D_dt", desc: "Time delay" }, { fn: "scale", label: "kpc/″", desc: "Proper scale" },
-    { model: true },
   ]],
   ["Stats", 4, 4, [
     { fn: "Phi", desc: "Normal CDF" }, { fn: "Phi_inv", desc: "Normal quantile" }, { fn: "pvalue", desc: "p-value of nσ" }, { fn: "nsigma", desc: "nσ of a p-value" },
@@ -3621,8 +3922,8 @@ const KEY_HELP = {
   "^": "Power: x^y",
   pow2: "Square, e.g. m²",
   pow3: "Cube, e.g. m³",
-  left: "Move the cursor left (you can also tap in the expression)",
-  right: "Move the cursor right (you can also tap in the expression)",
+  left: "Move the cursor left (you can also tap in the expression, or slide sideways on ◀ ▶ or the space bar)",
+  right: "Move the cursor right (you can also tap in the expression, or slide sideways on ◀ ▶ or the space bar)",
   clear: "Clear the expression",
   enter: "Evaluate the expression",
   mctoggle: "Switch between linear error propagation and Monte Carlo (samples: Settings → Uncertainties)",
@@ -3863,7 +4164,6 @@ function renderFnGrid() {
   const e = env();
   const subs = (s) => esc(s).replace(/([A-Za-zθσ])_([A-Za-z]+)/g, "$1<sub>$2</sub>");
   const described = (k) => {
-    if (k.model) return `<button class="key const model" data-key="model"><b>ΛCDM</b><small>Parameters</small></button>`;
     if (k.engine) return `<button class="key const model" data-key="mctoggle"><b>${state.settings.mc ? "MC" : "Linear"}</b><small>${state.settings.mc ? `${(state.settings.mcN || 5000).toLocaleString("en")} samples` : "Tap for Monte Carlo"}</small></button>`;
     if (k.key) return `<button class="key const" data-key="${esc(k.key)}"><b>${esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
     if (k.name) return `<button class="key const" data-const="${esc(k.name)}"><b>${k.label ? esc(k.label) : prettyName(k.name, { unit: false }) || esc(k.name)}</b><small>${esc(k.desc)}</small></button>`;
@@ -4308,7 +4608,6 @@ function keyAction(k) {
     case "brackets": bracketKey(); break;
     case "q1": quoteName("'"); break;
     case "q2": quoteName('"'); break;
-    case "model": toast(modelText(), 7000); break;
     case "deffn":
       if (!/=/.test(state.text)) setInput("f(x) = " + state.text, 7 + state.text.length);
       break;
@@ -4411,7 +4710,6 @@ function explain(b) {
   }
   if (b.dataset.key) {
     const k = b.dataset.key;
-    if (k === "model") return modelText();
     if (/^f:.*\($/.test(k)) return usageOf(k.slice(2, -1));
     if (k.startsWith("u:")) return explain({ dataset: { unit: k.slice(2) } });
     return KEY_HELP[k] || "";
@@ -4429,11 +4727,18 @@ function explain(b) {
   return "";
 }
 
+// sliding sideways on the space bar (or ◀ ▶) moves the caret, a
+// character every SLIDE_STEP px, as on the iOS keyboard
+const SLIDE_STEP = 9;
+let slide = null;
+
 keypadEl.addEventListener("pointerdown", (ev) => {
   const b = ev.target.closest("button");
   if (!b || b.disabled) return;
   held = false;
   holdStart = { x: ev.clientX, y: ev.clientY };
+  slide = b.dataset.ch === " " || b.dataset.key === "left" || b.dataset.key === "right"
+    ? { b, id: ev.pointerId, x: ev.clientX, caret: state.caret, on: false } : null;
   if (b.dataset.key === "backspace") {
     ev.preventDefault();
     backspace();
@@ -4470,10 +4775,28 @@ keypadEl.addEventListener("pointerdown", (ev) => {
 });
 keypadEl.addEventListener("pointermove", (ev) => {
   if (holdStart && Math.hypot(ev.clientX - holdStart.x, ev.clientY - holdStart.y) > 10) clearTimeout(holdTimer);
+  if (!slide || ev.pointerId !== slide.id) return;
+  const dx = ev.clientX - slide.x;
+  if (!slide.on) {
+    if (Math.abs(dx) < 12) return;
+    // the key does not type once it slides
+    slide.on = true;
+    held = true;
+    slide.x += Math.sign(dx) * 12;
+    slide.b.classList.add("sliding");
+    try { keypadEl.setPointerCapture(ev.pointerId); } catch { /* gone */ }
+    return;
+  }
+  const c = slide.caret + Math.trunc((ev.clientX - slide.x) / SLIDE_STEP);
+  if (c !== state.caret) setCaret(c, Math.sign(c - state.caret));
 });
+const endSlide = () => {
+  if (slide) slide.b.classList.remove("sliding");
+  slide = null;
+};
 const stopRepeat = () => { clearTimeout(repeatTimer); clearInterval(repeatTimer); clearTimeout(holdTimer); };
-keypadEl.addEventListener("pointerup", stopRepeat);
-keypadEl.addEventListener("pointercancel", stopRepeat);
+keypadEl.addEventListener("pointerup", () => { stopRepeat(); endSlide(); });
+keypadEl.addEventListener("pointercancel", () => { stopRepeat(); endSlide(); });
 keypadEl.addEventListener("pointerleave", stopRepeat);
 keypadEl.addEventListener("contextmenu", (ev) => ev.preventDefault());
 keypadEl.addEventListener("click", (ev) => {
@@ -4767,7 +5090,8 @@ function entryMenu(x, y, ent) {
   showMenu(x, y, items);
 }
 
-// plots: touch or drag to read the values (no long press there)
+// plots: drag to read the values (no long press there), tap to zoom
+let plotDown = null;
 function readPlot(ev) {
   const svg = ev.target.closest(".plot-svg");
   const ent = svg && entryAt(svg);
@@ -4781,6 +5105,7 @@ historyEl.addEventListener("pointermove", (ev) => {
 historyEl.addEventListener("pointerdown", (ev) => {
   const ent = entryAt(ev.target);
   longPressed = false;
+  plotDown = { x: ev.clientX, y: ev.clientY };
   if (readPlot(ev)) return;
   if (!ent) return;
   pressed = { x: ev.clientX, y: ev.clientY };
@@ -4812,10 +5137,12 @@ historyEl.addEventListener("click", (ev) => {
   if (!ent) return;
   const lg = ev.target.closest("[data-plotlog]");
   if (lg && ent.e.plot) {
-    const p = ent.e.plot, k = "log" + lg.dataset.plotlog;
-    p[k] = !(p[k] && p["can" + k]);
-    saveHistory();
+    plotToggleLog(ent.e, lg.dataset.plotlog);
     ent.div.replaceWith(renderEntry(ent.e, ent.i));
+    return;
+  }
+  if (ev.target.closest(".plot-svg") && ent.e.plot && plotDown && Math.hypot(ev.clientX - plotDown.x, ev.clientY - plotDown.y) < 8) {
+    openPlot(ent.e);
     return;
   }
   if (ev.target.closest(".plot")) return;
@@ -5424,7 +5751,7 @@ const HELP = [
   ["Vectors", "A vector is a list of components with compatible units. Arithmetic is per component; dot, cross, norm and angle take whole vectors. On the f(x) Lists keys.", [
     ["F = (3, 4, 0) N", ""], ["d = (2, 0, 1) m", ""], ["dot(F, d)", "work"], ["cross(d, F)", "torque"], ["norm(F)", ""], ["angle(F, d) @ deg", ""],
   ]],
-  ["Plots", "plot(f(x), x, a, b) draws a curve; a tuple of expressions draws several. plot(ys) and plot(xs, ys) plot lists. Axes take the units of the values (convert with @); errors show as a 68 % band. Wide positive ranges use log axes; toggle them below the plot. Touch or drag on the plot to read values.", [
+  ["Plots", "plot(f(x), x, a, b) draws a curve; a tuple of expressions draws several. plot(ys) and plot(xs, ys) plot lists. Axes take the units of the values (convert with @); errors show as a 68 % band. Wide positive ranges use log axes; toggle them below the plot. Drag on the plot to read values; a tap opens a larger view: drag to move, pinch or scroll to zoom (scroll: x only, shift-scroll: both), tap to read, double-tap to fit y again; plot(f(x), x, a, b) is computed again over the new range.", [
     ["plot(sin(x), x, 0, 2 pi)", ""], ["plot((D_L(z), D_A(z)) @ Gpc, z, 0, 5)", "two curves"], ["plot(age(z), z, 0.01, 100)", "log axes"], ["plot((1, 2, 3, 4) s, (1.2, 3.9, 9.1, 16.3) m)", "from lists"],
   ]],
   ["Solar system", "Planets, dwarf planets and major moons (NASA fact sheets): M_, R_, rho_, g_, v_esc_, a_, P_, P_rot_ and e_ followed by the body name. M_Earth, R_Earth, M_Jupiter, R_Jupiter, M_Sun, R_Sun and L_Sun are also units. On the Const keys under Solar system.", [
