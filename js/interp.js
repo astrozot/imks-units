@@ -258,6 +258,15 @@ function parse(src, env) {
     return iu && iu[1] !== "";
   };
 
+  // a name followed by parentheses is a function call, unless it is a value:
+  // pi (2 m)^2 is pi (2 m)², and with a space, t (1 - t) also for names
+  // still unknown here (function parameters and calculus variables)
+  const isCall = (k, paren) => {
+    if (env.isFunction && env.isFunction(k.v)) return true;
+    if (env.isValue && env.isValue(k.v)) return false;
+    return paren.pos === k.pos + k.v.length;
+  };
+
   // Bare units after a number: 9.8 m/s^2, 12 km/h, 2 m^2
   const bareUnits = () => {
     if (!isUnitTok(peek(), peek(1))) return null;
@@ -279,13 +288,14 @@ function parse(src, env) {
     return spec;
   };
 
-  const primary = (negate = false) => {
+  // in an exponent, units belong to the base: c^2 R_Earth, 10^3 m
+  const primary = (negate = false, inExp = false) => {
     const k = next();
     if (!k) throw new CalcError("Incomplete expression");
     switch (k.t) {
       case "num": {
         const node = { t: "num", x: negate ? k.x.neg() : k.x };
-        const spec = bareUnits();
+        const spec = inExp ? null : bareUnits();
         return spec ? { t: "unit", target: node, raw: spec } : node;
       }
       case "id":
@@ -296,7 +306,11 @@ function parse(src, env) {
         const items = [expr()];
         while (at(",")) { next(); items.push(expr()); }
         expect(")");
-        return items.length === 1 ? items[0] : { t: "tuple", items };
+        if (items.length === 1) return items[0];
+        // a list takes bare units like a number: (30, 50) km/h
+        const node = { t: "tuple", items };
+        const spec = inExp ? null : bareUnits();
+        return spec ? { t: "unit", target: node, raw: spec } : node;
       }
       case "bracket":
         return { t: "unit", target: { t: "num", x: new UNum(1) }, raw: k.raw };
@@ -305,10 +319,10 @@ function parse(src, env) {
     }
   };
 
-  const postfix = (negate) => {
-    let node = primary(negate);
+  const postfix = (negate, inExp) => {
+    let node = primary(negate, inExp);
     for (;;) {
-      if (at("(") && node.t === "name") {
+      if (at("(") && node.t === "name" && isCall(toks[pos - 1], peek())) {
         next();
         const args = [];
         // an argument can be an equation, as in solve(x^2 = 2, x)
@@ -324,38 +338,38 @@ function parse(src, env) {
         }
         expect(")");
         node = { t: "call", f: node.v, args };
-      } else if (at("bracket")) {
+      } else if (at("bracket") && !inExp) {
         node = { t: "unit", target: node, raw: next().raw };
       } else break;
     }
     return node;
   };
 
-  const power = (negate = false) => {
-    const base = postfix(negate);
+  const power = (negate = false, inExp = false) => {
+    const base = postfix(negate, inExp);
     if (at("^")) {
       next();
-      return { t: "bin", op: "^", a: base, b: unary() };
+      return { t: "bin", op: "^", a: base, b: unary(true) };
     }
     return base;
   };
 
-  const unary = () => {
+  const unary = (inExp = false) => {
     // a negative number literal binds before its unit: -40 °F
     if (at("-") && peek(1) && peek(1).t === "num" && !(peek(2) && peek(2).t === "^")) {
       next();
-      return power(true);
+      return power(true, inExp);
     }
     if (at("-") || at("+") || at("~")) {
       const op = next().t;
-      return { t: "un", op, a: unary() };
+      return { t: "un", op, a: unary(inExp) };
     }
     if (at("root")) {
       // √x, ∛x: prefix roots
       const f = next().v;
-      return { t: "call", f, args: [unary()] };
+      return { t: "call", f, args: [unary(inExp)] };
     }
-    return power();
+    return power(false, inExp);
   };
 
   const product = () => {
@@ -364,8 +378,8 @@ function parse(src, env) {
       if (at("*") || at("/")) {
         const op = next().t;
         a = { t: "bin", op, a, b: unary() };
-      } else if (at("id") || at("(") || at("bracket") || at("root")) {
-        // implicit multiplication: 2 pi, (a+b)(c+d)
+      } else if (at("id") || at("(") || at("bracket") || at("root") || (at("num") && a.t !== "num")) {
+        // implicit multiplication: 2 pi, (a+b)(c+d), k 300 K (but not 2 3)
         a = { t: "bin", op: "*", a, b: unary() };
       } else break;
     }
@@ -530,6 +544,10 @@ class Interpreter {
     this.env = new Env();
     this.const = new ConstDict(this.env);
     this.builtins = this.makeBuiltins();
+    // for the parser: whether name(…) is a call or a product
+    const varOf = (n) => this.env.vars.get(this.env.vars.resolve ? this.env.vars.resolve(n) : n);
+    this.env.isFunction = (n) => CALCULUS.has(n) || Boolean((varOf(n) || {}).fn) || typeof this.builtins[n] === "function";
+    this.env.isValue = (n) => varOf(n) !== undefined || ["pi", "tau", "inf", "nan"].includes(n) || (this.env.isunit(n) || [])[1] > "";
     // {a, b, log}: replaces the range of plot(f(x), x, a, b), to zoom it
     this.plotRange = null;
   }

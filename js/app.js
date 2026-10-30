@@ -925,12 +925,106 @@ function renderEntry(e, i) {
   return div;
 }
 
+// Examples on the empty history: a few at a time, one replaced every few seconds
+const EXAMPLES = [
+  // everyday conversions
+  "100 km/h @ mph", "37 °C @ °F", "12 m + 3 cm @ km", "20 m/s @ km|hour", "5 ft + 10 in @ cm",
+  "1 atm @ psi|mmHg", "42.195 km / 2h 1m 9s @ km/h", "(30, 50, 90, 130)[km/h] @ mph", "(1, 5, 10, 42.195) km @ mi", "1 ft / c @ ns",
+  "-40 °F @ °C", "~10 °C @ °F", "20 °C + ~5 K @ °C", "3[kW] 8[hour] 0.25[EUR/kWh]",
+  "1[kg] 4.186[J/g K] 80[K] @ kWh", "1/2 1200[kg] (100[km/h])^2 @ kJ", "1 GiB / (100[Mbit/s]) @ s",
+  // mechanics and gravitation
+  "√(2 g (10 m)) @ km/h", "2 π sqrt((1.00 ± 0.01) m / g)", "(9.81 ± 0.02) m/s^2 (2.0 ± 0.1 s)^2 / 2",
+  "sqrt(2 G M_Earth / R_Earth) @ km/s", "∛(G M_Earth siderealday^2 / (4 π^2)) @ km",
+  "2 π sqrt(a_Moon^3 / (G M_Earth)) @ day", "4.4[km/s] ln(20) @ km/s", "rho_H2O g 10[m] @ atm",
+  "sqrt(E_steel / rho_steel) @ km/s", "GM_Earth / a_WGS84^2", "1000[kg/m^3] g 10[m] @ bar", "9.8[m s^-2] (3[s])^2 / 2", "3.0(1)[m] 2.00(5)[m]",
+  // thermal physics and chemistry
+  "k 300[K] @ meV", "R 273.15[K] / 1[atm] @ l/mol", "1[atm] / (k 273.15[K]) @ cm^-3",
+  "sqrt(3 k 300 K / (2 m_p)) @ m/s", "sqrt(1.4 R 293[K] / 28.97[g/mol]) @ m/s",
+  "k 288 K / (28.97[u] g) @ km", "1 l rho_H2O / M_H2O @ mol", "H_vap_H2O / M_H2O @ MJ/kg",
+  "T_b_C2H5OH @ °C", "T_m_W @ °C", "E_ion_H N_A @ kJ/mol", "chi_O - chi_H", "T_half_C14 log2(1 / 0.3) @ yr",
+  // electromagnetism
+  "epsilon0 1[m^2] / 1[mm] @ nF", "1[kΩ] 1[µF] @ ms", "1 / (2 π sqrt(10[µH] 100[pF])) @ MHz",
+  "e 1[T] / (2 π m_e) @ GHz", "muBohr 1[T] / h @ GHz", "ke e^2 / 1 Å @ eV", "k 300[K] / e @ mV",
+  // light and quantum physics
+  "h c / (500 nm) @ eV", "h c / ((400, 550, 700) nm) @ eV", "c / 1420.405751 MHz @ cm",
+  "h c / (k 5772[K]) @ *m", "exp(-10.2[eV] / (k 5772[K]))", "656.28[nm] 250[km/s] / c @ Å",
+  "h / (m_e 1e6[m/s]) @ nm", "h / (m_e c) @ pm", "hbar / (m_e c alpha) @ pm", "1/2 m_e c^2 alpha^2 @ eV",
+  "1 / alpha", "m_p / m_e", "ke e^2 / (G m_p^2)",
+  // particles and relativity
+  "m_e c^2 @ MeV", "(m_n - m_p) c^2 @ MeV", "m_Z c^2 @ GeV", "m_tau / m_mu", "hbar / (m_W c) @ am",
+  "2.197[µs] c / sqrt(1 - 0.995^2) @ km", "1 / sqrt(1 - (0.90 ± 0.01)^2)",
+  "G M_Earth / (c^2 R_Earth) 1[day] @ µs",
+  // natural units
+  "1 eV @ K|\"k\"", "m_e @ keV|\"c\"", "1 fm @ MeV|\"hbar\"|\"c\"", "1e30 kg @ \"c\"|\"G\"", "1 au @ s 'c'",
+  "5[s 'c'] @ km", "1 m @ planck", "sqrt(hbar G / c^3)", "sqrt(hbar c / G) @ µg", "sqrt(hbar c^5 / G) @ GeV",
+  // Sun and solar system
+  "1 au / c @ min", "1 au / c @ hms", "L_Sun / (4 π au^2) @ W/m^2", "L_Sun / c^2 @ t/s", "L_Sun / (4 π 1[au]^2) @ kW/m^2", "L_Sun @ *W",
+  "4 π R_Sun^2 sigma T_eff_Sun^4 @ L_Sun", "2 π au / yr @ km/s", "2 atan(R_Sun / au) @ dms",
+  "2 R_Moon / a_Moon @ dms", "g_Mars / g_Earth", "(g_Venus, g_Mars, g_Jupiter) / g_Earth",
+  "rho_Saturn @ g/cm^3", "M_Jupiter @ M_Earth", "P_Neptune @ yr", "v_esc_Moon @ km/h", "a_Mars / c @ min",
+  "siderealday @ hms", "360 deg / siderealday @ arcsec/s", "1 yr @ dhms",
+  // stars, black holes, cosmology and lensing
+  "2 G M_Sun / c^2 @ km", "2 G M_Sun / (c^2 R_Sun)", "6.63e-34[kg m^2 s^-1] @ easy", "hbar c^3 / (8 π G M_Sun k) @ nK", "1.4[M_Sun] / (4/3 π (12[km])^3) @ g/cm^3",
+  "L_Edd(10 M_Sun) @ L_Sun", "1 pc @ ly", "1 Jy @ erg/s cm^2 Hz", "H_0 100[Mpc] @ km/s", "1 / H_0 @ Gyr",
+  "rho_c / m_p @ m^-3", "T_CMB (1 + 1100)", "D_L(1) @ Gpc", "D_A((0.5, 1, 2, 4)) @ Gpc", "scale(0.5)",
+  "age(0)", "age(1100) @ kyr", "theta_E(1e12 M_Sun, 0.5, 2)", "theta_E_SIS(250 km/s, 0.5, 2)",
+  "solve(D_L(z) = 1 Gpc, z, 0, 5)", "solve(age(z) = 1 Gyr, z, 1)", "diff(age(z), z, 1) @ Gyr",
+  // mathematics
+  "solve(x = 5(1 - exp(-x)), x, 1, 10)", "solve(E - 0.2 sin(E) = 1, E, 0, 2)", "solve(tan(x) = x, x, 4, 4.6)",
+  "solve(cos(x) = x, x, 0, 1)", "roots(x^3 - 6x^2 + 11x = 6, x)", "polyroots((1, 0, 1))",
+  "integrate(x^3/(exp(x) - 1), x, 0, inf)", "integrate(exp(-x^2), x, -inf, inf)",
+  "integrate(9.81 m/s^2, t, 0 s, 2 s)", "limit(sin(x)/x, x, 0)", "limit((1 + 1/x)^x, x, inf)",
+  "sum(1/k^2, k, 1, inf)", "sum(1/k^3, k, 1, inf)", "1 rad @ dms", "0.375 @ frac",
+  // lists, vectors and statistics
+  "linspace(0 m, 10 m, 6)", "logspace(1, 1000, 4)", "mean((9.79, 9.82, 9.81) m/s^2)", "norm((3, 4, 0) N)",
+  "dot((3, 4, 0) N, (2, 0, 1) m)", "cross((1, 0, 0) m, (0, 2, 0) N)", "angle((1, 1, 0), (1, 0, 0)) @ deg",
+  "e cross((1e6, 0, 0) m/s, (0, 0, 1) T)", "pvalue(5)", "nsigma(0.05)", "conf(2)", "chi2_p(12.3, 5)",
+  "2.3 nm fwhm", "N(1, 0.1)",
+  // plots
+  "plot(sin(x), x, 0, 2 pi)", "plot(tan(x), x, -pi, pi)", "plot(x^3/(exp(x) - 1), x, 0, 12)",
+  "plot(1/sqrt(1 - v^2/c^2), v, 0, 0.99 c)", "plot(g t^2 / 2, t, 0 s, 5 s)", "plot(sin(x)/x, x, -20, 20)",
+  "plot((D_L(z), D_A(z)) @ Gpc, z, 0, 5)", "plot(age(z), z, 0.01, 100)",
+  // help and discovery
+  "pc!", "light!!", "%compatible [Pa]",
+];
+const EXAMPLES_SHOWN = 6, EXAMPLES_EVERY = 5000;
+let exampleTimer = 0;
+
+function pickExamples(n, avoid = []) {
+  const pool = EXAMPLES.filter((x) => !avoid.includes(x));
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, n);
+}
+
+const exampleHTML = (x) => `<button data-try="${esc(x)}">${exprHTML(x)}</button>`;
+
+function rotateExample() {
+  const box = historyEl.querySelector(".empty .try");
+  if (!box) { clearInterval(exampleTimer); exampleTimer = 0; return; }
+  if (document.hidden) return;
+  const btns = [...box.children];
+  const old = btns[Math.floor(Math.random() * btns.length)];
+  const [x] = pickExamples(1, btns.map((b) => b.dataset.try));
+  old.classList.add("leaving");
+  setTimeout(() => {
+    if (!old.isConnected) return;
+    old.insertAdjacentHTML("afterend", exampleHTML(x));
+    old.nextElementSibling.classList.add("arriving");
+    old.remove();
+  }, 300);
+}
+
 function renderHistory() {
   historyEl.innerHTML = "";
+  clearInterval(exampleTimer);
+  exampleTimer = 0;
   if (!state.history.length) {
-    const ex = ["100 km/h @ mph", "12 m + 3 cm @ km", "37 °C @ °F", "m_e c^2 @ MeV", "1 au / c @ min", "20 m/s @ km|hour"];
     historyEl.innerHTML = `<div class="empty"><p>Enter a number, add units from the <b>Units</b> keys, then convert with <b>@</b>. Your calculations stay here: scroll back and tap one to reuse it.</p>
-      <div class="try">${ex.map((x) => `<button data-try="${esc(x)}">${exprHTML(x)}</button>`).join("")}</div></div>`;
+      <div class="try">${pickExamples(EXAMPLES_SHOWN).map(exampleHTML).join("")}</div></div>`;
+    exampleTimer = setInterval(rotateExample, EXAMPLES_EVERY);
     return;
   }
   const frag = document.createDocumentFragment();

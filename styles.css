@@ -212,6 +212,8 @@ button:focus-visible, .expr:focus-visible { outline: 2px solid var(--accent); ou
 
 .history .empty p { margin: 0 auto 10px; max-width: 32em; }
 .history .empty .try { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.history .empty .try .leaving { opacity: 0; transition: opacity 0.3s; }
+.history .empty .try .arriving { animation: fade 0.3s; }
 
 .history .empty button {
   color: var(--accent-ink);
@@ -888,7 +890,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
   font-family: "STIX Two Math", "Cambria Math", "Latin Modern Math", math;
 }
 .math2d math { font-size: 21px; }
-.entry .in.in2d { overflow-x: auto; overflow-y: hidden; padding: 4px 0; font-family: var(--font); }
+.entry .in.in2d { overflow-x: auto; overflow-y: hidden; padding: 4px 6px; font-family: var(--font); }
 .entry .in.in2d { text-align: right; }
 .entry .in2d math { font-size: 17px; color: var(--muted); }
 math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
