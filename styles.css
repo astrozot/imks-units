@@ -558,8 +558,9 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 /* 123 page: a function column, and the 2nd key. Labels scale with the
    page, which sets the key height */
 .page.num-page { container-type: size; }
-/* six equal columns: the right one is a key wide */
-.page.num-page.active { grid-template-columns: 1fr calc((100% - 5 * var(--gap)) / 6); }
+/* six equal columns: the right one is a key wide (also on the Const
+   page, whose right column matches) */
+.page.num-page.active, .page[data-page="const"].active { grid-template-columns: 1fr calc((100% - 5 * var(--gap)) / 6); }
 .grid.num-grid { grid-template-columns: repeat(5, 1fr); }
 .num-page .key.func { font-size: clamp(15px, 6.4cqh, 22px); }
 /* the long press at the top right, and the main label moves away from

@@ -45,8 +45,9 @@ const DEFAULT_SETTINGS = {
   mcN: 5000,
   typeset: true,
   brackets: true,
-  bracketMatch: "fill",  // fill, underline, box, none
-  rainbow: false,
+  bracketMatch: "underline",  // fill, underline, box, none
+  rainbow: true,
+  digitConsts: false,  // physical constants on a long press of the digits
   cosmo: { preset: "concordance", H0: 70, Om: 0.3, Ob: 0.05, OL: 0.7, OR: 0, flat: true, errors: false, sH0: 0, sOm: 0, rho: 0 },
 };
 
@@ -1534,7 +1535,7 @@ function renderEditor() {
   }
   const segs = segments(t);
   state.atoms = segs.filter((sg) => sg.atom).map((sg) => [sg.s, sg.e, sg.atom]);
-  const brStyle = state.settings.bracketMatch || "fill";
+  const brStyle = state.settings.bracketMatch || "underline";
   exprEl.dataset.br = brStyle;
   markBrackets(segs, t, c, { match: brStyle !== "none", rainbow: Boolean(state.settings.rainbow) });
   let html = "";
@@ -3988,7 +3989,7 @@ const ENTER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6.
 const RIGHT = {
   num: [[DEL_SVG, "del", "backspace", ["AC", "clear"]], ["@", "conv", "@"],
     [["◀", "fn", "left", ["⇤", "home"]], ["▶", "fn", "right", ["⇥", "end"]]],
-    ["π{/e}", "fn func", "n:pi", ["°", "u:deg"], ["{π/}e", "euler"], ["′", "u:arcmin"]], [ENTER_SVG, "eq", "enter", ["=", "assign"]]],
+    [["(", "op", "("], [")", "op", ")"]], [ENTER_SVG, "eq", "enter", ["=", "assign"]]],
   units: [[DEL_SVG, "del", "backspace"], ["@", "conv", "@"], ["/", "op", "/"], [["x²", "op small", "pow2"], ["x³", "op small", "pow3"]], [ENTER_SVG, "eq", "enter"]],
   fn: [[DEL_SVG, "del", "backspace"], ["@", "conv", "@"], [["(", "op", "("], [")", "op", ")"]], [["◀", "fn", "left"], ["▶", "fn", "right"]], [ENTER_SVG, "eq", "enter"]],
   const: [[DEL_SVG, "del", "backspace"], ["@", "conv", "@"], [["×", "op", "*"], ["÷", "op", "/"]], [["(", "op", "("], [")", "op", ")"]], [["'x'", "op small", "q1"], ['"x"', "op small", "q2"]], [ENTER_SVG, "eq", "enter"]],
@@ -3996,7 +3997,7 @@ const RIGHT = {
 
 const NUM_KEYS = [
   ["sin{h}", "op func col", "f:sin(", ["⁻¹", "f:asin("], ["sinh", "f:sinh("], ["⁻¹", "f:asinh("]],
-  [["(", "op", "("], [")", "op", ")"]],
+  ["π{/e}", "fn func", "n:pi", ["°", "u:deg"], ["{π/}e", "euler"], ["′", "u:arcmin"]],
   ["{³}√", "op", "f:sqrt(", ["x²", "pow2"], ["³√", "f:cbrt("], ["x³", "pow3"]],
   ["xʸ{/n!}", "op func", "^", ["logₓ", "f:log("], ["{xʸ/}n!", "f:factorial("], ["Γ", "f:Gamma("]],
   ["{⌊}x{⌋}", "op func", "f:abs(", ["sgn", "f:sgn("], ["⌊x⌋", "f:floor("], ["⌈x⌉", "f:ceil("]],
@@ -4204,7 +4205,9 @@ function keyHTML([label, cls = "", action, long, second, secondLong]) {
   const aria = svg && ARIA[action] ? ` aria-label="${ARIA[action]}"` : "";
   // the long press is written at the top right; in the label, what 2nd
   // adds is in {braces}, and in the 2nd label what it drops
-  const alt = long ? `<small class="alt${long[0] === "⁻¹" ? " inv" : long[0] === "," ? " comma" : ""}" aria-hidden="true">${esc(long[0])}</small>` : "";
+  // names (constants) are written as everywhere else, m_e as mₑ
+  const altText = long && ((long[1].startsWith("n:") && prettyName(long[1].slice(2), { unit: false })) || esc(long[0]));
+  const alt = long ? `<small class="alt${long[0] === "⁻¹" ? " inv" : long[0] === "," ? " comma" : ""}" aria-hidden="true">${altText}</small>` : "";
   const has = alt ? " has-alt corner" : "";
   const data = `data-key="${esc(action ?? label)}"${long ? ` data-long="${esc(long[1])}"` : ""}`;
   const text = esc(label).replace(/\{([^}]*)\}/g, '<span class="k2">$1</span>')
@@ -4225,7 +4228,15 @@ function cellHTML(c, page) {
 
 const rightHTML = (page) => `<div class="right">${RIGHT[page].map((c) => cellHTML(c, page)).join("")}</div>`;
 
-const numPageHTML = () => `<div class="left grid num-grid">${NUM_KEYS.map((c) => cellHTML(c, "num")).join("")}</div>${rightHTML("num")}`;
+// Optional: the common constants (as in the bar above the keypad) on a
+// long press of the digits, in reading order
+const DIGIT_CONSTS = { 7: "c", 8: "G", 9: "h", 4: "hbar", 5: "k", 6: "e", 1: "m_e", 2: "m_p", 3: "g", 0: "N_A" };
+
+function numPageHTML() {
+  const keys = NUM_KEYS.map((c) => (state.settings.digitConsts && DIGIT_CONSTS[c[0]] && c.length === 1
+    ? [c[0], "", undefined, [DIGIT_CONSTS[c[0]], "n:" + DIGIT_CONSTS[c[0]]]] : c));
+  return `<div class="left grid num-grid">${keys.map((c) => cellHTML(c, "num")).join("")}</div>${rightHTML("num")}`;
+}
 
 function renderNum() {
   const p = pagesEl.querySelector('[data-page="num"]');
@@ -5029,21 +5040,20 @@ keypadEl.addEventListener("pointerdown", (ev) => {
     } else repeatTimer = setTimeout(() => { repeatTimer = setInterval(backspace, 70); }, 420);
     return;
   }
-  // keys with a second function in the corner type it on a long press,
-  // and explain it
+  // keys with a second function in the corner type it on a long press
   if (b.dataset.long) {
     clearTimeout(holdTimer);
     holdTimer = setTimeout(() => {
       held = true;
-      const k = b.dataset.long;
       endRecall();
-      keyAction(k);
+      keyAction(b.dataset.long);
       releaseSecond();
-      const msg = explain({ dataset: { key: k } });
-      if (msg) toast(msg, Math.max(4000, msg.length * 55));
+      navigator.vibrate?.(10);
     }, 400);
     return;
   }
+  // the 123 page has no explanations: its keys speak for themselves
+  if (b.closest('[data-page="num"]')) return;
   if (b.dataset.key === "second") {
     clearTimeout(holdTimer);
     holdTimer = setTimeout(() => {
@@ -5670,9 +5680,11 @@ function renderSettings(root) {
       <div class="row"><div class="lbl">Units in brackets<small>Unit keys after a number give 9.8[m/s^2]</small></div>
         <input type="checkbox" class="switch" id="set-brackets" ${s.brackets !== false ? "checked" : ""}></div>
       <div class="row"><div class="lbl">Matching parentheses<small>The pair at the cursor; unmatched in red</small></div>
-        <select id="set-match">${[["fill", "Filled"], ["underline", "Underline"], ["box", "Box"], ["none", "None"]].map(([v, l]) => `<option value="${v}" ${v === (s.bracketMatch || "fill") ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+        <select id="set-match">${[["fill", "Filled"], ["underline", "Underline"], ["box", "Box"], ["none", "None"]].map(([v, l]) => `<option value="${v}" ${v === (s.bracketMatch || "underline") ? "selected" : ""}>${l}</option>`).join("")}</select></div>
       <div class="row"><div class="lbl">Rainbow parentheses<small>Each nesting level in its own colour</small></div>
         <input type="checkbox" class="switch" id="set-rainbow" ${s.rainbow ? "checked" : ""}></div>
+      <div class="row"><div class="lbl">Constants on the digits<small>On the 123 page, long-press 7 for c, 8 for G, 9 for h…</small></div>
+        <input type="checkbox" class="switch" id="set-digitconsts" ${s.digitConsts ? "checked" : ""}></div>
       <div class="row"><div class="lbl">Appearance</div>
         <select id="set-theme">${["auto", "light", "dark"].map((x) => `<option ${x === s.theme ? "selected" : ""}>${x}</option>`).join("")}</select></div>
       <div class="row pal-row"><div class="lbl">Colours</div>
@@ -5744,6 +5756,7 @@ function renderSettings(root) {
   $("#set-typeset", root).addEventListener("change", (ev) => { s.typeset = ev.target.checked; save(); renderHistory(); updateMath2d(); });
   $("#set-match", root).addEventListener("change", (ev) => { s.bracketMatch = ev.target.value; save(); renderEditor(); });
   $("#set-rainbow", root).addEventListener("change", (ev) => { s.rainbow = ev.target.checked; save(); renderEditor(); });
+  $("#set-digitconsts", root).addEventListener("change", (ev) => { s.digitConsts = ev.target.checked; save(); renderNum(); });
   const mcChange = () => {
     s.mc = $("#set-mc", root).value === "mc";
     s.mcN = Number($("#set-mcn", root).value);
@@ -6088,7 +6101,7 @@ function renderHelp(root) {
       <div class="ex">${ex.map(([x, note]) => `<button data-ex="${esc(x)}">${esc(x)}<span>${esc(note)}</span></button>`).join("")}</div>`).join("")}
     <h3>Keypad tips</h3>
     <p>Tap a result to insert it as ans_n (the n-th result; the last one is also ans), tap an expression to edit it, and long-press an entry for more options, such as inserting the value itself. Clearing the results numbers them again from ans_1. Tap inside the expression to move the cursor; long-press it to paste. Swipe left or right on it to change keypad page.</p>
-    <p>On the <b>123</b> page, long-press a key for what is written in grey: its inverse (sin⁻¹ is asin, eˣ for log, x² for √, log(b, x) for xʸ), or more, such as ° on π, ± on +, x on ×, f(x) = on −, the comma on the point, AC (clear) on ⌫, sgn on |x|, and = (assignment) on ⏎; hold ◀ or ▶ to jump to the start or the end, or slide on them to move. <b>2nd</b> adds what is written in orange: sinh, log₁₀, ∛, n!, ⌊x⌋ (floor; ⌈x⌉, ceil, on a long press), e (′ on a long press, as ° for π) for one key; long-press it to keep it on.</p>
+    <p>On the <b>123</b> page, long-press a key for what is written in grey: its inverse (sin⁻¹ is asin, eˣ for log, x² for √, log(b, x) for xʸ), or more, such as ° on π, ± on +, x on ×, f(x) = on −, the comma on the point (and, if set in Settings, constants on the digits: c on 7, G on 8…), AC (clear) on ⌫, sgn on |x|, and = (assignment) on ⏎; hold ◀ or ▶ to jump to the start or the end, or slide on them to move. <b>2nd</b> adds what is written in orange: sinh, log₁₀, ∛, n!, ⌊x⌋ (floor; ⌈x⌉, ceil, on a long press), e (′ on a long press, as ° for π) for one key; long-press it to keep it on.</p>
     <p>The bar above the keypad adapts to the cursor: units after a number (angles inside sin, cos, tan), your recent names and common constants after an operator or an opening parenthesis, exponents after ^, and conversions after a value with units.</p>
     <p>On the <b>Units</b> page, tap a prefix and then a unit: <b>k</b> then <b>m</b> gives km. Long-press a unit, prefix or constant to see what it is. After <b>@</b>, the units of the current quantity open automatically and compatible units appear above the keypad.</p>
     <p>Use <b>abc</b> to type names: the row above the letters guesses the name you are typing. <b>Const</b> has physical constants and your own variables, and <b>f(x)</b> has functions by topic, including cosmology and lensing. Long-press any function key for its arguments.</p>
