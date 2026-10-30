@@ -3,11 +3,30 @@
 // year 1 in the proleptic Gregorian calendar). Years are astronomical
 // (year 0 is 1 BC), so the Julian calendar has a year 0 too.
 
+import { season } from "./astro.js";
+import { UnitError } from "./units.js";
+
 const floor = Math.floor;
 const mod = (x, y) => x - y * floor(x / y);
 
 // R.D. of 1970-01-01, the Unix epoch
 const UNIX_RD = 719163;
+
+// ---------------------------------------------------------------------
+// Gregorian, with the Date of JavaScript
+
+function gregorianFromFixed(f) {
+  const x = new Date((f - UNIX_RD) * 864e5);
+  return [x.getUTCFullYear(), x.getUTCMonth() + 1, x.getUTCDate()];
+}
+
+function fixedFromGregorian(y, m, d) {
+  const x = new Date(0);
+  x.setUTCFullYear(y, m - 1, d);
+  return Math.round(x.getTime() / 864e5) + UNIX_RD;
+}
+
+const gregorianLeap = (y) => (mod(y, 4) === 0 && mod(y, 100) !== 0) || mod(y, 400) === 0;
 
 // ---------------------------------------------------------------------
 // Julian
@@ -138,6 +157,47 @@ function mayanFromFixed(date) {
 }
 
 // ---------------------------------------------------------------------
+// French Republican, as decreed: the year begins on the day of the
+// autumn equinox at Paris (local mean time); twelve months of 30 days and
+// 5 or 6 complementary days, month 13. Year 1 began on 1792-09-22.
+
+const PARIS = 2.337229 / 360 * 86400;   // seconds east of Greenwich
+
+function frenchNewYear(gy) {
+  const t = season(gy, 2);
+  return t === null ? NaN : floor((t + PARIS) / 86400) + UNIX_RD;
+}
+
+const fixedFromFrench = (y, m, d) => frenchNewYear(y + 1791) + 30 * (m - 1) + d - 1;
+
+function frenchFromFixed(date) {
+  let y = gregorianFromFixed(date)[0];
+  if (date < frenchNewYear(y)) y--;
+  const k = date - frenchNewYear(y);
+  return [y - 1791, floor(k / 30) + 1, mod(k, 30) + 1];
+}
+
+// ---------------------------------------------------------------------
+// Indian national (Saka): Chaitra 1 is March 22, or March 21 in Gregorian
+// leap years; the year is the Gregorian one − 78
+
+const sakaMonthDays = (y) => [gregorianLeap(y + 78) ? 31 : 30, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 30];
+
+function fixedFromSaka(y, m, d) {
+  const start = fixedFromGregorian(y + 78, 3, gregorianLeap(y + 78) ? 21 : 22);
+  return start + sakaMonthDays(y).slice(0, m - 1).reduce((a, b) => a + b, 0) + d - 1;
+}
+
+function sakaFromFixed(date) {
+  let y = gregorianFromFixed(date)[0] - 78;
+  if (date < fixedFromSaka(y, 1, 1)) y--;
+  const len = sakaMonthDays(y);
+  let k = date - fixedFromSaka(y, 1, 1), m = 1;
+  while (m < 12 && k >= len[m - 1]) k -= len[m++ - 1];
+  return [y, m, k + 1];
+}
+
+// ---------------------------------------------------------------------
 
 const MONTHS = {
   julian: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
@@ -145,6 +205,8 @@ const MONTHS = {
   islamic: ["Muharram", "Safar", "Rabi‘ I", "Rabi‘ II", "Jumada I", "Jumada II", "Rajab", "Sha‘ban", "Ramadan", "Shawwal", "Dhu al-Qa‘da", "Dhu al-Hijja"],
   persian: ["Farvardin", "Ordibehesht", "Khordad", "Tir", "Mordad", "Shahrivar", "Mehr", "Aban", "Azar", "Dey", "Bahman", "Esfand"],
   coptic: ["Thout", "Paopi", "Hathor", "Koiak", "Tobi", "Meshir", "Paremhat", "Parmouti", "Pashons", "Paoni", "Epip", "Mesori", "Nasie"],
+  french: ["Vendémiaire", "Brumaire", "Frimaire", "Nivôse", "Pluviôse", "Ventôse", "Germinal", "Floréal", "Prairial", "Messidor", "Thermidor", "Fructidor"],
+  saka: ["Chaitra", "Vaishakha", "Jyeshtha", "Ashadha", "Shravana", "Bhadra", "Ashvin", "Kartika", "Agrahayana", "Pausha", "Magha", "Phalguna"],
   ethiopic: ["Meskerem", "Tekemt", "Hedar", "Tahsas", "Ter", "Yekatit", "Megabit", "Miazia", "Genbot", "Sene", "Hamle", "Nehasse", "Pagume"],
 };
 
@@ -156,12 +218,30 @@ const CALENDARS = {
   persian: [persianFromFixed, fixedFromPersian, 3, "Persian (Solar Hijri) calendar: persian(year, month, day)"],
   coptic: [copticFromFixed, fixedFromCoptic, 3, "Coptic calendar: coptic(year, month, day), month 13 is the 5 or 6 epagomenal days"],
   ethiopic: [(f) => copticFromFixed(f, ETHIOPIC_EPOCH), (y, m, d) => fixedFromCoptic(y, m, d, ETHIOPIC_EPOCH), 3, "Ethiopian calendar: ethiopic(year, month, day), month 13 is Pagume"],
+  french: [frenchFromFixed, fixedFromFrench, 3, "French Republican calendar: french(year, month, day), month 13 is the complementary days; from the autumn equinox at Paris, for the Gregorian years 1000 to 3000 (years −790 to 1209)"],
+  saka: [sakaFromFixed, fixedFromSaka, 3, "Indian national (Saka) calendar: saka(year, month, day)"],
   mayan: [mayanFromFixed, fixedFromMayan, 5, "Mayan long count: mayan(baktun, katun, tun, uinal, kin), 13.0.0.0.0 is 2012-12-21"],
 };
 
+// the complementary days of the French Republican calendar
+const FRENCH_DAYS = ["Fête de la Vertu", "Fête du Génie", "Fête du Travail", "Fête de l'Opinion", "Fête des Récompenses", "Fête de la Révolution"];
+
+function roman(n) {
+  if (!(n >= 1 && n < 4000)) return String(n);
+  const r = [[1000, "M"], [900, "CM"], [500, "D"], [400, "CD"], [100, "C"], [90, "XC"], [50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
+  let s = "";
+  for (const [v, t] of r) while (n >= v) { s += t; n -= v; }
+  return s;
+}
+
 function calendarText(name, date) {
   const p = CALENDARS[name][0](date);
+  if (!p.every(Number.isFinite)) throw new UnitError(`Out of the range of the ${name} calendar`);
   if (name === "mayan") return p.join(".");
+  if (name === "french") {
+    const [y, m, d] = p;
+    return `${m === 13 ? FRENCH_DAYS[d - 1] : `${d} ${MONTHS.french[m - 1]}`}, year ${roman(y)}`;
+  }
   const [y, m, d] = p;
   let month = MONTHS[name][m - 1];
   if (name === "hebrew" && m === 12 && hebrewLeap(y)) month = "Adar I";
@@ -169,11 +249,7 @@ function calendarText(name, date) {
 }
 
 // Gregorian, for the eras of the Japanese calendar
-const GREGORIAN = [
-  (f) => { const x = new Date((f - UNIX_RD) * 864e5); return [x.getUTCFullYear(), x.getUTCMonth() + 1, x.getUTCDate()]; },
-  (y, m, d) => { const x = new Date(0); x.setUTCFullYear(y, m - 1, d); return Math.round(x.getTime() / 864e5) + UNIX_RD; },
-  3,
-];
+const GREGORIAN = [gregorianFromFixed, fixedFromGregorian, 3];
 
 // The fixed day of a date in a calendar, or null if there is no such date
 function fixedFrom(name, parts) {
@@ -184,4 +260,4 @@ function fixedFrom(name, parts) {
   return back.every((x, i) => x === parts[i]) ? f : null;
 }
 
-export { CALENDARS, UNIX_RD, calendarText, fixedFrom };
+export { hebrewLeap, CALENDARS, UNIX_RD, calendarText, fixedFrom };

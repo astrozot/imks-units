@@ -771,6 +771,9 @@ class Env {
           return { text: f.fn(q, this), format: true };
         } catch (e) {
           if (!(e instanceof UnitError)) throw e;
+          // a date that a calendar cannot show: as a date, and why
+          const t = this.dateText && this.dateText(q.plain());
+          if (t) return { text: `${t} (${e.message.toLowerCase()})`, format: true };
         }
       }
     }

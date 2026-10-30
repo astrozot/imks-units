@@ -50,6 +50,55 @@ const latLon = (c) => {
   return [[c.latitude, s], [c.longitude, s / Math.cos(c.latitude / DEG)]];
 };
 
+// Speed: the one the device reports (iOS gives it only from the GPS, while
+// moving), or else from the distance between fixes a few seconds apart
+function speed(ms = 8000) {
+  need(navigator.geolocation, "location");
+  return new Promise((resolve, reject) => {
+    const fixes = [], start = Date.now();
+    let error = null;
+    const ok = (x) => typeof x === "number" && x >= 0;
+    const done = () => {
+      navigator.geolocation.clearWatch(id);
+      clearTimeout(timer);
+      const vs = fixes.map((p) => p.coords.speed).filter(ok);
+      if (vs.length) {
+        // GPS speeds are good to about 0.3 m/s each, whatever their scatter
+        const m = vs.reduce((a, x) => a + x, 0) / vs.length;
+        const sd = vs.length > 1 ? Math.sqrt(vs.reduce((a, x) => a + (x - m) ** 2, 0) / (vs.length - 1)) : 0;
+        return resolve([m, Math.max(sd, 0.3) / Math.sqrt(vs.length)]);
+      }
+      if (!fixes.length) return reject(new Error(error === 3 || error === null ? "No location fix (timed out)" : "Location unavailable"));
+      const a = fixes[0], b = fixes.at(-1);
+      const dt = b && (b.timestamp - a.timestamp) / 1000;
+      if (!(dt >= 2)) return reject(new Error("No speed: the device gives it only while moving; try again in motion"));
+      const dy = (b.coords.latitude - a.coords.latitude) / DEG * R_EARTH;
+      const dx = (b.coords.longitude - a.coords.longitude) / DEG * R_EARTH * Math.cos(a.coords.latitude / DEG);
+      // the accuracies are radii of 95 %: σ = accuracy / 2.45 in each direction
+      const s = Math.hypot(a.coords.accuracy, b.coords.accuracy) / 2.45;
+      resolve([Math.hypot(dx, dy) / dt, s / dt]);
+    };
+    const id = navigator.geolocation.watchPosition(
+      (p) => {
+        lastFix = { time: Date.now(), c: p.coords };
+        // the first fix can be an older one, from before the measurement
+        if (p.timestamp < start - 500) return;
+        fixes.push(p);
+        if (fixes.filter((f) => ok(f.coords.speed)).length >= 3) done();
+      },
+      (e) => {
+        // a watch goes on after other errors (iOS reports passing ones)
+        if (e.code !== 1) { error = e.code; return; }
+        navigator.geolocation.clearWatch(id);
+        clearTimeout(timer);
+        reject(new Error("Location permission denied"));
+      },
+      { enableHighAccuracy: true, maximumAge: 0 },
+    );
+    const timer = setTimeout(done, ms);
+  });
+}
+
 // ---------------------------------------------------------------------
 // Motion and orientation
 
@@ -185,14 +234,7 @@ const SENSORS = {
       return { list: [[c.altitude, (c.altitudeAccuracy || 0) / 1.96]], unit: "m" };
     },
   },
-  speed: {
-    hint: "Locating…",
-    read: async () => {
-      const c = await locate(true);
-      if (c.speed === null || Number.isNaN(c.speed)) throw new Error("No speed: it needs GPS and motion");
-      return { list: [[c.speed, 0]], unit: "m/s" };
-    },
-  },
+  speed: { hint: "Measuring the speed for a few seconds…", read: async () => ({ list: [await speed()], unit: "m/s" }) },
   g: {
     hint: "Hold the phone still…",
     read: async () => ({ list: [blockStats((await motion()).map(([x, y, z]) => Math.hypot(x, y, z)))], unit: "m/s^2" }),

@@ -6,7 +6,7 @@
 // or UTC when env.utc is set, unless a zone is given.
 
 import { Q, UnitError, dimEq } from "./units.js";
-import { CALENDARS, UNIX_RD, calendarText, fixedFrom } from "./calendars.js";
+import { hebrewLeap, CALENDARS, UNIX_RD, calendarText, fixedFrom } from "./calendars.js";
 
 const DAY = 86400;
 const mod = (x, y) => x - y * Math.floor(x / y);
@@ -181,7 +181,7 @@ const INTL_CALENDARS = {
 };
 
 // the calendars, as the keys show them
-const CALENDAR_ORDER = ["chinese", "coptic", "ethiopic", "hebrew", "islamic", "japanese", "julian", "mayan", "persian"];
+const CALENDAR_ORDER = ["chinese", "coptic", "ethiopic", "french", "hebrew", "islamic", "japanese", "julian", "mayan", "persian", "saka"];
 
 const intlParts = (fmt, fixed) => Object.fromEntries(fmt.formatToParts(new Date((fixed - UNIX_RD) * 864e5 + 432e5)).map((p) => [p.type, p.value]));
 
@@ -230,6 +230,74 @@ const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "Ju
 // The formats that show a date: a value shown with them is still written
 // as a date literal when it is inserted or copied
 const DATE_FORMATS = new Set(["date", "UTC", "dow", "doy", "week", ...Object.keys(CALENDARS), ...Object.keys(INTL_CALENDARS)]);
+
+// Easter Sunday of a year, as a fixed day (Meeus): Gregorian, and Orthodox
+// from the Julian computus
+function easterDay(y) {
+  const a = mod(y, 19), c = Math.floor(y / 100), e = mod(y, 100);
+  const h = mod(19 * a + c - Math.floor(c / 4) - Math.floor((c - Math.floor((c + 8) / 25) + 1) / 3) + 15, 30);
+  const l = mod(32 + 2 * mod(c, 4) + 2 * Math.floor(e / 4) - h - mod(e, 4), 7);
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const n = h + l - 7 * m + 114;
+  return fixedFrom("gregorian", [y, Math.floor(n / 31), mod(n, 31) + 1]);
+}
+
+function orthodoxEasterDay(y) {
+  const d = mod(19 * mod(y, 19) + 15, 30);
+  const n = d + mod(2 * mod(y, 4) + 4 * mod(y, 7) - d + 34, 7) + 114;
+  return fixedFrom("julian", [y, Math.floor(n / 31), mod(n, 31) + 1]);
+}
+
+// Holidays: [group, names, the year of its calendar about a Gregorian
+// year y, and its fixed day in a year of that calendar (null if none)]
+const HOLIDAY_LIST = [
+  ["Christian", ["Christmas"], (y) => y, (y) => fixedFrom("gregorian", [y, 12, 25])],
+  ["Christian", ["Epiphany"], (y) => y, (y) => fixedFrom("gregorian", [y, 1, 6])],
+  ["Christian", ["Ash Wednesday"], (y) => y, (y) => easterDay(y) - 46],
+  ["Christian", ["Good Friday"], (y) => y, (y) => easterDay(y) - 2],
+  ["Christian", ["Easter"], (y) => y, easterDay],
+  ["Christian", ["Ascension"], (y) => y, (y) => easterDay(y) + 39],
+  ["Christian", ["Pentecost", "Whitsun"], (y) => y, (y) => easterDay(y) + 49],
+  ["Christian", ["Orthodox Easter"], (y) => y, orthodoxEasterDay],
+  ["Christian", ["Orthodox Christmas"], (y) => y - 1, (y) => fixedFrom("julian", [y, 12, 25])],
+  ["Jewish", ["Passover", "Pesach"], (y) => y + 3760, (y) => fixedFrom("hebrew", [y, 1, 15])],
+  ["Jewish", ["Shavuot"], (y) => y + 3760, (y) => fixedFrom("hebrew", [y, 3, 6])],
+  ["Jewish", ["Rosh Hashanah", "Rosh Hashana"], (y) => y + 3761, (y) => fixedFrom("hebrew", [y, 7, 1])],
+  ["Jewish", ["Yom Kippur"], (y) => y + 3761, (y) => fixedFrom("hebrew", [y, 7, 10])],
+  ["Jewish", ["Sukkot"], (y) => y + 3761, (y) => fixedFrom("hebrew", [y, 7, 15])],
+  ["Jewish", ["Hanukkah", "Chanukah"], (y) => y + 3761, (y) => fixedFrom("hebrew", [y, 9, 25])],
+  ["Jewish", ["Purim"], (y) => y + 3760, (y) => fixedFrom("hebrew", [y, hebrewLeap(y) ? 13 : 12, 14])],
+  ["Islamic", ["Islamic New Year", "Muharram"], islamicYear, (y) => fixedFrom("islamic", [y, 1, 1])],
+  ["Islamic", ["Mawlid"], islamicYear, (y) => fixedFrom("islamic", [y, 3, 12])],
+  ["Islamic", ["Ramadan"], islamicYear, (y) => fixedFrom("islamic", [y, 9, 1])],
+  ["Islamic", ["Eid al-Fitr", "Eid ul-Fitr"], islamicYear, (y) => fixedFrom("islamic", [y, 10, 1])],
+  ["Islamic", ["Eid al-Adha", "Eid ul-Adha"], islamicYear, (y) => fixedFrom("islamic", [y, 12, 10])],
+  ["Chinese", ["Chinese New Year", "Lunar New Year", "Spring Festival"], (y) => y, (y) => fixedFromChinese(y, 1, 1, 0)],
+  ["Chinese", ["Lantern Festival"], (y) => y, (y) => fixedFromChinese(y, 1, 15, 0)],
+  ["Chinese", ["Dragon Boat", "Dragon Boat Festival"], (y) => y, (y) => fixedFromChinese(y, 5, 5, 0)],
+  ["Chinese", ["Mid-Autumn", "Mid-Autumn Festival"], (y) => y, (y) => fixedFromChinese(y, 8, 15, 0)],
+  ["Persian", ["Nowruz", "Norouz"], (y) => y - 621, (y) => fixedFrom("persian", [y, 1, 1])],
+  ["Ethiopian", ["Enkutatash", "Ethiopian New Year"], (y) => y - 7, (y) => fixedFrom("ethiopic", [y, 1, 1])],
+];
+
+// the Islamic year about a Gregorian year (the Islamic year is shorter)
+function islamicYear(y) {
+  return Math.floor((y - 622) * 365.2425 / 354.367);
+}
+
+const HOLIDAYS = new Map(HOLIDAY_LIST.flatMap((h) => h[1].map((n) => [plainName(n).replace(/[^a-z]/g, ""), h])));
+// [group, [names]], the groups in alphabetical order, for the picker of
+// the app and the list in the usage
+const HOLIDAY_GROUPS = [...new Set(HOLIDAY_LIST.map((h) => h[0]))].sort().map((g) => [g, HOLIDAY_LIST.filter((h) => h[0] === g).map((h) => h[1][0])]);
+const HOLIDAY_NAMES = HOLIDAY_GROUPS.flatMap(([, names]) => names);
+
+// the first day of the holiday h in the Gregorian year y, or null
+function holidayIn([, , guess, day], y) {
+  const lo = fixedFrom("gregorian", [y, 1, 1]), hi = fixedFrom("gregorian", [y + 1, 1, 1]);
+  const c = guess(y);
+  const days = [c - 1, c, c + 1, c + 2].map((k) => day(k)).filter((f) => f !== null && f >= lo && f < hi);
+  return days.length ? Math.min(...days) : null;
+}
 
 const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -304,6 +372,13 @@ function addDates(env) {
   }
 }
 
+// A year argument: an integer
+function yearArg(env, name, q, usage = `${name}(year)`) {
+  const y = q instanceof Q ? env.checkPure(q, name).n : NaN;
+  if (!Number.isInteger(y)) throw new UnitError(`Usage: ${usage}`);
+  return y;
+}
+
 // For the interpreter: date(y, m, d, h, min, s, offset), now and today
 function dateBuiltins(env, b) {
   const num = (q, what, def) => (q === undefined ? def : env.checkPure(q, `date: the ${what}`).n);
@@ -340,27 +415,17 @@ function dateBuiltins(env, b) {
     if (f === null) throw new UnitError(`Not a date of the chinese calendar: ${y}, ${leap ? "leap " : ""}${m}, ${d}`);
     return dayAt("chinese", f, args, 4);
   };
-  // Easter Sunday of a year (Meeus): Gregorian, and Orthodox from the
-  // Julian computus
-  const year = (name, q) => {
-    const y = q === undefined ? NaN : env.checkPure(q, name).n;
-    if (!Number.isInteger(y)) throw new UnitError(`Usage: ${name}(year)`);
-    return y;
-  };
-  b.easter = (q) => {
-    const y = year("easter", q);
-    const a = mod(y, 19), c = Math.floor(y / 100), e = mod(y, 100);
-    const h = mod(19 * a + c - Math.floor(c / 4) - Math.floor((c - Math.floor((c + 8) / 25) + 1) / 3) + 15, 30);
-    const l = mod(32 + 2 * mod(c, 4) + 2 * Math.floor(e / 4) - h - mod(e, 4), 7);
-    const m = Math.floor((a + 11 * h + 22 * l) / 451);
-    const n = h + l - 7 * m + 114;
-    return dayAt("easter", fixedFrom("gregorian", [y, Math.floor(n / 31), mod(n, 31) + 1]), [], 0);
-  };
-  b.orthodox_easter = (q) => {
-    const y = year("orthodox_easter", q);
-    const d = mod(19 * mod(y, 19) + 15, 30);
-    const n = d + mod(2 * mod(y, 4) + 4 * mod(y, 7) - d + 34, 7) + 114;
-    return dayAt("orthodox_easter", fixedFrom("julian", [y, Math.floor(n / 31), mod(n, 31) + 1]), [], 0);
+  const year = (name, q) => yearArg(env, name, q);
+  b.easter = (q) => dayAt("easter", easterDay(year("easter", q)), [], 0);
+  b.easter_orthodox = (q) => dayAt("easter_orthodox", orthodoxEasterDay(year("easter_orthodox", q)), [], 0);
+  // holiday("Passover", 2027): the first in the Gregorian year
+  b.holiday = (name, q) => {
+    const h = typeof name === "string" ? HOLIDAYS.get(plainName(name).replace(/[^a-z]/g, "")) : undefined;
+    if (!h) throw new UnitError(`Usage: holiday("Passover", 2027); the holidays are ${HOLIDAY_NAMES.join(", ")}`);
+    const y = yearArg(env, "holiday", q, 'holiday("Passover", 2027), with a Gregorian year');
+    const f = holidayIn(h, y);
+    if (f === null) throw new UnitError(`holiday: no ${name} in ${y}`);
+    return dayAt("holiday", f, [], 0);
   };
   // japanese("Reiwa", year, month, day): the months and days are Gregorian
   b.japanese = (era, ...args) => {
@@ -384,4 +449,4 @@ function today(env) {
   return dateQ(env, fromCivil(c.y, c.mo, c.d, 0, 0, 0, z));
 }
 
-export { CALENDAR_ORDER, DATE_FORMATS, isDate, dateQ, fromCivil, civil, dateText, dateLiterals, literalText, addDates, dateBuiltins, now, today };
+export { HOLIDAY_GROUPS, yearArg, CALENDAR_ORDER, DATE_FORMATS, isDate, dateQ, fromCivil, civil, dateText, dateLiterals, literalText, addDates, dateBuiltins, now, today };

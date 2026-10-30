@@ -896,6 +896,10 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .keypad.quotes .split.no-spec { display: none; }
 .key.unit.sys { font-size: 14px; color: var(--accent-ink); }
 .key.unit.sys.span2, .key.unit.wide, .key.unit.alone { grid-column: span 2; }
+.key.unit.sys.span3 { grid-column: span 3; }
+/* Euler's number: the script e of the monospaced font, as in the input */
+.euler { font-family: var(--mono); font-weight: 400; }
+.key.unit.sys.span6 { grid-column: 1 / -1; }
 .key.unit.wide, .key.unit.alone { flex-direction: column; gap: 1px; }
 .key.unit small { font-size: 10px; font-weight: 500; color: var(--muted); }
 .key.unit.alone { background: var(--accent-soft); }
@@ -1158,6 +1162,7 @@ math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
   gap: 12px;
 }
 .help .ex button span { color: var(--muted); font-family: var(--font); font-size: 13px; text-align: right; }
+.help .ex.names button { font-family: var(--font); font-size: 15px; }
 
 /* Context menu */
 .menu {

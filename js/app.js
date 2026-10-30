@@ -7,7 +7,7 @@
 import { createCalculator, loadCurrencies } from "./defs.js";
 import { parse, normalize, splitComment, firstLine, functionDocs, tokenize } from "./interp.js";
 import { Q, dimEq, fraction, UnitError } from "./units.js";
-import { CALENDAR_ORDER, DATE_FORMATS, isDate, dateQ, dateText, literalText } from "./dates.js";
+import { HOLIDAY_GROUPS, CALENDAR_ORDER, DATE_FORMATS, isDate, dateQ, dateText, literalText } from "./dates.js";
 import { SENSORS, fixReadings, sensorAvailable } from "./sensors.js";
 import { formatUNum, formatNumber, UNum, ufuncs, MC, newSourceId, rng, normInv, lhsUniform, mcConfigure, mcStats, formatAsym } from "./unum.js";
 
@@ -185,7 +185,7 @@ const sub = (s) => `<sub>${s}</sub>`;
 const SUBDIGITS = (d) => [...d].map((c) => "₀₁₂₃₄₅₆₇₈₉"[c]).join("");
 
 // Names with their own glyph; everything else follows the rules below
-const NAME_HTML = { hbar: "ħ", euler: "ℯ", inf: "∞", Omega_L: "Ω" + "<sub>Λ</sub>" };
+const NAME_HTML = { hbar: "ħ", euler: '<span class="euler">ℯ</span>', inf: "∞", Omega_L: "Ω" + "<sub>Λ</sub>" };
 const FN_HTML = { sqrt: "√", cbrt: "∛" };
 const UNIT_HTML = { deg: "°", arcmin: "′", arcsec: "″", ohm: "Ω", Ang: "Å" };
 const BASE_HTML = { sin2theta: "sin²θ" };
@@ -2388,7 +2388,8 @@ function extraDefs() {
   // mathematics and statistics
   add('%let euler = exp(1) # "Euler\'s number e = 2.71828… (the name e is the elementary charge)"');
   add('%let gamma_E = 0.57721566490153286 # "Euler–Mascheroni constant"');
-  add('%let golden = (1 + sqrt(5)) / 2 # "Golden ratio φ"');
+  add('%let phi = (1 + sqrt(5)) / 2 # "Golden ratio φ"');
+  add('%let golden = phi # "Golden ratio φ (also phi)"');
   add('%let zeta_3 = 1.2020569031595943 # "Apéry\'s constant ζ(3)"');
   add('%let fwhm = 2 * sqrt(2 * ln(2)) # "FWHM / σ of a Gaussian"');
   // atomic and particle physics
@@ -4013,7 +4014,7 @@ const RIGHT = {
 
 const NUM_KEYS = [
   ["sin{h}", "op func col", "f:sin(", ["−1", "f:asin("], ["sinh", "f:sinh("], ["−1", "f:asinh("]],
-  ["π{/e}", "fn func", "n:pi", ["°", "u:deg"], ["{π/}e", "euler"], ["x⁻¹", "pow-1"]],
+  ["π{/ℯ}", "fn func", "n:pi", ["°", "u:deg"], ["{π/}ℯ", "euler"], ["x⁻¹", "pow-1"]],
   ["{³}√x", "op", "f:sqrt(", ["2", "pow2"], ["³√x", "f:cbrt("], ["3", "pow3"]],
   ["x^{1/}y", "op", "^", ["n!", "f:factorial("], ["x^1/y", "pow-root"], ["Γ", "f:Gamma("]],
   ["{⌊}x{⌋}", "op func", "f:abs(", ["sgn", "f:sgn("], ["⌊x⌋", "f:floor("], ["⌈x⌉", "f:ceil("]],
@@ -4080,15 +4081,17 @@ const FN_SECTIONS = [
     { key: "±", label: "±", desc: "Normal error" }, { key: "f:nominal(", label: "value", desc: "Without error" },
     { key: "f:err(", label: "error", desc: "σ only" }, { engine: true },
   ]],
-  ["Calendars", 4, 3, [
+  ["Calendars", 4, 4, [
     { fn: "date", desc: "y, m, d, h, min" }, { fn: "chinese", desc: "y, m, d, leap" }, { fn: "coptic", desc: "y, m, d" }, { fn: "ethiopic", desc: "y, m, d" },
-    { fn: "hebrew", desc: "y, m, d" }, { fn: "islamic", desc: "y, m, d" }, { key: 'japanese("Reiwa", ', label: "japanese", desc: "era, y, m, d" }, { fn: "julian", desc: "y, m, d" },
-    { fn: "mayan", desc: "b, k, t, u, k" }, { fn: "persian", desc: "y, m, d" }, { fn: "easter", desc: "Year" }, { fn: "orthodox_easter", label: "orthodox", desc: "Easter (year)" },
+    { fn: "french", desc: "y, m, d" }, { fn: "hebrew", desc: "y, m, d" }, { fn: "islamic", desc: "y, m, d" }, { key: 'japanese("Reiwa", ', label: "japanese", desc: "era, y, m, d" },
+    { fn: "julian", desc: "y, m, d" }, { fn: "mayan", desc: "b, k, t, u, k" }, { fn: "persian", desc: "y, m, d" }, { fn: "saka", desc: "y, m, d" },
+    { fn: "easter", desc: "Year" }, { fn: "easter_orthodox", label: "orthodox", desc: "Easter (year)" }, { key: "holidays", label: "holiday", desc: "Name, year" },
   ]],
-  ["Sky", 4, 3, [
-    { fn: "sunrise", desc: "t, place" }, { fn: "sunset", desc: "t, place" }, { fn: "sun", desc: "Alt, az" }, { fn: "lst", desc: "Sidereal time" },
+  ["Sky", 4, 4, [
+    { fn: "sunrise", desc: "t, place" }, { fn: "sunset", desc: "t, place" }, { fn: "noon", desc: "t, place" }, { fn: "sun", desc: "Alt, az" },
     { fn: "moonrise", desc: "t, place" }, { fn: "moonset", desc: "t, place" }, { fn: "moon", desc: "Alt, az" }, { fn: "phase", desc: "Lit, age" },
-    { fn: "newmoon", desc: "Next after t" }, { fn: "fullmoon", desc: "Next after t" }, { name: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" },
+    { fn: "newmoon", desc: "Next after t" }, { fn: "firstquarter", label: "1st quarter", desc: "Next after t" }, { fn: "fullmoon", desc: "Next after t" }, { fn: "lastquarter", label: "last quarter", desc: "Next after t" },
+    { fn: "equinox", desc: "Year" }, { fn: "solstice", desc: "Year" }, { fn: "lst", desc: "Sidereal time" }, { key: "sensor:here", label: "here", desc: "Lat, lon" },
   ]],
   ["Sensors", 4, 3, [
     { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "sensor:lat", label: "lat", desc: "Latitude" }, { key: "sensor:lon", label: "lon", desc: "Longitude" }, { key: "sensor:alt", label: "alt", desc: "Altitude" },
@@ -4153,6 +4156,7 @@ const USAGE = {
 };
 
 const KEY_HELP = {
+  holidays: 'A holiday in a Gregorian year, holiday("Passover", 2027): tap to choose it from the list',
   'japanese("Reiwa", ': 'A date of the Japanese calendar: japanese("Reiwa", year, month, day); the eras are Meiji, Taisho, Showa, Heisei, Reiwa',
   "sensor:here": "Your position as (latitude, longitude), with the error from the GPS accuracy; the variable here keeps it",
   "sensor:lat": "Your latitude, with the error from the GPS accuracy",
@@ -4182,7 +4186,7 @@ const KEY_HELP = {
   right: "Move the cursor right (you can also tap in the expression, or slide sideways on ◀ ▶ or the space bar)",
   home: "Move the cursor to the start",
   end: "Move the cursor to the end",
-  euler: "ℯ = exp(1) = 2.71828…, Euler's number (the name e is the elementary charge)",
+  euler: "ℯ = 2.71828…, Euler's number, typed euler (the name e is the elementary charge)",
   clear: "Clear the expression",
   enter: "Evaluate the expression",
   mctoggle: "Switch between linear error propagation and Monte Carlo (samples: Settings → Uncertainties)",
@@ -4259,7 +4263,7 @@ function keyHTML([label, cls = "", action, long, second, secondLong]) {
   const alt = long && long[0] ? `<small class="alt${altCls}" aria-hidden="true">${altText}</small>` : "";
   const has = alt ? " has-alt corner" : "";
   const data = `data-key="${esc(action ?? label)}"${long ? ` data-long="${esc(long[1])}"` : ""}`;
-  const text = esc(label).replace(/\{([^}]*)\}/g, '<span class="k2">$1</span>')
+  const text = esc(label).replace(/\{([^}]*)\}/g, '<span class="k2">$1</span>').replace(/ℯ/g, '<span class="euler">ℯ</span>')
     // a root drawn (not the font's √), so that its bar and index line up
     // in any font
     .replace(/(<span class="k2">)?³(<\/span>)?√x/, (m, k2) => `<span class="root"><span class="idx${k2 ? " k2" : ""}">3</span>${ROOT_SVG}<span class="rad">x</span></span>`)
@@ -4447,11 +4451,14 @@ function renderUnitGrid() {
   if (state.unitCat === "Dates") {
     // targets for dates: formats, day counts (units) and calendars, with
     // the wide keys chosen to fill the rows of six
-    const key = (name, doc, wide) => `<button class="key unit sys${wide ? " span2" : ""}" data-sys="${esc(name)}" title="${esc(doc || "")}"><span>${esc(name)}</span></button>`;
+    const key = (name, doc, span = "") => `<button class="key unit sys${span ? " " + span : ""}" data-sys="${esc(name)}" title="${esc(doc || "")}"><span>${esc(name)}</span></button>`;
     const fdoc = (k) => e.formats.get(k)?.doc;
-    grid.innerHTML = `<div class="ghead">Dates</div>${["date", "UTC", "dow", "doy", "week"].map((k) => key(k, fdoc(k), k === "date")).join("")}` +
-      `<div class="ghead">Day counts</div>${["JD", "MJD", "unix"].filter(has).map((k) => key(k, firstLine(e.units.get(k)?.doc || ""), true)).join("")}` +
-      `<div class="ghead">Calendars</div>${CALENDAR_ORDER.map((k) => key(k, fdoc(k), true)).join("")}`;
+    // three calendars a row; the last row filled by wider keys
+    const left = CALENDAR_ORDER.length % 3;
+    const span = (i) => (i < CALENDAR_ORDER.length - left ? "span2" : left === 1 ? "span6" : "span3");
+    grid.innerHTML = `<div class="ghead">Dates</div>${["date", "UTC", "dow", "doy", "week"].map((k) => key(k, fdoc(k), k === "date" ? "span2" : "")).join("")}` +
+      `<div class="ghead">Day counts</div>${["JD", "MJD", "unix"].filter(has).map((k) => key(k, firstLine(e.units.get(k)?.doc || ""), "span2")).join("")}` +
+      `<div class="ghead">Calendars</div>${CALENDAR_ORDER.map((k, i) => key(k, fdoc(k), span(i))).join("")}`;
     return;
   }
   if (state.unitCat === "SI") {
@@ -4535,7 +4542,7 @@ const U = (unit, desc) => ({ unit, desc });
 
 const CONST_SECTIONS = [
   ["Math", [
-    K("pi", "Pi"), K("euler", "Euler's number"), K("gamma_E", "Euler–Mascheroni"), K("golden", "Golden ratio"),
+    K("pi", "Pi"), K("euler", "Euler's number"), K("gamma_E", "Euler–Mascheroni"), K("phi", "Golden ratio"),
     K("sqrt(2)", "Square root of 2", "√2"), K("ln(2)", "Natural log of 2", "ln 2"), K("sqrt(2 pi)", "Gaussian normalization", "√2π"),
     K("zeta_3", "Apéry's constant"), K("fwhm", "Gaussian FWHM / σ", "FWHM/σ"),
     K("conf(1)", "Inside ±1σ: 68.27 %", "CL 1σ"), K("conf(2)", "Inside ±2σ: 95.45 %", "CL 2σ"), K("conf(3)", "Inside ±3σ: 99.73 %", "CL 3σ"),
@@ -4933,7 +4940,8 @@ function keyAction(k) {
     case "home": setCaret(0, -1); break;
     case "end": setCaret(state.text.length, 1); break;
     case "second": setSecond(state.second ? 0 : 1); break;
-    case "euler": insertName("exp(1)"); break;
+    case "euler": insertName("euler"); break;
+    case "holidays": openSheet("Holidays", renderHolidays); break;
     case "now": {
       // the time as a literal, so the result does not change on recalculation
       const t = dateText(env(), dateQ(env(), Math.floor(Date.now() / 1000)));
@@ -5009,6 +5017,24 @@ function keyAction(k) {
     }
     default: insert(k);
   }
+}
+
+// The holiday key: a list to choose from, with the dates of this year
+function renderHolidays(root) {
+  const y = new Date().getFullYear();
+  const when = (n) => {
+    const r = state.calc.run(`holiday("${n}", ${y})`);
+    return r.kind === "value" ? env().display(r.q).text : "";
+  };
+  root.innerHTML = `<div class="help"><p>The dates of ${y}; tap one to type holiday("…", and the year.</p>${HOLIDAY_GROUPS.map(([g, names]) =>
+    `<h3>${esc(g)}</h3><div class="ex names">${names.map((n) => `<button data-holiday="${esc(n)}">${esc(n)}<span>${esc(when(n))}</span></button>`).join("")}</div>`).join("")}</div>`;
+  root.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-holiday]");
+    if (!b) return;
+    closeSheet();
+    const before_ = before();
+    insert((before_ === "" || /[\s(,=]$/.test(before_) ? "" : " ") + `holiday("${b.dataset.holiday}", `);
+  });
 }
 
 // A sensor key measures for a moment and types in the value with its
@@ -6272,13 +6298,13 @@ const HELP = [
   ["More data", "The Const keys have sections for mathematics, particles (PDG masses), astronomy (IAU nominal values), Earth (WGS 84), chemistry, elements and molecules (molar masses M_Fe, M_H2O; ionization energies E_ion_Fe; for elements also T_m_Fe, T_b_Fe, rho_Fe and the electronegativity chi_Fe; for molecules T_m, T_b, H_fus, H_vap, C_p, rho, T_c, p_c, as in T_b_H2O), engineering (ISA), materials (typical values), nuclides (T_half_C14, lambda_C14, m_C14) and information units (bit, B, KiB…).", [
     ["18 g / M_H2O @ mol", ""], ["E_ion_H N_A @ kJ/mol", "ionization energy"], ["H_vap_H2O / M_H2O @ MJ/kg", "latent heat"], ["T_b_C2H5OH @ °C", ""], ["T_m_W @ °C", ""], ["chi_O - chi_H", "bond polarity"], ["T_half_C14 log2(1 / 0.3)", "age when 30 % is left"], ["1 GiB / (100[Mbit/s]) @ s", ""], ["E_steel * 1e-3 @ GPa", ""], ["GM_Earth / a_WGS84^2", ""], ["m_Z c^2 @ GeV", ""], ["L_Edd(10 M_Sun)", ""],
   ]],
-  ["Dates", "Write dates as 2026.10.30 or 2026.10.30 18:42 (local time; add Z or +05:30 for a time zone): a date minus a date is a duration, a date plus a duration a date. After @, the Units page shows the Dates targets: JD, MJD, the day of the week…, and the Chinese, Coptic, Ethiopian, Hebrew, Islamic, Japanese, Julian, Mayan and Persian calendars; on the f(x) page, the Calendars keys build dates, date(y, m, d), chinese(y, m, d, leap), hebrew(y, m, d)…, and give Easter; now and today are on the Const page, under Time.", [
+  ["Dates", "Write dates as 2026.10.30 or 2026.10.30 18:42 (local time; after the time, Z or +05:30 gives a time zone): a date minus a date is a duration, a date plus a duration a date. After @, the Units page shows the Dates targets: JD, MJD, the day of the week…, and the Chinese, Coptic, Ethiopian, French Republican, Hebrew, Islamic, Japanese, Julian, Mayan, Persian and Saka calendars; on the f(x) page, the Calendars keys build dates, date(y, m, d), chinese(y, m, d, leap), hebrew(y, m, d)…, give Easter, and holiday(“Passover”, 2027) the major holidays of a Gregorian year; now and today are on the Const page, under Time.", [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
-    ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["orthodox_easter(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["2012.12.21 @ mayan", ""],
+    ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
-  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), phases and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day.", [
+  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day.", [
     ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
-    ["fullmoon(today)", ""], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
+    ["fullmoon(today)", ""], ["equinox(2027)", "(March, September)"], ["sunset(today, here) - sunrise(today, here) @ hms", "day length"], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
   ]],
   ["Sensors", "The Sensors keys on the f(x) page measure with the phone and type in the value with its error: here (latitude, longitude) and lat, lon, alt from the GPS, g, accel and tilt from the accelerometer (hold the phone still for 2 s), heading from the compass (hold it flat), speed while moving, and pitch, the frequency of a steady tone. They need permission the first time, and HTTPS. The variables here, lat, lon, alt, speed, g_local, accel, tilt, heading and pitch hold the last readings, as in sunrise(today, here); the position is refreshed when the app opens, if allowed.", [
     ["g_local / g", "measured over standard gravity"], ["sunset(today, here)", ""], ["(9.8061±0.0012)[m/s^2] / g", ""], ["2 π sqrt(1[m] / (9.8061±0.0012)[m/s^2])", "a pendulum"], ["12[ft] tan((29.99±0.01)[deg]) @ ft", "a height from a tilt"],

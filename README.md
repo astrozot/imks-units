@@ -16,6 +16,13 @@ local file. To try it locally, run `python3 -m http.server 8000` in this
 folder and open `http://localhost:8000/` (use Shift-reload after editing,
 as the service worker serves the cached copy first).
 
+## Checks
+
+`node tests/run.mjs` checks dates and time zones, the calendars (against
+the calendars of `Intl` where it has them), the holidays, and the Sun and
+the Moon (against times from PyEphem). It needs no packages and takes a
+few seconds.
+
 ## Publishing on GitHub Pages
 
 1. Create a new public repository (e.g. `imks-units`).

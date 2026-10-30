@@ -492,10 +492,18 @@ const functionDocs = {
   moonset: "The next moonset after t: moonset(t, (latitude, longitude))",
   phase: "The Moon's phase at t: (illuminated fraction, age in days since new moon)",
   newmoon: "The next new moon after t",
+  firstquarter: "The next first quarter of the Moon after t",
   fullmoon: "The next full moon after t",
+  lastquarter: "The next last quarter of the Moon after t",
+  noon: "Solar noon, the Sun on the meridian, next after t: noon(t, (latitude, longitude))",
+  equinox: "The equinoxes of a year, (March, September): equinox(2027); years 1000 to 3000",
+  solstice: "The solstices of a year, (June, December): solstice(2027); years 1000 to 3000",
   lst: "Local sidereal time: lst(t, longitude), or lst(t, (latitude, longitude))",
+  holiday: "A holiday in a Gregorian year: holiday(\"Passover\", 2027); Christian, Jewish, Islamic, Chinese, Nowruz, Enkutatash (an unknown name lists them); an Islamic one can come twice in a year: the first",
   easter: "Easter Sunday of a year (Gregorian calendar): easter(2027)",
-  orthodox_easter: "Orthodox Easter Sunday of a year (from the Julian calendar): orthodox_easter(2027)",
+  easter_orthodox: "Orthodox Easter Sunday of a year (from the Julian calendar): easter_orthodox(2027)",
+  french: "A date of the French Republican calendar: french(year, month, day), month 13 the complementary days; french(8, 2, 18) is 18 Brumaire VIII",
+  saka: "A date of the Indian national (Saka) calendar: saka(year, month, day), months from Chaitra = 1",
   mayan: "A date of the Mayan long count: mayan(baktun, katun, tun, uinal, kin), 13.0.0.0.0 is 2012.12.21",
   solve: "Root of an equation in x: solve(f(x) = y, x, guess) or solve(f(x) = y, x, a, b)",
   roots: "All the roots of an equation in x, as a list: roots(f(x) = y, x), roots(f(x) = y, x, a, b); a or b can be ±inf",
@@ -532,7 +540,7 @@ const isCalculus = (node) => CALCULUS.has(node.f) &&
 const SENSOR_VARS = { here: "here", lat: "lat", lon: "lon", alt: "alt", speed: "speed", g_local: "g", accel: "accel", tilt: "tilt", heading: "heading", pitch: "pitch" };
 
 // functions that take a string argument
-const STRING_FNS = new Set(["japanese"]);
+const STRING_FNS = new Set(["japanese", "holiday"]);
 
 const LIST_FNS = new Set(["sum", "mean", "len", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle", ...SKY_FNS]);
 
