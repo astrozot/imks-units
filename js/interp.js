@@ -455,13 +455,13 @@ const pureFuncs = ["exp", "log", "log10", "log2", "sin", "cos", "tan", "asin", "
   "atan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "gamma", "factorial"];
 
 const functionDocs = {
-  sqrt: "Square root", cbrt: "Cubic root", exp: "Exponential", log: "Natural logarithm",
+  sqrt: "Square root", cbrt: "Cubic root", exp: "Exponential", log: "Natural logarithm; log(b, x) in base b",
   ln: "Natural logarithm", log10: "Decimal logarithm", log2: "Base-2 logarithm",
   sin: "Sine", cos: "Cosine", tan: "Tangent", asin: "Arc sine", acos: "Arc cosine",
   atan: "Arc tangent", atan2: "Arc tangent of y/x: atan2(y, x)", sinh: "Hyperbolic sine",
   cosh: "Hyperbolic cosine", tanh: "Hyperbolic tangent", asinh: "Inverse hyperbolic sine",
   acosh: "Inverse hyperbolic cosine", atanh: "Inverse hyperbolic tangent",
-  abs: "Absolute value", floor: "Round down (in base units)", ceil: "Round up (in base units)",
+  abs: "Absolute value", sgn: "Sign: −1, 0 or 1", sign: "Sign: −1, 0 or 1", floor: "Round down (in base units)", ceil: "Round up (in base units)",
   round: "Round (in base units)", trunc: "Truncate (in base units)",
   min: "Minimum of the arguments", max: "Maximum of the arguments",
   hypot: "Square root of the sum of squares", gamma: "Gamma function",
@@ -559,9 +559,15 @@ class Interpreter {
       b[f] = (a) => new Q(ufuncs[f](env.checkPure(a, f)));
     }
     b.ln = b.log;
+    // log(b, x): logarithm in base b, the inverse of b^x
+    b.log = (a, x) => (x === undefined ? b.ln(a)
+      : new Q(ufuncs.log10(env.checkPure(x, "log")).div(ufuncs.log10(env.checkPure(a, "log")))));
     b.sqrt = (a) => { a = a.relative(); return new Q(ufuncs.sqrt(a.x), dimScale(a.d, 0.5)); };
     b.cbrt = (a) => { a = a.relative(); return new Q(ufuncs.cbrt(a.x), dimScale(a.d, 1 / 3)); };
     b.abs = (a) => { a = a.relative(); return new Q(a.x.abs(), a.d); };
+    // the sign, a pure number: −1, 0 or 1
+    b.sgn = (a) => new Q(a.relative().x.map(Math.sign, () => 0));
+    b.sign = b.sgn;
     for (const f of ["floor", "ceil", "trunc"]) {
       b[f] = (a) => { a = a.relative(); return new Q(ufuncs[f](a.x), a.d); };
     }

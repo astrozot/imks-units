@@ -94,6 +94,7 @@ const state = {
   picks: store.get("picks", {}),
   prefix: "",
   shift: 0,          // abc keyboard: 0 lower, 1 one capital, 2 caps lock
+  second: 0,         // 123 keypad: 0 off, 1 2nd for one key, 2 locked
   layer: "abc",      // abc keyboard layer: abc, sym, greek
   text: "",
   caret: 0,
@@ -3062,7 +3063,15 @@ function nodeMath(node) {
       if (node.f === "sqrt" && args.length === 1) return { m: `<msqrt>${flatRadicand(args[0].m)}</msqrt>`, p: 9 };
       if (node.f === "cbrt" && args.length === 1) return { m: `<mroot>${flatRadicand(args[0].m)}<mn>3</mn></mroot>`, p: 9 };
       if (node.f === "abs" && args.length === 1) return { m: `<mrow><mo>|</mo>${args[0].m}<mo>|</mo></mrow>`, p: 9 };
+      if (node.f === "floor" && args.length === 1) return { m: `<mrow><mo>⌊</mo>${args[0].m}<mo>⌋</mo></mrow>`, p: 9 };
+      if (node.f === "ceil" && args.length === 1) return { m: `<mrow><mo>⌈</mo>${args[0].m}<mo>⌉</mo></mrow>`, p: 9 };
       if (node.f === "exp" && args.length === 1) return { m: `<msup><mi>e</mi>${args[0].m}</msup>`, p: 4 };
+      if (node.f === "log" && args.length === 2) {
+        // log(b, x) as log_b x
+        const fname = `<msub><mi mathvariant="normal">log</mi>${args[0].m}</msub>`;
+        const x = simpleArg(node.args[1]) ? args[1].m : `<mrow>${LP}${args[1].m}${RP}</mrow>`;
+        return { m: `<mrow>${fname}<mo lspace="0" rspace="0.17em">&#x2061;</mo>${x}</mrow>`, p: simpleArg(node.args[1]) ? 2.2 : 9 };
+      }
       const list = args.map((a) => a.m).join('<mo separator="true">,</mo>');
       if (BARE_FNS[node.f] !== undefined && args.length === 1) {
         // sin x, ln 2, sin π/2: no parentheses around a simple argument
@@ -3973,20 +3982,31 @@ const DEL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h10.5A
 
 const ENTER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6.5a3 3 0 0 1-3 3H5.5"/><path d="m9.5 10.5-4 4 4 4"/></svg>';
 
-// [label, class, action]; a nested pair is a split cell
+// [label, class, action, long, second, secondLong]; a nested pair is a
+// split cell. The optional [label, action] pairs give the long press, the
+// 2nd key and the long press after 2nd
 const RIGHT = {
-  num: [[DEL_SVG, "del", "backspace"], ["@", "conv", "@"], [["AC", "fn small", "clear"], ["=", "op", "assign"]], [["◀", "fn", "left"], ["▶", "fn", "right"]], [ENTER_SVG, "eq", "enter"]],
+  num: [[DEL_SVG, "del", "backspace", ["AC", "clear"]], ["@", "conv", "@"],
+    [["◀", "fn", "left", ["⇤", "home"]], ["▶", "fn", "right", ["⇥", "end"]]],
+    ["π{/e}", "fn func", "n:pi", ["°", "u:deg"], ["{π/}e", "euler"], ["′", "u:arcmin"]], [ENTER_SVG, "eq", "enter", ["=", "assign"]]],
   units: [[DEL_SVG, "del", "backspace"], ["@", "conv", "@"], ["/", "op", "/"], [["x²", "op small", "pow2"], ["x³", "op small", "pow3"]], [ENTER_SVG, "eq", "enter"]],
   fn: [[DEL_SVG, "del", "backspace"], ["@", "conv", "@"], [["(", "op", "("], [")", "op", ")"]], [["◀", "fn", "left"], ["▶", "fn", "right"]], [ENTER_SVG, "eq", "enter"]],
   const: [[DEL_SVG, "del", "backspace"], ["@", "conv", "@"], [["×", "op", "*"], ["÷", "op", "/"]], [["(", "op", "("], [")", "op", ")"]], [["'x'", "op small", "q1"], ['"x"', "op small", "q2"]], [ENTER_SVG, "eq", "enter"]],
 };
 
 const NUM_KEYS = [
-  ["(", "op", "("], [")", "op", ")"], ["xʸ", "op", "^"], ["÷", "op", "/"],
-  ["7"], ["8"], ["9"], ["×", "op", "*"],
-  ["4"], ["5"], ["6"], ["−", "op", "-"],
-  ["1"], ["2"], ["3"], ["+", "op", "+"],
-  ["0"], ["."], ["×10ˣ", "fn small", "EE"], ["±", "fn", "±"],
+  ["sin{h}", "op func col", "f:sin(", ["⁻¹", "f:asin("], ["sinh", "f:sinh("], ["⁻¹", "f:asinh("]],
+  [["(", "op", "("], [")", "op", ")"]],
+  ["{³}√", "op", "f:sqrt(", ["x²", "pow2"], ["³√", "f:cbrt("], ["x³", "pow3"]],
+  ["xʸ{/n!}", "op func", "^", ["logₓ", "f:log("], ["{xʸ/}n!", "f:factorial("], ["Γ", "f:Gamma("]],
+  ["{⌊}x{⌋}", "op func", "f:abs(", ["sgn", "f:sgn("], ["⌊x⌋", "f:floor("], ["⌈x⌉", "f:ceil("]],
+  ["cos{h}", "op func col", "f:cos(", ["⁻¹", "f:acos("], ["cosh", "f:cosh("], ["⁻¹", "f:acosh("]],
+  ["7"], ["8"], ["9"], ["÷", "op", "/", ["x⁻¹", "pow-1"]],
+  ["tan{h}", "op func col", "f:tan(", ["⁻¹", "f:atan("], ["tanh", "f:tanh("], ["⁻¹", "f:atanh("]],
+  ["4"], ["5"], ["6"], ["×", "op", "*", ["x", "n:x"]],
+  ["log{₁₀}", "op func col", "f:log(", ["eˣ", "f:exp("], ["log₁₀", "f:log10("], ["10ˣ", "10^"]],
+  ["1"], ["2"], ["3"], ["−", "op", "-", ["f(x)", "deffn"]],
+  ["2nd", "second", "second"], ["0"], [".", "", ".", [",", ","]], ["×10ˣ", "fn small", "EE"], ["+", "op", "+", ["±", "±"]],
 ];
 
 // Bottom rows of the pages whose keys need the full width
@@ -4051,10 +4071,11 @@ const USAGE = {
   sqrt: "sqrt(x): square root; works on units too, sqrt(4 m^2) = 2 m",
   cbrt: "cbrt(x): cube root; cbrt(8 m^3) = 2 m",
   abs: "abs(x): absolute value",
+  sgn: "sgn(x): the sign, −1, 0 or 1 (also sign)",
   factorial: "factorial(n): n! = 1·2·…·n",
   Gamma: "Gamma(x): Euler's Γ function, Γ(n) = (n − 1)!",
   ln: "ln(x): natural logarithm of a pure number (same as log)",
-  log: "log(x): natural logarithm of a pure number",
+  log: "log(x): natural logarithm of a pure number; log(b, x): in base b, the inverse of b^x, as log(2, 8) = 3",
   log10: "log10(x): decimal logarithm of a pure number",
   log2: "log2(x): base-2 logarithm of a pure number",
   exp: "exp(x): eˣ; exp(1) is Euler's number (the name e is the elementary charge)",
@@ -4113,6 +4134,9 @@ const KEY_HELP = {
   pow3: "Cube, e.g. m³",
   left: "Move the cursor left (you can also tap in the expression, or slide sideways on ◀ ▶ or the space bar)",
   right: "Move the cursor right (you can also tap in the expression, or slide sideways on ◀ ▶ or the space bar)",
+  home: "Move the cursor to the start",
+  end: "Move the cursor to the end",
+  euler: "ℯ = exp(1) = 2.71828…, Euler's number (the name e is the elementary charge)",
   clear: "Clear the expression",
   enter: "Evaluate the expression",
   mctoggle: "Switch between linear error propagation and Monte Carlo (samples: Settings → Uncertainties)",
@@ -4168,24 +4192,55 @@ const tabsEl = $("#tabs");
 
 const ARIA = { backspace: "Delete", enter: "Evaluate" };
 
-function keyHTML([label, cls = "", action]) {
+function keyHTML([label, cls = "", action, long, second, secondLong]) {
+  // with 2nd on, the key turns into its 2nd function
+  if (state.second && second) {
+    [label, action] = second;
+    long = secondLong;
+    cls += " as2";
+  }
+  if (action === "second") cls += state.second === 2 ? " lock" : state.second ? " on" : "";
   const svg = label.startsWith("<svg");
   const aria = svg && ARIA[action] ? ` aria-label="${ARIA[action]}"` : "";
-  // the decimal point gives a comma on a long press
-  const alt = (action ?? label) === "." ? '<small class="alt" aria-hidden="true">,</small>' : "";
-  return `<button class="key ${cls}${alt ? " has-alt" : ""}" data-key="${esc(action ?? label)}"${aria}>${svg ? label : `<span>${esc(label)}</span>`}${alt}</button>`;
+  // the long press is written at the top right; in the label, what 2nd
+  // adds is in {braces}, and in the 2nd label what it drops
+  const alt = long ? `<small class="alt${long[0] === "⁻¹" ? " inv" : long[0] === "," ? " comma" : ""}" aria-hidden="true">${esc(long[0])}</small>` : "";
+  const has = alt ? " has-alt corner" : "";
+  const data = `data-key="${esc(action ?? label)}"${long ? ` data-long="${esc(long[1])}"` : ""}`;
+  const text = esc(label).replace(/\{([^}]*)\}/g, '<span class="k2">$1</span>')
+    .replace(/(<span class="k2">)?³(<\/span>)?√/, (m, k2) => `<span class="idx${k2 ? " k2" : ""}">3</span>√`)
+    // |x| drawn as bars, whose feet (orange when 2nd adds them) make ⌊x⌋
+    .replace(/(<span class="k2">)?([⌊⌋])(<\/span>)?/g, (m, k2, c) => `<span class="bar${c === "⌋" ? " r" : ""}${k2 ? " k2" : ""}"></span>`);
+  return `<button class="key ${cls}${has}" ${data}${aria}>${svg ? label : `<span>${text}</span>`}${alt}</button>`;
 }
 
 const actionsHTML = (page) => `<div class="actions" style="--n:${ACTIONS[page].length}">${ACTIONS[page].map(keyHTML).join("")}</div>`;
 
-function rightHTML(page) {
+function cellHTML(c, page) {
+  if (!Array.isArray(c[0])) return keyHTML(c);
   // while converting, the quote keys replace the parentheses
-  return `<div class="right">${RIGHT[page].map((c) => {
-    if (!Array.isArray(c[0])) return keyHTML(c);
-    const cls = c[0][2] === "q1" ? " spec-only" : c[0][2] === "(" && page === "const" ? " no-spec" : "";
-    return `<div class="split${cls}">${c.map(keyHTML).join("")}</div>`;
-  }).join("")}</div>`;
+  const cls = c[0][2] === "q1" ? " spec-only" : c[0][2] === "(" && page === "const" ? " no-spec" : "";
+  return `<div class="split${cls}">${c.map(keyHTML).join("")}</div>`;
 }
+
+const rightHTML = (page) => `<div class="right">${RIGHT[page].map((c) => cellHTML(c, page)).join("")}</div>`;
+
+const numPageHTML = () => `<div class="left grid num-grid">${NUM_KEYS.map((c) => cellHTML(c, "num")).join("")}</div>${rightHTML("num")}`;
+
+function renderNum() {
+  const p = pagesEl.querySelector('[data-page="num"]');
+  if (!p) return;
+  p.innerHTML = numPageHTML();
+  updateAtKeys();
+}
+
+// 2nd: 0 off, 1 for the next key, 2 locked
+function setSecond(v) {
+  state.second = v;
+  renderNum();
+}
+
+const releaseSecond = () => { if (state.second === 1) setSecond(0); };
 
 const TABS = [["num", "123"], ["units", "Units"], ["fn", "f(x)"], ["const", "Const"], ["abc", "abc"]];
 
@@ -4194,7 +4249,7 @@ function buildKeypad() {
     `<button class="tab" role="tab" data-tab="${id}" aria-selected="${state.tab === id}">${label}</button>`).join("");
   const unitCats = [["SI"], ["Systems"], ...KEY_CATS];
   pagesEl.innerHTML = `
-    <div class="page" data-page="num"><div class="left grid">${NUM_KEYS.map(keyHTML).join("")}</div>${rightHTML("num")}</div>
+    <div class="page num-page" data-page="num">${numPageHTML()}</div>
     <div class="page wide-page" data-page="units">
         <div class="cats" id="cats">${unitCats.map(([n]) => `<button class="cat" data-cat="${esc(n)}">${esc(n)}</button>`).join("")}</div>
         <div class="prefix-row"><button class="prefix any" data-prefix="*" aria-pressed="false" title="Any prefix (after @)"><b>*</b><small>any</small></button>
@@ -4768,6 +4823,10 @@ function keyAction(k) {
     case "enter": evaluate(); break;
     case "left": setCaret(state.caret - 1, -1); break;
     case "right": setCaret(state.caret + 1, 1); break;
+    case "home": setCaret(0, -1); break;
+    case "end": setCaret(state.text.length, 1); break;
+    case "second": setSecond(state.second ? 0 : 1); break;
+    case "euler": insertName("exp(1)"); break;
     case "pow2": insertPower(2); break;
     case "pow3": insertPower(3); break;
     case "+": case "-": case "*": case "/": case "^": insertOp(k); break;
@@ -4917,9 +4976,22 @@ function explain(b) {
 }
 
 // a long press on the space bar (or ◀ ▶) followed by a slide sideways
-// moves the caret, a character every SLIDE_STEP px, as on the iOS keyboard
+// moves the caret, a character every SLIDE_STEP px, as on the iOS keyboard.
+// ◀ ▶ with a long press of their own (on the 123 page) slide as soon as
+// they move, and held still jump to the start or the end
 const SLIDE_STEP = 9, SLIDE_HOLD = 300;
 let slide = null, slideTimer = null;
+
+function startSlide(s, x) {
+  // the key does not type once sliding
+  s.on = true;
+  held = true;
+  s.caret = state.caret;
+  if (x !== undefined) s.x = x;
+  s.b.classList.add("sliding");
+  try { keypadEl.setPointerCapture(s.id); } catch { /* gone */ }
+  navigator.vibrate?.(10);
+}
 
 keypadEl.addEventListener("pointerdown", (ev) => {
   const b = ev.target.closest("button");
@@ -4928,34 +5000,57 @@ keypadEl.addEventListener("pointerdown", (ev) => {
   holdStart = { x: ev.clientX, y: ev.clientY };
   clearTimeout(slideTimer);
   slide = b.dataset.ch === " " || b.dataset.key === "left" || b.dataset.key === "right"
-    ? { b, id: ev.pointerId, x: ev.clientX, caret: state.caret, on: false } : null;
+    ? { b, id: ev.pointerId, x: ev.clientX, caret: state.caret, on: false, quick: !!b.dataset.long } : null;
   if (slide) {
     const s = slide;
-    slideTimer = setTimeout(() => {
-      // the key does not type once held
-      s.on = true;
-      held = true;
-      s.caret = state.caret;
-      s.b.classList.add("sliding");
-      try { keypadEl.setPointerCapture(s.id); } catch { /* gone */ }
-      navigator.vibrate?.(10);
-    }, SLIDE_HOLD);
+    if (s.quick) {
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => {
+        held = true;
+        keyAction(b.dataset.long);
+        navigator.vibrate?.(10);
+      }, 400);
+    } else slideTimer = setTimeout(() => startSlide(s), SLIDE_HOLD);
     return;
   }
   if (b.dataset.key === "backspace") {
     ev.preventDefault();
     backspace();
+    releaseSecond();
     held = true;   // the click must not delete again
     clearInterval(repeatTimer);
-    repeatTimer = setTimeout(() => { repeatTimer = setInterval(backspace, 70); }, 420);
+    // held, it clears the line (123 page), or repeats
+    if (b.dataset.long) {
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => {
+        keyAction(b.dataset.long);
+        navigator.vibrate?.(10);
+      }, 450);
+    } else repeatTimer = setTimeout(() => { repeatTimer = setInterval(backspace, 70); }, 420);
     return;
   }
-  if (b.dataset.key === ".") {
+  // keys with a second function in the corner type it on a long press,
+  // and explain it
+  if (b.dataset.long) {
     clearTimeout(holdTimer);
     holdTimer = setTimeout(() => {
       held = true;
-      insertComma();
+      const k = b.dataset.long;
+      endRecall();
+      keyAction(k);
+      releaseSecond();
+      const msg = explain({ dataset: { key: k } });
+      if (msg) toast(msg, Math.max(4000, msg.length * 55));
     }, 400);
+    return;
+  }
+  if (b.dataset.key === "second") {
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => {
+      held = true;
+      setSecond(2);
+      toast("2nd lock on: tap 2nd to turn it off");
+    }, 450);
     return;
   }
   if (b.dataset.key === "shift") {
@@ -4980,6 +5075,10 @@ keypadEl.addEventListener("pointermove", (ev) => {
   if (holdStart && Math.hypot(ev.clientX - holdStart.x, ev.clientY - holdStart.y) > 10) clearTimeout(holdTimer);
   if (!slide || ev.pointerId !== slide.id) return;
   if (!slide.on) {
+    if (slide.quick && Math.abs(ev.clientX - holdStart.x) > 8) {
+      clearTimeout(holdTimer);
+      return startSlide(slide, ev.clientX);
+    }
     // moving before the long press keeps the key an ordinary tap
     slide.x = ev.clientX;
     return;
@@ -5047,6 +5146,7 @@ keypadEl.addEventListener("click", (ev) => {
   if (b.dataset.key) {
     if (b.dataset.key !== "pow2" && b.dataset.key !== "pow3" && b.dataset.key !== "/") setPrefix("");
     keyAction(b.dataset.key);
+    if (b.dataset.key !== "second") releaseSecond();
   }
 });
 
@@ -5988,6 +6088,7 @@ function renderHelp(root) {
       <div class="ex">${ex.map(([x, note]) => `<button data-ex="${esc(x)}">${esc(x)}<span>${esc(note)}</span></button>`).join("")}</div>`).join("")}
     <h3>Keypad tips</h3>
     <p>Tap a result to insert it as ans_n (the n-th result; the last one is also ans), tap an expression to edit it, and long-press an entry for more options, such as inserting the value itself. Clearing the results numbers them again from ans_1. Tap inside the expression to move the cursor; long-press it to paste. Swipe left or right on it to change keypad page.</p>
+    <p>On the <b>123</b> page, long-press a key for what is written in grey: its inverse (sin⁻¹ is asin, eˣ for log, x² for √, log(b, x) for xʸ), or more, such as ° on π, ± on +, x on ×, f(x) = on −, the comma on the point, AC (clear) on ⌫, sgn on |x|, and = (assignment) on ⏎; hold ◀ or ▶ to jump to the start or the end, or slide on them to move. <b>2nd</b> adds what is written in orange: sinh, log₁₀, ∛, n!, ⌊x⌋ (floor; ⌈x⌉, ceil, on a long press), e (′ on a long press, as ° for π) for one key; long-press it to keep it on.</p>
     <p>The bar above the keypad adapts to the cursor: units after a number (angles inside sin, cos, tan), your recent names and common constants after an operator or an opening parenthesis, exponents after ^, and conversions after a value with units.</p>
     <p>On the <b>Units</b> page, tap a prefix and then a unit: <b>k</b> then <b>m</b> gives km. Long-press a unit, prefix or constant to see what it is. After <b>@</b>, the units of the current quantity open automatically and compatible units appear above the keypad.</p>
     <p>Use <b>abc</b> to type names: the row above the letters guesses the name you are typing. <b>Const</b> has physical constants and your own variables, and <b>f(x)</b> has functions by topic, including cosmology and lensing. Long-press any function key for its arguments.</p>

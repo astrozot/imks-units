@@ -13,6 +13,10 @@
   --accent-ink: #1f56b8;
   --op: #e3e9f6;
   --op-ink: #1f4fa6;
+  --second: #e2730b;
+  --second-text: #ffffff;
+  --second-soft: #fcebd8;
+  --second-ink: #b85a00;
   --danger: #c4372f;
   --unit: #8a4b00;
   --key-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
@@ -40,6 +44,10 @@
     --accent-ink: #9cc0ff;
     --op: #22314d;
     --op-ink: #b4cdfa;
+    --second: #f08c2a;
+    --second-text: #1a1206;
+    --second-soft: #3b2814;
+    --second-ink: #f7b46a;
     --danger: #ff6b61;
     --unit: #f0b35c;
     --key-shadow: none;
@@ -61,6 +69,10 @@
   --accent-ink: #9cc0ff;
   --op: #22314d;
   --op-ink: #b4cdfa;
+  --second: #f08c2a;
+  --second-text: #1a1206;
+  --second-soft: #3b2814;
+  --second-ink: #f7b46a;
   --danger: #ff6b61;
   --unit: #f0b35c;
   --key-shadow: none;
@@ -542,7 +554,47 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .key:active { filter: brightness(0.88); transform: scale(0.97); }
 .key sup { font-size: 0.6em; }
 .key.has-alt { position: relative; }
-.key .alt { position: absolute; bottom: 9px; right: 12px; font-size: 20px; font-weight: 600; color: var(--muted); line-height: 1; }
+
+/* 123 page: a function column, and the 2nd key. Labels scale with the
+   page, which sets the key height */
+.page.num-page { container-type: size; }
+/* six equal columns: the right one is a key wide */
+.page.num-page.active { grid-template-columns: 1fr calc((100% - 5 * var(--gap)) / 6); }
+.grid.num-grid { grid-template-columns: repeat(5, 1fr); }
+.num-page .key.func { font-size: clamp(15px, 6.4cqh, 22px); }
+/* the long press at the top right, and the main label moves away from
+   it; the part of the label that 2nd adds in orange */
+.key .k2 { color: var(--second-ink); font-weight: 400; }
+.key .alt { position: absolute; top: 8%; right: 8%; font-size: clamp(11px, 4.3cqh, 15px); font-weight: 600; color: var(--muted); line-height: 1; white-space: nowrap; }
+.key .alt.inv { top: 6%; font-size: clamp(14px, 5.6cqh, 19px); }
+/* the comma larger, to be seen */
+.key .alt.comma { top: 2%; right: 12%; font-size: clamp(17px, 7.4cqh, 25px); }
+.key.corner > span { transform: translate(-8%, 8%); }
+/* the first column: wider labels, a smaller shift */
+.key.col.corner > span { transform: translate(-3%, 8%); }
+/* half keys have no room in the corner: the label goes on top */
+.split .key .alt { left: 0; right: 0; top: 7%; text-align: center; font-size: clamp(10px, 4cqh, 13px); }
+.split .key.corner > span { transform: translateY(14%); }
+.key.second { background: var(--second-soft); color: var(--second-ink); font-size: clamp(15px, 5.8cqh, 19px); font-weight: 700; }
+.key.second.on, .key.second.lock { background: var(--second); color: var(--second-text); }
+.key.second.lock span { text-decoration: underline; text-underline-offset: 3px; }
+.key.as2 { background: var(--second-soft); color: var(--second-ink); }
+/* = is the long press of ⏎ */
+.key.eq .alt { color: var(--accent-text); opacity: 0.75; }
+/* the bars of |x|, with feet for ⌊x⌋ (orange while 2nd adds them) */
+.key .bar { display: inline-block; position: relative; width: 0.09em; height: 1em; margin: 0 0.16em; vertical-align: -0.17em; background: currentColor; }
+.key .bar::after { content: ""; position: absolute; left: 0; bottom: 0; width: 0.32em; height: 0.09em; background: currentColor; }
+.key .bar.r::after { left: auto; right: 0; }
+.key .bar.k2 { background: currentColor; color: inherit; opacity: 1; }
+.key .bar.k2::after { background: var(--second-ink); }
+/* with 2nd on, the key keeps its label, all in orange but what 2nd drops */
+.key.as2 .k2 { color: inherit; opacity: 0.4; }
+/* the index of a root, nested in the √ */
+.key .idx { display: inline-block; font-size: 0.5em; vertical-align: 0.6em; margin-right: -0.7em; }
+/* short keys: the long-press label closer to the edge */
+@container (max-height: 250px) {
+  .key .alt { top: 5%; }
+}
 
 /* Units and f(x) pages: full width, actions in a bottom row */
 .page.wide-page.active {
@@ -1128,6 +1180,8 @@ math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
 }
 
 .toast[hidden] { display: none; }
+/* a plain toast lets taps through to the keys under it */
+.toast:not(.has-act) { pointer-events: none; }
 
 .shake { animation: shake 0.3s; }
 @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
