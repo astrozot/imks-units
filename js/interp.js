@@ -378,6 +378,10 @@ function parse(src, env) {
       if (at("*") || at("/")) {
         const op = next().t;
         a = { t: "bin", op, a, b: unary() };
+      } else if (at("id") && peek().v === "mod" && peek(1)) {
+        // a mod b, the remainder, as tight as * and /
+        next();
+        a = { t: "bin", op: "mod", a, b: unary() };
       } else if (at("id") || at("(") || at("bracket") || at("root") || (at("num") && a.t !== "num")) {
         // implicit multiplication: 2 pi, (a+b)(c+d), k 300 K (but not 2 3)
         a = { t: "bin", op: "*", a, b: unary() };
@@ -461,7 +465,7 @@ const functionDocs = {
   atan: "Arc tangent", atan2: "Arc tangent of y/x: atan2(y, x)", sinh: "Hyperbolic sine",
   cosh: "Hyperbolic cosine", tanh: "Hyperbolic tangent", asinh: "Inverse hyperbolic sine",
   acosh: "Inverse hyperbolic cosine", atanh: "Inverse hyperbolic tangent",
-  abs: "Absolute value", sgn: "Sign: −1, 0 or 1", sign: "Sign: −1, 0 or 1", floor: "Round down (in base units)", ceil: "Round up (in base units)",
+  abs: "Absolute value", gcd: "Greatest common divisor of integers", lcm: "Least common multiple of integers", sgn: "Sign: −1, 0 or 1", sign: "Sign: −1, 0 or 1", floor: "Round down (in base units)", ceil: "Round up (in base units)",
   round: "Round (in base units)", trunc: "Truncate (in base units)",
   min: "Minimum of the arguments", max: "Maximum of the arguments",
   hypot: "Square root of the sum of squares", gamma: "Gamma function",
@@ -576,6 +580,17 @@ class Interpreter {
       const k = n ? Math.pow(10, env.checkPure(n, "round").n) : 1;
       return new Q(new UNum(Math.round(a.x.n * k) / k), a.d);
     };
+    // gcd and lcm of integers: gcd(12, 18) = 6
+    const ints = (fn, xs) => {
+      return xs.map((x) => {
+        const n = env.checkPure(x, fn).n;
+        if (!Number.isInteger(n)) throw new CalcError(`${fn}: expected integers, got ${n}`);
+        return Math.abs(n);
+      });
+    };
+    const gcd = (x, y) => { while (y) [x, y] = [y, x % y]; return x; };
+    b.gcd = (...xs) => new Q(new UNum(ints("gcd", xs).reduce(gcd)));
+    b.lcm = (...xs) => new Q(new UNum(ints("lcm", xs).reduce((x, y) => (x && y ? (x / gcd(x, y)) * y : 0))));
     b.atan2 = (y, x) => {
       env.checkCompatible(y, x, "atan2");
       return new Q(atan2(y.relative().x, x.relative().x));
@@ -755,6 +770,12 @@ class Interpreter {
             case "*": return env.mul(a, b);
             case "/": return env.div(a, b);
             case "^": return env.pow(a, b);
+            case "mod": {
+              // a − b ⌊a/b⌋, with the units of a
+              env.checkCompatible(a, b, "mod");
+              const k = new Q(ufuncs.floor(env.checkPure(env.div(a.relative(), b.relative()), "mod")));
+              return env.sub(a, env.mul(b.relative(), k));
+            }
             case "±": {
               env.checkCompatible(a, b, "±");
               return new Q(a.x.add(UNum.uncertain(0, b.relative().x.n)), a.d, a.zero);

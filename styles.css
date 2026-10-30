@@ -553,6 +553,9 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .key.small, .split .key.small { font-size: 15px; }
 .key:active { filter: brightness(0.88); transform: scale(0.97); }
 .key sup { font-size: 0.6em; }
+/* exponents on the 123 page placed in em, not by the font's own
+   superscript position */
+.num-page .key sup { vertical-align: 0; position: relative; top: -0.45em; font-size: 0.66em; margin-left: 0.03em; line-height: 0; }
 .key.has-alt { position: relative; }
 
 /* 123 page: a function column, and the 2nd key. Labels scale with the
@@ -567,9 +570,10 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
    it; the part of the label that 2nd adds in orange */
 .key .k2 { color: var(--second-ink); font-weight: 400; }
 .key .alt { position: absolute; top: 8%; right: 8%; font-size: clamp(11px, 4.3cqh, 15px); font-weight: 600; color: var(--muted); line-height: 1; white-space: nowrap; }
-.key .alt.inv { top: 6%; font-size: clamp(14px, 5.6cqh, 19px); }
-/* the comma larger, to be seen */
-.key .alt.comma { top: 2%; right: 12%; font-size: clamp(17px, 7.4cqh, 25px); }
+/* exponents a little smaller */
+.key .alt.exp { font-size: clamp(9px, 3.5cqh, 12px); }
+/* small signs (, ~) larger, to be seen */
+.key .alt.big { top: 2%; right: 12%; font-size: clamp(17px, 7.4cqh, 25px); }
 .key.corner > span { transform: translate(-8%, 8%); }
 /* the first column: wider labels, a smaller shift */
 .key.col.corner > span { transform: translate(-3%, 8%); }
@@ -590,8 +594,13 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .key .bar.k2::after { background: var(--second-ink); }
 /* with 2nd on, the key keeps its label, all in orange but what 2nd drops */
 .key.as2 .k2 { color: inherit; opacity: 0.4; }
-/* the index of a root, nested in the √ */
-.key .idx { display: inline-block; font-size: 0.5em; vertical-align: 0.6em; margin-right: -0.7em; }
+/* a root drawn in em, independent of the font: the sign (SVG) ends at the
+   top right, where the bar over the radicand starts; the index sits on
+   the hook */
+.key .root { display: inline-flex; position: relative; height: 1.05em; line-height: 1; vertical-align: -0.2em; padding-left: 0.12em; }
+.key .rsign { width: 0.5em; height: 1.05em; flex: none; overflow: visible; fill: none; stroke: currentColor; stroke-width: 7.5; stroke-linejoin: miter; stroke-miterlimit: 2; stroke-linecap: butt; }
+.key .rad { display: flex; align-items: flex-end; border-top: 0.075em solid currentColor; padding: 0 0.05em 0.02em 0.06em; margin-left: -0.01em; }
+.key .idx { position: absolute; left: 0; top: 0.12em; font-size: 0.48em; line-height: 1; }
 /* short keys: the long-press label closer to the edge */
 @container (max-height: 250px) {
   .key .alt { top: 5%; }

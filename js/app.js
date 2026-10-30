@@ -3021,6 +3021,7 @@ function nodeMath(node) {
         case "+": return { m: `<mrow>${wrap(a, 1)}<mo>+</mo>${wrap(b, 1.01)}</mrow>`, p: 1 };
         case "-": return { m: `<mrow>${wrap(a, 1)}<mo>−</mo>${wrap(b, 1.01)}</mrow>`, p: 1 };
         case "/": return { m: `<mfrac>${a.m}${b.m}</mfrac>`, p: 2.5 };
+        case "mod": return { m: `<mrow>${wrap(a, 2)}<mo lspace="0.33em" rspace="0.33em">mod</mo>${wrap(b, 2.01)}</mrow>`, p: 2 };
         case "^": return { m: `<msup>${a.paren ? PAREN(a.m) : wrap(a, 9)}${b.m}</msup>`, p: 4 };
         case "*": {
           const bm = wrap(b, 2), am = a.paren || a.tailParen || wrap(a, 2);
@@ -3981,6 +3982,10 @@ function convertTo(unit) {
 
 const DEL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h10.5A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5H9l-6-7z"/><path d="m12 9.5 5 5m0-5-5 5"/></svg>';
 
+// the sign of a root, with the start of its bar, which continues over the
+// radicand
+const ROOT_SVG = '<svg class="rsign" viewBox="0 0 50 105" aria-hidden="true"><path d="M2 64 L14 57 L27 99 L45 3.75 H52"/></svg>';
+
 const ENTER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6.5a3 3 0 0 1-3 3H5.5"/><path d="m9.5 10.5-4 4 4 4"/></svg>';
 
 // [label, class, action, long, second, secondLong]; a nested pair is a
@@ -3988,7 +3993,7 @@ const ENTER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6.
 // 2nd key and the long press after 2nd
 const RIGHT = {
   num: [[DEL_SVG, "del", "backspace", ["AC", "clear"]], ["@", "conv", "@"],
-    [["◀", "fn", "left", ["⇤", "home"]], ["▶", "fn", "right", ["⇥", "end"]]],
+    [["◀", "fn", "left", ["", "home"]], ["▶", "fn", "right", ["", "end"]]],
     [["(", "op", "("], [")", "op", ")"]], [ENTER_SVG, "eq", "enter", ["=", "assign"]]],
   units: [[DEL_SVG, "del", "backspace"], ["@", "conv", "@"], ["/", "op", "/"], [["x²", "op small", "pow2"], ["x³", "op small", "pow3"]], [ENTER_SVG, "eq", "enter"]],
   fn: [[DEL_SVG, "del", "backspace"], ["@", "conv", "@"], [["(", "op", "("], [")", "op", ")"]], [["◀", "fn", "left"], ["▶", "fn", "right"]], [ENTER_SVG, "eq", "enter"]],
@@ -3996,18 +4001,18 @@ const RIGHT = {
 };
 
 const NUM_KEYS = [
-  ["sin{h}", "op func col", "f:sin(", ["⁻¹", "f:asin("], ["sinh", "f:sinh("], ["⁻¹", "f:asinh("]],
-  ["π{/e}", "fn func", "n:pi", ["°", "u:deg"], ["{π/}e", "euler"], ["′", "u:arcmin"]],
-  ["{³}√", "op", "f:sqrt(", ["x²", "pow2"], ["³√", "f:cbrt("], ["x³", "pow3"]],
-  ["xʸ{/n!}", "op func", "^", ["logₓ", "f:log("], ["{xʸ/}n!", "f:factorial("], ["Γ", "f:Gamma("]],
+  ["sin{h}", "op func col", "f:sin(", ["−1", "f:asin("], ["sinh", "f:sinh("], ["−1", "f:asinh("]],
+  ["π{/e}", "fn func", "n:pi", ["°", "u:deg"], ["{π/}e", "euler"], ["x⁻¹", "pow-1"]],
+  ["{³}√x", "op", "f:sqrt(", ["2", "pow2"], ["³√x", "f:cbrt("], ["3", "pow3"]],
+  ["x^{1/}y", "op", "^", ["n!", "f:factorial("], ["x^1/y", "pow-root"], ["Γ", "f:Gamma("]],
   ["{⌊}x{⌋}", "op func", "f:abs(", ["sgn", "f:sgn("], ["⌊x⌋", "f:floor("], ["⌈x⌉", "f:ceil("]],
-  ["cos{h}", "op func col", "f:cos(", ["⁻¹", "f:acos("], ["cosh", "f:cosh("], ["⁻¹", "f:acosh("]],
-  ["7"], ["8"], ["9"], ["÷", "op", "/", ["x⁻¹", "pow-1"]],
-  ["tan{h}", "op func col", "f:tan(", ["⁻¹", "f:atan("], ["tanh", "f:tanh("], ["⁻¹", "f:atanh("]],
+  ["cos{h}", "op func col", "f:cos(", ["−1", "f:acos("], ["cosh", "f:cosh("], ["−1", "f:acosh("]],
+  ["7"], ["8"], ["9"], ["÷", "op", "/", ["mod", "mod"]],
+  ["tan{h}", "op func col", "f:tan(", ["−1", "f:atan("], ["tanh", "f:tanh("], ["−1", "f:atanh("]],
   ["4"], ["5"], ["6"], ["×", "op", "*", ["x", "n:x"]],
   ["log{₁₀}", "op func col", "f:log(", ["eˣ", "f:exp("], ["log₁₀", "f:log10("], ["10ˣ", "10^"]],
-  ["1"], ["2"], ["3"], ["−", "op", "-", ["f(x)", "deffn"]],
-  ["2nd", "second", "second"], ["0"], [".", "", ".", [",", ","]], ["×10ˣ", "fn small", "EE"], ["+", "op", "+", ["±", "±"]],
+  ["1"], ["2"], ["3"], ["−", "op", "-", ["~", "tilde"]],
+  ["2nd", "second", "second"], ["0"], [".", "", ".", [",", ","]], ["×10^x", "fn func", "EE", ["−x", "EE-"]], ["+", "op", "+", ["±", "±"]],
 ];
 
 // Bottom rows of the pages whose keys need the full width
@@ -4021,9 +4026,9 @@ const ACTIONS = {
 const FN_SECTIONS = [
   ["Math", 5, 4, [
     ["x⁻¹", "fn small", "pow-1"], ["√", "fn", "f:sqrt("], ["∛", "fn", "f:cbrt("], ["eˣ", "fn small", "f:exp("], ["10ˣ", "fn small", "10^"],
-    ["n!", "fn small", "f:factorial("], ["Γ", "fn", "f:Gamma("], ["log₂", "fn small", "f:log2("], ["ln", "fn small", "f:ln("], ["log₁₀", "fn small", "f:log10("],
-    ["|x|", "fn small", "f:abs("], ["round", "fn small", "f:round("], ["floor", "fn small", "f:floor("], ["value", "fn small", "f:nominal("], ["error", "fn small", "f:err("],
-    ["π", "fn", "n:pi"], ["ans", "fn small", "n:ans"], ["f(x) =", "fn small", "deffn"], ["◀", "fn", "left"], ["▶", "fn", "right"],
+    ["n!", "fn small", "f:factorial("], ["Γ", "fn", "f:Gamma("], ["log Γ", "fn small", "f:lgamma("], ["log", "fn small", "f:log("], ["log₁₀", "fn small", "f:log10("],
+    ["|x|", "fn small", "f:abs("], ["sgn", "fn small", "f:sgn("], ["round", "fn small", "f:round("], ["⌊x⌋", "fn small", "f:floor("], ["⌈x⌉", "fn small", "f:ceil("],
+    ["erf", "fn small", "f:erf("], ["gcd", "fn small", "f:gcd("], ["lcm", "fn small", "f:lcm("], ["value", "fn small", "f:nominal("], ["error", "fn small", "f:err("],
   ]],
   ["Trig", 5, 4, [
     ["sin", "fn small", "f:sin("], ["cos", "fn small", "f:cos("], ["tan", "fn small", "f:tan("], ["atan2", "fn small", "f:atan2("], ["rad", "fn small", "u:rad"],
@@ -4072,6 +4077,8 @@ const USAGE = {
   sqrt: "sqrt(x): square root; works on units too, sqrt(4 m^2) = 2 m",
   cbrt: "cbrt(x): cube root; cbrt(8 m^3) = 2 m",
   abs: "abs(x): absolute value",
+  gcd: "gcd(a, b, …): greatest common divisor of integers; gcd(12, 18) = 6",
+  lcm: "lcm(a, b, …): least common multiple of integers; lcm(4, 6) = 12",
   sgn: "sgn(x): the sign, −1, 0 or 1 (also sign)",
   factorial: "factorial(n): n! = 1·2·…·n",
   Gamma: "Gamma(x): Euler's Γ function, Γ(n) = (n − 1)!",
@@ -4196,9 +4203,10 @@ const ARIA = { backspace: "Delete", enter: "Evaluate" };
 function keyHTML([label, cls = "", action, long, second, secondLong]) {
   // with 2nd on, the key turns into its 2nd function
   if (state.second && second) {
+    // the key turns orange when its tap changes
+    if (second[1] !== (action ?? label)) cls += " as2";
     [label, action] = second;
     long = secondLong;
-    cls += " as2";
   }
   if (action === "second") cls += state.second === 2 ? " lock" : state.second ? " on" : "";
   const svg = label.startsWith("<svg");
@@ -4206,12 +4214,19 @@ function keyHTML([label, cls = "", action, long, second, secondLong]) {
   // the long press is written at the top right; in the label, what 2nd
   // adds is in {braces}, and in the 2nd label what it drops
   // names (constants) are written as everywhere else, m_e as mₑ
-  const altText = long && ((long[1].startsWith("n:") && prettyName(long[1].slice(2), { unit: false })) || esc(long[0]));
-  const alt = long ? `<small class="alt${long[0] === "⁻¹" ? " inv" : long[0] === "," ? " comma" : ""}" aria-hidden="true">${altText}</small>` : "";
+  const altText = long && ((/^n:\w+$/.test(long[1]) && prettyName(long[1].slice(2), { unit: false })) || esc(long[0]));
+  // exponents (−1, −x, 2, 3) smaller, small signs (, ~) larger; an empty label
+  // is not written
+  const altCls = long && (/^[,~]$/.test(long[0]) ? " big" : /^(−1|−x|2|3)$/.test(long[0]) ? " exp" : "");
+  const alt = long && long[0] ? `<small class="alt${altCls}" aria-hidden="true">${altText}</small>` : "";
   const has = alt ? " has-alt corner" : "";
   const data = `data-key="${esc(action ?? label)}"${long ? ` data-long="${esc(long[1])}"` : ""}`;
   const text = esc(label).replace(/\{([^}]*)\}/g, '<span class="k2">$1</span>')
-    .replace(/(<span class="k2">)?³(<\/span>)?√/, (m, k2) => `<span class="idx${k2 ? " k2" : ""}">3</span>√`)
+    // a root drawn (not the font's √), so that its bar and index line up
+    // in any font
+    .replace(/(<span class="k2">)?³(<\/span>)?√x/, (m, k2) => `<span class="root"><span class="idx${k2 ? " k2" : ""}">3</span>${ROOT_SVG}<span class="rad">x</span></span>`)
+    // an exponent, as x^1/y
+    .replace(/\^(.*)$/, "<sup>$1</sup>")
     // |x| drawn as bars, whose feet (orange when 2nd adds them) make ⌊x⌋
     .replace(/(<span class="k2">)?([⌊⌋])(<\/span>)?/g, (m, k2, c) => `<span class="bar${c === "⌋" ? " r" : ""}${k2 ? " k2" : ""}"></span>`);
   return `<button class="key ${cls}${has}" ${data}${aria}>${svg ? label : `<span>${text}</span>`}${alt}</button>`;
@@ -4228,13 +4243,14 @@ function cellHTML(c, page) {
 
 const rightHTML = (page) => `<div class="right">${RIGHT[page].map((c) => cellHTML(c, page)).join("")}</div>`;
 
-// Optional: the common constants (as in the bar above the keypad) on a
-// long press of the digits, in reading order
-const DIGIT_CONSTS = { 7: "c", 8: "G", 9: "h", 4: "hbar", 5: "k", 6: "e", 1: "m_e", 2: "m_p", 3: "g", 0: "N_A" };
+// Optional: constants on a long press of the digits, and more after 2nd
+const DIGIT_CONSTS = { 7: "c", 8: "G", 9: "g", 4: "k", 5: "h", 6: "R", 1: "e", 2: "m_e", 3: "m_p", 0: "N_A" };
+const DIGIT_CONSTS2 = { 7: "sigma_SB", 8: "epsilon_0", 9: "mu_0", 4: "M_Sun", 5: "R_Sun", 6: "L_Sun", 1: "T_eff_Sun", 2: "H_0", 3: "age(0)", 0: "T_CMB" };
 
 function numPageHTML() {
-  const keys = NUM_KEYS.map((c) => (state.settings.digitConsts && DIGIT_CONSTS[c[0]] && c.length === 1
-    ? [c[0], "", undefined, [DIGIT_CONSTS[c[0]], "n:" + DIGIT_CONSTS[c[0]]]] : c));
+  const name = (n) => [n.replace(/\(.*/, ""), "n:" + n];
+  const keys = NUM_KEYS.map(([d, ...rest]) => (state.settings.digitConsts && DIGIT_CONSTS[d] && !rest.length
+    ? [d, "", d, name(DIGIT_CONSTS[d]), [d, d], name(DIGIT_CONSTS2[d])] : [d, ...rest]));
   return `<div class="left grid num-grid">${keys.map((c) => cellHTML(c, "num")).join("")}</div>${rightHTML("num")}`;
 }
 
@@ -4299,8 +4315,33 @@ function centerPrefixes() {
   prefixCentered = true;
 }
 
+// Going to the Units page next to a unit bracket, 5|[m] or 5[m]|, steps
+// inside it; leaving the page steps out again: back where the cursor was
+// if nothing changed, or after the bracket
+let unitHop = null;
+
+function enterBracket() {
+  const t = state.text, c = state.caret;
+  unitHop = null;
+  if (t[c] === "[") setCaret(c + 1, 1);
+  else if (c > 0 && t[c - 1] === "]") setCaret(c - 1, -1);
+  else return;
+  unitHop = { text: t, caret: c };
+}
+
+function leaveBracket() {
+  const hop = unitHop;
+  unitHop = null;
+  if (!hop || bracketDepth(before()) === 0) return;
+  if (state.text === hop.text) return setCaret(hop.caret);
+  const j = after().indexOf("]");
+  if (j >= 0) setCaret(state.caret + j + 1, 1);
+}
+
 function selectTab(tab) {
   if (!TABS.some(([id]) => id === tab)) tab = "num";
+  if (tab === "units" && state.tab !== "units") enterBracket();
+  else if (tab !== "units" && state.tab === "units") leaveBracket();
   state.tab = tab;
   store.set("tab", tab);
   for (const t of tabsEl.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.tab === tab));
@@ -4842,6 +4883,7 @@ function keyAction(k) {
     case "pow3": insertPower(3); break;
     case "+": case "-": case "*": case "/": case "^": insertOp(k); break;
     case "EE": insert(/[\d.]$/.test(before()) ? "e" : "1e"); break;
+    case "EE-": insert(/[\d.]$/.test(before()) ? "e-" : "1e-"); break;
     case "±": insert("±"); break;
     case ",": insertComma(); break;
     case "shift": state.shift = state.shift === 0 ? 1 : 0; renderAbc(); break;
@@ -4857,6 +4899,9 @@ function keyAction(k) {
       break;
     }
     case "pow-1": insertPower("-1"); break;
+    case "pow-root": insertPower("(1/"); break;
+    case "mod": insert((/(^|\s)$/.test(before()) ? "" : " ") + "mod "); break;
+    case "tilde": insert(/[\p{L}\p{N}_.)\]°]$/u.test(before()) ? " ~" : "~"); break;
     case "mctoggle":
       state.settings.mc = !state.settings.mc;
       store.set("settings", state.settings);
@@ -6101,9 +6146,9 @@ function renderHelp(root) {
       <div class="ex">${ex.map(([x, note]) => `<button data-ex="${esc(x)}">${esc(x)}<span>${esc(note)}</span></button>`).join("")}</div>`).join("")}
     <h3>Keypad tips</h3>
     <p>Tap a result to insert it as ans_n (the n-th result; the last one is also ans), tap an expression to edit it, and long-press an entry for more options, such as inserting the value itself. Clearing the results numbers them again from ans_1. Tap inside the expression to move the cursor; long-press it to paste. Swipe left or right on it to change keypad page.</p>
-    <p>On the <b>123</b> page, long-press a key for what is written in grey: its inverse (sin⁻¹ is asin, eˣ for log, x² for √, log(b, x) for xʸ), or more, such as ° on π, ± on +, x on ×, f(x) = on −, the comma on the point (and, if set in Settings, constants on the digits: c on 7, G on 8…), AC (clear) on ⌫, sgn on |x|, and = (assignment) on ⏎; hold ◀ or ▶ to jump to the start or the end, or slide on them to move. <b>2nd</b> adds what is written in orange: sinh, log₁₀, ∛, n!, ⌊x⌋ (floor; ⌈x⌉, ceil, on a long press), e (′ on a long press, as ° for π) for one key; long-press it to keep it on.</p>
+    <p>On the <b>123</b> page, long-press a key for what is written in grey: its inverse (sin⁻¹ is asin, eˣ for log, the square for √), or more, such as n! on xʸ, ×10⁻ˣ on ×10ˣ, ° on π, mod (the remainder, 7 mod 3 = 1) on ÷, ± on +, x on ×, ~ (absolute ↔ relative, for temperatures) on −, the comma on the point, AC (clear) on ⌫, sgn on |x|, and = (assignment) on ⏎; hold ◀ or ▶ to jump to the start or the end, or slide on them to move. <b>2nd</b> adds what is written in orange: sinh, log₁₀, ∛, x^(1/y), ⌊x⌋, e (and x⁻¹ on a long press of π), for one key; long-press it to keep it on. Settings can also put constants on a long press of the digits (c on 7, G on 8…), and more after 2nd (σ_SB on 7, ε₀ on 8…).</p>
     <p>The bar above the keypad adapts to the cursor: units after a number (angles inside sin, cos, tan), your recent names and common constants after an operator or an opening parenthesis, exponents after ^, and conversions after a value with units.</p>
-    <p>On the <b>Units</b> page, tap a prefix and then a unit: <b>k</b> then <b>m</b> gives km. Long-press a unit, prefix or constant to see what it is. After <b>@</b>, the units of the current quantity open automatically and compatible units appear above the keypad.</p>
+    <p>On the <b>Units</b> page, tap a prefix and then a unit: <b>k</b> then <b>m</b> gives km. Long-press a unit, prefix or constant to see what it is. With the cursor next to a unit bracket, as in 5[m]|, the Units page puts it inside the bracket, and takes it out again when you leave. After <b>@</b>, the units of the current quantity open automatically and compatible units appear above the keypad.</p>
     <p>Use <b>abc</b> to type names: the row above the letters guesses the name you are typing. <b>Const</b> has physical constants and your own variables, and <b>f(x)</b> has functions by topic, including cosmology and lensing. Long-press any function key for its arguments.</p>
     <p>For conversions, the Units page has a <b>Systems</b> section (SI, easy, astro, planck…, formats like hms, and quotes for variables as units), a <b>*</b> key for any prefix (after @), and a <b>[ ]</b> key for unit brackets; with a prefix selected after @, a "prefix only" key gives conversions like 1200 s @ k. On the Const page, after @, <b>'x'</b> and <b>"x"</b> keep or remove a constant as a unit.</p>
     <p>The <b>⏎</b> key evaluates; <b>=</b> assigns, as in <code>z = 0.5</code> or <code>f(m, v) = m v^2 / 2</code>. A hardware keyboard also works.</p>
