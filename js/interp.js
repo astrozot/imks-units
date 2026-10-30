@@ -3,6 +3,8 @@
 
 import { UNum, ufuncs, atan2, formatUNum, newSourceId, MC, sourceMark, sourceReset } from "./unum.js";
 import { Env, Q, UnitError, dimAdd, dimEq, dimScale, dimIsZero, symbolSource } from "./units.js";
+import { dateLiterals, dateBuiltins, now, today } from "./dates.js";
+import { SKY_FNS, skyBuiltins } from "./sky.js";
 
 class CalcError extends Error {
   constructor(msg) {
@@ -72,6 +74,8 @@ function normalize(line) {
     .replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-")
     .replace(/[′’]/g, "'").replace(/[″”“]/g, '"')
     .replace(/[⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+/g, (m) => "^" + [...m].map((c) => superscripts[c]).join(""));
+  // dates: 2026.10.30 18:42 (see dates.js)
+  s = dateLiterals(s);
   // dms: 18d 24' 32"  or  18° 24.5'
   s = s.replace(/(\d+)[°d]\s*(?:(\d\d?)'\s*(\d\d?(?:\.\d*)?)"|(\d\d?(?:\.\d*)?)')/g,
     (_, d, m, sec, M) => `(${d}[deg]+${m || M}[arcmin]+${sec || 0}[arcsec])`);
@@ -471,6 +475,28 @@ const functionDocs = {
   hypot: "Square root of the sum of squares", gamma: "Gamma function",
   factorial: "Factorial", fraction: "fraction(a, b) = a/b",
   nominal: "Nominal value, without uncertainty", err: "Standard deviation (uncertainty)",
+  date: "A date: date(year, month, day, hour, minute, second, UTC offset); also written 2026.10.30 18:42",
+  julian: "A date of the Julian calendar: julian(year, month, day), optionally with hour, minute, second; years are astronomical (0 is 1 BC)",
+  hebrew: "A date of the Hebrew calendar: hebrew(year, month, day), months from Nisan = 1 (Tishri = 7, Adar II = 13)",
+  islamic: "A date of the Islamic calendar (arithmetic, civil): islamic(year, month, day)",
+  persian: "A date of the Persian (Solar Hijri) calendar: persian(year, month, day)",
+  coptic: "A date of the Coptic calendar: coptic(year, month, day), month 13 is the epagomenal days",
+  ethiopic: "A date of the Ethiopian calendar: ethiopic(year, month, day), month 13 is Pagume",
+  chinese: "A date of the Chinese calendar: chinese(year, month, day, leap), year as the Gregorian year in which it begins, leap 1 for a leap month",
+  japanese: "A date of the Japanese calendar: japanese(\"Reiwa\", year, month, day); eras from Meiji (Gregorian since Meiji 6, 1873)",
+  sun: "Altitude and azimuth of the Sun, (alt, az) without refraction: sun(t, (latitude, longitude)); the place can be left out once set in Settings",
+  moon: "Altitude and azimuth of the Moon seen from a place, (alt, az) without refraction: moon(t, (latitude, longitude))",
+  sunrise: "The next sunrise after t: sunrise(t, (latitude, longitude)); with a third argument, when the Sun's center reaches that altitude, e.g. −6° for civil twilight",
+  sunset: "The next sunset after t: sunset(t, (latitude, longitude)); with a third argument, when the Sun's center reaches that altitude, e.g. −6° for civil twilight",
+  moonrise: "The next moonrise after t: moonrise(t, (latitude, longitude))",
+  moonset: "The next moonset after t: moonset(t, (latitude, longitude))",
+  phase: "The Moon's phase at t: (illuminated fraction, age in days since new moon)",
+  newmoon: "The next new moon after t",
+  fullmoon: "The next full moon after t",
+  lst: "Local sidereal time: lst(t, longitude), or lst(t, (latitude, longitude))",
+  easter: "Easter Sunday of a year (Gregorian calendar): easter(2027)",
+  orthodox_easter: "Orthodox Easter Sunday of a year (from the Julian calendar): orthodox_easter(2027)",
+  mayan: "A date of the Mayan long count: mayan(baktun, katun, tun, uinal, kin), 13.0.0.0.0 is 2012.12.21",
   solve: "Root of an equation in x: solve(f(x) = y, x, guess) or solve(f(x) = y, x, a, b)",
   roots: "All the roots of an equation in x, as a list: roots(f(x) = y, x), roots(f(x) = y, x, a, b); a or b can be ±inf",
   integrate: "Definite integral over x: integrate(f(x), x, a, b); a or b can be ±inf",
@@ -501,7 +527,14 @@ const isCalculus = (node) => CALCULUS.has(node.f) &&
   (!["plot", "sum"].includes(node.f) || (node.args.length === 4 && node.args[1].t === "name"));
 
 // built-in functions that take whole lists; the others apply elementwise
-const LIST_FNS = new Set(["sum", "mean", "len", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle"]);
+// the variables of the sensors, which hold their last readings, and the
+// keys (f(x) → Sensors) that measure them
+const SENSOR_VARS = { here: "here", lat: "lat", lon: "lon", alt: "alt", speed: "speed", g_local: "g", accel: "accel", tilt: "tilt", heading: "heading", pitch: "pitch" };
+
+// functions that take a string argument
+const STRING_FNS = new Set(["japanese"]);
+
+const LIST_FNS = new Set(["sum", "mean", "len", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle", ...SKY_FNS]);
 
 // f applied elementwise where args are lists (several lists must have the
 // same length); nested lists are tables
@@ -551,7 +584,7 @@ class Interpreter {
     // for the parser: whether name(…) is a call or a product
     const varOf = (n) => this.env.vars.get(this.env.vars.resolve ? this.env.vars.resolve(n) : n);
     this.env.isFunction = (n) => CALCULUS.has(n) || Boolean((varOf(n) || {}).fn) || typeof this.builtins[n] === "function";
-    this.env.isValue = (n) => varOf(n) !== undefined || ["pi", "tau", "inf", "nan"].includes(n) || (this.env.isunit(n) || [])[1] > "";
+    this.env.isValue = (n) => varOf(n) !== undefined || ["pi", "tau", "inf", "nan", "now", "today"].includes(n) || Object.hasOwn(SENSOR_VARS, n) || (this.env.isunit(n) || [])[1] > "";
     // {a, b, log}: replaces the range of plot(f(x), x, a, b), to zoom it
     this.plotRange = null;
   }
@@ -700,6 +733,8 @@ class Interpreter {
     b.fraction = (a, c) => env.div(a, c);
     b.nominal = (a) => new Q(a.x.nominal(), a.d, a.zero);
     b.err = (a) => new Q(new UNum(a.x.std), a.d);
+    dateBuiltins(env, b);
+    skyBuiltins(env, b);
     // evaluated in evalNode; listed here for help and suggestions
     for (const f of CALCULUS) b[f] = b[f] || (() => { throw new CalcError(`Usage: ${functionDocs[f].replace(/^[^:]*:\s*/, "")}`); });
     return b;
@@ -721,6 +756,12 @@ class Interpreter {
     if (name === "tau") return new Q(2 * Math.PI);
     if (name === "inf") return new Q(Infinity);
     if (name === "nan") return new Q(NaN);
+    if (name === "now") return now(env);
+    if (name === "today") return today(env);
+    if (Object.hasOwn(SENSOR_VARS, name)) {
+      if (env.readings.has(name)) return env.readings.get(name);
+      throw new CalcError(`${name}: no reading yet; measure it with the ${SENSOR_VARS[name]} key (f(x) → Sensors)`);
+    }
     if (name === "const") return this.const;
     if (env.isunit(name)) return env.unitValue(name);
     throw new CalcError(`Unknown name '${name}'`);
@@ -803,8 +844,10 @@ class Interpreter {
         }
         if (!f) throw new CalcError(`Unknown function '${node.f}'`);
         if (!args.length) throw new CalcError(`${node.f} needs an argument`);
-        if (LIST_FNS.has(node.f)) return f(...args.map(val));
-        return broadcast(f, args.map(val));
+        // strings, as the era of japanese("Reiwa", …), pass as they are
+        const arg = (v) => (typeof v === "string" && STRING_FNS.has(node.f) ? v : val(v));
+        if (LIST_FNS.has(node.f)) return f(...args.map(arg));
+        return broadcast(f, args.map(arg));
       }
       case "convert": {
         const spec = splitSpec(node.spec);
@@ -2369,4 +2412,4 @@ function firstLine(doc) {
   return (doc || "").split("\n")[0];
 }
 
-export { CalcError, ConstDict, normalize, splitComment, splitSpec, tokenize, parse, functionDocs, Interpreter, firstLine, PlotData };
+export { SENSOR_VARS, CalcError, ConstDict, normalize, splitComment, splitSpec, tokenize, parse, functionDocs, Interpreter, firstLine, PlotData };

@@ -3,6 +3,7 @@
 
 import { Interpreter } from "./interp.js";
 import { Q, UnitError, currencySymbols } from "./units.js";
+import { addDates } from "./dates.js";
 
 const STARTUP = String.raw`
 ######################################################################
@@ -82,6 +83,9 @@ const STARTUP = String.raw`
 %newunit week=7[day]              # "Week"
 %newunit yr=365.25[day]           # "Year\n\nJulian year"
 %newunit Cy=36525[day]            # "Century\n\nJulian century"
+%newunit JD=(-210866760000[s], 1[day])  # "Julian day\n\nDays since noon UTC of 1 January 4713 BC (Julian calendar), for dates: 2026.10.30 @ JD"
+%newunit MJD=(-3506716800[s], 1[day])   # "Modified Julian day\n\nJD − 2400000.5: days since 1858.11.17 00:00 UTC, for dates: 2026.10.30 @ MJD"
+%newunit unix=(0[s], 1[s])              # "Unix time\n\nSeconds since 1970.01.01 00:00 UTC (without leap seconds), for dates: now @ unix"
 %newunit Hz=1[s^-1]               # "Hertz"
 %newunit rpm=1[min^-1]            # "Revolutions per minute"
 
@@ -336,6 +340,7 @@ function createCalculator({ constants = {}, currencies = null, extra = "", corre
   calc.const.data = constants;
   calc.const.corr = correlations;
   addFormats(calc.env);
+  addDates(calc.env);
   const errors = calc.runScript(STARTUP);
   // currencies before the user definitions, so these can use them
   loadCurrencies(calc.env, currencies);

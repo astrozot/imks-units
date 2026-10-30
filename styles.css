@@ -643,6 +643,9 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .fn-grid .key.model b { color: var(--text); font-size: 15px; }
 .key.eq svg { width: 26px; height: 26px; stroke-width: 2.2; }
 .fn-grid .key.const b { font-size: 17px; }
+.fn-grid .key:disabled { opacity: 0.4; }
+.fn-grid .key.busy { animation: pulse 0.9s ease-in-out infinite alternate; }
+@keyframes pulse { to { background: var(--accent-soft); } }
 .fn-grid .key.param { background: var(--surface-3); }
 .fn-grid .key.param b { color: var(--text); }
 .fn-note { grid-column: 1 / -1; margin: 4px 2px; font-size: 12.5px; line-height: 1.45; color: var(--muted); }

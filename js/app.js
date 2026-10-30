@@ -7,6 +7,8 @@
 import { createCalculator, loadCurrencies } from "./defs.js";
 import { parse, normalize, splitComment, firstLine, functionDocs, tokenize } from "./interp.js";
 import { Q, dimEq, fraction, UnitError } from "./units.js";
+import { CALENDAR_ORDER, DATE_FORMATS, isDate, dateQ, dateText, literalText } from "./dates.js";
+import { SENSORS, fixReadings, sensorAvailable } from "./sensors.js";
 import { formatUNum, formatNumber, UNum, ufuncs, MC, newSourceId, rng, normInv, lhsUniform, mcConfigure, mcStats, formatAsym } from "./unum.js";
 
 const ARTIFACT = Boolean(window.IMKS_ARTIFACT);
@@ -314,6 +316,9 @@ function applySettings(calc) {
   const s = state.settings;
   calc.env.digits = s.digits;
   calc.env.showErrors = s.errors;
+  calc.env.utc = Boolean(s.utc);
+  const loc = s.location;
+  calc.env.location = loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lon) ? [loc.lat, loc.lon] : null;
   if (s.system && s.system !== "none") calc.run(`%defaultsystem ${s.system}`);
   else calc.env.defaultsystem = null;
   const c = { ...DEFAULT_SETTINGS.cosmo, ...(s.cosmo || {}) };
@@ -395,6 +400,7 @@ function build() {
   state.startupErrors = errors;
   state.userErrors = userErrors;
   applySettings(calc);
+  restoreReadings(calc);
   resultNames = [];
   installResults(calc);
   for (const line of state.session) calc.run(line);
@@ -932,6 +938,7 @@ const EXAMPLES = [
   // everyday conversions
   "100 km/h @ mph", "37 °C @ °F", "12 m + 3 cm @ km", "20 m/s @ km|hour", "5 ft + 10 in @ cm",
   "1 atm @ psi|mmHg", "42.195 km / 2h 1m 9s @ km/h", "(30, 50, 90, 130)[km/h] @ mph", "(1, 5, 10, 42.195) km @ mi", "1 ft / c @ ns",
+  "2026.12.25 - today @ day", "2026.12.25 @ dow", "now @ MJD", "today @ hebrew", "today @ chinese", "julian(1582, 10, 4) + 1[day]", "2026.10.30 + 1000[day]", "(2026.10.31 18:00 - 2026.10.30 6:30) @ hms",
   "-40 °F @ °C", "~10 °C @ °F", "20 °C + ~5 K @ °C", "3[kW] 8[hour] 0.25[EUR/kWh]",
   "1[kg] 4.186[J/g K] 80[K] @ kWh", "1/2 1200[kg] (100[km/h])^2 @ kJ", "1 GiB / (100[Mbit/s]) @ s",
   // mechanics and gravitation
@@ -3037,6 +3044,9 @@ function nodeMath(node) {
     }
     case "eq": return { m: `<mrow>${R(node.a).m}<mo>=</mo>${R(node.b).m}</mrow>`, p: 0 };
     case "call": {
+      if (node.f === "_date") {
+        try { return { m: `<mn>${esc(literalText(...node.args.map((a) => state.calc.evalNode(a).x.n)))}</mn>`, p: 9 }; } catch { /* as a call */ }
+      }
       const args = node.args.map(R);
       const v = node.args[1];
       const D = '<mi mathvariant="normal">d</mi>';
@@ -3710,6 +3720,7 @@ function categoryFor(q) {
 // Conversion targets compatible with q, most useful first
 function targetsFor(q) {
   const e = env();
+  if (isDate(e, q)) return ["date", "dow", "JD", "MJD", ...CALENDAR_ORDER, "UTC", "doy", "week", "unix"];
   const out = [];
   const add = (u) => { if (!out.includes(u)) out.push(u); };
   const cat = categoryFor(q);
@@ -4069,6 +4080,21 @@ const FN_SECTIONS = [
     { key: "±", label: "±", desc: "Normal error" }, { key: "f:nominal(", label: "value", desc: "Without error" },
     { key: "f:err(", label: "error", desc: "σ only" }, { engine: true },
   ]],
+  ["Calendars", 4, 3, [
+    { fn: "date", desc: "y, m, d, h, min" }, { fn: "chinese", desc: "y, m, d, leap" }, { fn: "coptic", desc: "y, m, d" }, { fn: "ethiopic", desc: "y, m, d" },
+    { fn: "hebrew", desc: "y, m, d" }, { fn: "islamic", desc: "y, m, d" }, { key: 'japanese("Reiwa", ', label: "japanese", desc: "era, y, m, d" }, { fn: "julian", desc: "y, m, d" },
+    { fn: "mayan", desc: "b, k, t, u, k" }, { fn: "persian", desc: "y, m, d" }, { fn: "easter", desc: "Year" }, { fn: "orthodox_easter", label: "orthodox", desc: "Easter (year)" },
+  ]],
+  ["Sky", 4, 3, [
+    { fn: "sunrise", desc: "t, place" }, { fn: "sunset", desc: "t, place" }, { fn: "sun", desc: "Alt, az" }, { fn: "lst", desc: "Sidereal time" },
+    { fn: "moonrise", desc: "t, place" }, { fn: "moonset", desc: "t, place" }, { fn: "moon", desc: "Alt, az" }, { fn: "phase", desc: "Lit, age" },
+    { fn: "newmoon", desc: "Next after t" }, { fn: "fullmoon", desc: "Next after t" }, { name: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" },
+  ]],
+  ["Sensors", 4, 3, [
+    { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "sensor:lat", label: "lat", desc: "Latitude" }, { key: "sensor:lon", label: "lon", desc: "Longitude" }, { key: "sensor:alt", label: "alt", desc: "Altitude" },
+    { key: "sensor:g", label: "g", desc: "Gravity" }, { key: "sensor:accel", label: "accel", desc: "x, y, z" }, { key: "sensor:tilt", label: "tilt", desc: "From level" }, { key: "sensor:heading", label: "heading", desc: "Compass" },
+    { key: "sensor:speed", label: "speed", desc: "GPS" }, { key: "sensor:pitch", label: "pitch", desc: "Sound (Hz)" },
+  ]],
   ["Yours", 3, 0, []],
 ];
 
@@ -4127,6 +4153,18 @@ const USAGE = {
 };
 
 const KEY_HELP = {
+  'japanese("Reiwa", ': 'A date of the Japanese calendar: japanese("Reiwa", year, month, day); the eras are Meiji, Taisho, Showa, Heisei, Reiwa',
+  "sensor:here": "Your position as (latitude, longitude), with the error from the GPS accuracy; the variable here keeps it",
+  "sensor:lat": "Your latitude, with the error from the GPS accuracy",
+  "sensor:lon": "Your longitude, with the error from the GPS accuracy",
+  "sensor:alt": "Your altitude, as the device reports it (often above the WGS 84 ellipsoid, not sea level)",
+  "sensor:speed": "Your speed from the GPS (only while moving)",
+  "sensor:g": "Local gravity from the accelerometer, averaged over 2 s with the phone still; the error is statistical, phone accelerometers are calibrated to about 1 %; the variable g_local keeps it",
+  "sensor:accel": "The acceleration vector (x, y, z) of the phone, gravity included, averaged over 2 s",
+  "sensor:tilt": "The angle of the screen from level, 0° flat and 90° upright; lay the phone on a slope to measure it",
+  "sensor:heading": "The compass heading of the top of the phone, clockwise from magnetic north; hold the phone flat",
+  "sensor:pitch": "The frequency of a steady tone heard by the microphone, its fundamental",
+  now: "The date and time now, as 2026.10.30 18:42:07; typed as now, it is the time of each calculation",
   assign: "Assignment: name = value, e.g. H_0 = 67.4 km/s/Mpc; or a function, f(x, y) = x^2 + y^2",
   deffn: "Start a function definition: f(x) = …",
   "@": "Convert: value @ unit, e.g. 3 ft @ cm; several units with |, 20 m/s @ km|hour gives 72 km/hour",
@@ -4274,7 +4312,7 @@ const TABS = [["num", "123"], ["units", "Units"], ["fn", "f(x)"], ["const", "Con
 function buildKeypad() {
   tabsEl.innerHTML = TABS.map(([id, label]) =>
     `<button class="tab" role="tab" data-tab="${id}" aria-selected="${state.tab === id}">${label}</button>`).join("");
-  const unitCats = [["SI"], ["Systems"], ...KEY_CATS];
+  const unitCats = [["SI"], ["Systems"], ...KEY_CATS.flatMap((c) => (c[0] === "Money" ? [["Dates"], c] : [c]))];
   pagesEl.innerHTML = `
     <div class="page num-page" data-page="num">${numPageHTML()}</div>
     <div class="page wide-page" data-page="units">
@@ -4400,10 +4438,20 @@ function renderUnitGrid() {
     };
     const fmt = (name, doc) => `<button class="key unit sys${name.length > 5 ? " span2" : ""}${p ? " off" : ""}" data-sys="${esc(name)}"${p ? " disabled" : ""} title="${esc(doc || "")}"><span>${esc(name)}</span></button>`;
     grid.innerHTML = alone + `<div class="ghead">Unit systems</div>${[...e.systems].map(([k, v]) => sys(k, v.doc)).join("")}` +
-      `<div class="ghead">Formats</div>${[...e.formats].map(([k, v]) => fmt(k, v.doc)).join("")}` +
+      `<div class="ghead">Formats</div>${[...e.formats].filter(([k]) => !DATE_FORMATS.has(k)).map(([k, v]) => fmt(k, v.doc)).join("")}` +
       `<div class="ghead">Variables in units</div>` +
       `<button class="key unit sys wide" data-key="q1"><span>'c'</span><small>keep</small></button>` +
       `<button class="key unit sys wide" data-key="q2"><span>"c"</span><small>remove</small></button>`;
+    return;
+  }
+  if (state.unitCat === "Dates") {
+    // targets for dates: formats, day counts (units) and calendars, with
+    // the wide keys chosen to fill the rows of six
+    const key = (name, doc, wide) => `<button class="key unit sys${wide ? " span2" : ""}" data-sys="${esc(name)}" title="${esc(doc || "")}"><span>${esc(name)}</span></button>`;
+    const fdoc = (k) => e.formats.get(k)?.doc;
+    grid.innerHTML = `<div class="ghead">Dates</div>${["date", "UTC", "dow", "doy", "week"].map((k) => key(k, fdoc(k), k === "date")).join("")}` +
+      `<div class="ghead">Day counts</div>${["JD", "MJD", "unix"].filter(has).map((k) => key(k, firstLine(e.units.get(k)?.doc || ""), true)).join("")}` +
+      `<div class="ghead">Calendars</div>${CALENDAR_ORDER.map((k) => key(k, fdoc(k), true)).join("")}`;
     return;
   }
   if (state.unitCat === "SI") {
@@ -4416,7 +4464,7 @@ function renderUnitGrid() {
 }
 
 function setUnitCat(name) {
-  if (name !== "SI" && name !== "Systems" && !KEY_CATS.some((c) => c[0] === name)) name = "SI";
+  if (name !== "SI" && name !== "Systems" && name !== "Dates" && !KEY_CATS.some((c) => c[0] === name)) name = "SI";
   const changed = name !== state.unitCat;
   state.unitCat = name;
   store.set("unitCat", name);
@@ -4461,7 +4509,7 @@ function renderFnGrid() {
   const subs = (s) => esc(s).replace(/([A-Za-zθσ])_([A-Za-z]+)/g, "$1<sub>$2</sub>");
   const described = (k) => {
     if (k.engine) return `<button class="key const model" data-key="mctoggle"><b>${state.settings.mc ? "MC" : "Linear"}</b><small>${state.settings.mc ? `${(state.settings.mcN || 5000).toLocaleString("en")} samples` : "Tap for Monte Carlo"}</small></button>`;
-    if (k.key) return `<button class="key const" data-key="${esc(k.key)}"><b>${esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
+    if (k.key) return `<button class="key const${k.label.length > 8 ? " long" : ""}" data-key="${esc(k.key)}"${k.key.startsWith("sensor:") && !sensorAvailable(k.key.slice(7)) ? " disabled" : ""}><b>${esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
     if (k.name) return `<button class="key const" data-const="${esc(k.name)}"><b>${k.label ? esc(k.label) : prettyName(k.name, { unit: false }) || esc(k.name)}</b><small>${esc(k.desc)}</small></button>`;
     const label = k.label ? esc(k.label) : prettyName(k.fn, { fn: true }) || esc(k.fn);
     const long = k.label && k.label.length > 8 ? " long" : "";
@@ -4542,6 +4590,11 @@ const CONST_SECTIONS = [
   ]],
   ["Materials", "picker"],
   ["Nuclear", "picker"],
+  ["Time", [
+    { key: "now", label: "now", desc: "Date and time" }, K("today", "Midnight today"), U("JD", "Julian day"), U("MJD", "Modified JD"),
+    U("min", "Minute"), U("h", "Hour"), U("day", "Day"), U("week", "Week"), U("yr", "Julian year"),
+    K("siderealday", "Sidereal day", "sid. day"), K("siderealyear", "Sidereal year", "sid. yr"), K("tropicalyear", "Tropical year", "trop. yr"),
+  ]],
   ["Info", [
     U("bit", "Bit"), U("B", "Byte"), U("KiB", "2¹⁰ bytes"), U("MiB", "2²⁰ bytes"), U("GiB", "2³⁰ bytes"), U("TiB", "2⁴⁰ bytes"),
     U("kbit", "Kilobit"), U("Mbit", "Megabit"), U("Gbit", "Gigabit"), K("E_Landauer", "Landauer limit, 300 K"),
@@ -4640,6 +4693,7 @@ function valueHTML(name, unitFor, digits) {
 
 function constKeyHTML(k) {
   const e = env();
+  if (k.key) return `<button class="key const" data-key="${esc(k.key)}"><b>${esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
   if (k.unit) {
     return `<button class="key const unitk" data-unit="${esc(k.unit)}"><b>${unitLabelHTML(k.unit)}</b><small>${esc(k.desc || "")}</small></button>`;
   }
@@ -4864,6 +4918,7 @@ function keyAction(k) {
   if (k.startsWith("f:")) return insertFunction(k.slice(2));
   if (k.startsWith("n:")) return insertName(k.slice(2));
   if (k.startsWith("u:")) return insertUnit(k.slice(2));
+  if (k.startsWith("sensor:")) return readSensor(k.slice(7));
   if (k.startsWith("layer:")) {
     state.layer = k.slice(6);
     state.shift = 0;
@@ -4879,6 +4934,13 @@ function keyAction(k) {
     case "end": setCaret(state.text.length, 1); break;
     case "second": setSecond(state.second ? 0 : 1); break;
     case "euler": insertName("exp(1)"); break;
+    case "now": {
+      // the time as a literal, so the result does not change on recalculation
+      const t = dateText(env(), dateQ(env(), Math.floor(Date.now() / 1000)));
+      const b = before();
+      insert(b === "" || /[\s(,=]$/.test(b) ? t : " " + t);
+      break;
+    }
     case "pow2": insertPower(2); break;
     case "pow3": insertPower(3); break;
     case "+": case "-": case "*": case "/": case "^": insertOp(k); break;
@@ -4940,11 +5002,61 @@ function keyAction(k) {
       if (state.tab !== "abc") {
         selectTab("units");
         const c = q && categoryFor(q);
-        if (c) setUnitCat(KEY_CATS.some((x) => x[0] === c) ? c : "SI");
+        if (q && isDate(env(), q)) setUnitCat("Dates");
+        else if (c) setUnitCat(KEY_CATS.some((x) => x[0] === c) ? c : "SI");
       }
       break;
     }
     default: insert(k);
+  }
+}
+
+// A sensor key measures for a moment and types in the value with its
+// error, e.g. (9.8061±0.0012)[m/s^2]. It must start within the tap: iOS
+// asks for permission only then.
+function readSensor(name) {
+  const key = () => document.querySelector(`[data-key="sensor:${name}"]`);
+  if (key()?.classList.contains("busy")) return;
+  const { hint, read } = SENSORS[name];
+  let p;
+  try { p = read(); } catch (e) { toast(e.message); return; }
+  key()?.classList.add("busy");
+  toast(hint);
+  p.then((r) => {
+    const t = readingText(r);
+    const b = before();
+    insert(b === "" || /[\s(,=]$/.test(b) ? t : " " + t);
+    // the variables: g_local for g, and all of the position for a fix
+    setReading(name === "g" ? "g_local" : name, r);
+    if (["here", "lat", "lon", "alt", "speed"].includes(name)) setFixReadings();
+    navigator.vibrate?.(10);
+  }).catch((e) => toast(e.message || String(e)))
+    .finally(() => key()?.classList.remove("busy"));
+}
+
+// (9.8061±0.0012)[m/s^2], (45.4642(4), 9.1900(6))[deg]
+function readingText(r) {
+  const xs = r.list.map(([v, s]) => (s > 0 ? formatUNum({ n: v, std: s }, 15, true) : String(Number(v.toPrecision(5)))));
+  if (xs.length > 1) return `(${xs.join(", ")})[${r.unit}]`;
+  return xs[0].includes("±") ? `(${xs[0]})[${r.unit}]` : `${xs[0]}[${r.unit}]`;
+}
+
+// The sensor variables (here, tilt…) hold the last readings, shown in their
+// units (degrees for angles); kept as text, they come back after a reload,
+// so the history keeps its values
+function setReading(name, r) {
+  const text = `${readingText(r)} @ ${r.unit}`;
+  try { state.calc.env.readings.set(name, state.calc.evalExpr(text)); } catch { return; }
+  store.set("readings", { ...store.get("readings", {}), [name]: text });
+}
+
+function setFixReadings() {
+  for (const [k, r] of Object.entries(fixReadings())) setReading(k, r);
+}
+
+function restoreReadings(calc) {
+  for (const [k, t] of Object.entries(store.get("readings", {}))) {
+    try { calc.env.readings.set(k, calc.evalExpr(t)); } catch { /* skip */ }
   }
 }
 
@@ -5720,6 +5832,8 @@ function renderSettings(root) {
         <select id="set-digits">${[4, 6, 8, 10, 12, 15].map((x) => `<option ${x === s.digits ? "selected" : ""}>${x}</option>`).join("")}</select></div>
       <div class="row"><div class="lbl">Show uncertainties<small>Errors of constants and ± inputs</small></div>
         <input type="checkbox" class="switch" id="set-errors" ${s.errors ? "checked" : ""}></div>
+      <div class="row"><div class="lbl">Dates in UTC<small>Read and show 2026.10.30 18:42 in UTC, not local time</small></div>
+        <input type="checkbox" class="switch" id="set-utc" ${s.utc ? "checked" : ""}></div>
       <div class="row"><div class="lbl">Typeset formulas<small>Fractions, roots and powers drawn in 2D</small></div>
         <input type="checkbox" class="switch" id="set-typeset" ${s.typeset !== false ? "checked" : ""}></div>
       <div class="row"><div class="lbl">Units in brackets<small>Unit keys after a number give 9.8[m/s^2]</small></div>
@@ -5742,6 +5856,13 @@ function renderSettings(root) {
         <select id="set-mc"><option value="lin" ${s.mc ? "" : "selected"}>Linear</option><option value="mc" ${s.mc ? "selected" : ""}>Monte Carlo</option></select></div>
       <div class="row"><div class="lbl">Monte Carlo samples<small>More samples: smoother results, slower</small></div>
         <select id="set-mcn">${[1000, 2000, 5000, 10000, 20000, 50000, 100000].map((n) => `<option value="${n}" ${n === (s.mcN || 5000) ? "selected" : ""}>${n.toLocaleString("en")}</option>`).join("")}</select></div>
+    </div>
+
+    <div class="group-title">Location</div>
+    <div class="group">
+      <div class="row"><div class="lbl">Latitude<small>Degrees, north positive; for sunrise(today)…</small></div><input type="text" inputmode="decimal" class="num" id="set-lat" value="${s.location ? esc(String(s.location.lat)) : ""}" placeholder="45.46"></div>
+      <div class="row"><div class="lbl">Longitude<small>Degrees, east positive</small></div><input type="text" inputmode="decimal" class="num" id="set-lon" value="${s.location ? esc(String(s.location.lon)) : ""}" placeholder="9.19"></div>
+      <div class="row"><div class="lbl">Current position<small id="loc-status">From the GPS, once; it is not tracked</small></div><button class="act" id="set-locate">Locate</button></div>
     </div>
 
     <div class="group-title">Cosmology</div>
@@ -5798,6 +5919,32 @@ function renderSettings(root) {
   $("#set-system", root).addEventListener("change", (ev) => { s.system = ev.target.value; save(); applySettings(state.calc); refresh(); });
   $("#set-digits", root).addEventListener("change", (ev) => { s.digits = Number(ev.target.value); save(); applySettings(state.calc); refresh(); });
   $("#set-errors", root).addEventListener("change", (ev) => { s.errors = ev.target.checked; save(); applySettings(state.calc); refresh(); });
+  $("#set-utc", root).addEventListener("change", (ev) => { s.utc = ev.target.checked; save(); applySettings(state.calc); refresh(); });
+  // the location: both fields, or neither
+  const setLocation = () => {
+    const [lat, lon] = ["#set-lat", "#set-lon"].map((id) => $(id, root).value.trim().replace(",", "."));
+    const ok = lat !== "" && lon !== "" && Math.abs(Number(lat)) <= 90 && Math.abs(Number(lon)) <= 180;
+    s.location = ok ? { lat: Number(lat), lon: Number(lon) } : null;
+    save();
+    applySettings(state.calc);
+    refresh();
+  };
+  $("#set-lat", root).addEventListener("change", setLocation);
+  $("#set-lon", root).addEventListener("change", setLocation);
+  $("#set-locate", root).addEventListener("click", () => {
+    const status = $("#loc-status", root);
+    status.textContent = "Locating…";
+    let p;
+    try { p = SENSORS.here.read(); } catch (e) { status.textContent = e.message; return; }
+    p.then((r) => {
+      const [[lat], [lon]] = r.list;
+      $("#set-lat", root).value = lat.toFixed(4);
+      $("#set-lon", root).value = lon.toFixed(4);
+      setLocation();
+      setFixReadings();
+      status.textContent = "Set from the GPS";
+    }).catch((e) => { status.textContent = e.message; });
+  });
   $("#set-typeset", root).addEventListener("change", (ev) => { s.typeset = ev.target.checked; save(); renderHistory(); updateMath2d(); });
   $("#set-match", root).addEventListener("change", (ev) => { s.bracketMatch = ev.target.value; save(); renderEditor(); });
   $("#set-rainbow", root).addEventListener("change", (ev) => { s.rainbow = ev.target.checked; save(); renderEditor(); });
@@ -6125,6 +6272,17 @@ const HELP = [
   ["More data", "The Const keys have sections for mathematics, particles (PDG masses), astronomy (IAU nominal values), Earth (WGS 84), chemistry, elements and molecules (molar masses M_Fe, M_H2O; ionization energies E_ion_Fe; for elements also T_m_Fe, T_b_Fe, rho_Fe and the electronegativity chi_Fe; for molecules T_m, T_b, H_fus, H_vap, C_p, rho, T_c, p_c, as in T_b_H2O), engineering (ISA), materials (typical values), nuclides (T_half_C14, lambda_C14, m_C14) and information units (bit, B, KiB…).", [
     ["18 g / M_H2O @ mol", ""], ["E_ion_H N_A @ kJ/mol", "ionization energy"], ["H_vap_H2O / M_H2O @ MJ/kg", "latent heat"], ["T_b_C2H5OH @ °C", ""], ["T_m_W @ °C", ""], ["chi_O - chi_H", "bond polarity"], ["T_half_C14 log2(1 / 0.3)", "age when 30 % is left"], ["1 GiB / (100[Mbit/s]) @ s", ""], ["E_steel * 1e-3 @ GPa", ""], ["GM_Earth / a_WGS84^2", ""], ["m_Z c^2 @ GeV", ""], ["L_Edd(10 M_Sun)", ""],
   ]],
+  ["Dates", "Write dates as 2026.10.30 or 2026.10.30 18:42 (local time; add Z or +05:30 for a time zone): a date minus a date is a duration, a date plus a duration a date. After @, the Units page shows the Dates targets: JD, MJD, the day of the week…, and the Chinese, Coptic, Ethiopian, Hebrew, Islamic, Japanese, Julian, Mayan and Persian calendars; on the f(x) page, the Calendars keys build dates, date(y, m, d), chinese(y, m, d, leap), hebrew(y, m, d)…, and give Easter; now and today are on the Const page, under Time.", [
+    ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
+    ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["orthodox_easter(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["2012.12.21 @ mayan", ""],
+  ]],
+  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), phases and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day.", [
+    ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
+    ["fullmoon(today)", ""], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
+  ]],
+  ["Sensors", "The Sensors keys on the f(x) page measure with the phone and type in the value with its error: here (latitude, longitude) and lat, lon, alt from the GPS, g, accel and tilt from the accelerometer (hold the phone still for 2 s), heading from the compass (hold it flat), speed while moving, and pitch, the frequency of a steady tone. They need permission the first time, and HTTPS. The variables here, lat, lon, alt, speed, g_local, accel, tilt, heading and pitch hold the last readings, as in sunrise(today, here); the position is refreshed when the app opens, if allowed.", [
+    ["g_local / g", "measured over standard gravity"], ["sunset(today, here)", ""], ["(9.8061±0.0012)[m/s^2] / g", ""], ["2 π sqrt(1[m] / (9.8061±0.0012)[m/s^2])", "a pendulum"], ["12[ft] tan((29.99±0.01)[deg]) @ ft", "a height from a tilt"],
+  ]],
   ["Uncertainties", "Write errors as 3.2 ± 0.1 (or +/-) or 3.2(1). Errors propagate with correlations, including the CODATA correlations between constants. Settings → Uncertainties switches to Monte Carlo, where distributions can be used: N(μ, σ), U(a, b), LogN(m, s), Gamma(k, θ), Beta(a, b), T(ν, μ, s), Tri(a, c, b), truncated with trunc(X, lo, hi). Results then show the median and the 68 % interval, as 12.24 +0.32 −0.27 when the two sides differ; tap MC on a result for its distribution. Tapping a result inserts it as ans_n, the result itself with all its samples and correlations (after a reload, the samples are redrawn from the errors). The f(x) Distributions keys list all distributions and switch the engine.", [
     ["m_p / m_e", "correlated constants"], ["x = U(1, 3)", ""], ["exp(x)", ""], ["trunc(N(1.4 M_Sun, 0.5 M_Sun), 0 kg)", ""], ["Gamma(2, 3 s)", ""],
   ]],
@@ -6287,6 +6445,10 @@ async function boot() {
 
   if (ARTIFACT) return;
   updateCurrencies();
+  // a fresh position for here, lat…, if the permission is already given
+  navigator.permissions?.query({ name: "geolocation" }).then((p) => {
+    if (p.state === "granted") SENSORS.here.read().then(setFixReadings).catch(() => {});
+  }).catch(() => {});
   if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
     // Installed apps are often resumed rather than reloaded, so look for a
     // new version at most once an hour, when the app is opened or brought to

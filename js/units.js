@@ -205,6 +205,11 @@ class Env {
     this.tolerant = true;
     this.digits = 15;
     this.showErrors = true;
+    this.utc = false;            // dates on the UTC wall clock instead of the local one
+    this.dateText = null;        // (q, plain) → text of an absolute time, set by addDates
+    this.location = null;        // [latitude, longitude] in degrees, for sunrise(t)…
+    this.afterSunset = null;     // (t, start of day) → bool, set by skyBuiltins
+    this.readings = new Map();   // the last sensor readings by variable (here, tilt…), set by the app
     this.version = 0;
     this.prefixes.set("", { x: new UNum(1), doc: "" });
   }
@@ -755,6 +760,10 @@ class Env {
   // Returns {num: UNum, tree, tilde, text} or {text} for formats
   display(q) {
     let tilde = false, num, tree;
+    if (this.dateText) {
+      const t = this.dateText(q);
+      if (t !== null) return { text: t, format: true };
+    }
     if (q.show && q.show.format) {
       const f = this.formats.get(q.show.format);
       if (f) {
@@ -881,6 +890,10 @@ class Env {
 
   // Plain text representation of a quantity, e.g. "72[km hour^-1]"
   format(q) {
+    if (this.dateText) {
+      const t = this.dateText(q, true);
+      if (t !== null) return t;
+    }
     const r = this.display(q);
     if (r.format) return r.text;
     let v = formatUNum(r.num, this.digits, this.showErrors);
