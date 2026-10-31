@@ -1373,6 +1373,8 @@ function insertName(name) {
   }
   let sep = "";
   if (/[\p{L}\p{N}_.)\]°µΩ!]$/u.test(b)) sep = " ";
+  // 2x, but 2 e: 2e+3 would be a number
+  if (/(^|[^\p{L}\p{N}_.])\d+(\.\d+)?$/u.test(b) && plain && !/^[eE]/.test(name)) sep = "";
   // after a number, a name that is also a unit (h, g) would be read as the unit
   if (ctx === "bare" && !["M_Sun", "L_Sun", "R_Sun", "M_Earth", "R_Earth", "M_Jupiter", "R_Jupiter"].includes(name) && isBareUnit(name.replace(/\[.*$/, ""))) sep = /\s$/.test(b) ? "* " : " * ";
   insert(sep + name);
@@ -1440,7 +1442,7 @@ function backspace({ chars = state.tab === "abc" } = {}) {
   else if (!chars && /, $/.test(b)) n = 2;
   else if (!chars && (m = /(?:^|[^\p{L}\p{N}_.])([\p{L}_][\p{L}\p{N}_]*\([^()]*\))$/u.exec(b)) && callConsts().has(m[1])) n = m[1].length;
   else if (!chars && (m = /([\p{L}_][\p{L}\p{N}_]*)\($/u.exec(b))) n = m[0].length;
-  else if (!chars && (m = /(^|[\s[/*(|@-])([\p{L}_°µΩÅ][\p{L}\p{N}_]*)$/u.exec(b))) {
+  else if (!chars && (m = /(^|[\s[/*(|@-]|(?<![\p{L}\p{N}_.])\d+(?:\.\d+)?)([\p{L}_°µΩÅ][\p{L}\p{N}_]*)$/u.exec(b))) {
     // whole unit and constant names, as they were entered with one key;
     // after @, also formats, systems and calendars
     const w = m[2];
@@ -1542,6 +1544,11 @@ function segments(text) {
     // spaces are drawn narrow; * after @ is the prefix wildcard, not ×
     segs.push({ s: i, e: i + s.length, cls, html, atom, it, sp: /^\s+$/.test(s), raw: s === "*" && inUnit });
   }
+  // no space between a number and a variable or a parenthesis: 2x, 2(x + 1)
+  for (let k = 1; k + 1 < segs.length; k++) {
+    const nx = segs[k + 1];
+    if (segs[k].sp && segs[k - 1].cls === "n" && (nx.cls === "v" || text[nx.s] === "(")) segs[k].sp0 = true;
+  }
   return segs;
 }
 
@@ -1549,7 +1556,7 @@ const SHOW_CHAR = { "*": "×", "-": "−" };
 const showText = (s) => esc(s.replace(/[*-]/g, (c) => SHOW_CHAR[c]));
 
 function segHTML(t, sg, s = sg.s, e = sg.e) {
-  const cls = (sg.cls ? "t-" + sg.cls : "") + (sg.atom ? " atom" : "") + (sg.sp ? " sp" : "") + (sg.rb ? " " + sg.rb : "") + (sg.br ? " " + sg.br : "");
+  const cls = (sg.cls ? "t-" + sg.cls : "") + (sg.atom ? " atom" : "") + (sg.sp ? (sg.sp0 ? " sp sp0" : " sp") : "") + (sg.rb ? " " + sg.rb : "") + (sg.br ? " " + sg.br : "");
   if (sg.atom) return `<span class="${cls}" data-s="${sg.s}" data-e="${sg.e}">${sg.html}</span>`;
   const span = (a, b, c) => (b > a ? `<span class="${c}" data-s="${a}">${sg.raw ? esc(t.slice(a, b)) : showText(t.slice(a, b))}</span>` : "");
   if (!sg.it) return span(s, e, cls);
@@ -4223,7 +4230,7 @@ const FN_SECTIONS = [
     { fn: "moonrise", desc: "t, place" }, { fn: "moonset", desc: "t, place" }, { fn: "moon", desc: "Alt, az" }, { fn: "phase", desc: "Lit, age" },
     { fn: "newmoon", desc: "Next after t" }, { fn: "firstquarter", label: "1st quarter", desc: "Next after t" }, { fn: "fullmoon", desc: "Next after t" }, { fn: "lastquarter", label: "last quarter", desc: "Next after t" },
     { fn: "equinox", desc: "Year" }, { fn: "solstice", desc: "Year" }, { fn: "lst", desc: "Sidereal time" }, { fn: "date", desc: "y, m, d, h, min" },
-    { key: "now", label: "now", desc: "Date and time" }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "u:JD", label: "JD", desc: "Julian day" },
+    { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "u:JD", label: "JD", desc: "Julian day" },
   ]],
   ["Sensors", 4, 3, [
     { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "sensor:lat", label: "lat", desc: "Latitude" }, { key: "sensor:lon", label: "lon", desc: "Longitude" }, { key: "sensor:alt", label: "alt", desc: "Altitude" },
@@ -4646,7 +4653,7 @@ function renderFnGrid() {
   const subs = (s) => esc(s).replace(/([A-Za-zθσ])_([A-Za-z]+)/g, "$1<sub>$2</sub>");
   const described = (k) => {
     if (k.engine) return `<button class="key const model" data-key="mctoggle"><b>${state.settings.mc ? "MC" : "Linear"}</b><small>${state.settings.mc ? `${(state.settings.mcN || 5000).toLocaleString("en")} samples` : "Tap for Monte Carlo"}</small></button>`;
-    if (k.key) return `<button class="key const${k.label.length > 8 ? " long" : ""}" data-key="${esc(k.key)}"${k.key.startsWith("sensor:") && !sensorAvailable(k.key.slice(7)) ? " disabled" : ""}><b>${/^n:\w+$/.test(k.key) ? symHTML(k.key.slice(2)) : esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
+    if (k.key) return `<button class="key const${k.label.length > 8 ? " long" : ""}${k.key.startsWith("u:") ? " unitk" : ""}" data-key="${esc(k.key)}"${k.key.startsWith("sensor:") && !sensorAvailable(k.key.slice(7)) ? " disabled" : ""}><b>${/^n:\w+$/.test(k.key) ? symHTML(k.key.slice(2)) : k.it || k.key.startsWith("sensor:") ? symHTML(k.label) : esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
     if (k.name) return `<button class="key const" data-const="${esc(k.name)}"><b>${k.label ? esc(k.label) : symHTML(k.name)}</b><small>${esc(k.desc)}</small></button>`;
     const label = k.label ? esc(k.label) : prettyName(k.fn, { fn: true }) || esc(k.fn);
     const long = k.label && k.label.length > 8 ? " long" : "";
@@ -4667,7 +4674,7 @@ function renderFnGrid() {
 // Const page: sections of keys, pickers (a row of items and a grid of
 // their properties) and the element table
 
-const K = (expr, desc, label) => ({ expr, desc, label });
+const K = (expr, desc, label, it) => ({ expr, desc, label, it });
 const U = (unit, desc) => ({ unit, desc });
 
 const CONST_SECTIONS = [
@@ -4699,7 +4706,7 @@ const CONST_SECTIONS = [
     K("R_s(", "Schwarzschild radius"), K("L_Edd(", "Eddington luminosity"), K("M_Ch", "Chandrasekhar mass ≈"),
     K("H_0", "Hubble constant"), K("T_CMB", "CMB temperature"), K("rho_c", "Critical density"), K("d_H", "Hubble distance"),
     K("R_GC", "Sun–Galactic centre ≈"), K("v_circ", "Galactic rotation ≈"),
-    K("siderealday", "Sidereal day", "sid. day"), K("siderealyear", "Sidereal year", "sid. yr"), K("tropicalyear", "Tropical year", "trop. yr"),
+    K("siderealday", "Sidereal day", "sid. day", true), K("siderealyear", "Sidereal year", "sid. yr", true), K("tropicalyear", "Tropical year", "trop. yr", true),
     U("M_Earth", "Earth mass (unit)"), U("R_Earth", "Earth radius (unit)"), U("M_Jupiter", "Jupiter mass (unit)"),
     U("R_Jupiter", "Jupiter radius (unit)"), K("R_Earth_eq", "Earth equatorial radius"), K("R_Jupiter_eq", "Jupiter equatorial radius"), U("au", "Astronomical unit"), U("pc", "Parsec"), U("ly", "Light year"), U("Jy", "Jansky"),
   ]],
@@ -4728,9 +4735,9 @@ const CONST_SECTIONS = [
   ["Materials", "picker"],
   ["Nuclear", "picker"],
   ["Time", [
-    { key: "now", label: "now", desc: "Date and time" }, K("today", "Midnight today"), U("JD", "Julian day"), U("MJD", "Modified JD"),
+    { key: "now", label: "now", desc: "Date and time", it: true }, K("today", "Midnight today"), U("JD", "Julian day"), U("MJD", "Modified JD"),
     U("min", "Minute"), U("h", "Hour"), U("day", "Day"), U("week", "Week"), U("yr", "Julian year"),
-    K("siderealday", "Sidereal day", "sid. day"), K("siderealyear", "Sidereal year", "sid. yr"), K("tropicalyear", "Tropical year", "trop. yr"),
+    K("siderealday", "Sidereal day", "sid. day", true), K("siderealyear", "Sidereal year", "sid. yr", true), K("tropicalyear", "Tropical year", "trop. yr", true),
   ]],
   ["Info", [
     U("bit", "Bit"), U("B", "Byte"), U("KiB", "2¹⁰ bytes"), U("MiB", "2²⁰ bytes"), U("GiB", "2³⁰ bytes"), U("TiB", "2⁴⁰ bytes"),
@@ -4830,13 +4837,13 @@ function valueHTML(name, unitFor, digits) {
 
 function constKeyHTML(k) {
   const e = env();
-  if (k.key) return `<button class="key const" data-key="${esc(k.key)}"><b>${esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
+  if (k.key) return `<button class="key const" data-key="${esc(k.key)}"><b>${k.it ? symHTML(k.label) : esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
   if (k.unit) {
     return `<button class="key const unitk" data-unit="${esc(k.unit)}"><b>${unitLabelHTML(k.unit)}</b><small>${esc(k.desc || "")}</small></button>`;
   }
   const x = k.expr;
   let label;
-  if (k.label) label = k.label.includes("<") ? k.label : esc(k.label);
+  if (k.label) label = k.label.includes("<") ? k.label : k.it ? itHTML(esc(k.label)) : esc(k.label);
   else if (x.endsWith("(")) label = (prettyName(x.slice(0, -1), { fn: true }) || esc(x.slice(0, -1))) + "(…)";
   else {
     const c = CONSTS.find((c) => c[1] === x);

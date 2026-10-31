@@ -906,6 +906,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 
 /* narrower spaces in expressions (monospace spaces look too wide) */
 .expr .sp, .entry .in .sp, .history .empty .sp { letter-spacing: -0.28em; }
+.expr .sp0, .entry .in .sp0, .history .empty .sp0 { font-size: 0; letter-spacing: 0; }
 
 /* About dialog */
 .about { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; }

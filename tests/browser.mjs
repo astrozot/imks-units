@@ -131,6 +131,19 @@ try {
   }
   await clear();
 
+  // no space between a number and a variable: 2π from the keys, 2 x drawn as 2x
+  await page.keyboard.type("2");
+  await page.click('[data-tab="const"]');
+  await page.click('[data-constcat="Math"]');
+  await page.click('#const-grid [data-const="pi"]');
+  expect(await line(), "2π", "a constant after a number");
+  await del();
+  expect(await line(), "2", "delete after 2π");
+  await clear();
+  await page.keyboard.type("sin(2 x) + 2 m");
+  check(await page.$$eval("#expr .sp0", (s) => s.length) === 1, "the space in 2 x is not drawn, the one in 2 m is");
+  await clear();
+
   // sensors: position (the variables too), motion, compass, a tone
   await page.evaluate(() => {
     setInterval(() => {
