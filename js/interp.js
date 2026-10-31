@@ -143,7 +143,9 @@ function splitSpec(spec) {
 // Tokenizer
 
 const identRe = new RegExp("^(?:[\\p{L}_][\\p{L}\\p{N}_]*|" + symbolSource + ")", "u");
-const numRe = /^(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/;
+// numbers start with a digit (0.5, not .5): a dot after a name or a
+// parenthesis selects an element of a list, v.2
+const numRe = /^(\d+\.?\d*)([eE][-+]?\d+)?/;
 
 function tokenize(src) {
   const toks = [];
@@ -167,12 +169,28 @@ function tokenize(src) {
         std = Number(mm[1]) * Math.pow(10, e - dec);
         if (mm[2]) n = Number(mant) * Math.pow(10, e);
         j += mm[0].length;
-      } else if ((mm = /^\s*(?:±|\+\/-)\s*(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/.exec(src.slice(j)))) {
+      } else if ((mm = /^\s*(?:±|\+\/-)\s*(\d+\.?\d*)([eE][-+]?\d+)?/.exec(src.slice(j)))) {
         std = Number(mm[1] + (mm[2] || ""));
         j += mm[0].length;
       }
       toks.push({ t: "num", x: UNum.uncertain(n, std), pos: i });
       i = j;
+      continue;
+    }
+    if (c === ".") {
+      // v.2, v.n, v.-1, v.(n+1), t.2.1: the index right after the dot is a
+      // whole number, so that t.2.1 is not t.(2.1)
+      const prev = toks.at(-1);
+      if (!prev || !["id", ")", "bracket"].includes(prev.t) && !prev.index) {
+        throw new CalcError("A number starts with a digit: 0.5, not .5");
+      }
+      toks.push({ t: ".", pos: i });
+      i++;
+      while (/\s/.test(src[i] || "")) i++;
+      if ((m = /^-?\d+/.exec(src.slice(i)))) {
+        toks.push({ t: "num", x: new UNum(Number(m[0])), pos: i, index: true });
+        i += m[0].length;
+      }
       continue;
     }
     if (c === "@") {
@@ -344,6 +362,17 @@ function parse(src, env) {
         node = { t: "call", f: node.v, args };
       } else if (at("bracket") && !inExp) {
         node = { t: "unit", target: node, raw: next().raw };
+      } else if (at(".")) {
+        // an element of a list: v.2, v.n, v.(n+1)
+        next();
+        const minus = at("-") && next();
+        const k = next();
+        let i;
+        if (k && k.index && !minus) i = { t: "num", x: k.x };
+        else if (k && k.t === "id") i = { t: "name", v: k.v };
+        else if (k && k.t === "(") { pos--; i = primary(false, true); }
+        else throw new CalcError("After the dot, the number of an element: v.2, v.n or v.(n+1)");
+        node = { t: "index", a: node, i: minus ? { t: "un", op: "-", a: i } : i };
       } else break;
     }
     return node;
@@ -520,6 +549,7 @@ Object.assign(functionDocs, {
   sum: "Sum of a list, sum(list), or of an expression over whole numbers, sum(f(k), k, a, b); b can be inf",
   mean: "Mean of a list: mean(list)",
   len: "Number of values in a list: len(list)",
+  item: "An element of a list, from 1: item(list, n), also written list.n; n < 0 counts from the end",
   dot: "Scalar product of two vectors: dot(a, b)",
   cross: "Vector product of two 3-vectors: cross(a, b)",
   norm: "Length of a vector: norm(v)",
@@ -544,7 +574,17 @@ const SENSOR_VARS = { here: "here", lat: "lat", lon: "lon", alt: "alt", speed: "
 // functions that take a string argument
 const STRING_FNS = new Set(["japanese", "holiday"]);
 
-const LIST_FNS = new Set(["sum", "mean", "len", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle", ...SKY_FNS]);
+const LIST_FNS = new Set(["sum", "mean", "len", "item", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle", ...SKY_FNS]);
+
+// the element i of the list v, from 1, or from the end for i < 0
+function element(env, v, i, name = "v.n") {
+  if (!Array.isArray(v)) throw new CalcError(`${name}: only lists have elements`);
+  const k = env.checkPure(i, `${name} (n)`).n;
+  if (!Number.isInteger(k)) throw new CalcError(`${name}: n is a whole number`);
+  const j = k < 0 ? v.length + k : k - 1;
+  if (k === 0 || j < 0 || j >= v.length) throw new CalcError(`${name}: n is from 1 to ${v.length}, or from −1 to −${v.length} from the end`);
+  return v[j];
+}
 
 // f applied elementwise where args are lists (several lists must have the
 // same length); nested lists are tables
@@ -705,6 +745,10 @@ class Interpreter {
       if (xs.length !== 1 || !Array.isArray(xs[0])) throw new CalcError("len expects one list");
       return new Q(xs[0].length);
     };
+    b.item = (v, i, ...rest) => {
+      if (i === undefined || rest.length) throw new CalcError("Usage: item(list, n), as item((1, 2, 4), 2) = 2");
+      return broadcast((k) => element(env, v, k, "item"), [i]);
+    };
     const count = (fn, n) => {
       if (Array.isArray(n)) throw new CalcError(`${fn}: the number of values must be a number`);
       const k = env.checkPure(n, `${fn} (n)`).n;
@@ -859,6 +903,8 @@ class Interpreter {
         if (LIST_FNS.has(node.f)) return f(...args.map(arg));
         return broadcast(f, args.map(arg));
       }
+      case "index":
+        return broadcast((i) => element(env, ev(node.a), i), [val(ev(node.i))]);
       case "convert": {
         const spec = splitSpec(node.spec);
         if (!spec.length) throw new CalcError("Missing unit after @");

@@ -257,5 +257,24 @@ for (const [k, ms, year = 2027, tol = 90] of SEASONS) {
   if (!(Math.abs(d) <= tol)) fail(`season ${k} of ${year}: ${Math.round(d)} s from PyEphem`);
 }
 
+// ---------------------------------------------------------------------
+// Elements of lists: v.n and item(v, n); numbers start with a digit
+
+const shown = (q) => (Array.isArray(q) ? `(${q.map(shown).join(", ")})` : calc.env.format(q));
+for (const src of ["v = (1, 2, 4, 8)", "n = 3", "t = ((1, 2), (3, 4))"]) calc.run(src);
+const LISTS = [
+  ["v.1", "1"], ["v.-1", "8"], ["v.n", "4"], ["v.-n", "2"], ["v.(n+1)", "8"], ["v.(1, 3)", "(1, 4)"],
+  ["t.2.1", "3"], ["t.2", "(3, 4)"], ["(5, 6, 7).2", "6"], ["-v.2^2", "-4"], ["2 v.3", "8"],
+  ["item(v, 2)", "2"], ["item(v, (1, -1))", "(1, 8)"], ["sum(v.k, k, 1, 4)", "15"], ["0.5 + 1.5", "2"],
+];
+for (const [src, text] of LISTS) {
+  const r = calc.run(src);
+  const got = r.kind === "value" ? shown(r.q) : r.message;
+  if (got !== text) fail(`${src} gives ${got}, not ${text}`);
+}
+for (const src of ["v.0", "v.5", "v.(1.5)", "n.1", "item(3, 1)", ".5", "1 + .5", "v."]) {
+  if (calc.run(src).kind !== "error") fail(`${src} should be an error`);
+}
+
 console.log(failures ? `${failures} failures` : "All checks passed");
 process.exit(failures ? 1 : 0);

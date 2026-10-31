@@ -77,6 +77,15 @@ try {
   check(await page.$eval('[data-cat][aria-selected="true"]', (b) => b.textContent) === "Dates", "@ after a date opens Units → Dates");
   await clear();
 
+  // now and today on the Sky keys, as names
+  await fn("Sky");
+  await page.click('#fn-grid [data-key="now"]');
+  await page.keyboard.type(" - ");
+  await page.click('#fn-grid [data-key="n:today"]');
+  expect(await line(), "now − today", "the now and today keys");
+  expect(await run(" @ h"), /^\d+(\.\d+)?\s*h$/, "now - today");
+  await clear();
+
   // no key label wraps at 360 px
   for (const section of ["Calendars", "Sky", "Sensors", "Math"]) {
     await fn(section);
@@ -98,6 +107,19 @@ try {
   expect(await line(), 'holiday("Yom Kippur", 2027)', "the holiday picker types the name");
   expect(await run(""), "2027.10.11", "Yom Kippur 2027");
 
+  // elements of lists, and the dot key: 0. where a number starts
+  await clear();
+  await run("v = (1, 2, 4)");
+  expect(await run("v.-1 + v.2"), "6", "elements of a list");
+  await page.click('[data-tab="num"]');
+  await page.click('.page.active [data-key="."]');
+  expect(await line(), "0.", "the dot key starts a number with 0.");
+  await clear();
+  await page.keyboard.type("v");
+  await page.click('.page.active [data-key="."]');
+  expect(await line(), "v.", "the dot key after a name");
+  await clear();
+
   // sensors: position (the variables too), motion, compass, a tone
   await page.evaluate(() => {
     setInterval(() => {
@@ -112,11 +134,13 @@ try {
     };
   });
   await fn("Sensors");
+  // a key measures, and types in the variable: its value
   const measure = async (key, wait) => {
     await clear();
     await page.click(`[data-key="sensor:${key}"]`);
     await page.waitForTimeout(wait);
-    return line();
+    expect(await line(), key === "g" ? "glocal" : key, `the ${key} key types the variable`);   // g_local, with a subscript
+    return run("");
   };
   expect(await measure("here", 1500), /45\.4642/, "the here key");
   expect(await measure("g", 2700), /^\(?9\.80\d*(±|\()/, "the g key");

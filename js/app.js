@@ -7,7 +7,7 @@
 import { createCalculator, loadCurrencies } from "./defs.js";
 import { parse, normalize, splitComment, firstLine, functionDocs, tokenize } from "./interp.js";
 import { Q, dimEq, fraction, UnitError } from "./units.js";
-import { HOLIDAY_GROUPS, CALENDAR_ORDER, DATE_FORMATS, isDate, dateQ, dateText, literalText } from "./dates.js";
+import { HOLIDAY_GROUPS, CALENDAR_ORDER, DATE_FORMATS, isDate, literalText } from "./dates.js";
 import { SENSORS, fixReadings, sensorAvailable } from "./sensors.js";
 import { formatUNum, formatNumber, UNum, ufuncs, MC, newSourceId, rng, normInv, lhsUniform, mcConfigure, mcStats, formatAsym } from "./unum.js";
 
@@ -1422,7 +1422,7 @@ function backspace({ chars = state.tab === "abc" } = {}) {
 // Syntax colouring and typesetting: [{s, e, cls, html, atom}]. Atoms
 // (typeset names, exponents) are drawn as one glyph group; the caret
 // stops only at their ends.
-const SEG_RE = /(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d*)?|\^\(\s*-?\d+(?:\.\d+)?(?:\s*\/\s*\d+)?\s*\)|\^-?\d+(?:\.\d+)?(?:\/\d+)?|[\p{L}_°µΩÅ][\p{L}\p{N}_]*|'[^']*'?|"[^"]*"?|\s+|[\s\S]/gu;
+const SEG_RE = /(?:\d+\.?\d*)(?:[eE][-+]?\d*)?|\^\(\s*-?\d+(?:\.\d+)?(?:\s*\/\s*\d+)?\s*\)|\^-?\d+(?:\.\d+)?(?:\/\d+)?|[\p{L}_°µΩÅ][\p{L}\p{N}_]*|'[^']*'?|"[^"]*"?|\s+|[\s\S]/gu;
 
 function segments(text) {
   const segs = [];
@@ -3098,6 +3098,13 @@ function nodeMath(node) {
       return { m: `<mrow>${nameMath(node.f, { fn: true })}<mo lspace="0" rspace="0">&#x2061;</mo><mrow>${LP}${list}${RP}</mrow></mrow>`, p: 9 };
     }
     case "tuple": return { m: PAREN(node.items.map((x) => R(x).m).join('<mo separator="true">,</mo>')), p: 9 };
+    case "index": {
+      // v.2, v.n, v.(n+1), as written
+      const i = node.i, simple = i.t === "num" || i.t === "name" || (i.t === "un" && ["num", "name"].includes(i.a.t));
+      // precedence 8: (v.2)² rather than v.2², which reads as v.(2²)
+      const a = R(node.a);
+      return { m: `<mrow>${node.a.t === "index" ? a.m : wrap(a, 9)}<mo lspace="0" rspace="0">.</mo>${simple ? R(i).m : PAREN(R(i).m)}</mrow>`, p: 8 };
+    }
     case "convert": {
       const u = unitsMath(node.spec.trim());
       if (u === null) throw new Error("spec");
@@ -4054,7 +4061,7 @@ const FN_SECTIONS = [
     { fn: "plot", desc: "f(x), x, a, b" }, { key: "deffn", label: "f(x) =", desc: "Define" }, { key: "n:x", label: "x", desc: "Variable" }, { key: "n:inf", label: "∞", desc: "Infinity" },
   ]],
   ["Lists", 4, 3, [
-    { fn: "linspace", label: "a…b", desc: "n equal steps" }, { fn: "logspace", label: "a…b log", desc: "n equal ratios" }, { fn: "len", desc: "Count" }, { fn: "plot", desc: "xs, ys" },
+    { fn: "linspace", label: "a…b", desc: "n equal steps" }, { fn: "logspace", label: "a…b log", desc: "n equal ratios" }, { fn: "len", desc: "Count" }, { fn: "item", label: "v.n", desc: "Element n" },
     { fn: "sum", label: "Σ", desc: "Sum" }, { fn: "mean", desc: "Average" }, { fn: "min", desc: "Smallest" }, { fn: "max", desc: "Largest" },
     { fn: "dot", label: "a · b", desc: "Scalar product" }, { fn: "cross", label: "a × b", desc: "Vector product" }, { fn: "norm", label: "|v|", desc: "Length" }, { fn: "angle", label: "∠(a, b)", desc: "Angle" },
   ]],
@@ -4087,11 +4094,12 @@ const FN_SECTIONS = [
     { key: 'japanese("Reiwa", ', label: "japanese", desc: "era, y, m, d" }, { fn: "julian", desc: "y, m, d" }, { fn: "mayan", desc: "b, k, t, u, k" }, { fn: "persian", desc: "y, m, d" },
     { fn: "saka", desc: "y, m, d" }, { fn: "umalqura", desc: "y, m, d" }, { fn: "easter", desc: "Year" }, { key: "holidays", label: "holiday", desc: "Name, year" },
   ]],
-  ["Sky", 4, 4, [
+  ["Sky", 4, 5, [
     { fn: "sunrise", desc: "t, place" }, { fn: "sunset", desc: "t, place" }, { fn: "noon", desc: "t, place" }, { fn: "sun", desc: "Alt, az" },
     { fn: "moonrise", desc: "t, place" }, { fn: "moonset", desc: "t, place" }, { fn: "moon", desc: "Alt, az" }, { fn: "phase", desc: "Lit, age" },
     { fn: "newmoon", desc: "Next after t" }, { fn: "firstquarter", label: "1st quarter", desc: "Next after t" }, { fn: "fullmoon", desc: "Next after t" }, { fn: "lastquarter", label: "last quarter", desc: "Next after t" },
-    { fn: "equinox", desc: "Year" }, { fn: "solstice", desc: "Year" }, { fn: "lst", desc: "Sidereal time" }, { key: "sensor:here", label: "here", desc: "Lat, lon" },
+    { fn: "equinox", desc: "Year" }, { fn: "solstice", desc: "Year" }, { fn: "lst", desc: "Sidereal time" }, { fn: "date", desc: "y, m, d, h, min" },
+    { key: "now", label: "now", desc: "Date and time" }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon", span: 2 },
   ]],
   ["Sensors", 4, 3, [
     { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "sensor:lat", label: "lat", desc: "Latitude" }, { key: "sensor:lon", label: "lon", desc: "Longitude" }, { key: "sensor:alt", label: "alt", desc: "Altitude" },
@@ -4135,6 +4143,7 @@ const USAGE = {
   sum: "sum(list): sum of the values; sum(f(k), k, a, b): f(a) + f(a + 1) + … + f(b), as sum(1/k^2, k, 1, 1000); b can be inf (and a -inf), as sum(1/k^2, k, 1, inf) or sum(sin(k)/k, k, 1, inf); terms of one sign must decrease faster than k^-1 (and not too close to it)",
   mean: "mean(list): average of the values",
   len: "len(list): number of values",
+  item: "item(list, n): the element n, from 1, also written list.n, as v.2, v.n or v.(n+1); n < 0 counts from the end, as v.-1 for the last, and t.2.1 is in a list of lists",
   dot: "dot(a, b): scalar product a · b of two vectors; dot((3, 4) N, (2, 0) m) = 6 J",
   cross: "cross(a, b): vector product a × b of two 3-vectors, as cross(r, p) for the angular momentum",
   norm: "norm(v): length of a vector; norm((3, 4) m) = 5 m",
@@ -4516,7 +4525,7 @@ function renderFnGrid() {
   const subs = (s) => esc(s).replace(/([A-Za-zθσ])_([A-Za-z]+)/g, "$1<sub>$2</sub>");
   const described = (k) => {
     if (k.engine) return `<button class="key const model" data-key="mctoggle"><b>${state.settings.mc ? "MC" : "Linear"}</b><small>${state.settings.mc ? `${(state.settings.mcN || 5000).toLocaleString("en")} samples` : "Tap for Monte Carlo"}</small></button>`;
-    if (k.key) return `<button class="key const${k.label.length > 8 ? " long" : ""}" data-key="${esc(k.key)}"${k.key.startsWith("sensor:") && !sensorAvailable(k.key.slice(7)) ? " disabled" : ""}><b>${esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
+    if (k.key) return `<button class="key const${k.label.length > 8 ? " long" : ""}${k.span ? " span2" : ""}" data-key="${esc(k.key)}"${k.key.startsWith("sensor:") && !sensorAvailable(k.key.slice(7)) ? " disabled" : ""}><b>${esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
     if (k.name) return `<button class="key const" data-const="${esc(k.name)}"><b>${k.label ? esc(k.label) : prettyName(k.name, { unit: false }) || esc(k.name)}</b><small>${esc(k.desc)}</small></button>`;
     const label = k.label ? esc(k.label) : prettyName(k.fn, { fn: true }) || esc(k.fn);
     const long = k.label && k.label.length > 8 ? " long" : "";
@@ -4942,13 +4951,7 @@ function keyAction(k) {
     case "second": setSecond(state.second ? 0 : 1); break;
     case "euler": insertName("euler"); break;
     case "holidays": openSheet("Holidays", renderHolidays); break;
-    case "now": {
-      // the time as a literal, so the result does not change on recalculation
-      const t = dateText(env(), dateQ(env(), Math.floor(Date.now() / 1000)));
-      const b = before();
-      insert(b === "" || /[\s(,=]$/.test(b) ? t : " " + t);
-      break;
-    }
+    case "now": insertName("now"); break;
     case "pow2": insertPower(2); break;
     case "pow3": insertPower(3); break;
     case "+": case "-": case "*": case "/": case "^": insertOp(k); break;
@@ -5015,9 +5018,14 @@ function keyAction(k) {
       }
       break;
     }
+    case ".": return insert(dot());
     default: insert(k);
   }
 }
+
+// the dot: 0.5 where a number starts (numbers start with a digit), else
+// the dot of 1.5 or of an element of a list, v.2
+const dot = () => (/[\p{L}\p{N}_)\]]$/u.test(before()) ? "." : "0.");
 
 // The holiday key: a list to choose from, with the dates of this year
 function renderHolidays(root) {
@@ -5049,12 +5057,12 @@ function readSensor(name) {
   key()?.classList.add("busy");
   toast(hint);
   p.then((r) => {
-    const t = readingText(r);
-    const b = before();
-    insert(b === "" || /[\s(,=]$/.test(b) ? t : " " + t);
-    // the variables: g_local for g, and all of the position for a fix
-    setReading(name === "g" ? "g_local" : name, r);
+    // the variables, which are typed in: g_local for g, and all of the
+    // position for a fix
+    const v = name === "g" ? "g_local" : name;
+    setReading(v, r);
     if (["here", "lat", "lon", "alt", "speed"].includes(name)) setFixReadings();
+    insertName(v);
     navigator.vibrate?.(10);
   }).catch((e) => toast(e.message || String(e)))
     .finally(() => key()?.classList.remove("busy"));
@@ -5332,7 +5340,7 @@ keypadEl.addEventListener("click", (ev) => {
     return x.endsWith("(") ? insertFunction(x) : insertName(x);
   }
   if (b.dataset.ch !== undefined) {
-    insert(b.dataset.ch);
+    insert(b.dataset.ch === "." ? dot() : b.dataset.ch);
     if (state.shift === 1) { state.shift = 0; renderAbc(); }
     return;
   }
@@ -5481,7 +5489,7 @@ document.addEventListener("keydown", (ev) => {
   } else if (k.length === 1 || /^[\p{L}\p{S}\p{P}]$/u.test(k)) {
     handled();
     endRecall();
-    insert(k);
+    insert(k === "." ? dot() : k);
   }
 });
 
@@ -6280,8 +6288,8 @@ const HELP = [
     ["integrate(exp(-x^2), x, -inf, inf)", "√π"], ["integrate(9.81 m/s^2, t, 0 s, 2 s)", ""], ["diff(age(z), z, 1) @ Gyr", ""], ["diff(x^3, x, 2)", ""],
     ["limit(sin(x)/x, x, 0)", "1"], ["limit((1 + 1/x)^x, x, inf)", "e"], ["limit(x^x, x, 0, 1)", "from above"],
   ]],
-  ["Lists and tables", "A list is written in parentheses, or made with linspace and logspace. Arithmetic, units, @ and functions apply to each value; sum, mean, len, min and max take the whole list. sum(f(k), k, a, b) adds f over k = a, a + 1, …, b; b can be inf, as in sum(1/k^2, k, 1, inf). A list of lists is shown as a table, one column per list. Tap a value to insert it; long-press to copy as CSV.", [
-    ["z = (0.1, 0.5, 1, 2)", ""], ["D_L(z) @ Gpc", ""], ["(z, D_L(z) @ Gpc, age(z))", "a table"], ["linspace(0 m, 10 m, 6)", ""], ["logspace(1, 1000, 4)", ""], ["sum((3, 4, 5) kg)", ""], ["sum(1/k^2, k, 1, inf)", "π²/6"], ["sum((-1)^(k+1)/k, k, 1, inf)", "ln 2"], ["sum(2^k / factorial(k), k, 0, 20)", "≈ e²"],
+  ["Lists and tables", "A list is written in parentheses, or made with linspace and logspace. Arithmetic, units, @ and functions apply to each value; sum, mean, len, min and max take the whole list. v.n is the element n of v, from 1 (v.-1 is the last; also item(v, n)). sum(f(k), k, a, b) adds f over k = a, a + 1, …, b; b can be inf, as in sum(1/k^2, k, 1, inf). A list of lists is shown as a table, one column per list. Tap a value to insert it; long-press to copy as CSV.", [
+    ["z = (0.1, 0.5, 1, 2)", ""], ["D_L(z) @ Gpc", ""], ["(z, D_L(z) @ Gpc, age(z))", "a table"], ["z.2", "the second"], ["linspace(0 m, 10 m, 6)", ""], ["logspace(1, 1000, 4)", ""], ["sum((3, 4, 5) kg)", ""], ["sum(1/k^2, k, 1, inf)", "π²/6"], ["sum((-1)^(k+1)/k, k, 1, inf)", "ln 2"], ["sum(2^k / factorial(k), k, 0, 20)", "≈ e²"],
   ]],
   ["Vectors", "A vector is a list of components with compatible units. Arithmetic is per component; dot, cross, norm and angle take whole vectors. On the f(x) Lists keys.", [
     ["F = (3, 4, 0) N", ""], ["d = (2, 0, 1) m", ""], ["dot(F, d)", "work"], ["cross(d, F)", "torque"], ["norm(F)", ""], ["angle(F, d) @ deg", ""],
@@ -6298,7 +6306,7 @@ const HELP = [
   ["More data", "The Const keys have sections for mathematics, particles (PDG masses), astronomy (IAU nominal values), Earth (WGS 84), chemistry, elements and molecules (molar masses M_Fe, M_H2O; ionization energies E_ion_Fe; for elements also T_m_Fe, T_b_Fe, rho_Fe and the electronegativity chi_Fe; for molecules T_m, T_b, H_fus, H_vap, C_p, rho, T_c, p_c, as in T_b_H2O), engineering (ISA), materials (typical values), nuclides (T_half_C14, lambda_C14, m_C14) and information units (bit, B, KiB…).", [
     ["18 g / M_H2O @ mol", ""], ["E_ion_H N_A @ kJ/mol", "ionization energy"], ["H_vap_H2O / M_H2O @ MJ/kg", "latent heat"], ["T_b_C2H5OH @ °C", ""], ["T_m_W @ °C", ""], ["chi_O - chi_H", "bond polarity"], ["T_half_C14 log2(1 / 0.3)", "age when 30 % is left"], ["1 GiB / (100[Mbit/s]) @ s", ""], ["E_steel * 1e-3 @ GPa", ""], ["GM_Earth / a_WGS84^2", ""], ["m_Z c^2 @ GeV", ""], ["L_Edd(10 M_Sun)", ""],
   ]],
-  ["Dates", "Write dates as 2026.10.30 or 2026.10.30 18:42 (local time; after the time, Z or +05:30 gives a time zone): a date minus a date is a duration, a date plus a duration a date. After @, the Units page shows the Dates targets: JD, MJD, the day of the week…, and the Chinese, Coptic, Ethiopian, French Republican, Hebrew, Hindu, Islamic, Japanese, Julian, Mayan, Persian, Saka and Umm al-Qura calendars; on the f(x) page, the Calendars keys build dates, date(y, m, d), chinese(y, m, d, leap), hebrew(y, m, d)…, give Easter, and holiday(“Passover”, 2027) the major holidays of a Gregorian year; now and today are on the Const page, under Time.", [
+  ["Dates", "Write dates as 2026.10.30 or 2026.10.30 18:42 (local time; after the time, Z or +05:30 gives a time zone): a date minus a date is a duration, a date plus a duration a date. After @, the Units page shows the Dates targets: JD, MJD, the day of the week…, and the Chinese, Coptic, Ethiopian, French Republican, Hebrew, Hindu, Islamic, Japanese, Julian, Mayan, Persian, Saka and Umm al-Qura calendars; on the f(x) page, the Calendars keys build dates, date(y, m, d), chinese(y, m, d, leap), hebrew(y, m, d)…, give Easter, and holiday(“Passover”, 2027) the major holidays of a Gregorian year; now and today are on the Const page, under Time, and on the Sky keys.", [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
     ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
@@ -6306,7 +6314,7 @@ const HELP = [
     ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
     ["fullmoon(today)", ""], ["equinox(2027)", "(March, September)"], ["sunset(today, here) - sunrise(today, here) @ hms", "day length"], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
   ]],
-  ["Sensors", "The Sensors keys on the f(x) page measure with the phone and type in the value with its error: here (latitude, longitude) and lat, lon, alt from the GPS, g, accel and tilt from the accelerometer (hold the phone still for 2 s), heading from the compass (hold it flat), speed while moving, and pitch, the frequency of a steady tone. They need permission the first time, and HTTPS. The variables here, lat, lon, alt, speed, g_local, accel, tilt, heading and pitch hold the last readings, as in sunrise(today, here); the position is refreshed when the app opens, if allowed.", [
+  ["Sensors", "The Sensors keys on the f(x) page measure with the phone, keep the value with its error in a variable and type it in: here (latitude, longitude) and lat, lon, alt from the GPS, g, accel and tilt from the accelerometer (hold the phone still for 2 s), heading from the compass (hold it flat), speed while moving, and pitch, the frequency of a steady tone. They need permission the first time, and HTTPS. The variables here, lat, lon, alt, speed, g_local, accel, tilt, heading and pitch hold the last readings, as in sunrise(today, here); the position is refreshed when the app opens, if allowed.", [
     ["g_local / g", "measured over standard gravity"], ["sunset(today, here)", ""], ["(9.8061±0.0012)[m/s^2] / g", ""], ["2 π sqrt(1[m] / (9.8061±0.0012)[m/s^2])", "a pendulum"], ["12[ft] tan((29.99±0.01)[deg]) @ ft", "a height from a tilt"],
   ]],
   ["Uncertainties", "Write errors as 3.2 ± 0.1 (or +/-) or 3.2(1). Errors propagate with correlations, including the CODATA correlations between constants. Settings → Uncertainties switches to Monte Carlo, where distributions can be used: N(μ, σ), U(a, b), LogN(m, s), Gamma(k, θ), Beta(a, b), T(ν, μ, s), Tri(a, c, b), truncated with trunc(X, lo, hi). Results then show the median and the 68 % interval, as 12.24 +0.32 −0.27 when the two sides differ; tap MC on a result for its distribution. Tapping a result inserts it as ans_n, the result itself with all its samples and correlations (after a reload, the samples are redrawn from the errors). The f(x) Distributions keys list all distributions and switch the engine.", [

@@ -644,6 +644,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .key.eq svg { width: 26px; height: 26px; stroke-width: 2.2; }
 .fn-grid .key.const b { font-size: 17px; }
 .fn-grid .key:disabled { opacity: 0.4; }
+.fn-grid .key.span2 { grid-column: span 2; }
 .fn-grid .key.busy { animation: pulse 0.9s ease-in-out infinite alternate; }
 @keyframes pulse { to { background: var(--accent-soft); } }
 .fn-grid .key.param { background: var(--surface-3); }
