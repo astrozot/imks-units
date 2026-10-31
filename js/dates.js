@@ -6,7 +6,7 @@
 // or UTC when env.utc is set, unless a zone is given.
 
 import { Q, UnitError, dimEq } from "./units.js";
-import { hebrewLeap, CALENDARS, UNIX_RD, calendarText, fixedFrom } from "./calendars.js";
+import { hinduFromFixed, fixedFromHindu, hinduText, diwali, holi, makarSankranti, MONTHS, chineseFromFixed, fixedFromChinese as chineseDay, hebrewLeap, CALENDARS, UNIX_RD, calendarText, fixedFrom } from "./calendars.js";
 
 const DAY = 86400;
 const mod = (x, y) => x - y * Math.floor(x / y);
@@ -173,47 +173,59 @@ function dateLiterals(s) {
 // ---------------------------------------------------------------------
 // Formats and functions
 
-// Calendars computed by the browser (Intl): read back by searching the
-// day with the same parts
-const INTL_CALENDARS = {
-  chinese: "Chinese calendar (lunisolar)",
+// Calendars with functions of their own (not in CALENDARS): Chinese, with
+// its leap months, Japanese, with its eras, and Umm al-Qura (these two
+// from Intl)
+const EXTRA_CALENDARS = {
+  chinese: "Chinese calendar (lunisolar, from the Sun and the Moon seen from China)",
   japanese: "Japanese calendar: Gregorian, with the years of the eras",
+  hindu: "Hindu lunisolar calendar (amanta months, tithi at sunrise in Ujjain, Saka years)",
+  umalqura: "Umm al-Qura calendar, the Islamic calendar of Saudi Arabia (tables for 1300 to 1600 AH; elsewhere arithmetic)",
 };
 
 // the calendars, as the keys show them
-const CALENDAR_ORDER = ["chinese", "coptic", "ethiopic", "french", "hebrew", "islamic", "japanese", "julian", "mayan", "persian", "saka"];
+const CALENDAR_ORDER = ["chinese", "coptic", "ethiopic", "french", "hebrew", "hindu", "islamic", "japanese", "julian", "mayan", "persian", "saka", "umalqura"];
 
 const intlParts = (fmt, fixed) => Object.fromEntries(fmt.formatToParts(new Date((fixed - UNIX_RD) * 864e5 + 432e5)).map((p) => [p.type, p.value]));
 
-const CHINESE = new Intl.DateTimeFormat("en-u-ca-chinese", { timeZone: "UTC", year: "numeric", month: "numeric", day: "numeric" });
 const STEMS = ["jia", "yi", "bing", "ding", "wu", "ji", "geng", "xin", "ren", "gui"];
 const BRANCHES = ["zi", "chou", "yin", "mao", "chen", "si", "wu", "wei", "shen", "you", "xu", "hai"];
 
-// year (the Gregorian year in which it begins), month, day, leap month
-function chineseFromFixed(fixed) {
-  const o = intlParts(CHINESE, fixed);
-  return [Number(o.relatedYear ?? o.year), parseInt(o.month, 10), Number(o.day), /bis/.test(o.month) ? 1 : 0];
-}
-
+// the fixed day of a Chinese date, or null if there is none
 function fixedFromChinese(y, m, d, leap) {
-  // new year falls between January 21 and February 20, and a leap month
-  // can delay the later months by one: search around the guess
-  const g = new Date(0);
-  g.setUTCFullYear(y, 1, 5);
-  const guess = Math.round(g.getTime() / 864e5) + UNIX_RD + Math.round(29.53 * (m - 1 + leap)) + d - 1;
-  for (let k = 0; k <= 60; k++) {
-    for (const f of k ? [guess + k, guess - k] : [guess]) {
-      const p = chineseFromFixed(f);
-      if (p[0] === y && p[1] === m && p[2] === d && p[3] === leap) return f;
-    }
-  }
-  return null;
+  const f = chineseDay(y, m, d, leap);
+  if (!Number.isFinite(f)) return null;
+  const p = chineseFromFixed(f);
+  return p[0] === y && p[1] === m && p[2] === d && p[3] === leap ? f : null;
 }
 
 function chineseText(fixed) {
   const [y, m, d, leap] = chineseFromFixed(fixed);
+  if (!Number.isFinite(y)) throw new UnitError("Out of the range of the chinese calendar");
   return `${leap ? "Leap month" : "Month"} ${m}, day ${d}, ${STEMS[((y - 4) % 10 + 10) % 10]}-${BRANCHES[((y - 4) % 12 + 12) % 12]} year (${y})`;
 }
+
+// Umm al-Qura: year, month, day; a date read back by searching around
+// the arithmetic calendar, which is at most a few days away
+const UMALQURA = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura-nu-latn", { timeZone: "UTC", year: "numeric", month: "numeric", day: "numeric" });
+
+function umalquraFromFixed(fixed) {
+  const o = intlParts(UMALQURA, fixed);
+  return [parseInt(o.year, 10), Number(o.month), Number(o.day)];
+}
+
+function fixedFromUmalqura(y, m, d) {
+  if (![y, m, d].every(Number.isInteger) || m < 1 || m > 12 || d < 1 || d > 30) return null;
+  const guess = fixedFrom("islamic", [y, m, 1]) ?? fixedFrom("islamic", [y, m, 29]);
+  if (guess === null) return null;
+  for (let k = -4; k <= 5; k++) {
+    const f = guess + d - 1 + k, p = umalquraFromFixed(f);
+    if (p[0] === y && p[1] === m && p[2] === d) return f;
+  }
+  return null;
+}
+
+const umalquraText = (fixed) => { const [y, m, d] = umalquraFromFixed(fixed); return `${d} ${MONTHS.islamic[m - 1]} ${y}`; };
 
 const JAPANESE = new Intl.DateTimeFormat("en-u-ca-japanese", { timeZone: "UTC", era: "long", year: "numeric" });
 const JAPANESE_ERAS = { meiji: 1868, taisho: 1912, showa: 1926, heisei: 1989, reiwa: 2019 };
@@ -229,7 +241,7 @@ const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "Ju
 
 // The formats that show a date: a value shown with them is still written
 // as a date literal when it is inserted or copied
-const DATE_FORMATS = new Set(["date", "UTC", "dow", "doy", "week", ...Object.keys(CALENDARS), ...Object.keys(INTL_CALENDARS)]);
+const DATE_FORMATS = new Set(["date", "UTC", "dow", "doy", "week", ...Object.keys(CALENDARS), ...Object.keys(EXTRA_CALENDARS)]);
 
 // Easter Sunday of a year, as a fixed day (Meeus): Gregorian, and Orthodox
 // from the Julian computus
@@ -267,11 +279,14 @@ const HOLIDAY_LIST = [
   ["Jewish", ["Sukkot"], (y) => y + 3761, (y) => fixedFrom("hebrew", [y, 7, 15])],
   ["Jewish", ["Hanukkah", "Chanukah"], (y) => y + 3761, (y) => fixedFrom("hebrew", [y, 9, 25])],
   ["Jewish", ["Purim"], (y) => y + 3760, (y) => fixedFrom("hebrew", [y, hebrewLeap(y) ? 13 : 12, 14])],
-  ["Islamic", ["Islamic New Year", "Muharram"], islamicYear, (y) => fixedFrom("islamic", [y, 1, 1])],
-  ["Islamic", ["Mawlid"], islamicYear, (y) => fixedFrom("islamic", [y, 3, 12])],
-  ["Islamic", ["Ramadan"], islamicYear, (y) => fixedFrom("islamic", [y, 9, 1])],
-  ["Islamic", ["Eid al-Fitr", "Eid ul-Fitr"], islamicYear, (y) => fixedFrom("islamic", [y, 10, 1])],
-  ["Islamic", ["Eid al-Adha", "Eid ul-Adha"], islamicYear, (y) => fixedFrom("islamic", [y, 12, 10])],
+  ["Hindu", ["Makar Sankranti"], (y) => y, makarSankranti],
+  ["Hindu", ["Holi"], (y) => y, holi],
+  ["Hindu", ["Diwali", "Deepavali"], (y) => y, diwali],
+  ["Islamic", ["Islamic New Year", "Muharram"], islamicYear, (y) => fixedFromUmalqura(y, 1, 1)],
+  ["Islamic", ["Mawlid"], islamicYear, (y) => fixedFromUmalqura(y, 3, 12)],
+  ["Islamic", ["Ramadan"], islamicYear, (y) => fixedFromUmalqura(y, 9, 1)],
+  ["Islamic", ["Eid al-Fitr", "Eid ul-Fitr"], islamicYear, (y) => fixedFromUmalqura(y, 10, 1)],
+  ["Islamic", ["Eid al-Adha", "Eid ul-Adha"], islamicYear, (y) => fixedFromUmalqura(y, 12, 10)],
   ["Chinese", ["Chinese New Year", "Lunar New Year", "Spring Festival"], (y) => y, (y) => fixedFromChinese(y, 1, 1, 0)],
   ["Chinese", ["Lantern Festival"], (y) => y, (y) => fixedFromChinese(y, 1, 15, 0)],
   ["Chinese", ["Dragon Boat", "Dragon Boat Festival"], (y) => y, (y) => fixedFromChinese(y, 5, 5, 0)],
@@ -280,7 +295,8 @@ const HOLIDAY_LIST = [
   ["Ethiopian", ["Enkutatash", "Ethiopian New Year"], (y) => y - 7, (y) => fixedFrom("ethiopic", [y, 1, 1])],
 ];
 
-// the Islamic year about a Gregorian year (the Islamic year is shorter)
+// the Islamic year about a Gregorian year (the Islamic year is shorter);
+// the Islamic holidays follow Umm al-Qura
 function islamicYear(y) {
   return Math.floor((y - 622) * 365.2425 / 354.367);
 }
@@ -360,8 +376,8 @@ function addDates(env) {
       },
     });
   }
-  for (const [name, doc] of Object.entries(INTL_CALENDARS)) {
-    const text = name === "chinese" ? chineseText : japaneseText;
+  for (const [name, doc] of Object.entries(EXTRA_CALENDARS)) {
+    const text = { chinese: chineseText, hindu: hinduText, japanese: japaneseText, umalqura: umalquraText }[name];
     env.formats.set(name, {
       doc,
       fn: (q) => {
@@ -407,6 +423,23 @@ function dateBuiltins(env, b) {
       return dayAt(name, f, args, n);
     };
   }
+  // hindu(year, month, tithi, leap month, leap day): the last two 0 or 1
+  b.hindu = (...args) => {
+    const [y, m, t, leap = 0, leapDay = 0] = nums("hindu", args.slice(0, 5));
+    if (![y, m, t].every(Number.isInteger) || m < 1 || m > 12 || t < 1 || t > 30 || ![leap, leapDay].every((x) => x === 0 || x === 1)) {
+      throw new UnitError("Usage: hindu(year, month, tithi, leap month, leap day): Saka year, month from Chaitra = 1, tithi 1 to 30 (16 to 30 the dark half), and 1 for a leap (adhika) month or the second day of a tithi");
+    }
+    const f = fixedFromHindu(y, m, leap, t, leapDay);
+    if (f === null) throw new UnitError(`Not a date of the hindu calendar: ${[y, m, t, leap, leapDay].join(", ")}`);
+    return dayAt("hindu", f, [], 0);
+  };
+  // umalqura(year, month, day)
+  b.umalqura = (...args) => {
+    const [y, m, d] = nums("umalqura", args.slice(0, 3));
+    const f = fixedFromUmalqura(y, m, d);
+    if (f === null) throw new UnitError(`Not a date of the umalqura calendar: ${y}, ${m}, ${d}`);
+    return dayAt("umalqura", f, args, 3);
+  };
   // chinese(year, month, day, leap): leap is 1 for the leap month
   b.chinese = (...args) => {
     const [y, m, d, leap = 0] = nums("chinese", args.slice(0, 4));

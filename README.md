@@ -23,6 +23,12 @@ the calendars of `Intl` where it has them), the holidays, and the Sun and
 the Moon (against times from PyEphem). It needs no packages and takes a
 few seconds.
 
+`node tests/browser.mjs` checks the app in Chromium at phone size, with
+simulated sensors (position, motion, compass, microphone). It needs
+Playwright (`npm install playwright-core`, then `CHROME=/path/to/chrome`;
+`PLAYWRIGHT=/path/to/playwright-core` if it is installed elsewhere), and
+skips without it.
+
 ## Publishing on GitHub Pages
 
 1. Create a new public repository (e.g. `imks-units`).

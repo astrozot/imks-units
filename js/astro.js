@@ -229,10 +229,17 @@ function siderealTime(t, lon) {
 }
 
 // ---------------------------------------------------------------------
-// Equinoxes and solstices (Meeus, chapter 27, for the years 1000 to
+// Equinoxes and solstices (Meeus, chapter 27, for the years −1000 to
 // 3000): k = 0 March equinox, 1 June solstice, 2 September equinox,
 // 3 December solstice
 
+// mean times: before 1000, in thousands of years from 0; after, from 2000
+const SEASON_MEAN_0 = [
+  [1721139.29189, 365242.1374, 0.06134, 0.00111, -0.00071],
+  [1721233.25401, 365241.72562, -0.05323, 0.00907, 0.00025],
+  [1721325.70455, 365242.49558, -0.11677, -0.00297, 0.00074],
+  [1721414.39987, 365242.88257, -0.00769, -0.00933, -0.00006],
+];
 const SEASON_MEAN = [
   [2451623.80984, 365242.37404, 0.05169, -0.00411, -0.00057],
   [2451716.56767, 365241.62603, 0.00325, 0.00888, -0.0003],
@@ -250,9 +257,9 @@ const SEASON_TERMS = [
 
 // The Unix time (UT) of an equinox or solstice, or null out of range
 function season(year, k) {
-  if (!(year >= 1000 && year <= 3000)) return null;
-  const Y = (year - 2000) / 1000;
-  const jde0 = SEASON_MEAN[k].reduce((s, c, i) => s + c * Y ** i, 0);
+  if (!(year >= -1000 && year <= 3000)) return null;
+  const [mean, Y] = year < 1000 ? [SEASON_MEAN_0, year / 1000] : [SEASON_MEAN, (year - 2000) / 1000];
+  const jde0 = mean[k].reduce((s, c, i) => s + c * Y ** i, 0);
   const T = (jde0 - 2451545) / 36525;
   const W = 35999.373 * T - 2.47;
   const dl = 1 + 0.0334 * cos(W) + 0.0007 * cos(2 * W);
@@ -260,4 +267,7 @@ function season(year, k) {
   return (jde0 + 0.00001 * S / dl - 2440587.5) * 86400 - deltaT(year);
 }
 
-export { horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };
+// The apparent longitude of the Sun (degrees) at the Unix time t
+const solarLongitude = (t) => sunEcliptic(centuries(t)).lon;
+
+export { elongation, solarLongitude, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };

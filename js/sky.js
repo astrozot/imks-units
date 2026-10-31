@@ -64,8 +64,10 @@ function skyBuiltins(env, b) {
       const year = yearArg(env, name, y);
       return ks.map((k) => {
         const t = season(year, k);
-        if (t === null) throw new UnitError(`${name}: the years from 1000 to 3000`);
-        return dateQ(env, UNum.uncertain(t, 60));
+        if (t === null) throw new UnitError(`${name}: the years from −1000 to 3000`);
+        // a minute from the formula, and the uncertainty of ΔT, which grows
+        // far from the present (roughly)
+        return dateQ(env, UNum.uncertain(t, Math.hypot(60, 0.8 * ((year - 2000) / 100) ** 2)));
       });
     };
   }

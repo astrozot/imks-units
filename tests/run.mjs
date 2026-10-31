@@ -78,7 +78,13 @@ const SAME = [
   ['holiday("Eid al-Fitr", 2026)', "2026.03.20"],
   ['holiday("Chinese New Year", 2026)', "2026.02.17"],
   ['holiday("Orthodox Christmas", 2027)', "2027.01.07"],
-  ['holiday("Ramadan", 2030)', "2030.01.06"],
+  ['holiday("Ramadan", 2030)', "2030.01.05"],
+  ["umalqura(1447, 9, 1)", "2026.02.18"],
+  ["hindu(1948, 1, 1)", "2026.03.19"],
+  ["hindu(1945, 5, 1, 1)", "2023.07.18"],
+  ["hindu(1945, 5, 1)", "2023.08.17"],
+  ['holiday("Makar Sankranti", 2026)', "2026.01.14"],
+  ["persian(1503, 1, 1)", "2124.03.20"],
   ["2451545[JD]", "2000.01.01 12:00"],
   ["2026-10-30T18:42Z", "2026.10.30 18:42"],
   ["2026.10.30 18:42 +05:30", "2026.10.30 13:12"],
@@ -97,6 +103,9 @@ const TEXT = [
   ["2026.10.30 @ persian", "8 Aban 1405"],
   ["2026.10.30 @ julian", "17 October 2026"],
   ["2026.10.30 @ saka", "8 Kartika 1948"],
+  ["2026.10.31 @ hindu", "Ashvin Krishna 6, Saka 1948"],
+  ["2023.07.20 @ hindu", "Adhika Shravana Shukla 3, Saka 1945"],
+  ["2030.01.05 @ umalqura", "1 Ramadan 1451"],
   ["2026.10.30 @ chinese", "Month 9, day 21, bing-wu year (2026)"],
   ["2025.07.25 @ chinese", "Leap month 6, day 1, yi-si year (2025)"],
   ["2026.10.30 @ japanese", "30 October, Reiwa 8"],
@@ -115,7 +124,7 @@ for (const [src, text] of TEXT) {
 }
 
 // Not dates
-for (const src of ["2026.2.30", "hebrew(5786, 13, 1)", "julian(2026, 2, 29)", "chinese(2026, 6, 1, 1)", 'japanese("Showa", 64, 1, 8)', 'holiday("Diwali", 2027)']) {
+for (const src of ["2026.2.30", "hebrew(5786, 13, 1)", "julian(2026, 2, 29)", "chinese(2026, 6, 1, 1)", 'japanese("Showa", 64, 1, 8)', 'holiday("Thanksgiving", 2027)', 'hindu(1948, 1, 31)']) {
   if (calc.run(src).kind !== "error") fail(`${src} should be an error`);
 }
 
@@ -144,16 +153,69 @@ for (const [name, cal, lo, hi] of INTL) {
   if (bad) fail(`${name}: ${bad} days differ from Intl`);
 }
 
-// the Chinese calendar reads back what Intl shows, from 1900 to 2100
+// The Chinese calendar: every day reads back, from 1901 to 2099, and it
+// agrees with Intl except in the months below, which begin with a new moon
+// a few minutes from midnight in China (or a leap month, 1987), where ICU's
+// Moon is not precise enough: checked with PyEphem, except 2097, where the
+// new moon falls 40 s before midnight and the unknown ΔT decides
+const { chineseFromFixed, fixedFromChinese, MONTHS: CALENDAR_MONTHS } = await import(new URL("js/calendars.js", root));
 {
+  const CHINESE_ICU = new Set(["1906-04-23", "1954-02-03", "1955-02-22", "1987-07-26", "1999-01-17", "2012-08-17", "2018-11-07", "2027-02-06", "2030-02-02", "2070-03-12", "2097-08-07"]);
   const fm = new Intl.DateTimeFormat("en-u-ca-chinese", { timeZone: "UTC", year: "numeric", month: "numeric", day: "numeric" });
-  let bad = 0;
-  for (let ms = Date.UTC(1900, 0, 31); ms < Date.UTC(2100, 0, 1); ms += 864e5 * 11) {
-    const o = Object.fromEntries(fm.formatToParts(new Date(ms + 432e5)).map((p) => [p.type, p.value]));
-    const r = calc.run(`chinese(${o.relatedYear}, ${parseInt(o.month, 10)}, ${o.day}, ${/bis/.test(o.month) ? 1 : 0})`);
-    if (r.kind !== "value" || Math.abs(r.q.relative().x.n * 1000 - ms) > 1) bad++;
+  const iso = (f) => new Date((f - UNIX_RD) * 864e5).toISOString().slice(0, 10);
+  let bad = 0, unexpected = new Set(), start = null;
+  for (let f = Math.round(Date.UTC(1901, 0, 1) / 864e5) + UNIX_RD; f < Math.round(Date.UTC(2100, 0, 1) / 864e5) + UNIX_RD; f++) {
+    const p = chineseFromFixed(f);
+    if (fixedFromChinese(...p) !== f) bad++;
+    const o = Object.fromEntries(fm.formatToParts(new Date((f - UNIX_RD) * 864e5 + 432e5)).map((x) => [x.type, x.value]));
+    const same = Number(o.relatedYear) === p[0] && parseInt(o.month, 10) === p[1] && Number(o.day) === p[2] && /bis/.test(o.month) === (p[3] === 1);
+    if (same) start = null;
+    else {
+      // the first day of each stretch of differences
+      if (start === null) {
+        start = f;
+        if (!CHINESE_ICU.has(iso(f))) unexpected.add(iso(f));
+      }
+    }
   }
   if (bad) fail(`chinese: ${bad} days do not read back`);
+  if (unexpected.size) fail(`chinese: new differences from Intl from ${[...unexpected].join(", ")}`);
+}
+// Umm al-Qura reads back from 1300 to 1600 AH
+{
+  let bad = 0;
+  for (let f = 686000; f <= 795000; f += 3) {
+    const r = calc.run(`${new Date((f - UNIX_RD) * 864e5).toISOString().slice(0, 10).replaceAll("-", ".")} @ umalqura`);
+    const m = /^(\d+) (.+) (\d+)$/.exec(calc.env.display(r.q).text);
+    const back = calc.run(`umalqura(${m[3]}, ${CALENDAR_MONTHS.islamic.indexOf(m[2]) + 1}, ${m[1]})`);
+    if (back.kind !== "value" || back.q.relative().x.n !== (f - UNIX_RD) * 86400) bad++;
+  }
+  if (bad) fail(`umalqura: ${bad} days do not read back`);
+}
+
+for (const [src, date] of [["chinese(2027, 1, 1)", "2027.02.06"], ["chinese(2030, 1, 1)", "2030.02.03"], ["chinese(1987, 6, 1, 1)", "1987.07.26"],
+  ["chinese(2020, 4, 1, 1)", "2020.05.23"], ["chinese(2023, 2, 1, 1)", "2023.03.22"], ["chinese(2033, 11, 1, 1)", "2033.12.22"]]) {
+  try {
+    if (instant(src) !== instant(date)) fail(`${src} is not ${date}`);
+  } catch (e) { fail(e.message); }
+}
+
+// The Hindu calendar: every day reads back from 2000 to 2029, and Diwali
+// and Holi are on the published dates (Drik Panchang)
+{
+  const { hinduFromFixed, fixedFromHindu } = await import(new URL("js/calendars.js", root));
+  let bad = 0;
+  for (let f = 730120; f < 741077; f++) if (fixedFromHindu(...hinduFromFixed(f).slice(0, 3), ...hinduFromFixed(f).slice(3)) !== f) bad++;
+  if (bad) fail(`hindu: ${bad} days do not read back`);
+  const DIWALI = ["2018.11.07", "2019.10.27", "2020.11.14", "2021.11.04", "2022.10.24", "2023.11.12", "2024.10.31", "2025.10.20", "2026.11.08", "2027.10.29", "2028.10.17", "2029.11.05", "2030.10.26"];
+  const HOLI = ["2018.03.02", "2019.03.21", "2020.03.10", "2021.03.29", "2022.03.18", "2023.03.08", "2024.03.25", "2025.03.14", "2026.03.04", "2027.03.22", "2028.03.11"];
+  for (const [name, dates] of [["Diwali", DIWALI], ["Holi", HOLI]]) {
+    for (const d of dates) {
+      try {
+        if (instant(`holiday("${name}", ${d.slice(0, 4)})`) !== instant(d)) fail(`${name} ${d.slice(0, 4)} is not ${d}`);
+      } catch (e) { fail(e.message); }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -188,9 +250,11 @@ for (const [event, day, place, ref] of SKY) {
 
 // equinoxes and solstices of 2027 (PyEphem, UT)
 const SEASONS = [[0, Date.UTC(2027, 2, 20, 20, 24, 32)], [1, Date.UTC(2027, 5, 21, 14, 10, 50)], [2, Date.UTC(2027, 8, 23, 6, 1, 33)], [3, Date.UTC(2027, 11, 22, 2, 41, 53)]];
-for (const [k, ms] of SEASONS) {
-  const d = A.season(2027, k) - ms / 1000;
-  if (!(Math.abs(d) <= 90)) fail(`season ${k} of 2027: ${Math.round(d)} s from PyEphem`);
+// and an equinox of the year 500 (PyEphem: JD 1903760.3084 UT; ΔT differs)
+SEASONS.push([0, (1903760.3084 - 2440587.5) * 864e5, 500, 300]);
+for (const [k, ms, year = 2027, tol = 90] of SEASONS) {
+  const d = A.season(year, k) - ms / 1000;
+  if (!(Math.abs(d) <= tol)) fail(`season ${k} of ${year}: ${Math.round(d)} s from PyEphem`);
 }
 
 console.log(failures ? `${failures} failures` : "All checks passed");
