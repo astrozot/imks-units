@@ -120,6 +120,17 @@ try {
   expect(await line(), "v.", "the dot key after a name");
   await clear();
 
+  // the delete key removes whole names, exponents and keys' text
+  const del = () => page.click('.page.active [data-key="backspace"]');
+  for (const [typed, want] of [["5 @ hebrew", "5 @ "], ["5 @ dow", "5 @ "], ["5 @ hms", "5 @ "], ["5 @ km/h", "5 @ km"],
+    ["2 + now", "2 +"], ["today", ""], ["x^2", "x"], ["x^-1", "x"], ["y = ", "y"], ["(1, ", "(1"], ["2 ln(2)", "2 "], ["age(0)", ""]]) {
+    await clear();
+    await page.keyboard.type(typed);
+    await del();
+    expect(await line(), want || "100 km/h @ mph", `delete after ${typed}`);
+  }
+  await clear();
+
   // sensors: position (the variables too), motion, compass, a tone
   await page.evaluate(() => {
     setInterval(() => {

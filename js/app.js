@@ -1403,6 +1403,19 @@ function insertOp(op) {
   insert(op);   // no spaces around operators
 }
 
+// Calls entered with one key, as ln(2) and age(0) on the Const page
+let callConstSet = null;
+function callConsts() {
+  if (callConstSet) return callConstSet;
+  callConstSet = new Set();
+  const walk = (x) => {
+    if (typeof x === "string") { if (/^[\p{L}_][\p{L}\p{N}_]*\([^()]*\)$/u.test(x)) callConstSet.add(x); }
+    else if (x && typeof x === "object") Object.values(x).forEach(walk);
+  };
+  walk([CONST_SECTIONS, COSMO_KEYS, DIGIT_CONSTS2]);
+  return callConstSet;
+}
+
 function backspace({ chars = state.tab === "abc" } = {}) {
   const v = state.text;
   const a = state.caret;
@@ -1422,20 +1435,26 @@ function backspace({ chars = state.tab === "abc" } = {}) {
     }
   }
   let m;
-  if (/ [-+*@±|] $/.test(b)) n = 3;
-  else if (/^\s*@ $/.test(b)) n = b.length;
+  if (/ [-+*@±|=] $/.test(b)) n = 3;
+  else if (/^\s*[@=] $/.test(b)) n = b.length;
+  else if (!chars && /, $/.test(b)) n = 2;
+  else if (!chars && (m = /(?:^|[^\p{L}\p{N}_.])([\p{L}_][\p{L}\p{N}_]*\([^()]*\))$/u.exec(b)) && callConsts().has(m[1])) n = m[1].length;
   else if (!chars && (m = /([\p{L}_][\p{L}\p{N}_]*)\($/u.exec(b))) n = m[0].length;
   else if (!chars && (m = /(^|[\s[/*(|@-])([\p{L}_°µΩÅ][\p{L}\p{N}_]*)$/u.exec(b))) {
-    // whole unit and constant names, as they were entered with one key
+    // whole unit and constant names, as they were entered with one key;
+    // after @, also formats, systems and calendars
     const w = m[2];
     const e = env();
-    if (isBareUnit(w) || e.vars.has(w) || ["pi", "tau", "ans"].includes(w)) {
+    const spec = unitContext(b) === "spec";
+    if (isBareUnit(w) || e.vars.has(w) || e.isValue(w) || w === "ans" || (spec && (e.formats.has(w) || e.systems.has(w)))) {
       n = w.length;
       if (m[1] === " " && !/[@|] $/.test(b.slice(0, b.length - w.length))) n++;
+      // km/h after @ -> km, as in brackets
+      else if (m[1] === "/" && spec) n++;
     }
   }
   if (n === 1 && !chars) {
-    const atomBefore = (state.atoms || []).find(([s, e, kind]) => e === a && kind === "name");
+    const atomBefore = (state.atoms || []).find(([s, e]) => e === a);
     if (atomBefore) n = a - atomBefore[0];
   }
   const nb = b.slice(0, a - n);
@@ -3058,8 +3077,13 @@ function flatRadicand(m) {
   return `<mpadded height="${sup ? 0.85 : 0.75}em" depth="${sup ? 0.1 : 0.2}em">${m}</mpadded>`;
 }
 
-const LP = '<mo lspace="0" rspace="0">(</mo>', RP = '<mo lspace="0" rspace="0">)</mo>';
-const PAREN = (m) => `<mrow>${LP}${m}${RP}</mrow>`;
+// Parentheses as in LaTeX: of the text size, unless they hold something
+// tall; then they grow, centred on the math axis, so that nested ones line up
+const TALL = /<(mfrac|msqrt|mroot|munder|munderover|msubsup)\b/;
+const PAREN = (m) => {
+  const st = TALL.test(m) ? 'symmetric="true"' : 'stretchy="false"';
+  return `<mrow><mo lspace="0" rspace="0" ${st}>(</mo>${m}<mo lspace="0" rspace="0" ${st}>)</mo></mrow>`;
+};
 
 // Names bound by the calls and definitions being drawn (t in
 // plot(f(t), t, …)): variables, even when they are also units
@@ -3081,8 +3105,7 @@ function nodeMathRaw(node) {
     case "num": return numMath(node.x);
     case "name": {
       // a name that is only a unit is drawn as one
-      const unit = !BOUND.includes(node.v) && !env().vars.has(node.v) && !["pi", "tau", "inf", "ans"].includes(node.v) && isBareUnit(node.v);
-      return { m: unit ? `<mrow class="mu">${nameMath(node.v, { unit: true })}</mrow>` : nameMath(node.v), p: 9 };
+      return { m: !isVariable(node) ? `<mrow class="mu">${nameMath(node.v, { unit: true })}</mrow>` : nameMath(node.v), p: 9 };
     }
     case "str": return { m: `<mrow><mo>‘</mo>${nameMath(node.v)}<mo>’</mo></mrow>`, p: 9 };
     case "unit": {
@@ -3112,7 +3135,9 @@ function nodeMathRaw(node) {
           const bm = wrap(b, 2), am = a.paren || a.tailParen || wrap(a, 2);
           const numeric = node.b.t === "num" || (node.b.t === "unit" && node.b.target.t === "num") ||
             (node.b.t === "bin" && node.b.op === "^" && node.b.a.t === "num");
-          const op = numeric ? "<mo>×</mo>" : '<mo lspace="0.12em" rspace="0.12em">&#x2062;</mo>';
+          // 2x, 4G, x(x + 1), (a + b)(a − b) as in LaTeX, but a thin space at units and functions
+          const tight = (am !== wrap(a, 2) || productEdge(node.a, a, "right")) && productEdge(node.b, b, "left");
+          const op = numeric ? "<mo>×</mo>" : tight ? '<mo lspace="0" rspace="0">&#x2062;</mo>' : '<mo lspace="0.12em" rspace="0.12em">&#x2062;</mo>';
           // y sin x is fine, but sin x · y is not: keep a way back to parentheses
           const tail = b.paren || b.tailParen;
           return { m: `<mrow>${am}${op}${bm}</mrow>`, p: 2, tailParen: tail ? `<mrow>${am}${op}${tail}</mrow>` : null };
@@ -3159,20 +3184,20 @@ function nodeMathRaw(node) {
       if (node.f === "log" && args.length === 2) {
         // log(b, x) as log_b x
         const fname = `<msub><mi mathvariant="normal">log</mi>${args[0].m}</msub>`;
-        const x = simpleArg(node.args[1]) ? args[1].m : `<mrow>${LP}${args[1].m}${RP}</mrow>`;
+        const x = simpleArg(node.args[1]) ? args[1].m : PAREN(args[1].m);
         return { m: `<mrow>${fname}<mo lspace="0" rspace="0.17em">&#x2061;</mo>${x}</mrow>`, p: simpleArg(node.args[1]) ? 2.2 : 9 };
       }
       const list = args.map((a) => a.m).join('<mo separator="true">,</mo>');
       if (BARE_FNS[node.f] !== undefined && args.length === 1) {
         // sin x, ln 2, sin π/2: no parentheses around a simple argument
         const fname = BARE_FNS[node.f];
-        const paren = `<mrow>${fname}<mo lspace="0" rspace="0">&#x2061;</mo><mrow>${LP}${list}${RP}</mrow></mrow>`;
+        const paren = `<mrow>${fname}<mo lspace="0" rspace="0">&#x2061;</mo>${PAREN(list)}</mrow>`;
         if (simpleArg(node.args[0])) {
           return { m: `<mrow>${fname}<mo lspace="0" rspace="0.17em">&#x2061;</mo>${args[0].m}</mrow>`, p: 2.2, paren };
         }
         return { m: paren, p: 9 };
       }
-      return { m: `<mrow>${nameMath(node.f, { fn: true })}<mo lspace="0" rspace="0">&#x2061;</mo><mrow>${LP}${list}${RP}</mrow></mrow>`, p: 9 };
+      return { m: `<mrow>${nameMath(node.f, { fn: true })}<mo lspace="0" rspace="0">&#x2061;</mo>${PAREN(list)}</mrow>`, p: 9 };
     }
     case "tuple": return { m: PAREN(node.items.map((x) => R(x).m).join('<mo separator="true">,</mo>')), p: 9 };
     case "index": {
@@ -3189,7 +3214,7 @@ function nodeMathRaw(node) {
     }
     case "assign": return { m: `<mrow>${nameMath(node.name)}<mo>=</mo>${R(node.value).m}</mrow>`, p: 0 };
     case "def": return {
-      m: `<mrow>${nameMath(node.name, { fn: true })}<mo lspace="0" rspace="0">&#x2061;</mo><mrow>${LP}${node.params.map((x) => nameMath(x)).join('<mo separator="true">,</mo>')}${RP}</mrow><mo>=</mo>${R(node.body).m}</mrow>`,
+      m: `<mrow>${nameMath(node.name, { fn: true })}<mo lspace="0" rspace="0">&#x2061;</mo>${PAREN(node.params.map((x) => nameMath(x)).join('<mo separator="true">,</mo>'))}<mo>=</mo>${R(node.body).m}</mrow>`,
       p: 0,
     };
     default: throw new Error("node " + node.t);
@@ -3204,9 +3229,31 @@ const BARE_FNS = Object.fromEntries([
   ["log2", '<msub><mi mathvariant="normal">log</mi><mn>2</mn></msub>'],
 ]);
 
+// The left or right end of a factor, when it is a symbol that needs no
+// space in a product: a number (only on the left), a variable, a group
+// in parentheses (or a call with them) or a power of these
+function productEdge(n, r, side) {
+  if (r.p < 2) return true;   // drawn in parentheses
+  if (n.t === "num") return side === "right" && !n.x.c && n.x.n >= 0;
+  if (n.t === "name") return isVariable(n);
+  if (n.t === "tuple") return true;
+  if (n.t === "bin" && n.op === "^") return side === "right" ? true : productEdge(n.a, nodeMath(n.a), side);
+  if (n.t === "bin" && n.op === "*") { const k = side === "left" ? n.a : n.b; return productEdge(k, nodeMath(k), side); }
+  if (n.t === "call") return side === "right" && r.m.endsWith(")</mo></mrow></mrow>");
+  return false;
+}
+
+// a name drawn as a variable or constant, not as a unit
+const isVariable = (n) => n.t === "name" && (BOUND.includes(n.v) || env().vars.has(n.v) || ["pi", "tau", "inf", "ans"].includes(n.v) || !isBareUnit(n.v));
+
 // an argument that reads unambiguously without parentheses
 function simpleArg(n) {
   if (!n) return false;
+  // sin 2x, sin 2x²
+  if (n.t === "bin" && n.op === "*" && n.a.t === "num") {
+    const b = n.b.t === "bin" && n.b.op === "^" ? n.b.a : n.b;
+    return simpleArg(n.a) && isVariable(b);
+  }
   if (n.t === "num") return !n.x.c && n.x.n >= 0;
   if (n.t === "name" || n.t === "str") return true;
   if (n.t === "bin" && n.op === "/") return true;
