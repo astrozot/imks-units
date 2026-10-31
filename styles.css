@@ -346,7 +346,9 @@ table.vals td[data-v]:active { background: var(--surface-2); }
 .hist-hint { color: var(--faint); font-size: 12.5px; text-align: center; padding: 4px 0 8px; }
 
 .u { color: var(--unit); margin-left: 0.28em; }
-.u i { font-style: italic; }
+.u i, .it { font-style: italic; }
+/* italic symbols, upright subscripts and powers */
+:is(.u i, .it) :is(sub, sup, .rm) { font-style: normal; }
 sup { font-size: 0.62em; line-height: 0; vertical-align: 0.55em; }
 sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .expr sup { font-size: 0.6em; vertical-align: 0.7em; }
@@ -464,7 +466,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .chip small { color: var(--faint); font-size: 12px; }
 .chip.unit { color: var(--unit); font-weight: 550; }
 .chip.conv { background: var(--accent-soft); color: var(--accent-ink); box-shadow: none; }
-.chip.var { background: var(--tab-soft); color: var(--tab-soft-text); box-shadow: none; font-style: italic; }
+.chip.var { background: var(--tab-soft); color: var(--tab-soft-text); box-shadow: none; }
 .chip:active { filter: brightness(0.92); }
 
 /* Keypad */
@@ -644,7 +646,6 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .key.eq svg { width: 26px; height: 26px; stroke-width: 2.2; }
 .fn-grid .key.const b { font-size: 17px; }
 .fn-grid .key:disabled { opacity: 0.4; }
-.fn-grid .key.span2 { grid-column: span 2; }
 .fn-grid .key.busy { animation: pulse 0.9s ease-in-out infinite alternate; }
 @keyframes pulse { to { background: var(--accent-soft); } }
 .fn-grid .key.param { background: var(--surface-3); }
@@ -896,11 +897,9 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .keypad.quotes .split.spec-only { display: grid; }
 .keypad.quotes .split.no-spec { display: none; }
 .key.unit.sys { font-size: 14px; color: var(--accent-ink); }
-.key.unit.sys.span2, .key.unit.wide, .key.unit.alone { grid-column: span 2; }
-.key.unit.sys.span3 { grid-column: span 3; }
+.key.unit.sys.span2, .key.unit.wide, .key.unit.alone.span2 { grid-column: span 2; }
 /* Euler's number: the script e of the monospaced font, as in the input */
 .euler { font-family: var(--mono); font-weight: 400; }
-.key.unit.sys.span6 { grid-column: 1 / -1; }
 .key.unit.wide, .key.unit.alone { flex-direction: column; gap: 1px; }
 .key.unit small { font-size: 10px; font-weight: 500; color: var(--muted); }
 .key.unit.alone { background: var(--accent-soft); }
@@ -1162,7 +1161,8 @@ math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
   justify-content: space-between;
   gap: 12px;
 }
-.help .ex button span { color: var(--muted); font-family: var(--font); font-size: 13px; text-align: right; }
+.help .ex button > span { color: var(--muted); font-family: var(--font); font-size: 13px; text-align: right; }
+.help .ex button > .x { color: inherit; font-family: inherit; font-size: inherit; text-align: left; white-space: pre-wrap; }
 .help .ex.names button { font-family: var(--font); font-size: 15px; }
 
 /* Context menu */

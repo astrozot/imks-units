@@ -190,6 +190,10 @@ const FN_HTML = { sqrt: "√", cbrt: "∛" };
 const UNIT_HTML = { deg: "°", arcmin: "′", arcsec: "″", ohm: "Ω", Ang: "Å" };
 const BASE_HTML = { sin2theta: "sin²θ" };
 const SUB_WORDS = { Sun: "☉", Earth: "⊕", half: "½" };
+// As in physics (and LaTeX): symbols of constants and variables are
+// italic; digits, subscripts, units, capital Greek letters and these
+// symbols are not
+const UPRIGHT_NAMES = new Set(["inf", "nan", "euler"]);
 const CHARGE = { 0: "⁰", plus: "⁺", minus: "⁻" };
 
 // One subscript component: Sun -> ☉, mu -> μ, pi0 -> π⁰, C14 -> ¹⁴C, H2O -> H₂O
@@ -247,8 +251,28 @@ function unitLabelHTML(u) {
   }).join("");
 }
 
-const constLabel = (label, expr) =>
-  prettyName(expr, { unit: false }) || (label.includes("<") ? label : esc(label));
+// A symbol in italic, but for its capital Greek letters (and, in CSS, its
+// subscripts and powers): m_e -> 𝑚ₑ, sigma_SB -> 𝜎_SB, Omega_M -> Ω_M
+const GREEK_CAPS = /[Α-Ω]/;
+function itHTML(h) {
+  return `<span class="it">${h.replace(/(<[^>]*>)|[Α-Ω]+/g, (m, tag) => tag || `<span class="rm">${m}</span>`)}</span>`;
+}
+
+// A constant or variable as a symbol, as in the formulas: italic, with
+// upright digits and subscripts; mathematical constants upright
+function symHTML(n) {
+  const h = prettyName(n, { unit: false });
+  if (UPRIGHT_NAMES.has(n)) return h || esc(n);
+  return itHTML(h || esc(n).replace(/\d+/g, '<span class="rm">$&</span>'));
+}
+
+// a key or chip for an expression: a name as a symbol, a constant from the
+// NIST table (const["…"]) by its italic label, anything else as labelled
+const constLabel = (label, expr) => {
+  if (/^[\p{L}_][\p{L}\p{N}_]*$/u.test(expr)) return symHTML(expr);
+  const h = label.includes("<") ? label : esc(label);
+  return expr.startsWith("const[") ? itHTML(h) : h;
+};
 
 // Unit tree of a result, typeset (replaces Env.treeHTML)
 function treeHTML(tree) {
@@ -260,7 +284,7 @@ function treeHTML(tree) {
       if (u[0] === '"' && u.at(-1) === '"') continue;
       if (u[0] === "'") {
         const n = env().vars.resolve ? env().vars.resolve(u.slice(1, -1)) : u.slice(1, -1);
-        base = `<i>${prettyName(n, { unit: false }) || esc(n)}</i>`;
+        base = itHTML(prettyName(n, { unit: false }) || esc(n));
       } else base = prettyName(u, { unit: true }) || esc(u);
     } else {
       base = treeHTML(u);
@@ -910,8 +934,8 @@ function renderEntry(e, i) {
   div.dataset.i = i;
   let out = "";
   if (e.kind === "value") {
-    const rid = hasResult(e) ? `<span class="rid" title="Tap to insert ans_${e.rid}">${(state.calc && prettyName(`ans_${e.rid}`, { unit: false })) || `ans_${e.rid}`}</span>` : "";
-    const name = e.name ? `<span class="name">${(state.calc && prettyName(e.name, { unit: false })) || esc(e.name)} =</span>` : "";
+    const rid = hasResult(e) ? `<span class="rid" title="Tap to insert ans_${e.rid}">${state.calc ? symHTML(`ans_${e.rid}`) : `ans_${e.rid}`}</span>` : "";
+    const name = e.name ? `<span class="name">${state.calc ? symHTML(e.name) : esc(e.name)} =</span>` : "";
     out = e.table
       ? `<div class="out tbl"><div class="tbl-head">${rid}${name}</div>${e.html}</div>`
       : `<div class="out">${rid}${name}${e.html}</div>`;
@@ -1424,10 +1448,29 @@ function backspace({ chars = state.tab === "abc" } = {}) {
 // stops only at their ends.
 const SEG_RE = /(?:\d+\.?\d*)(?:[eE][-+]?\d*)?|\^\(\s*-?\d+(?:\.\d+)?(?:\s*\/\s*\d+)?\s*\)|\^-?\d+(?:\.\d+)?(?:\/\d+)?|[\p{L}_°µΩÅ][\p{L}\p{N}_]*|'[^']*'?|"[^"]*"?|\s+|[\s\S]/gu;
 
+// Names bound in the text, and where: [name, from, to] for t in
+// plot(f(t), t, …), and the parameters of f(x, t) = … in all of it
+function boundRanges(text) {
+  const out = [];
+  const re = /([\p{L}_][\p{L}\p{N}_]*)\s*\(/gu;
+  let m;
+  while ((m = re.exec(text))) {
+    if (!BINDERS[m[1]]) continue;
+    const from = m.index + m[0].length;
+    const args = topArgs(text.slice(from));
+    const v = /^\s*([\p{L}_][\p{L}\p{N}_]*)\s*$/u.exec(args[1] || "");
+    if (v) out.push([v[1], from, from + args.join(",").length]);
+  }
+  const def = /^\s*[\p{L}_][\p{L}\p{N}_]*\s*\(([^()]*)\)\s*=(?!=)/u.exec(text);
+  if (def) for (const p of def[1].split(",")) if (p.trim()) out.push([p.trim(), 0, text.length]);
+  return out;
+}
+
 function segments(text) {
   const segs = [];
   const at = lastAt(text);
   const e = env();
+  const bound = boundRanges(text);
   const re = new RegExp(SEG_RE.source, "gu");
   let depth = 0, unitCtx = false, prev = "";
   let m;
@@ -1435,7 +1478,7 @@ function segments(text) {
     let s = m[0];
     const i = m.index;
     const inUnit = depth > 0 || (at >= 0 && i > at);
-    let cls = "", html = null, atom = null;
+    let cls = "", html = null, atom = null, it = null;
     if (i === at) { cls = "at"; unitCtx = false; }
     else if (/^[\d.]/.test(s) && s !== ".") { cls = "n"; unitCtx = true; }
     else if (s[0] === "^" && s.length > 1) {
@@ -1455,15 +1498,21 @@ function segments(text) {
       const unit = isBareUnit(s);
       if (fn) cls = "f";
       else if (inUnit) cls = "u";
-      else cls = unit && (unitCtx || !e.vars.has(s)) ? "u" : "v";
+      else cls = unit && (unitCtx || !e.vars.has(s)) && !bound.some(([n, a, b]) => n === s && i >= a && i < b) ? "u" : "v";
       unitCtx = cls === "u";
       html = prettyName(s, { fn, unit: cls === "u" });
       if (html) atom = "name";
+      if (cls === "v" && !UPRIGHT_NAMES.has(s)) {
+        if (html) html = itHTML(html);
+        else it = [i, i + s.length];
+      }
     } else if ((s[0] === "'" || s[0] === '"') && s.length > 2 && s.at(-1) === s[0]) {
+      // a variable in units: italic within its quotes
       cls = "u";
       const n = s.slice(1, -1);
       const ph = prettyName(n, { unit: false });
-      if (ph) { html = esc(s[0]) + ph + esc(s[0]); atom = "name"; }
+      if (ph) { html = esc(s[0]) + itHTML(ph) + esc(s[0]); atom = "name"; }
+      else it = [i + 1, i + s.length - 1];
     } else if (s === "[") { depth++; cls = "u"; unitCtx = false; }
     else if (s === "]") { depth = Math.max(0, depth - 1); cls = "u"; unitCtx = false; }
     else if (/^\s+$/.test(s)) { /* keep context */ }
@@ -1472,7 +1521,7 @@ function segments(text) {
     else unitCtx = false;
     if (cls) prev = cls;
     // spaces are drawn narrow; * after @ is the prefix wildcard, not ×
-    segs.push({ s: i, e: i + s.length, cls, html, atom, sp: /^\s+$/.test(s), raw: s === "*" && inUnit });
+    segs.push({ s: i, e: i + s.length, cls, html, atom, it, sp: /^\s+$/.test(s), raw: s === "*" && inUnit });
   }
   return segs;
 }
@@ -1483,8 +1532,15 @@ const showText = (s) => esc(s.replace(/[*-]/g, (c) => SHOW_CHAR[c]));
 function segHTML(t, sg, s = sg.s, e = sg.e) {
   const cls = (sg.cls ? "t-" + sg.cls : "") + (sg.atom ? " atom" : "") + (sg.sp ? " sp" : "") + (sg.rb ? " " + sg.rb : "") + (sg.br ? " " + sg.br : "");
   if (sg.atom) return `<span class="${cls}" data-s="${sg.s}" data-e="${sg.e}">${sg.html}</span>`;
-  const text = t.slice(s, e);
-  return e > s ? `<span class="${cls}" data-s="${s}">${sg.raw ? esc(text) : showText(text)}</span>` : "";
+  const span = (a, b, c) => (b > a ? `<span class="${c}" data-s="${a}">${sg.raw ? esc(t.slice(a, b)) : showText(t.slice(a, b))}</span>` : "");
+  if (!sg.it) return span(s, e, cls);
+  // italic letters, upright digits, capital Greek (and quotes): one span for each run
+  const kind = (k) => (k >= sg.it[0] && k < sg.it[1] && !/\d/.test(t[k]) && !GREEK_CAPS.test(t[k]) ? " it" : "");
+  let html = "", a = s;
+  for (let k = s + 1; k <= e; k++) {
+    if (k === e || kind(k) !== kind(a)) { html += span(a, k, cls + kind(a)); a = k; }
+  }
+  return html;
 }
 
 // Parentheses (outside atoms and strings), both optional in Settings;
@@ -2922,9 +2978,18 @@ function nameMath(name, { unit = false, fn = false } = {}) {
     const sm = /^(.*?)<sup>([^<]*)<\/sup>$/.exec(html);
     if (sm) { base = sm[1]; supTxt = sm[2]; }
   }
-  const b = plain(base);
-  const upright = unit || fn || [...b].length > 1;
-  let m = `<mi${upright ? ' mathvariant="normal"' : ""}>${xmlEsc(b)}</mi>`;
+  let b = plain(base);
+  const upright = unit || fn || UPRIGHT_NAMES.has(name) || BASE_HTML[name.split("_")[0]];
+  let m;
+  if (upright) m = `<mi mathvariant="normal">${xmlEsc(b)}</mi>`;
+  else {
+    // italic letter by letter (a single-character mi is italic, and MathML
+    // Core has no other italic), upright digits and capital Greek: v0 -> 𝑣0, mass -> 𝑚𝑎𝑠𝑠
+    b = b.replace(/ħ/g, "ℏ");
+    const runs = b.match(/\d+|\D/gu) || [""];
+    m = runs.map((r) => (/\d/.test(r) ? `<mn>${r}</mn>` : `<mi${GREEK_CAPS.test(r) ? ' mathvariant="normal"' : ""}>${xmlEsc(r)}</mi>`)).join("");
+    if (runs.length > 1) m = `<mrow>${m}</mrow>`;
+  }
   if (subTxt !== null) m = `<msub>${m}<mi mathvariant="normal">${xmlEsc(subTxt)}</mi></msub>`;
   if (supTxt !== null) m = `<msup>${m}<mn>${xmlEsc(supTxt)}</mn></msup>`;
   return m;
@@ -2996,15 +3061,27 @@ function flatRadicand(m) {
 const LP = '<mo lspace="0" rspace="0">(</mo>', RP = '<mo lspace="0" rspace="0">)</mo>';
 const PAREN = (m) => `<mrow>${LP}${m}${RP}</mrow>`;
 
+// Names bound by the calls and definitions being drawn (t in
+// plot(f(t), t, …)): variables, even when they are also units
+const BOUND = [];
+
 // node -> { m: MathML, p: precedence }  (higher binds tighter)
 function nodeMath(node) {
+  const bind = node.t === "call" && BINDERS[node.f] && node.args[1] && node.args[1].t === "name" ? [node.args[1].v]
+    : node.t === "def" ? node.params : null;
+  if (!bind) return nodeMathRaw(node);
+  BOUND.push(...bind);
+  try { return nodeMathRaw(node); } finally { BOUND.length -= bind.length; }
+}
+
+function nodeMathRaw(node) {
   const R = nodeMath;
   const wrap = (r, min) => (r.p < min ? PAREN(r.m) : r.m);
   switch (node.t) {
     case "num": return numMath(node.x);
     case "name": {
       // a name that is only a unit is drawn as one
-      const unit = !env().vars.has(node.v) && !["pi", "tau", "inf", "ans"].includes(node.v) && isBareUnit(node.v);
+      const unit = !BOUND.includes(node.v) && !env().vars.has(node.v) && !["pi", "tau", "inf", "ans"].includes(node.v) && isBareUnit(node.v);
       return { m: unit ? `<mrow class="mu">${nameMath(node.v, { unit: true })}</mrow>` : nameMath(node.v), p: 9 };
     }
     case "str": return { m: `<mrow><mo>‘</mo>${nameMath(node.v)}<mo>’</mo></mrow>`, p: 9 };
@@ -3848,14 +3925,14 @@ function computeSuggestions() {
   } else if (/\^\s*$/.test(b)) {
     // an exponent
     const vars = contextVariables(b, text).filter((v) => v !== "inf");
-    html = vars.map((v) => chipHTML(prettyName(v, { unit: false }) || esc(v), `data-const="${esc(v)}"`, "chip var", "", true)).join("") +
+    html = vars.map((v) => chipHTML(symHTML(v), `data-const="${esc(v)}"`, "chip var", "", true)).join("") +
       [["2", "2"], ["3", "3"], ["−1", "-1"], ["½", "(1/2)"], ["−2", "-2"], ["⅓", "(1/3)"]]
         .map(([l, x]) => chipHTML(l, `data-complete="${esc(x)}" data-len="0"`)).join("");
   } else if ((ctx === "bare" && /[\d.]\s*$/.test(b)) || (ctx === "inside" && /[[\s/(*]$/.test(b))) {
     // a number (or an open unit bracket): units, angles first inside trig functions
     const angles = /\b(sin|cos|tan)\(\s*[^()]*$/.test(b) ? ["deg", "rad", "arcmin", "arcsec"] : [];
     const vars = ctx === "bare" ? contextVariables(b, text).filter((v) => v !== "inf") : [];
-    html = vars.map((v) => chipHTML(prettyName(v, { unit: false }) || esc(v), `data-const="${esc(v)}"`, "chip var", "", true)).join("") +
+    html = vars.map((v) => chipHTML(symHTML(v), `data-const="${esc(v)}"`, "chip var", "", true)).join("") +
       dedupe([...angles, ...recentNames("u", 8), ...SI_SUGGEST]).slice(0, 26).map(unitChip).join("");
   } else if (!text.trim() || /(^|[-+*/(,=|~±])\s*$/.test(b)) {
     // start of an operand: last result, your names, common constants and functions
@@ -3947,8 +4024,8 @@ function contextVariables(b, text) {
 function operandChips(b) {
   const e = env();
   const chips = contextVariables(b, state.text).map((v) =>
-    chipHTML(v === "inf" ? "∞" : prettyName(v, { unit: false }) || esc(v), `data-const="${esc(v)}"`, "chip var", "", true));
-  if (lastValue()) chips.push(chipHTML("ans", 'data-const="ans"'));
+    chipHTML(symHTML(v), `data-const="${esc(v)}"`, "chip var", "", true));
+  if (lastValue()) chips.push(chipHTML(symHTML("ans"), 'data-const="ans"', "chip", "", true));
   const mine = [...e.vars.keys()].filter((k) => k !== "ans" && !state.calc.systemNames.has(k) && !(e.vars.get(k) || {}).fn);
   const names = dedupe([...recentNames("v", 6), ...mine.slice(-4), ...OPERAND_DEFAULTS]).slice(0, 16);
   for (const n of names) {
@@ -4099,7 +4176,7 @@ const FN_SECTIONS = [
     { fn: "moonrise", desc: "t, place" }, { fn: "moonset", desc: "t, place" }, { fn: "moon", desc: "Alt, az" }, { fn: "phase", desc: "Lit, age" },
     { fn: "newmoon", desc: "Next after t" }, { fn: "firstquarter", label: "1st quarter", desc: "Next after t" }, { fn: "fullmoon", desc: "Next after t" }, { fn: "lastquarter", label: "last quarter", desc: "Next after t" },
     { fn: "equinox", desc: "Year" }, { fn: "solstice", desc: "Year" }, { fn: "lst", desc: "Sidereal time" }, { fn: "date", desc: "y, m, d, h, min" },
-    { key: "now", label: "now", desc: "Date and time" }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon", span: 2 },
+    { key: "now", label: "now", desc: "Date and time" }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "u:JD", label: "JD", desc: "Julian day" },
   ]],
   ["Sensors", 4, 3, [
     { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "sensor:lat", label: "lat", desc: "Latitude" }, { key: "sensor:lon", label: "lon", desc: "Longitude" }, { key: "sensor:alt", label: "alt", desc: "Altitude" },
@@ -4265,7 +4342,7 @@ function keyHTML([label, cls = "", action, long, second, secondLong]) {
   // the long press is written at the top right; in the label, what 2nd
   // adds is in {braces}, and in the 2nd label what it drops
   // names (constants) are written as everywhere else, m_e as mₑ
-  const altText = long && ((/^n:\w+$/.test(long[1]) && prettyName(long[1].slice(2), { unit: false })) || esc(long[0]));
+  const altText = long && ((/^n:\w+$/.test(long[1]) && symHTML(long[1].slice(2))) || esc(long[0]));
   // exponents (−1, −x, 2, 3) smaller, small signs (, ~) larger; an empty label
   // is not written
   const altCls = long && (/^[,~]$/.test(long[0]) ? " big" : /^(−1|−x|2|3)$/.test(long[0]) ? " exp" : "");
@@ -4440,34 +4517,31 @@ function renderUnitGrid() {
   };
   const inSpec = lastAt(before()) >= 0 && bracketDepth(before()) === 0;
   const alone = state.prefix && inSpec
-    ? `<button class="key unit alone" data-unit="${esc(state.prefix)}"><span>${esc(state.prefix)}</span><small>${state.prefix === "*" ? "any prefix" : "prefix only"}</small></button>`
+    ? `<button class="key unit alone" data-unit="${esc(state.prefix)}"><span>${esc(state.prefix)}</span><small>${state.prefix === "*" ? "any" : "only"}</small></button>`
     : "";
   if (state.unitCat === "Systems") {
     const p = state.prefix;
     const sys = (name, doc) => {
       const ok = !p || p === "*";
       const n = p === "*" ? "*" + name : name;
-      return `<button class="key unit sys${n.length > 5 ? " span2" : ""}${ok ? "" : " off"}" data-sys="${esc(n)}"${ok ? "" : " disabled"} title="${esc(doc || "")}"><span>${esc(n)}</span></button>`;
+      return `<button class="key unit sys span2${ok ? "" : " off"}" data-sys="${esc(n)}"${ok ? "" : " disabled"} title="${esc(doc || "")}"><span>${esc(n)}</span></button>`;
     };
-    const fmt = (name, doc) => `<button class="key unit sys${name.length > 5 ? " span2" : ""}${p ? " off" : ""}" data-sys="${esc(name)}"${p ? " disabled" : ""} title="${esc(doc || "")}"><span>${esc(name)}</span></button>`;
-    grid.innerHTML = alone + `<div class="ghead">Unit systems</div>${[...e.systems].map(([k, v]) => sys(k, v.doc)).join("")}` +
-      `<div class="ghead">Formats</div>${[...e.formats].filter(([k]) => !DATE_FORMATS.has(k)).map(([k, v]) => fmt(k, v.doc)).join("")}` +
-      `<div class="ghead">Variables in units</div>` +
+    // keys of the same width, three a row
+    const fmt = (name, doc) => `<button class="key unit sys span2${p ? " off" : ""}" data-sys="${esc(name)}"${p ? " disabled" : ""} title="${esc(doc || "")}"><span>${esc(name)}</span></button>`;
+    grid.innerHTML = alone.replace("key unit alone", "key unit alone span2") + `<div class="ghead">Unit systems</div>${[...e.systems].map(([k, v]) => sys(k, v.doc)).join("")}` +
+      `<div class="ghead">Formats and variables in units</div>${[...e.formats].filter(([k]) => !DATE_FORMATS.has(k)).map(([k, v]) => fmt(k, v.doc)).join("")}` +
       `<button class="key unit sys wide" data-key="q1"><span>'c'</span><small>keep</small></button>` +
       `<button class="key unit sys wide" data-key="q2"><span>"c"</span><small>remove</small></button>`;
     return;
   }
   if (state.unitCat === "Dates") {
-    // targets for dates: formats, day counts (units) and calendars, with
-    // the wide keys chosen to fill the rows of six
-    const key = (name, doc, span = "") => `<button class="key unit sys${span ? " " + span : ""}" data-sys="${esc(name)}" title="${esc(doc || "")}"><span>${esc(name)}</span></button>`;
+    // targets for dates: formats, day counts (units, and the Mayan Long
+    // Count) and calendars, three keys of the same width a row, all full
+    const key = (name, doc) => `<button class="key unit sys span2" data-sys="${esc(name)}" title="${esc(doc || "")}"><span>${esc(name)}</span></button>`;
     const fdoc = (k) => e.formats.get(k)?.doc;
-    // three calendars a row; the last row filled by wider keys
-    const left = CALENDAR_ORDER.length % 3;
-    const span = (i) => (i < CALENDAR_ORDER.length - left ? "span2" : left === 1 ? "span6" : "span3");
-    grid.innerHTML = `<div class="ghead">Dates</div>${["date", "UTC", "dow", "doy", "week"].map((k) => key(k, fdoc(k), k === "date" ? "span2" : "")).join("")}` +
-      `<div class="ghead">Day counts</div>${["JD", "MJD", "unix"].filter(has).map((k) => key(k, firstLine(e.units.get(k)?.doc || ""), "span2")).join("")}` +
-      `<div class="ghead">Calendars</div>${CALENDAR_ORDER.map((k, i) => key(k, fdoc(k), span(i))).join("")}`;
+    const counts = ["JD", "MJD", "unix"].filter(has).map((k) => key(k, firstLine(e.units.get(k)?.doc || "")));
+    grid.innerHTML = `<div class="ghead">Dates and day counts</div>${["date", "UTC", "dow", "doy", "week"].map((k) => key(k, fdoc(k))).join("")}${counts.join("")}${key("mayan", fdoc("mayan"))}` +
+      `<div class="ghead">Calendars</div>${CALENDAR_ORDER.filter((k) => k !== "mayan").map((k) => key(k, fdoc(k))).join("")}`;
     return;
   }
   if (state.unitCat === "SI") {
@@ -4525,8 +4599,8 @@ function renderFnGrid() {
   const subs = (s) => esc(s).replace(/([A-Za-zθσ])_([A-Za-z]+)/g, "$1<sub>$2</sub>");
   const described = (k) => {
     if (k.engine) return `<button class="key const model" data-key="mctoggle"><b>${state.settings.mc ? "MC" : "Linear"}</b><small>${state.settings.mc ? `${(state.settings.mcN || 5000).toLocaleString("en")} samples` : "Tap for Monte Carlo"}</small></button>`;
-    if (k.key) return `<button class="key const${k.label.length > 8 ? " long" : ""}${k.span ? " span2" : ""}" data-key="${esc(k.key)}"${k.key.startsWith("sensor:") && !sensorAvailable(k.key.slice(7)) ? " disabled" : ""}><b>${esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
-    if (k.name) return `<button class="key const" data-const="${esc(k.name)}"><b>${k.label ? esc(k.label) : prettyName(k.name, { unit: false }) || esc(k.name)}</b><small>${esc(k.desc)}</small></button>`;
+    if (k.key) return `<button class="key const${k.label.length > 8 ? " long" : ""}" data-key="${esc(k.key)}"${k.key.startsWith("sensor:") && !sensorAvailable(k.key.slice(7)) ? " disabled" : ""}><b>${/^n:\w+$/.test(k.key) ? symHTML(k.key.slice(2)) : esc(k.label)}</b><small>${esc(k.desc)}</small></button>`;
+    if (k.name) return `<button class="key const" data-const="${esc(k.name)}"><b>${k.label ? esc(k.label) : symHTML(k.name)}</b><small>${esc(k.desc)}</small></button>`;
     const label = k.label ? esc(k.label) : prettyName(k.fn, { fn: true }) || esc(k.fn);
     const long = k.label && k.label.length > 8 ? " long" : "";
     return `<button class="key const${long}" data-key="f:${esc(k.fn)}("><b>${label}</b><small>${subs(k.desc)}</small></button>`;
@@ -4782,8 +4856,8 @@ function renderConstGrid() {
     grid.innerHTML = pk.props().map((p) => {
       const name = `${p.k}_${item}`;
       const v = valueHTML(name, (n0) => pk.unitFor(p, item, n0), p.digits);
-      if (v === null) return `<button class="key const body-prop off" disabled><b>${p.sym}</b><small>—</small></button>`;
-      return `<button class="key const body-prop" data-const="${esc(name)}"><b>${p.sym}</b><small>${v}</small></button>`;
+      if (v === null) return `<button class="key const body-prop off" disabled><b>${itHTML(p.sym)}</b><small>—</small></button>`;
+      return `<button class="key const body-prop" data-const="${esc(name)}"><b>${itHTML(p.sym)}</b><small>${v}</small></button>`;
     }).join("");
     const active = pickEl.querySelector(`[data-pick="${CSS.escape(item)}"]`);
     if (active) {
@@ -4807,7 +4881,7 @@ function renderConstGrid() {
         const name = `${k}_${sel}`;
         if (!e.vars.has(name)) return "";
         const v = valueHTML(name, () => (u === "J/(mol K)" ? "J/mol/K" : u));
-        const sym = prettyName(k, { unit: false }) || esc(k);
+        const sym = symHTML(k);
         return `<button class="key const" data-const="${esc(name)}"><b>${sym}</b><small>${v}</small></button>`;
       }).join("");
       grid.innerHTML = `<button class="key const back" data-chem=""><b>‹</b><small>All</small></button>` +
@@ -4823,7 +4897,7 @@ function renderConstGrid() {
   }
   if (spec === "cosmo") {
     grid.innerHTML = COSMO_KEYS.map(([x, unit, desc]) => {
-      const label = x === "age(0)" ? "age" : prettyName(x, { unit: false }) || esc(x);
+      const label = x === "age(0)" ? "age" : symHTML(x);
       return `<button class="key const cosmo" data-const="${esc(x)}" title="${esc(desc)}"><b>${label}</b><small>${cosmoValueHTML(x, unit)}</small></button>`;
     }).join("");
     return;
@@ -4903,6 +4977,7 @@ function updatePredictions() {
     const c = list[i];
     if (!c) return '<div class="pred empty"></div>';
     const label = c.kind === "unit" ? unitLabelHTML(c.name)
+      : c.kind === "variable" && c.name !== "const" ? symHTML(c.name)
       : prettyName(c.name, { fn: c.kind === "function", unit: false }) || esc(c.name);
     return `<button class="pred" data-complete="${esc(c.insertText)}" data-len="${word.length}"><b>${label}${c.kind === "function" ? "(" : ""}</b><small>${esc(predictionDoc(c))}</small></button>`;
   }).join("");
@@ -5903,17 +5978,17 @@ function renderSettings(root) {
     <div class="group" id="cosmo-group">
       <div class="row"><div class="lbl">Default model<small>Used by the cosmology and lensing functions</small></div>
         <select id="set-cosmo">${Object.entries(COSMO_PRESETS).map(([k, v]) => `<option value="${k}" ${k === (s.cosmo?.preset || "concordance") ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
-      <div class="row"><div class="lbl">H<sub>0</sub><small>km/s/Mpc</small></div><input type="text" inputmode="decimal" class="num" data-cp="H0"></div>
+      <div class="row"><div class="lbl"><span class="it">H<sub>0</sub></span><small>km/s/Mpc</small></div><input type="text" inputmode="decimal" class="num" data-cp="H0"></div>
       <div class="row"><div class="lbl">Ω<sub>M</sub><small>Matter density</small></div><input type="text" inputmode="decimal" class="num" data-cp="Om"></div>
       <div class="row"><div class="lbl">Ω<sub>b</sub><small>Baryon density</small></div><input type="text" inputmode="decimal" class="num" data-cp="Ob"></div>
       <div class="row"><div class="lbl">Ω<sub>R</sub><small>Radiation density</small></div><input type="text" inputmode="decimal" class="num" data-cp="OR"></div>
       <div class="row"><div class="lbl">Flat<small>Ω<sub>Λ</sub> = 1 − Ω<sub>M</sub> − Ω<sub>R</sub></small></div><input type="checkbox" class="switch" id="set-flat"></div>
       <div class="row"><div class="lbl">Ω<sub>Λ</sub><small>Cosmological constant</small></div><input type="text" inputmode="decimal" class="num" data-cp="OL"></div>
-      <div class="row"><div class="lbl">Parameter uncertainties<small>Correlated errors on H<sub>0</sub>, Ω<sub>M</sub>, Ω<sub>b</sub> (and Ω<sub>K</sub>) in all cosmology and lensing results</small></div><input type="checkbox" class="switch" id="set-cerr"></div>
+      <div class="row"><div class="lbl">Parameter uncertainties<small>Correlated errors on <span class="it">H<sub>0</sub></span>, Ω<sub>M</sub>, Ω<sub>b</sub> (and Ω<sub>K</sub>) in all cosmology and lensing results</small></div><input type="checkbox" class="switch" id="set-cerr"></div>
       <div class="row cinfo"><div class="lbl" id="cosmo-covinfo"></div></div>
-      <div class="row cerr"><div class="lbl">σ(H<sub>0</sub>)<small>km/s/Mpc</small></div><input type="text" inputmode="decimal" class="num" data-cp="sH0"></div>
-      <div class="row cerr"><div class="lbl">σ(Ω<sub>M</sub>)</div><input type="text" inputmode="decimal" class="num" data-cp="sOm"></div>
-      <div class="row cerr"><div class="lbl">Correlation ρ(H<sub>0</sub>, Ω<sub>M</sub>)<small>Between −1 and 1</small></div><input type="text" inputmode="decimal" class="num" data-cp="rho"></div>
+      <div class="row cerr"><div class="lbl"><span class="it">σ</span>(<span class="it">H<sub>0</sub></span>)<small>km/s/Mpc</small></div><input type="text" inputmode="decimal" class="num" data-cp="sH0"></div>
+      <div class="row cerr"><div class="lbl"><span class="it">σ</span>(Ω<sub>M</sub>)</div><input type="text" inputmode="decimal" class="num" data-cp="sOm"></div>
+      <div class="row cerr"><div class="lbl">Correlation <span class="it">ρ</span>(<span class="it">H<sub>0</sub></span>, Ω<sub>M</sub>)<small>Between −1 and 1</small></div><input type="text" inputmode="decimal" class="num" data-cp="rho"></div>
     </div>
 
     <div class="group-title">Exchange rates</div>
@@ -6076,13 +6151,13 @@ function setupCosmoSettings(root, save) {
     const info = root.querySelector(".row.cinfo");
     info.hidden = !c.errors || !c.cov;
     if (c.cov) {
-      const lab = { H0: "H<sub>0</sub>", Om: "Ω<sub>M</sub>", Ob: "Ω<sub>b</sub>", Ok: "Ω<sub>K</sub>" };
+      const lab = { H0: itHTML("H<sub>0</sub>"), Om: itHTML("Ω<sub>M</sub>"), Ob: itHTML("Ω<sub>b</sub>"), Ok: itHTML("Ω<sub>K</sub>") };
       const P = c.cov.params, M = c.cov.m;
       const sd = P.map((_, i) => Math.sqrt(M[i][i]));
       const fmt = (x) => String(Number(x.toPrecision(2)));
-      const sig = P.map((p, i) => `σ(${lab[p]}) = ${fmt(sd[i])}`).join(", ");
+      const sig = P.map((p, i) => `<span class="it">σ</span>(${lab[p]}) = ${fmt(sd[i])}`).join(", ");
       const cor = [];
-      for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) cor.push(`ρ(${lab[P[i]]}, ${lab[P[j]]}) = ${(M[i][j] / (sd[i] * sd[j])).toFixed(3)}`);
+      for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) cor.push(`<span class="it">ρ</span>(${lab[P[i]]}, ${lab[P[j]]}) = ${(M[i][j] / (sd[i] * sd[j])).toFixed(3)}`);
       $("#cosmo-covinfo", root).innerHTML = `Full covariance of the preset<small>${sig}<br>${cor.join(", ")}</small>`;
     }
     if (c.Ok && !c.flat) $('[data-cp="OL"]', root).disabled = true;
@@ -6335,7 +6410,7 @@ function renderHelp(root) {
   root.innerHTML = `<div class="help">
     <p>An imks-style calculator: every number can carry units, results are checked for consistency, and the <b>@</b> operator converts. The bar above the keypad offers units and conversions as you type.</p>
     ${HELP.map(([title, text, ex]) => `<h3>${esc(title)}</h3><p>${esc(text)}</p>
-      <div class="ex">${ex.map(([x, note]) => `<button data-ex="${esc(x)}">${esc(x)}<span>${esc(note)}</span></button>`).join("")}</div>`).join("")}
+      <div class="ex">${ex.map(([x, note]) => `<button data-ex="${esc(x)}"><span class="x">${exprHTML(x)}</span><span>${esc(note)}</span></button>`).join("")}</div>`).join("")}
     <h3>Keypad tips</h3>
     <p>Tap a result to insert it as ans_n (the n-th result; the last one is also ans), tap an expression to edit it, and long-press an entry for more options, such as inserting the value itself. Clearing the results numbers them again from ans_1. Tap inside the expression to move the cursor; long-press it to paste. Swipe left or right on it to change keypad page.</p>
     <p>On the <b>123</b> page, long-press a key for what is written in grey: its inverse (sin⁻¹ is asin, eˣ for log, the square for √), or more, such as n! on xʸ, ×10⁻ˣ on ×10ˣ, ° on π, mod (the remainder, 7 mod 3 = 1) on ÷, ± on +, x on ×, ~ (absolute ↔ relative, for temperatures) on −, the comma on the point, AC (clear) on ⌫, sgn on |x|, and = (assignment) on ⏎; hold ◀ or ▶ to jump to the start or the end, or slide on them to move. <b>2nd</b> adds what is written in orange: sinh, log₁₀, ∛, x^(1/y), ⌊x⌋, e (and x⁻¹ on a long press of π), for one key; long-press it to keep it on. Settings can also put constants on a long press of the digits (c on 7, G on 8…), and more after 2nd (σ_SB on 7, ε₀ on 8…).</p>
