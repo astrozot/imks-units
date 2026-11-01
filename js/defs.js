@@ -145,6 +145,7 @@ const STARTUP = String.raw`
 %newunit °=deg=pi/180             # "Degree"
 %newunit arcmin=1[deg]/60         # "Arcminute"
 %newunit arcsec=1[arcmin]/60      # "Arcsecond"
+%newunit hourangle=15[deg]        # "Hour angle, the hour of right ascension"
 
 # Physical constants
 %newunit u=const["atomic mass unit-kilogram relationship"] # "amu\n\nAtomic mass unit"
@@ -248,15 +249,23 @@ function addFormats(env) {
     }
     return q.relative().x.n;
   };
+  // h, m, s (or °, ′, ″) of x, in seconds; with an error, the seconds to
+  // its precision and the error after them, as 9h 27m 17.394s ± 0.028s
+  const sexagesimal = (x, err, [a, b, c]) => {
+    const sgn = x < 0 ? "-" : "";
+    const show = err > 0 && env.showErrors !== false;
+    const dec = show ? Math.min(6, Math.max(0, 1 - Math.floor(Math.log10(err)))) : 3;
+    let v = Math.abs(x);
+    v = show ? Math.round(v * 10 ** dec) / 10 ** dec : v + 0.0005;
+    const h = Math.floor(v / 3600), m = Math.floor((v - h * 3600) / 60), r = v - h * 3600 - m * 60;
+    const sec = show ? r.toFixed(dec) : gfmt(Math.floor(r * 1000) / 1000);
+    return `${sgn}${h}${a} ${m}${b} ${sec}${c}` + (show ? ` ± ${err.toFixed(dec)}${c}` : "");
+  };
   env.formats.set("hms", {
-    doc: "A format for strings like 12h 30m 25.2s",
+    doc: "A format for strings like 12h 30m 25.2s; angles in hours of 15°, as right ascensions",
     fn: (q) => {
-      const t = time(q);
-      const sgn = t < 0 ? "-" : "";
-      let x = (Math.abs(t) + 0.0005) / hour;
-      const h = Math.floor(x); x = (x - h) * 60;
-      const m = Math.floor(x); x = (x - m) * 60;
-      return `${sgn}${h}h ${m}m ${gfmt(Math.floor(x * 1000) / 1000)}s`;
+      const k = q.pure ? 12 / Math.PI * hour : 1;
+      return sexagesimal((q.pure ? q.x.n : time(q)) * k, q.x.std * k, ["h", "m", "s"]);
     },
   });
   env.formats.set("dhms", {
@@ -275,12 +284,8 @@ function addFormats(env) {
     doc: "A format for angles like 12° 30' 25.2\"",
     fn: (q) => {
       if (!q.pure) throw new UnitError("Not an angle");
-      const a = q.x.n;
-      const sgn = a < 0 ? "-" : "";
-      let x = (Math.abs(a) + 0.0005 * Math.PI / 180 / 3600) * 180 / Math.PI;
-      const d = Math.floor(x); x = (x - d) * 60;
-      const m = Math.floor(x); x = (x - m) * 60;
-      return `${sgn}${d}° ${m}' ${gfmt(Math.floor(x * 1000) / 1000)}"`;
+      const k = 180 / Math.PI * 3600;
+      return sexagesimal(q.x.n * k, q.x.std * k, ["°", "'", '"']);
     },
   });
   env.formats.set("frac", {

@@ -86,8 +86,17 @@ try {
   expect(await run(" @ h"), /^\d+(\.\d+)?\s*h$/, "now - today");
   await clear();
 
+  // a body and a function from the Planets keys
+  await fn("Planets");
+  await page.click('#fn-grid [data-key="f:mag("]');
+  await page.click('#fn-grid [data-key=\'"Saturn"\']');
+  await page.keyboard.type(", 2026.11.01)");
+  expect(await line(), 'mag("Saturn", 2026.11.01)', "the Planets keys");
+  expect(await run(""), /^0\.4\d+±0\.030$/, "mag of Saturn");
+  await clear();
+
   // no key label wraps at 360 px
-  for (const section of ["Calendars", "Sky", "Sensors", "Math"]) {
+  for (const section of ["Calendars", "Sky", "Planets", "Coords", "Sensors", "Math"]) {
     await fn(section);
     const wrapped = await page.$$eval("#fn-grid .key b", (bs) => bs.filter((b) => b.offsetHeight > 30).map((b) => b.textContent));
     check(!wrapped.length, `labels wrap in ƒ(x) → ${section}: ${wrapped.join(", ")}`);

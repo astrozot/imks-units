@@ -343,6 +343,15 @@ table.vals th .h { display: block; color: var(--text); font-family: var(--mono);
 table.vals th .u { display: block; color: var(--unit); }
 table.vals .ix { position: sticky; left: 0; background: var(--surface-2); color: var(--muted); font-size: 12px; padding: 5px 6px; text-align: center; }
 table.vals th.ix { z-index: 2; }
+table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); white-space: normal; min-width: 5.5em; max-width: 7em; }
+.sky-svg { display: block; width: 100%; max-width: 420px; margin: 0 auto 6px; }
+.sky-planet { fill: var(--unit); }
+.sky-ring { fill: none; stroke: var(--unit); stroke-width: 1.5; opacity: 0.7; }
+.sky-moon { fill: var(--text); }
+.sky-moon.off { fill: none; stroke: var(--muted); stroke-width: 1; }
+.sky-label { fill: var(--muted); font-size: 10px; font-family: var(--mono); }
+.sky-cap { margin: 0 0 6px; font-size: 11px; color: var(--muted); text-align: center; }
+table.vals.named th, table.vals.named td { padding: 5px 6px; }
 table.vals td[data-v] { cursor: pointer; }
 table.vals td[data-v]:active { background: var(--surface-2); }
 .entry .tbl-more { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
@@ -645,6 +654,7 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 .key .bar { display: inline-block; position: relative; width: 0.09em; height: 1em; margin: 0 0.16em; vertical-align: -0.17em; background: currentColor; }
 .key .bar::after { content: ""; position: absolute; left: 0; bottom: 0; width: 0.32em; height: 0.09em; background: currentColor; }
 .key .bar.r::after { left: auto; right: 0; }
+.key .bar.top::after { bottom: auto; top: 0; }
 .key .bar.k2 { background: currentColor; color: inherit; opacity: 1; }
 .key .bar.k2::after { background: var(--second-ink); }
 /* with 2nd on, the key keeps its label, all in orange but what 2nd drops */

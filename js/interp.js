@@ -4,7 +4,7 @@
 import { UNum, ufuncs, atan2, formatUNum, newSourceId, MC, sourceMark, sourceReset } from "./unum.js";
 import { Env, Q, UnitError, dimAdd, dimEq, dimScale, dimIsZero, symbolSource } from "./units.js";
 import { dateLiterals, dateBuiltins, now, today } from "./dates.js";
-import { SKY_FNS, skyBuiltins } from "./sky.js";
+import { SKY_FNS, BODY_FNS, COORD_FNS, skyBuiltins } from "./sky.js";
 
 class CalcError extends Error {
   constructor(msg) {
@@ -528,6 +528,28 @@ const functionDocs = {
   equinox: "The equinoxes of a year, (March, September): equinox(2027); years −1000 to 3000, to a minute today, less precise far from it (ΔT)",
   solstice: "The solstices of a year, (June, December): solstice(2027); years −1000 to 3000, to a minute today, less precise far from it (ΔT)",
   lst: "Local sidereal time: lst(t, longitude), or lst(t, (latitude, longitude))",
+  altaz: "Altitude and azimuth of a body seen from a place, (alt, az) without refraction: altaz(\"Mars\", t, (latitude, longitude)); the bodies are the Sun, the Moon and the planets, Mercury to Neptune",
+  radec: "Apparent right ascension (in hours) and declination of a body, of the date: radec(\"Mars\", t), geocentric, or radec(\"Mars\", t, (latitude, longitude)) seen from a place",
+  ecl: "Apparent geocentric ecliptic longitude and latitude of a body, of the date: ecl(\"Mars\", t)",
+  mag: "Visual magnitude of a body: mag(\"Venus\", t); the planets after Mallama and Hilton (2018), Saturn with its rings",
+  illum: "Illuminated fraction of the disk of a body and its phase angle (Sun–body–Earth): illum(\"Venus\", t)",
+  elong: "Elongation of a body, its angle from the Sun, positive to the east (evening sky), negative to the west (morning sky): elong(\"Venus\", t)",
+  diam: "Apparent equatorial diameter of a body: diam(\"Jupiter\", t), or diam(\"Moon\", t, (latitude, longitude)) seen from a place (the Sun and the Moon in arcmin, the planets in arcsec)",
+  rising: "The next rising of a body after t: rising(\"Mars\", t, (latitude, longitude)); a fourth argument gives the altitude, −34′ by default",
+  setting: "The next setting of a body after t: setting(\"Mars\", t, (latitude, longitude)); a fourth argument gives the altitude, −34′ by default",
+  transit: "The next passage of a body on the meridian (upper transit) after t: transit(\"Mars\", t, (latitude, longitude))",
+  moons: "The major moons of a planet seen from the Earth: moons(\"Jupiter\", t), a table of their offsets from the planet to the east and to the north, with a sketch (north up, east left) and what they are doing (transit, occulted, eclipsed, shadow on the planet); Mars, Jupiter, Saturn, Uranus and Neptune",
+  eq2hor: "From equatorial to horizontal coordinates, (ra, dec) to (alt, az): eq2hor((ra, dec), t, (latitude, longitude)); ra also as a time, 5h 34m 32s",
+  hor2eq: "From horizontal to equatorial coordinates, (alt, az) to (ra, dec): hor2eq((alt, az), t, (latitude, longitude))",
+  eq2ecl: "From equatorial to ecliptic coordinates, (ra, dec) to (lon, lat): eq2ecl((ra, dec), t) with the true obliquity of the date t, eq2ecl((ra, dec)) with the mean one of J2000",
+  ecl2eq: "From ecliptic to equatorial coordinates, (lon, lat) to (ra, dec): ecl2eq((lon, lat), t) with the true obliquity of the date t, ecl2eq((lon, lat)) with the mean one of J2000",
+  eq2gal: "From equatorial coordinates of J2000 to galactic ones, (ra, dec) to (l, b): eq2gal((ra, dec))",
+  gal2eq: "From galactic coordinates to equatorial ones of J2000, (l, b) to (ra, dec): gal2eq((l, b))",
+  precess: "Precession of a mean place between two epochs, dates or years: precess((ra, dec), 2000, today)",
+  sep: "Angular distance between two points of the sky: sep((ra1, dec1), (ra2, dec2)), or (lon, lat) pairs",
+  pa: "Position angle of a point from another, from the north through the east: pa((ra1, dec1), (ra2, dec2))",
+  refract: "Atmospheric refraction at a true altitude, to add to it (Sæmundsson): refract(alt), or refract(alt, pressure, temperature), 101 kPa and 10 °C if left out",
+  dist: "Distance of a body from the Earth's center, in au (the Moon in km): dist(\"Mars\", t), or dist(\"Mars\", t, (latitude, longitude)) from a place",
   holiday: "A holiday in a Gregorian year: holiday(\"Passover\", 2027); Christian, Jewish, Islamic, Chinese, Nowruz, Enkutatash (an unknown name lists them); an Islamic one can come twice in a year: the first",
   ymd: "The year, month and day of a date, as a list: ymd(2026.10.30) is (2026, 10, 30), and ymd(today).1 the year; ymd(t, \"hebrew\") in another calendar (julian, hebrew, islamic, umalqura, persian, coptic, ethiopic, french, saka, mayan), with days from midnight",
   easter: "Easter Sunday of a year (Gregorian calendar): easter(2027)",
@@ -573,9 +595,9 @@ const isCalculus = (node) => CALCULUS.has(node.f) &&
 const SENSOR_VARS = { here: "here", lat: "lat", lon: "lon", alt: "alt", speed: "speed", g_local: "g", accel: "accel", tilt: "tilt", heading: "heading", pitch: "pitch" };
 
 // functions that take a string argument
-const STRING_FNS = new Set(["japanese", "holiday", "ymd"]);
+const STRING_FNS = new Set(["japanese", "holiday", "ymd", ...BODY_FNS]);
 
-const LIST_FNS = new Set(["sum", "mean", "len", "item", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle", ...SKY_FNS]);
+const LIST_FNS = new Set(["sum", "mean", "len", "item", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle", ...SKY_FNS, ...COORD_FNS]);
 
 // the element i of the list v, from 1, or from the end for i < 0
 function element(env, v, i, name = "v.n") {

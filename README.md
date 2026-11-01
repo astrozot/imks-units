@@ -19,9 +19,18 @@ as the service worker serves the cached copy first).
 ## Checks
 
 `node tests/run.mjs` checks dates and time zones, the calendars (against
-the calendars of `Intl` where it has them), the holidays, and the Sun and
-the Moon (against times from PyEphem). It needs no packages and takes a
-few seconds.
+the calendars of `Intl` where it has them), the holidays, and the Sun, the
+Moon and the planets (against times from PyEphem and positions from JPL
+Horizons). It needs no packages and takes a few seconds.
+
+`js/vsop87.js` holds the VSOP87D series of the planets, truncated to about
+1″: `node tools/vsop87.mjs <dir> 1` writes it from the files `VSOP87D.mer`
+… `VSOP87D.nep` of ftp.imcce.fr/pub/ephem/planets/vsop87/ in `<dir>`.
+
+`js/moons.js` holds series for the major moons of Mars, Jupiter, Saturn,
+Uranus and Neptune: `node tools/moons.mjs <dir>` fetches their positions
+from JPL Horizons into `<dir>` (once) and fits the series, in about a
+quarter of an hour.
 
 `node tests/browser.mjs` checks the app in Chromium at phone size, with
 simulated sensors (position, motion, compass, microphone). It needs

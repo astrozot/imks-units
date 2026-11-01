@@ -124,7 +124,7 @@ const CATEGORIES = [
   ["Force", ["N", "kN", "dyn", "lbf", "kgf"]],
   ["Electric", ["A", "mA", "V", "mV", "kV", "Ω", "kΩ", "MΩ", "C", "F", "µF", "nF", "pF", "H", "S", "T", "Gs", "Wb"]],
   ["Freq.", ["Hz", "kHz", "MHz", "GHz", "rpm", "Bq", "Ci"]],
-  ["Angle", ["rad", "deg", "arcmin", "arcsec", "sr"]],
+  ["Angle", ["rad", "deg", "arcmin", "arcsec", "hourangle", "sr"]],
   ["Light", ["cd", "lm", "lx"]],
   ["Amount", ["mol", "mmol"]],
   ["Money", ["EUR", "USD", "GBP", "CHF", "JPY", "CNY", "CAD", "AUD", "SEK", "NOK", "DKK", "PLN", "CZK", "INR", "BRL", "BTC"]],
@@ -561,15 +561,18 @@ function tableOf(v, src) {
   const n = Math.max(...cols.map((c) => c.length));
   const fmts = cols.map(columnFormat);
   const parts = cols.length === 2 && /^\s*(?:[\p{L}_][\p{L}\p{N}_]*\s*=(?!=)\s*)?polyroots\s*\(/u.test(splitComment(src || "").code) ? ["Re", "Im"] : tupleParts(src);
-  const heads = cols.length > 1 && parts && parts.length === cols.length ? parts.map(headText) : cols.map(() => "");
+  // a table can name its columns and rows (v.heads, v.rows), as moons()
+  const heads = v.heads || (cols.length > 1 && parts && parts.length === cols.length ? parts.map(headText) : cols.map(() => ""));
   const th = fmts.map((f, j) =>
-    `<th>${heads[j] ? `<span class="h">${exprHTML(heads[j])}</span>` : ""}${f.unit ? `<span class="u">${f.unit}</span>` : ""}</th>`).join("");
+    `<th>${heads[j] ? `<span class="h">${v.heads ? esc(heads[j]) : exprHTML(heads[j])}</span>` : ""}${f.unit ? `<span class="u">${f.unit}</span>` : ""}</th>`).join("");
   const rows = [];
   for (let i = 0; i < Math.min(n, TABLE_ROWS); i++) {
-    rows.push(`<tr><td class="ix">${i + 1}</td>${fmts.map((f) => `<td data-v="${esc(f.text(i))}">${f.html(i)}</td>`).join("")}</tr>`);
+    const ix = v.rows ? `<td class="ix lbl">${esc(v.rows[i])}</td>` : `<td class="ix">${i + 1}</td>`;
+    rows.push(`<tr>${ix}${fmts.map((f) => `<td data-v="${esc(f.text(i))}">${f.html(i)}</td>`).join("")}</tr>`);
   }
   const more = n > TABLE_ROWS ? `<p class="tbl-more">${n - TABLE_ROWS} more rows: long-press to copy them all</p>` : "";
-  const html = `<div class="tbl-wrap"><table class="vals"><thead><tr><th class="ix">#</th>${th}</tr></thead><tbody>${rows.join("")}</tbody></table></div>${more}`;
+  const html = (v.sky ? skyHTML(v.sky) : "") +
+    `<div class="tbl-wrap"><table class="vals${v.rows ? " named" : ""}"><thead><tr><th class="ix">${v.rows ? "" : "#"}</th>${th}</tr></thead><tbody>${rows.join("")}</tbody></table></div>${more}`;
   // CSV: values in the unit of the head, with a σ column where needed
   const q = (s) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   const hcells = [], getters = [];
@@ -585,6 +588,41 @@ function tableOf(v, src) {
   });
   const csv = [hcells.join(","), ...Array.from({ length: n }, (_, i) => getters.map((g) => g(i)).join(","))].join("\n");
   return { html, csv };
+}
+
+// A planet and its moons as in the sky, north up and east to the left:
+// the moons behind the planet or in its shadow hollow, Saturn's rings; the
+// scale for the inner moons, those far out (Iapetus) at the edge
+function skyHTML({ planet, radius, pa, tilt, moons }) {
+  const W = 320, ring = planet === "saturn" ? 2.4 : 1.3;
+  // the moons within five times the median distance set the scale
+  const far = moons.map((m) => Math.hypot(m.east, m.north)).sort((x, y) => x - y);
+  const median = far[Math.floor((far.length - 1) / 2)];
+  const reach = Math.max(radius * ring, ...far.filter((d) => d <= 5 * median));
+  const k = (W / 2 - 16) / reach, r = radius * k, cx = W / 2;
+  const fit = (x, m) => Math.max(-m, Math.min(m, x));
+  const pts = moons.map((m) => ({ m, x: fit(-m.east * k, W / 2 - 8), y: -m.north * k, out: Math.hypot(m.east, m.north) > reach * 1.02 }));
+  // low, to leave room for the table with the keypad open
+  const high = Math.max(r * ring, Math.min(45, Math.max(...pts.map((p) => Math.abs(p.y)))));
+  const H = Math.round(2 * high + 34), cy = H / 2;
+  const f = (x) => x.toFixed(1);
+  let svg = "";
+  // the rings: an ellipse across the pole (at the position angle pa from
+  // the north through the east), as open as the Earth is above them
+  if (planet === "saturn") svg += `<ellipse class="sky-ring" cx="${cx}" cy="${cy}" rx="${f(2.27 * r)}" ry="${f(2.27 * r * Math.abs(Math.sin(tilt * Math.PI / 180)))}" transform="rotate(${f(-pa)} ${cx} ${cy})"/>`;
+  svg += `<circle class="sky-planet" cx="${cx}" cy="${cy}" r="${f(Math.max(r, 2.5))}"/>`;
+  // the labels above and below in turn, from left to right
+  pts.sort((p, q) => p.x - q.x).forEach((p, i) => {
+    const x = cx + p.x, y = cy + fit(p.y, high);
+    const hidden = p.m.doing.includes("occulted") || p.m.doing.includes("eclipsed");
+    if (p.out) {
+      const d = p.x < 0 ? -1 : 1;
+      svg += `<path class="sky-moon" d="M${f(x + 5 * d)} ${f(y)}l${-6 * d} -4v8z"/>`;
+    } else svg += `<circle class="sky-moon${hidden ? " off" : ""}" cx="${f(x)}" cy="${f(y)}" r="2.6"/>`;
+    svg += `<text class="sky-label" x="${f(x)}" y="${f(y + (i % 2 ? 13 : -6))}" text-anchor="middle">${esc(p.m.name.slice(0, 2))}</text>`;
+  });
+  return `<svg class="sky-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(planet)} and its moons">${svg}</svg>` +
+    '<p class="sky-cap">North up, east left; hollow: hidden or eclipsed</p>';
 }
 
 // The unit an axis is drawn in: the one its largest value is shown in, or
@@ -3890,7 +3928,7 @@ function targetsFor(q) {
   }
   const isTime = q.d.every((x, i) => (i === 2 ? x === 1 : x === 0)) && q.d[2] === 1;
   if (isTime) { add("hms"); add("dhms"); }
-  if (q.pure) { add("dms"); add("frac"); }
+  if (q.pure) { add("dms"); add("hms"); add("frac"); }
   if (!q.pure) { add("SI"); add("Easy"); }
   return out;
 }
@@ -4247,6 +4285,20 @@ const FN_SECTIONS = [
     { fn: "equinox", desc: "Year" }, { fn: "solstice", desc: "Year" }, { fn: "lst", desc: "Sidereal time" }, { fn: "date", desc: "y, m, d, h, min" },
     { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "u:JD", label: "JD", desc: "Julian day" },
   ]],
+  // the bodies insert their names, as altaz("Mars", now, here)
+  ["Planets", 5, 5, [
+    { fn: "altaz", desc: "Alt, az" }, { fn: "radec", desc: "Ra, dec" }, { fn: "dist", desc: "From Earth" }, { fn: "mag", desc: "Magnitude" }, { fn: "moons", desc: "Sketch" },
+    { fn: "illum", desc: "Lit, phase" }, { fn: "elong", desc: "From Sun" }, { fn: "diam", desc: "Diameter" }, { fn: "ecl", desc: "Lon, lat" }, { fn: "transit", desc: "Meridian" },
+    { fn: "rising", desc: "After t" }, { fn: "setting", desc: "After t" }, { key: "now", label: "now", desc: "Date, time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" },
+    { key: '"Sun"', label: "Sun", desc: "☉" }, { key: '"Moon"', label: "Moon", desc: "☾" }, { key: '"Mercury"', label: "Mercury", desc: "☿" }, { key: '"Venus"', label: "Venus", desc: "♀" }, { key: '"Mars"', label: "Mars", desc: "♂" },
+    { key: '"Jupiter"', label: "Jupiter", desc: "♃" }, { key: '"Saturn"', label: "Saturn", desc: "♄" }, { key: '"Uranus"', label: "Uranus", desc: "♅" }, { key: '"Neptune"', label: "Neptune", desc: "♆" }, { fn: "date", desc: "y, m, d" },
+  ]],
+  ["Coords", 4, 4, [
+    { fn: "eq2hor", desc: "→ alt, az" }, { fn: "hor2eq", desc: "→ ra, dec" }, { fn: "eq2ecl", desc: "→ ecliptic" }, { fn: "ecl2eq", desc: "→ ra, dec" },
+    { fn: "eq2gal", desc: "→ galactic" }, { fn: "gal2eq", desc: "→ ra, dec" }, { fn: "precess", desc: "p, from, to" }, { fn: "refract", desc: "Altitude" },
+    { fn: "sep", desc: "Distance" }, { fn: "pa", desc: "Position angle" }, { fn: "radec", desc: "Ra, dec" }, { key: "u:hourangle", label: "hourangle", desc: "15°" },
+    { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" }, { fn: "date", desc: "y, m, d, h, min" },
+  ]],
   ["Sensors", 4, 3, [
     { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "sensor:lat", label: "lat", desc: "Latitude" }, { key: "sensor:lon", label: "lon", desc: "Longitude" }, { key: "sensor:alt", label: "alt", desc: "Altitude" },
     { key: "sensor:g", label: "g", desc: "Gravity" }, { key: "sensor:accel", label: "accel", desc: "x, y, z" }, { key: "sensor:tilt", label: "tilt", desc: "From level" }, { key: "sensor:heading", label: "heading", desc: "Compass" },
@@ -4311,6 +4363,9 @@ const USAGE = {
 };
 
 const KEY_HELP = {
+  // the bodies of the Planets keys
+  ...Object.fromEntries(["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"].map((b) =>
+    [`"${b}"`, `${b}, the first argument of altaz, radec, dist, mag, illum, elong, diam, ecl, rising, setting, transit${["Sun", "Moon", "Mercury", "Venus"].includes(b) ? "" : " and moons"}, as in mag("${b}", now)`])),
   holidays: 'A holiday in a Gregorian year, holiday("Passover", 2027): tap to choose it from the list',
   'japanese("Reiwa", ': 'A date of the Japanese calendar: japanese("Reiwa", year, month, day); the eras are Meiji, Taisho, Showa, Heisei, Reiwa',
   "sensor:here": "Your position as (latitude, longitude), with the error from the GPS accuracy; the variable here keeps it",
@@ -4397,6 +4452,10 @@ const tabsEl = $("#tabs");
 
 const ARIA = { backspace: "Delete", enter: "Evaluate" };
 
+// the brackets of ⌊x⌋ and ⌈x⌉ drawn as bars with a foot or a head, the
+// same in any font (the fonts' ⌈ ⌉ often differ from their ⌊ ⌋)
+const barHTML = (c, k2) => `<span class="bar${"⌋⌉".includes(c) ? " r" : ""}${"⌈⌉".includes(c) ? " top" : ""}${k2 ? " k2" : ""}"></span>`;
+
 function keyHTML([label, cls = "", action, long, second, secondLong]) {
   // with 2nd on, the key turns into its 2nd function
   if (state.second && second) {
@@ -4411,7 +4470,7 @@ function keyHTML([label, cls = "", action, long, second, secondLong]) {
   // the long press is written at the top right; in the label, what 2nd
   // adds is in {braces}, and in the 2nd label what it drops
   // names (constants) are written as everywhere else, m_e as mₑ
-  const altText = long && ((/^n:\w+$/.test(long[1]) && symHTML(long[1].slice(2))) || esc(long[0]));
+  const altText = long && ((/^n:\w+$/.test(long[1]) && symHTML(long[1].slice(2))) || esc(long[0]).replace(/[⌊⌋⌈⌉]/g, (c) => barHTML(c)));
   // exponents (−1, −x, 2, 3) smaller, small signs (, ~) larger; an empty label
   // is not written
   const altCls = long && (/^[,~]$/.test(long[0]) ? " big" : /^(−1|−x|2|3)$/.test(long[0]) ? " exp" : "");
@@ -4425,7 +4484,7 @@ function keyHTML([label, cls = "", action, long, second, secondLong]) {
     // an exponent, as x^1/y
     .replace(/\^(.*)$/, "<sup>$1</sup>")
     // |x| drawn as bars, whose feet (orange when 2nd adds them) make ⌊x⌋
-    .replace(/(<span class="k2">)?([⌊⌋])(<\/span>)?/g, (m, k2, c) => `<span class="bar${c === "⌋" ? " r" : ""}${k2 ? " k2" : ""}"></span>`);
+    .replace(/(<span class="k2">)?([⌊⌋⌈⌉])(<\/span>)?/g, (m, k2, c) => barHTML(c, k2));
   return `<button class="key ${cls}${has}" ${data}${aria}>${svg ? label : `<span>${text}</span>`}${alt}</button>`;
 }
 
@@ -6489,9 +6548,11 @@ const HELP = [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
     ["ymd(today)", "year, month, day"], ["ymd(today).1", "the year"], ["ymd(today, \"hebrew\")", ""], ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
-  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day.", [
+  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension, in hours, and declination; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100. Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). On the ƒ(x) page, the Planets keys hold the functions of the bodies and their names, the Coords keys the coordinates.", [
     ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
     ["fullmoon(today)", ""], ["equinox(2027)", "(March, September)"], ["sunset(today, here) - sunrise(today, here) @ hms", "day length"], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
+    ["altaz(\"Jupiter\", now, here)", "(altitude, azimuth)"], ["radec(\"Mars\", now)", ""], ["dist(\"Mars\", now) / c @ min", "light time"], ["dist(\"Moon\", now)", ""], ["mag(\"Saturn\", now)", "with its rings"], ["illum(\"Venus\", now)", "(lit fraction, phase angle)"], ["elong(\"Mercury\", now)", "+ evening, − morning"], ["diam(\"Jupiter\", now)", ""], ["rising(\"Jupiter\", today, here)", ""], ["transit(\"Mars\", today, here)", ""], ["moons(\"Jupiter\", now)", "Galilean moons"], ["moons(\"Saturn\", now)", ""],
+    ["sep(radec(\"Moon\", now), radec(\"Jupiter\", now))", "Moon to Jupiter"], ["eq2hor((5h 35m 17s, -5.39[deg]), now, here)", "Orion nebula"], ["eq2gal((5h 35m 17s, -5.39[deg]))", ""], ["precess((5h 35m 17s, -5.39[deg]), 2000, today)", ""], ["refract(5[deg]) @ arcmin", ""],
   ]],
   ["Sensors", "The Sensors keys on the ƒ(x) page measure with the phone, keep the value with its error in a variable and type it in: here (latitude, longitude) and lat, lon, alt from the GPS, g, accel and tilt from the accelerometer (hold the phone still for 2 s), heading from the compass (hold it flat), speed while moving, and pitch, the frequency of a steady tone. They need permission the first time, and HTTPS. The variables here, lat, lon, alt, speed, g_local, accel, tilt, heading and pitch hold the last readings, as in sunrise(today, here); the position is refreshed when the app opens, if allowed.", [
     ["g_local / g", "measured over standard gravity"], ["sunset(today, here)", ""], ["(9.8061±0.0012)[m/s^2] / g", ""], ["2 π sqrt(1[m] / (9.8061±0.0012)[m/s^2])", "a pendulum"], ["12[ft] tan((29.99±0.01)[deg]) @ ft", "a height from a tilt"],

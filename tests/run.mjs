@@ -1,8 +1,8 @@
 // Checks of the calculator, run with: node tests/run.mjs
 //
 // Dates and time zones, calendars (against the calendars of Intl, which
-// browsers and Node share, where it has them), holidays, and the Sun and
-// the Moon (against times computed with PyEphem, stored below). Prints
+// browsers and Node share, where it has them), holidays, and the Sun, the
+// Moon and the planets (against PyEphem and JPL Horizons, stored below). Prints
 // the failures and exits with 1 if there are any.
 
 import fs from "node:fs";
@@ -166,10 +166,12 @@ for (const [name, cal, lo, hi] of INTL) {
 // agrees with Intl except in the months below, which begin with a new moon
 // a few minutes from midnight in China (or a leap month, 1987), where ICU's
 // Moon is not precise enough: checked with PyEphem, except 2097, where the
-// new moon falls 40 s before midnight and the unknown ΔT decides
+// new moon falls 40 s before midnight and the unknown ΔT decides. In 1917
+// and 1922 the leap month moves, as a major term falls 3 and 5 minutes
+// after midnight (checked with JPL Horizons)
 const { chineseFromFixed, fixedFromChinese, MONTHS: CALENDAR_MONTHS } = await import(new URL("js/calendars.js", root));
 {
-  const CHINESE_ICU = new Set(["1906-04-23", "1954-02-03", "1955-02-22", "1987-07-26", "1999-01-17", "2012-08-17", "2018-11-07", "2027-02-06", "2030-02-02", "2070-03-12", "2097-08-07"]);
+  const CHINESE_ICU = new Set(["1906-04-23", "1917-03-23", "1922-06-25", "1954-02-03", "1955-02-22", "1987-07-26", "1999-01-17", "2012-08-17", "2018-11-07", "2027-02-06", "2030-02-02", "2070-03-12", "2097-08-07"]);
   const fm = new Intl.DateTimeFormat("en-u-ca-chinese", { timeZone: "UTC", year: "numeric", month: "numeric", day: "numeric" });
   const iso = (f) => new Date((f - UNIX_RD) * 864e5).toISOString().slice(0, 10);
   let bad = 0, unexpected = new Set(), start = null;
@@ -264,6 +266,138 @@ SEASONS.push([0, (1903760.3084 - 2440587.5) * 864e5, 500, 300]);
 for (const [k, ms, year = 2027, tol = 90] of SEASONS) {
   const d = A.season(year, k) - ms / 1000;
   if (!(Math.abs(d) <= tol)) fail(`season ${k} of ${year}: ${Math.round(d)} s from PyEphem`);
+}
+
+// The Sun, the Moon and the planets, against JPL Horizons (DE441): apparent
+// geocentric right ascension and declination (degrees), distance (au), at
+// Julian days of TT from 1600 to 2400. Within 1″ for the Sun and the inner
+// planets, more for Uranus and Neptune (VSOP87), 10″ for the Moon.
+
+const PLACES = [
+  ["sun", 2305500.5, 335.632568587, -10.166911338, 0.99075734919586], ["sun", 2415020.5, 281.045942957, -23.062916418, 0.98326627292084], ["sun", 2451545, 281.277554826, -23.032489039, 0.98332763198913],
+  ["sun", 2461345.5, 216.196590817, -14.360360159, 0.99268434071044], ["sun", 2597500.5, 142.551414377, 14.734359034, 1.01418029199028],
+  ["mercury", 2305500.5, 311.262415923, -16.671752695, 0.78051126596326], ["mercury", 2415020.5, 258.134636762, -21.872980164, 1.14206697430704], ["mercury", 2451545, 272.073366975, -24.418845941, 1.41546603886886],
+  ["mercury", 2461345.5, 223.731119189, -18.300113821, 0.68164127929341], ["mercury", 2597500.5, 154.050864669, 5.735470564, 0.61815733286639],
+  ["venus", 2305500.5, 288.120898755, -19.233648372, 0.65299115347859], ["venus", 2415020.5, 309.207984101, -20.318598959, 1.46459621445749], ["venus", 2451545, 239.891836699, -18.448719557, 1.13757442548820],
+  ["venus", 2461345.5, 202.521068866, -14.661851108, 0.27977161841143], ["venus", 2597500.5, 98.236523912, 21.153216692, 0.98400123178732],
+  ["moon", 2305500.5, 83.564594642, 26.416341126, 0.00255360364917], ["moon", 2415020.5, 272.611978856, -22.321444131, 0.00246249985371], ["moon", 2451545, 222.443585389, -10.897906428, 0.00268997545281],
+  ["moon", 2461345.5, 120.058113288, 23.110538242, 0.00247264541716], ["moon", 2597500.5, 271.624935480, -27.132816386, 0.00267108594928],
+  ["mars", 2305500.5, 123.695028369, 24.122619831, 0.74445746054257], ["mars", 2415020.5, 285.166286914, -23.649530400, 2.40096342547839], ["mars", 2451545, 330.516247655, -13.182689444, 1.84968383439833],
+  ["mars", 2461345.5, 141.569345442, 16.765264299, 1.43251661767150], ["mars", 2597500.5, 158.426214497, 10.198631798, 2.61652658902265],
+  ["jupiter", 2305500.5, 137.488390031, 17.489794019, 4.41340291798485], ["jupiter", 2415020.5, 239.177830681, -19.600557014, 6.11306228335015], ["jupiter", 2451545, 23.867809514, 8.594247379, 4.62116371179118],
+  ["jupiter", 2461345.5, 146.862438845, 14.064240454, 5.49965644531705], ["jupiter", 2597500.5, 274.148325530, -23.264254432, 4.47537686423769],
+  ["saturn", 2305500.5, 207.250514585, -8.404740678, 9.16644684071581], ["saturn", 2415020.5, 267.530240289, -22.424383255, 11.0246699296101], ["saturn", 2451545, 38.765415018, 12.614765627, 8.65278568673054],
+  ["saturn", 2461345.5, 9.588013988, 1.211248802, 8.54788678558703], ["saturn", 2597500.5, 255.633791723, -21.219342472, 9.55657486214399],
+  ["uranus", 2305500.5, 26.368336344, 10.396062011, 20.3336349572548], ["uranus", 2415020.5, 248.518067829, -21.918567652, 19.8378149807608], ["uranus", 2451545, 317.474773557, -17.020341543, 20.7271637906951],
+  ["uranus", 2461345.5, 62.746471966, 20.922730540, 18.5392290287537], ["uranus", 2597500.5, 230.630964645, -18.211463608, 18.5983513992441],
+  ["neptune", 2305500.5, 148.880896953, 13.316665067, 29.1545733397688], ["neptune", 2415020.5, 84.841069687, 22.066379319, 28.9202265660462], ["neptune", 2451545, 305.432803804, -19.213246467, 31.0244926146295],
+  ["neptune", 2461345.5, 2.474457764, -0.469166715, 29.0737641486530], ["neptune", 2597500.5, 106.479743514, 21.625831008, 30.7360891863144],
+];
+const PLACE_TOL = { sun: 0.3, moon: 10, mercury: 1, venus: 1, mars: 1.5, jupiter: 1, saturn: 1.5, uranus: 4, neptune: 6.5 };
+for (const [body, jd, ra, dec, au] of PLACES) {
+  const t = (jd - 2440587.5) * 86400 - A.deltaT(2000 + (jd - 2451545) / 365.25);
+  const p = A.equatorial(body, t), r = Math.PI / 180;
+  const c = Math.sin(dec * r) * Math.sin(p.dec * r) + Math.cos(dec * r) * Math.cos(p.dec * r) * Math.cos((ra - p.ra) * r);
+  const sep = Math.acos(Math.min(1, c)) / r * 3600, rel = p.dist / 149597870.7 / au - 1;
+  if (!(sep <= PLACE_TOL[body])) fail(`${body} at JD ${jd}: ${sep.toFixed(2)}″ from Horizons`);
+  if (!(Math.abs(rel) <= (body === "moon" ? 1.5e-4 : 1e-5))) fail(`${body} at JD ${jd}: distance ${rel.toExponential(1)} from Horizons`);
+}
+
+// seen from Milan (45.46°, 9.19°) on 2026.11.01 12:00 UT, against Horizons
+// (airless): [body, azimuth, altitude], to 1″, the Moon to 10″
+for (const [body, az, alt] of [["sun", 194.720898976, 28.819999943], ["moon", 293.563366038, 5.463386662],
+  ["mars", 280.625068257, 13.080708420], ["jupiter", 275.143756435, 14.784698911]]) {
+  const h = A.horizontal(body, Date.UTC(2026, 10, 1, 12) / 1000, [45.46, 9.19]);
+  const d = Math.hypot(h.alt - alt, (h.az - az) * Math.cos(alt * Math.PI / 180)) * 3600;
+  if (!(d <= (body === "moon" ? 10 : 1))) fail(`${body} seen from Milan: ${d.toFixed(2)}″ from Horizons`);
+}
+
+// brightness and aspect, against Horizons (Mallama and Hilton, 2018):
+// [body, JD of TT, magnitude, illuminated %, diameter (″), phase angle]
+const ASPECTS = [
+  ["sun", 2461088.5, -26.768, 100.00000, 1941.566, 0.0000], ["mercury", 2461088.5, -0.711, 61.90909, 6.630989, 76.2262],
+  ["venus", 2461088.5, -3.902, 98.58654, 9.936095, 13.6616], ["moon", 2461088.5, -4.579, 0.29847, 1854.529, 173.7309],
+  ["mars", 2461088.5, 1.049, 99.68329, 3.971613, 6.4467], ["jupiter", 2461088.5, -2.527, 99.59190, 44.23163, 7.3211],
+  ["saturn", 2459867.5, 0.601, 99.79650, 17.75254, 5.1686], ["saturn", 2460829.5, 1.074, 99.74568, 16.87753, 5.7795],
+  ["saturn", 2460940.5, 0.584, 99.99942, 19.44513, 0.2751], ["saturn", 2461088.5, 1.014, 99.92384, 16.09344, 3.1677],
+  ["uranus", 2461088.5, 5.726, 99.93572, 3.619906, 2.9057], ["neptune", 2461088.5, 7.814, 99.99220, 2.223391, 1.0170],
+];
+for (const [body, jd, mag, lit, diam, phase] of ASPECTS) {
+  const t = (jd - 2440587.5) * 86400 - A.deltaT(2000 + (jd - 2451545) / 365.25);
+  const a = A.aspect(body, t), m = A.magnitude(body, t), d = A.diameter(body, t) * 3600;
+  // Horizons adds to Mars the effects of its seasons and of the face it
+  // shows, up to 0.15; the Moon's radius differs a little
+  if (!(Math.abs(m - mag) <= (body === "mars" ? 0.15 : 0.025) && Math.abs(a.phase - phase) <= 0.01 && Math.abs(d / diam - 1) <= 2e-4)) {
+    fail(`${body} at JD ${jd}: magnitude ${m.toFixed(3)}, phase ${a.phase.toFixed(3)}°, diameter ${d.toFixed(3)}″, not ${mag}, ${phase}°, ${diam}″`);
+  }
+  if (!(Math.abs(50 * (1 + Math.cos(a.phase * Math.PI / 180)) - lit) <= 0.01)) fail(`${body} at JD ${jd}: illuminated fraction`);
+}
+// Venus near inferior conjunction (the second formula), JD 2459001.5 UT
+if (!(Math.abs(A.magnitude("venus", (2459001.5 - 2440587.5) * 86400) + 3.859) <= 0.002)) fail("Venus near inferior conjunction: magnitude");
+
+// rising, transit and setting of planets seen from Milan after 2026.11.01
+// 0:00 UT, against Horizons (refracted, to the minute)
+for (const [body, rise, tr, set] of [["mars", 2461346.453472222, 2461345.755555556, 2461346.056944444],
+  ["jupiter", 2461346.475, 2461345.770138889, 2461346.0625], ["venus", 2461345.714583333, 2461345.923611111, 2461346.133333333]]) {
+  const t0 = Date.UTC(2026, 10, 1) / 1000, jd = (x) => x / 86400 + 2440587.5;
+  const got = [A.riseSet(body, t0, [45.46, 9.19], true).t, A.transit(body, t0, 9.19), A.riseSet(body, t0, [45.46, 9.19], false).t];
+  got.forEach((x, i) => {
+    const d = (jd(x) - [rise, tr, set][i]) * 1440;
+    if (!(Math.abs(d) <= 1)) fail(`${["rising", "transit", "setting"][i]} of ${body}: ${d.toFixed(2)} min from Horizons`);
+  });
+}
+
+// the moons, against Horizons: apparent offsets from the planet (″, east
+// and north) and the visibility code (* free, u in the umbra, O occulted,
+// t in transit), at Julian days of UT
+const MOON_REFS = [
+  ["jupiter", 2461345.5, "Io", 84.344, -33.296, "*"], ["jupiter", 2461400.25, "Io", 112.982, -45.904, "*"],
+  ["jupiter", 2461345.5, "Europa", -33.394, 11.317, "u"], ["jupiter", 2461400.25, "Europa", 125.338, -48.297, "*"],
+  ["jupiter", 2461345.5, "Ganymede", 52.883, -21.451, "*"], ["jupiter", 2461400.25, "Ganymede", -264.145, 109.211, "*"],
+  ["jupiter", 2461345.5, "Callisto", 166.178, -67.125, "*"], ["jupiter", 2461400.25, "Callisto", 448.771, -177.927, "*"],
+  ["saturn", 2461345.5, "Titan", -19.539, -21.114, "*"], ["saturn", 2461400.25, "Titan", 90.440, 13.188, "*"],
+  ["saturn", 2461345.5, "Iapetus", 405.002, 15.037, "*"], ["saturn", 2461400.25, "Iapetus", -476.282, -132.877, "*"],
+  ["neptune", 2461345.5, "Triton", -7.171, -15.216, "*"], ["neptune", 2461400.25, "Triton", -3.878, 9.366, "*"],
+];
+for (const [planet, jd, name, east, north, code] of MOON_REFS) {
+  const m = A.moons(planet, (jd - 2440587.5) * 86400), o = m.moons.find((x) => x.name === name);
+  const d = Math.hypot(o.east * 3600 - east, o.north * 3600 - north), tol = name === "Iapetus" ? 1 : 0.2;
+  if (!(d <= tol)) fail(`${name} at JD ${jd}: ${d.toFixed(2)}″ from Horizons`);
+  const got = o.eclipsed ? "u" : o.occulted ? "O" : o.transit ? "t" : "*";
+  if (got !== code) fail(`${name} at JD ${jd}: ${got}, not ${code}`);
+}
+// Europa behind Jupiter, Io in front of it (Horizons: O and t)
+for (const [jd, i, k] of [[2461345.61, 1, "occulted"], [2461345.75694, 0, "transit"]]) {
+  const o = A.moons("jupiter", (jd - 2440587.5) * 86400).moons[i];
+  if (!o[k]) fail(`${o.name} at JD ${jd} is not ${k}`);
+}
+
+// the functions: right ascension in hours, bodies by name
+for (const [src, text] of [["radec(\"Mars\", 2026.11.01 12:00 Z).1", "9h 27m 17.39s ± 0.10s"], ["radec(\"MARS\", 2026.11.01 12:00 Z).1", "9h 27m 17.39s ± 0.10s"],
+  ["30 deg @ hms", "2h 0m 0s"], ["dist(\"Moon\", 2026.11.01 12:00 Z) @ km", "(371486±56)[km]"]]) {
+  const r = calc.run(src);
+  const got = r.kind === "value" ? calc.env.format(r.q) : r.message;
+  if (got !== text) fail(`${src} gives ${got}, not ${text}`);
+}
+// coordinates: the north galactic pole, Meeus' example 21.b (θ Persei,
+// with its proper motion), and the round trips through ecl and altaz
+const text = (q) => (Array.isArray(q) ? `(${q.map(text).join(", ")})` : calc.env.format(q));
+const T0 = "2026.11.01 12:00 Z", MILAN = "(45.46, 9.19)[deg]";
+for (const [src, want] of [["gal2eq((0, 90)[deg])", "(12h 51m 26.275s, 27.12825[deg])"], ["eq2ecl((6h, 23.4392911[deg]))", "(90[deg], 0[deg])"],
+  ["precess((2h 44m 12.975s, 49d 13' 39.896\"), 2000, 2028.8670).1", "2h 46m 11.331s"],
+  ["precess((2h 44m 12.975s, 49d 13' 39.896\"), 2000, 2028.8670).2 @ dms", "49° 20' 54.534\""],
+  [`hor2eq(altaz("Mars", ${T0}, ${MILAN}), ${T0}, ${MILAN}).1`, "9h 27m 17.1s ± 1.3s"],
+  ["sep((5h, 10[deg]), (5h, (10.5 ± 0.1)[deg]))", "(0.50±0.10)[deg]"], ["pa((0, 0)[deg], (1, 0)[deg])", "90[deg]"], ["1 hourangle @ deg", "15[deg]"]]) {
+  const r = calc.run(src);
+  const got = r.kind === "value" ? text(r.q) : r.message;
+  if (got !== want) fail(`${src} gives ${got}, not ${want}`);
+}
+{
+  const r = calc.run(`eq2ecl(radec("Mars", ${T0}), ${T0}) - ecl("Mars", ${T0})`);
+  if (r.kind !== "value" || !r.q.every((q) => Math.abs(q.x.n) < 1e-10)) fail(`eq2ecl(radec("Mars", t), t) is not ecl("Mars", t)`);
+}
+for (const src of ["radec(\"Pluto\", now)", "radec(now)", "dist(\"Mars\", 5)", "altaz(\"Mars\", now, 5)", "sep((1, 2, 3), (1, 2))", "precess((0, 0), 2000)", "refract(0, 101 kPa, 5 m)"]) {
+  if (calc.run(src).kind !== "error") fail(`${src} should be an error`);
 }
 
 // ---------------------------------------------------------------------
