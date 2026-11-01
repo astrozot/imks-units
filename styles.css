@@ -354,6 +354,15 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .sky-moon.off { fill: none; stroke: #8a92a6; stroke-width: 1; }
 .sky-label { fill: #b8c0d0; font-size: 10px; font-family: var(--mono); }
 .sky-scale { fill: none; stroke: #b8c0d0; stroke-width: 1.2; }
+.lunar-svg { display: block; width: 100%; max-width: 420px; margin: 0 auto 6px; }
+.lunar-pen { fill: #3a4354; }
+.lunar-umb { fill: #2a1a1c; }
+.lunar-path { fill: none; stroke: #b8c0d0; stroke-width: 1; }
+.lunar-path.down { stroke-dasharray: 3 3; opacity: 0.6; }
+.lunar-moon { fill: #e4ddcf; fill-opacity: 0.12; stroke: #e4ddcf; stroke-width: 1; }
+.lunar-moon.red { fill: #c05a40; stroke: #e08a6a; }
+.lunar-moon.max { fill-opacity: 0.85; }
+.lunar-moon.down { stroke-dasharray: 2 2; stroke-opacity: 0.6; }
 .map-svg { display: block; width: 100%; max-width: 420px; margin: 0 auto 4px; cursor: zoom-in; }
 .map-svg.map-full { max-width: none; cursor: grab; touch-action: none; }
 .map-bg { fill: #0b0f1a; }
@@ -362,7 +371,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .map-night { fill: rgba(0, 0, 0, 0.45); }
 .map-coast { fill: none; stroke: #b4c6d8; stroke-width: 0.8; stroke-linejoin: round; }
 .map-partial { fill: none; stroke: #e8c070; stroke-width: 1.2; stroke-dasharray: 4 3; }
-.map-path { fill: #ff7a45; opacity: 0.75; }
+.map-path { fill: rgba(255, 122, 69, 0.7); stroke: #ff7a45; stroke-width: 1; stroke-linejoin: round; }
 .map-path-edge { fill: none; stroke: #ff7a45; stroke-width: 1.2; }
 .map-center { fill: none; stroke: #ffe0c8; stroke-width: 0.8; }
 .map-greatest { fill: #ffe0c8; stroke: #0b0f1a; stroke-width: 1; }

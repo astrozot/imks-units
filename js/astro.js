@@ -601,6 +601,27 @@ function lunarEclipse(t) {
   return null;
 }
 
+// For drawing a lunar eclipse e (of lunarEclipse): the radii of the
+// umbra, the penumbra and the Moon at the maximum, and the Moon's center
+// from the center of the shadow (degrees, to the east and to the north)
+// every five minutes and at the contacts; with a place, whether the Moon is
+// up there
+function lunarDiagram(e, place = null) {
+  const at = (t) => {
+    const m = vec(equatorial("moon", t)), S = equatorial("sun", t);
+    const ra = S.ra + 180, dec = -S.dec, a = [cos(dec) * cos(ra), cos(dec) * sin(ra), sin(dec)];
+    const east = [-sin(ra), cos(ra), 0], north = [-sin(dec) * cos(ra), -sin(dec) * sin(ra), cos(dec)], along = dot(m, a);
+    const p = { x: Math.atan2(dot(m, east), along) / RAD, y: Math.atan2(dot(m, north), along) / RAD };
+    if (place) p.up = horizontal("moon", t, place).alt > -0.8;
+    return p;
+  };
+  const g = lunarAt(e.max), path = [];
+  for (let t = e.P1 - 1800; t <= e.P4 + 1800; t += 300) path.push(at(t));
+  const marks = [["P1", e.P1], ["U1", e.U1], ["U2", e.U2], ["max", e.max], ["U3", e.U3], ["U4", e.U4], ["P4", e.P4]]
+    .filter(([, t]) => t !== null).map(([name, t]) => ({ name, t, ...at(t) }));
+  return { umbra: g.umbra, penumbra: g.penumbra, moon: g.moon, path, marks };
+}
+
 // The Moon's shadow at the time t, on the Earth made a sphere (its axes
 // stretched to the polar radius): the closest approach of the shadow's
 // axis to the Earth's center (gamma, Earth radii, positive north) and the
@@ -657,233 +678,400 @@ function shadowGeometry(t) {
   return { d, e1, e2, x0: dot(m, e1), y0: dot(m, e2), zm: dot(m, d), rm, f1: (rs + rm) / len, f2: (rs - rm) / len, gast: siderealTime(t, 0) };
 }
 
-// Lines of equal value of a grid (rows of latitudes lats, columns of
-// longitudes lons; NaN where there is none) at the level: [lat, lon] lines
-function contour(grid, lats, lons, level) {
-  const segs = [];
-  // the crossing on an edge, the same from both of its cells
-  const at = (i, j, i2, j2) => {
-    if (i2 < i || (i2 === i && j2 < j)) [i, j, i2, j2] = [i2, j2, i, j];
-    const a = grid[i][j], b = grid[i2][j2], f = (level - a) / (b - a);
-    return [lats[i] + f * (lats[i2] - lats[i]), lons[j] + f * (lons[j2] - lons[j])];
-  };
-  for (let i = 0; i + 1 < lats.length; i++) {
-    for (let j = 0; j + 1 < lons.length; j++) {
-      const v = [grid[i][j], grid[i][j + 1], grid[i + 1][j + 1], grid[i + 1][j]];
-      if (v.some((x) => Number.isNaN(x))) continue;
-      // the edges of the cell where the level is crossed
-      const edges = [[i, j, i, j + 1], [i, j + 1, i + 1, j + 1], [i + 1, j + 1, i + 1, j], [i + 1, j, i, j]]
-        .filter((e, n) => (v[n] < level) !== (v[(n + 1) % 4] < level)).map((e) => at(...e));
-      if (edges.length === 2) segs.push(edges);
-      else if (edges.length === 4) segs.push([edges[0], edges[1]], [edges[2], edges[3]]);
-    }
-  }
-  // the segments joined into lines
-  // −180° and 180° are the same longitude: lines go on across it
-  const key = (p) => `${p[0].toFixed(4)},${(p[1] === -180 ? 180 : p[1]).toFixed(4)}`, ends = new Map(), used = new Set(), lines = [];
-  segs.forEach((sg, n) => sg.forEach((p) => { const k = key(p); ends.set(k, [...(ends.get(k) || []), n]); }));
-  segs.forEach((sg, n) => {
-    if (used.has(n)) return;
-    used.add(n);
-    const line = [...sg];
-    for (const forward of [true, false]) {
-      for (;;) {
-        const tip = forward ? line[line.length - 1] : line[0];
-        const next = (ends.get(key(tip)) || []).find((m) => !used.has(m));
-        if (next === undefined) break;
-        used.add(next);
-        const [a, b] = segs[next], p = key(a) === key(tip) ? b : a;
-        if (forward) line.push(p); else line.unshift(p);
-      }
-    }
-    lines.push(line.map((p) => p.map((x) => Math.round(x * 10) / 10)));
-  });
-  return lines;
-}
-
-// The value of a grid at a point, between its nodes (bilinear)
-function sample(grid, lats, lons, [la, lo]) {
-  const di = lats[1] - lats[0], dj = lons[1] - lons[0];
-  const i = Math.min(lats.length - 2, Math.max(0, Math.floor((la - lats[0]) / di)));
-  const j = Math.min(lons.length - 2, Math.max(0, Math.floor((lo - lons[0]) / dj)));
-  const u = (la - lats[i]) / di, v = (lo - lons[j]) / dj;
-  return (1 - u) * ((1 - v) * grid[i][j] + v * grid[i][j + 1]) + u * ((1 - v) * grid[i + 1][j] + v * grid[i + 1][j + 1]);
-}
-
-// The parts of lines where all the grids are positive, cut where one of
-// them changes sign
-function clip(lines, grids, lats, lons) {
-  const out = [];
-  for (const line of lines) {
-    let cur = [];
-    const vals = line.map((p) => grids.map((g) => sample(g, lats, lons, p)));
-    const ok = (k) => vals[k].every((x) => x > 0);
-    for (let k = 0; k < line.length; k++) {
-      if (k > 0 && ok(k) !== ok(k - 1)) {
-        // where the first grid that changes sign crosses zero
-        let f = 0.5;
-        vals[k].forEach((x, n) => {
-          const y = vals[k - 1][n];
-          if ((x > 0) !== (y > 0)) f = y / (y - x);
-        });
-        const p = line[k - 1].map((c, n) => Math.round((c + f * (line[k][n] - c)) * 10) / 10);
-        cur.push(p);
-        if (!ok(k)) { if (cur.length > 1) out.push(cur); cur = []; } else cur = [p];
-      }
-      if (ok(k)) cur.push(line[k]);
-    }
-    if (cur.length > 1) out.push(cur);
-  }
-  return out;
-}
-
-// For a solar eclipse with its greatest phase at tmax, on a grid of 1.5° of
-// the Earth, every minute: lines of the UTC hours (from 0h of the day of
-// tmax) when the partial eclipse begins and ends where the Sun is up then
-// (begin, end: [hour, lines]); the outline of where some of it is seen;
-// and the lines where it begins, is greatest and ends at sunrise or sunset
-// (rise: { begin, max, end })
-function eclipseContours(tmax) {
-  const day = Math.floor(tmax / 86400) * 86400, ts = [];
-  for (let t = tmax - 4 * 3600; t <= tmax + 4 * 3600; t += 60) ts.push(t);
-  const G = ts.map(shadowGeometry);
-  const cg = G.map((g) => Math.cos(g.gast * RAD)), sg = G.map((g) => Math.sin(g.gast * RAD));
-  const lats = [], lons = [];
-  for (let la = -90; la <= 90; la += 1.5) lats.push(la);
-  for (let lo = -180; lo <= 180; lo += 1.5) lons.push(lo);
-  // for each place: how deep in the penumbra at most (deep), whether some of
-  // the eclipse is seen with the Sun up (seen), the hours of its beginning
-  // and end (else of the closest approach) and the height of the Sun then
-  // (zeta, negative when it is up)
-  const F = { deep: [], seen: [], begin: [], end: [], zBegin: [], zEnd: [], zMax: [] };
-  for (const la of lats) {
-    const u = Math.atan(0.99664719 * Math.tan(la * RAD)), cu = Math.cos(u), su = Math.sin(u);
-    const row = Object.fromEntries(Object.keys(F).map((k) => [k, []]));
-    for (const lo of lons) {
-      const cl = Math.cos(lo * RAD), sl = Math.sin(lo * RAD);
-      let first = null, last = null, best = null, seen = -Infinity, prev = null;
-      G.forEach((g, n) => {
-        const P = [cu * (cl * cg[n] - sl * sg[n]), cu * (sl * cg[n] + cl * sg[n]), su];
-        const xi = dot(P, g.e1), eta = dot(P, g.e2), zeta = dot(P, g.d);
-        const inside = g.rm + (zeta - g.zm) * g.f1 - Math.hypot(xi - g.x0, eta - g.y0);
-        seen = Math.max(seen, Math.min(inside, -zeta));
-        if (prev) {
-          const f = prev.inside / (prev.inside - inside), t = ts[n - 1] + 60 * f, z = prev.zeta + f * (zeta - prev.zeta);
-          if (prev.inside <= 0 && inside > 0 && !first) first = { t, z };
-          if (prev.inside > 0 && inside <= 0) last = { t, z };
-        }
-        if (!best || inside > best.inside) best = { inside, zeta, t: ts[n] };
-        prev = { inside, zeta };
-      });
-      // no contact: the closest approach, for both
-      first = first || best;
-      last = last || best;
-      row.deep.push(best.inside);
-      row.seen.push(seen);
-      row.begin.push((first.t - day) / 3600);
-      row.end.push((last.t - day) / 3600);
-      row.zBegin.push(first.z ?? first.zeta);
-      row.zEnd.push(last.z ?? last.zeta);
-      row.zMax.push(best.zeta);
-    }
-    for (const k of Object.keys(F)) F[k].push(row[k]);
-  }
-  const neg = (g) => g.map((r) => r.map((x) => -x));
-  // the hours, where the eclipse is and the Sun up at that contact
-  const hours = (grid, z) => {
-    const within = [F.deep, neg(z)], out = [];
-    const deep = F.deep.flat(), vals = grid.flat().filter((x, n) => deep[n] > 0);
-    if (!vals.length) return out;
-    for (let h = Math.ceil(Math.min(...vals)); h <= Math.floor(Math.max(...vals)); h++) {
-      const lines = clip(contour(grid, lats, lons, h), within, lats, lons);
-      if (lines.length) out.push([h, lines]);
-    }
-    return out;
-  };
-  const rise = (z) => clip(contour(z, lats, lons, 0), [F.deep], lats, lons);
-  return {
-    begin: hours(F.begin, F.zBegin), end: hours(F.end, F.zEnd), outline: contour(F.seen, lats, lons, 0),
-    rise: { begin: rise(F.zBegin), max: rise(F.zMax), end: rise(F.zEnd) },
-  };
-}
-
 // The track of a solar eclipse on the Earth around its greatest phase at
-// tmax, every two minutes: the central line, the limits of the umbra
-// (north and south: of totality or of the annular phase) and of the
-// penumbra (of the partial eclipse), as segments of [latitude, longitude]
-// (geodetic, degrees; the central line with the UTC hour, from 0h of the
-// day); the band of the central phase, as pairs of points of its limits,
-// and at its ends the footprints of the umbra; the point of greatest eclipse and the one with the Sun overhead
-// then; and the lines of the times of eclipseContours
+// tmax, from the Moon's shadow every 30 s (on the Earth made a sphere, as in
+// shadowGeometry), all as lines of [latitude, longitude] (geodetic,
+// degrees):
+// - center: the central line, with the UTC hour (from 0h of the day)
+// - band: the outlines of the central phase (total or annular): the limits
+//   of the umbra, and at the ends where its edge meets the terminator
+// - penN, penS: the limits of the partial eclipse, north and south
+// - begin, end: [hour, lines] at each UTC hour, the edge of the penumbra
+//   coming in (the eclipse begins then) and going out (it ends)
+// - rise: { begin, end, max }, where the eclipse begins, ends or is greatest
+//   at sunrise or sunset
+// - greatest: the point of greatest eclipse; sun: the point with the Sun
+//   overhead then
 function eclipseTrack(tmax) {
-  const k = 1 / 0.99664719, f2e = 0.99330562;
-  const geo = (P, gast) => {
-    const z = P[2] / k, lon = mod360(Math.atan2(P[1], P[0]) / RAD - gast + 180) - 180;
-    return [Math.atan2(z, f2e * Math.hypot(P[0], P[1])) / RAD, lon];
+  const k = 1 / 0.99664719, f2e = 0.99330562, day = Math.floor(tmax / 86400) * 86400, r2 = (x) => Math.round(x * 100) / 100;
+  // the plane of a shadow and the Earth: a point (x, y) of the sunlit side
+  // to [lat, lon], and back (with its height z, negative on the sunlit side)
+  const toGeo = (g, x, y) => {
+    const q = x * x + y * y;
+    if (q > 1) return null;
+    const z = -Math.sqrt(1 - q), P = [0, 1, 2].map((i) => x * g.e1[i] + y * g.e2[i] + z * g.d[i]);
+    const lon = mod360(Math.atan2(P[1], P[0]) / RAD - g.gast + 180) - 180;
+    return [Math.atan2(P[2] / k, f2e * Math.hypot(P[0], P[1])) / RAD, lon];
   };
-  const shadow = shadowGeometry;
-  // the point of the sunlit side of the Earth at (x, y) on the plane, or null
-  const surface = (g, x, y) => {
-    const r2 = x * x + y * y;
-    if (r2 > 1) return null;
-    const z = -Math.sqrt(1 - r2);
-    return geo([0, 1, 2].map((i) => x * g.e1[i] + y * g.e2[i] + z * g.d[i]), g.gast);
+  const toPlane = (g, [lat, lon]) => {
+    const u = Math.atan(0.99664719 * Math.tan(lat * RAD)), l = (lon + g.gast) * RAD;
+    const P = [Math.cos(u) * Math.cos(l), Math.cos(u) * Math.sin(l), Math.sin(u)];
+    return [dot(P, g.e1), dot(P, g.e2), dot(P, g.d)];
   };
-  // the radius of a cone (penumbra: +1, umbra: −1) at the height z
-  const radius = (g, sign, z) => g.rm + sign * (z - g.zm) * (sign > 0 ? g.f1 : g.f2);
-  // the points at a cone's radius from the axis across its motion, or null
-  // off the Earth's sunlit side
+  // a cone's radius at the height z: penumbra (+1) and umbra (−1, its size)
+  const radius = (g, sign, z) => Math.abs(g.rm + sign * (z - g.zm) * (sign > 0 ? g.f1 : g.f2));
+  // how far a place is outside a cone (negative inside)
+  const outside = (g, p, sign) => {
+    const [x, y, z] = toPlane(g, p);
+    return Math.hypot(x - g.x0, y - g.y0) - radius(g, sign, z);
+  };
+  // the points of the terminator at a cone's edge (two circles meeting)
+  const meet = (g, sign) => {
+    const L = radius(g, sign, 0), d = Math.hypot(g.x0, g.y0);
+    if (d < 1e-9 || d > 1 + L || d < Math.abs(1 - L)) return [];
+    const a = (1 + d * d - L * L) / (2 * d), h = Math.sqrt(Math.max(0, 1 - a * a)), ux = g.x0 / d, uy = g.y0 / d;
+    return [[a * ux - h * uy, a * uy + h * ux], [a * ux + h * uy, a * uy - h * ux]].map(([x, y]) => toGeo(g, x * 0.999999, y * 0.999999));
+  };
+  // the point at a cone's radius from the axis across its motion (n), or null
   const edge = (g, n, sign, side) => {
     let z = -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0)), x, y;
     for (let i = 0; i < 3; i++) {
-      const r = Math.abs(radius(g, sign, z));
+      const r = radius(g, sign, z);
       x = g.x0 + side * r * n[0];
       y = g.y0 + side * r * n[1];
       z = -Math.sqrt(Math.max(0, 1 - x * x - y * y));
     }
-    return surface(g, x, y);
+    return toGeo(g, x, y);
   };
-  const curves = { center: [[]], umbraN: [[]], umbraS: [[]], penN: [[]], penS: [[]] }, band = [], ends = [];
-  const push = (name, p) => {
-    const c = curves[name], seg = c[c.length - 1];
-    if (p) seg.push(p.map((x) => Math.round(x * 100) / 100));
-    else if (seg.length) c.push([]);
-  };
-  // every two minutes, every 15 s where the axis grazes the Earth (the
-  // ends of the path, which stretch there)
-  for (let t = tmax - 4 * 3600, step = 120; t <= tmax + 4 * 3600; t += step) {
-    const g = shadow(t), a = shadow(t - 30), b = shadow(t + 30);
-    step = Math.abs(Math.hypot(g.x0, g.y0) - 1) < 0.1 ? 15 : 120;
-    const vx = b.x0 - a.x0, vy = b.y0 - a.y0, vn = Math.hypot(vx, vy), n = [-vy / vn, vx / vn];
-    // north first: the side toward the north pole of the plane
-    const north = n[1] * 1 >= 0 ? 1 : -1;
-    const central = g.x0 * g.x0 + g.y0 * g.y0 < 1;
-    const c = central ? surface(g, g.x0, g.y0) : null;
-    push("center", c && [...c, (t - Math.floor(tmax / 86400) * 86400) / 3600]);
-    const uN = central ? edge(g, n, -1, north) : null, uS = central ? edge(g, n, -1, -north) : null;
-    push("umbraN", uN);
-    push("umbraS", uS);
-    // the band of the central phase, by pairs of its limits
-    band.push(uN && uS ? [...uN, ...uS].map((x) => Math.round(x * 100) / 100) : null);
-    // at the ends of the path, where a limit has left the Earth's sunlit
-    // side, the footprint of the umbra, cut at the terminator
-    if (central && (!uN || !uS)) {
-      const z0 = -Math.sqrt(1 - g.x0 * g.x0 - g.y0 * g.y0), L = Math.abs(radius(g, -1, z0)), poly = [];
-      for (let i = 0; i < 24; i++) {
-        let x = g.x0 + L * Math.cos(i * Math.PI / 12), y = g.y0 + L * Math.sin(i * Math.PI / 12);
-        const r = Math.hypot(x, y);
-        if (r > 0.99999) { x *= 0.99999 / r; y *= 0.99999 / r; }
-        poly.push(surface(g, x, y).map((v) => Math.round(v * 100) / 100));
+  // points found time after time joined into lines, each to the nearest
+  // end of a line from the time before (within 3°)
+  const chain = (frames) => {
+    const done = [];
+    let open = [];
+    for (const pts of frames) {
+      const next = [];
+      for (const p of pts) {
+        let best = null, bd = 3;
+        for (const l of open) {
+          const q = l[l.length - 1], dd = Math.hypot(p[0] - q[0], (((p[1] - q[1] + 540) % 360) - 180) * Math.cos(p[0] * RAD));
+          if (dd < bd && !next.includes(l)) { bd = dd; best = l; }
+        }
+        if (best) { best.push(p); next.push(best); } else next.push([p]);
       }
-      ends.push(poly);
+      for (const l of open) if (!next.includes(l)) done.push(l);
+      open = next;
     }
-    push("penN", edge(g, n, 1, north));
-    push("penS", edge(g, n, 1, -north));
+    return [...done, ...open].filter((l) => l.length > 1).map((l) => l.map((p) => p.map(r2)));
+  };
+
+  // The limits of a cone's track at the time of g (a and b, a little before
+  // and after): the points of its edge, on the sunlit side, where it stops
+  // coming in and starts going out over the turning Earth (the envelope of
+  // its edges)
+  const limitPoints = (g, a, b, sign) => {
+    const at = (th) => {
+      let z = -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0)), x, y;
+      for (let m = 0; m < 3; m++) {
+        const r = radius(g, sign, z);
+        x = g.x0 + r * Math.cos(th);
+        y = g.y0 + r * Math.sin(th);
+        z = -Math.sqrt(Math.max(0, 1 - x * x - y * y));
+      }
+      const p = toGeo(g, x, y);
+      return { p, kind: p ? (outside(b, p, sign) < outside(a, p, sign) ? 1 : -1) : 0 };
+    };
+    // samples every 5°, with the terminator found exactly between them (its
+    // visible side), then the switches between visible neighbors
+    const N = 72, sm = [];
+    for (let j = 0; j <= N; j++) {
+      const th = (2 * Math.PI * j) / N, q = at(th);
+      const last = sm[sm.length - 1];
+      if (last && !last.q.kind !== !q.kind) {
+        let lo = last.th, hi = th;
+        for (let m = 0; m < 25; m++) {
+          const mid = (lo + hi) / 2;
+          if (!at(mid).kind === !last.q.kind) lo = mid; else hi = mid;
+        }
+        const tb = last.q.kind ? lo : hi;
+        sm.push({ th: tb, q: at(tb) });
+      }
+      sm.push({ th, q });
+    }
+    const out = [];
+    for (let j = 1; j < sm.length; j++) {
+      const A = sm[j - 1], B = sm[j];
+      if (!A.q.kind || !B.q.kind || A.q.kind === B.q.kind) continue;
+      let lo = A.th, hi = B.th;
+      for (let m = 0; m < 25; m++) {
+        const mid = (lo + hi) / 2, q = at(mid);
+        if (!q.kind) break;
+        if (q.kind === A.q.kind) lo = mid; else hi = mid;
+      }
+      const q = at((lo + hi) / 2);
+      if (q.p) out.push(q.p);
+    }
+    return out;
+  };
+  const gap = (p, q) => Math.hypot(p[0] - q[0], (((p[1] - q[1] + 540) % 360) - 180) * Math.cos(p[0] * RAD));
+  const northness = (g, nN, p) => { const [x, y] = toPlane(g, p); return (x - g.x0) * nN[0] + (y - g.y0) * nN[1]; };
+  // every 30 s, every 2 s while the umbra grazes the Earth (the ends of
+  // the band, where its two sides close)
+  const ts = [], G = [];
+  for (let t = tmax - 4 * 3600; t <= tmax + 4 * 3600;) {
+    const g = shadowGeometry(t);
+    ts.push(t);
+    G.push(g);
+    // (and while the edge of the penumbra grazes it, from outside or inside:
+    // the ends of the limits and of the curves at sunrise or sunset)
+    const r0 = Math.hypot(g.x0, g.y0), L1 = radius(g, 1, 0);
+    t += Math.abs(r0 - 1) < radius(g, -1, 0) + 0.03 || Math.abs(r0 - 1 - L1) < 0.03 || Math.abs(r0 - 1 + L1) < 0.03 ? 2 : 30;
   }
-  for (const c of Object.values(curves)) if (!c[c.length - 1].length) c.pop();
-  const g = shadow(tmax), rr = Math.hypot(g.x0, g.y0), S = equatorial("sun", tmax);
-  const greatest = rr < 1 ? surface(g, g.x0, g.y0) : surface(g, g.x0 / rr * 0.9999, g.y0 / rr * 0.9999);
-  return { ...curves, band, ends, greatest, sun: [S.dec, mod360(S.ra - siderealTime(tmax, 0) + 180) - 180], ...eclipseContours(tmax) };
+  // At the time t: where the penumbra's edge meets the terminator, the
+  // eclipse beginning there (rb) or ending (re) at sunrise or sunset, and
+  // where the greatest eclipse is at sunrise or sunset (pts)
+  const risesAt = (t) => {
+    const g = shadowGeometry(t), a = shadowGeometry(t - 15), b = shadowGeometry(t + 15);
+    // where the penumbra's edge meets the terminator: the eclipse begins or
+    // ends there at sunrise or sunset, as the edge comes in or goes out
+    const rb = [], re = [];
+    for (const p of meet(g, 1)) {
+      if (!p) continue;
+      (outside(b, p, 1) < outside(a, p, 1) ? rb : re).push(p);
+    }
+    // the greatest eclipse at sunrise or sunset: on the arc of the
+    // terminator inside the penumbra (200 steps along it, however short),
+    // where the distance from the axis stops falling
+    const L = radius(g, 1, 0), d0 = Math.hypot(g.x0, g.y0), pts = [];
+    if (d0 > 1e-9 && d0 < 1 + L && d0 > L - 1) {
+      // the arc: around the direction of the axis, half-width w (all of the
+      // terminator when the penumbra covers it)
+      const c = (1 + d0 * d0 - L * L) / (2 * d0), w = c <= -1 ? Math.PI : Math.acos(Math.max(-1, Math.min(1, c))), th0 = Math.atan2(g.y0, g.x0);
+      const slope = (th) => {
+        const p = toGeo(g, Math.cos(th) * 0.999999, Math.sin(th) * 0.999999);
+        if (!p) return NaN;
+        const [xa, ya] = toPlane(a, p), [xb, yb] = toPlane(b, p);
+        return Math.hypot(xb - b.x0, yb - b.y0) - Math.hypot(xa - a.x0, ya - a.y0);
+      };
+      const N = 200;
+      let thPrev = th0 - w, prev = slope(thPrev);
+      for (let j = 1; j <= N; j++) {
+        const th = th0 - w + (2 * w * j) / N, cur = slope(th);
+        if (!Number.isNaN(prev) && !Number.isNaN(cur) && (prev < 0) !== (cur < 0)) {
+          let lo = thPrev, hi = th, flo = prev;
+          for (let m = 0; m < 30; m++) {
+            const mid = (lo + hi) / 2, fm = slope(mid);
+            if (Number.isNaN(fm)) break;
+            if ((fm < 0) === (flo < 0)) { lo = mid; flo = fm; } else hi = mid;
+          }
+          const p = toGeo(g, Math.cos((lo + hi) / 2) * 0.999999, Math.sin((lo + hi) / 2) * 0.999999);
+          if (p) pts.push(p);
+        }
+        prev = cur;
+        thPrev = th;
+      }
+    }
+    return { rb, re, pts };
+  };
+  // frames of points at the times ts, with more in between where those of
+  // two following times do not match (another number, or 0.5° apart): the
+  // curves born or ending where they run fast
+  const refined = (fn) => {
+    const far = (P, Q) => P.length !== Q.length || P.some((p) => !Q.some((q) => gap(p, q) < 0.5));
+    const out = [];
+    const rec = (t1, F1, t2, F2, depth) => {
+      if (depth >= 7 || !far(F1.pts, F2.pts) && !far(F1.rb, F2.rb) && !far(F1.re, F2.re)) return;
+      const tm = (t1 + t2) / 2, Fm = fn(tm);
+      rec(t1, F1, tm, Fm, depth + 1);
+      out.push(Fm);
+      rec(tm, Fm, t2, F2, depth + 1);
+    };
+    let tPrev = ts[0], Fprev = fn(ts[0]);
+    out.push(Fprev);
+    for (let i = 1; i < ts.length; i++) {
+      const F = fn(ts[i]);
+      rec(tPrev, Fprev, ts[i], F, 0);
+      out.push(F);
+      tPrev = ts[i];
+      Fprev = F;
+    }
+    return out;
+  };
+  const center = [], penN = [], penS = [], bandN = [], bandS = [], riseB = [], riseE = [], riseM = [];
+  G.forEach((g, i) => {
+    const a = G[Math.max(0, i - 1)], b = G[Math.min(G.length - 1, i + 1)];
+    const vx = b.x0 - a.x0, vy = b.y0 - a.y0, vn = Math.hypot(vx, vy), n = [-vy / vn, vx / vn];
+    // the side of the north pole of the plane first
+    const north = n[1] >= 0 ? 1 : -1, nN = [north * n[0], north * n[1]];
+    const central = g.x0 * g.x0 + g.y0 * g.y0 < 1;
+    const c = central ? toGeo(g, g.x0, g.y0) : null;
+    center.push(c && [...c, (ts[i] - day) / 3600]);
+    // the limits of the partial eclipse: of the two points, the one more to
+    // the north for the north
+    // (of two points, the one more to the north for the north; a single
+    // one to the side whose point before is nearer)
+    const pl = limitPoints(g, a, b, 1);
+    let plN = null, plS = null;
+    if (pl.length >= 2) [plN, plS] = northness(g, nN, pl[0]) > northness(g, nN, pl[1]) ? pl : [pl[1], pl[0]];
+    else if (pl.length === 1) {
+      const lN = penN[penN.length - 1], lS = penS[penS.length - 1];
+      const toN = lN && lS ? gap(pl[0], lN) < gap(pl[0], lS) : lN ? true : lS ? false : northness(g, nN, pl[0]) > 0;
+      if (toN) plN = pl[0]; else plS = pl[0];
+    }
+    penN.push(plN);
+    penS.push(plS);
+    // the band: the limits of the umbra, or where its edge meets the terminator
+    // (the points where its edge meets the terminator, followed in time:
+    // each side takes the one nearest to its point before, and at first
+    // the one more to the north for the north side)
+    const ends = meet(g, -1).filter(Boolean);
+    // (the limits of the umbra's track wherever they are on the sunlit side,
+    // the axis there or not)
+    const touch = Math.hypot(g.x0, g.y0) < 1 + radius(g, -1, 0);
+    const ul = touch ? limitPoints(g, a, b, -1) : [];
+    let uN = null, uS = null;
+    if (ul.length === 2) [uN, uS] = northness(g, nN, ul[0]) > northness(g, nN, ul[1]) ? ul : [ul[1], ul[0]];
+    else if (ul.length === 1) { if (northness(g, nN, ul[0]) > 0) uN = ul[0]; else uS = ul[0]; }
+    const near = (prevP, list) => list.reduce((best, p) => (!best || gap(p, prevP) < gap(best, prevP) ? p : best), null);
+    let pN = uN, pS = uS;
+    const lastN = bandN[bandN.length - 1], lastS = bandS[bandS.length - 1];
+    if (!pN && ends.length) pN = lastN ? near(lastN, ends.filter((p) => p !== pS)) : ends.reduce((a, b) => (northness(g, nN, a) > northness(g, nN, b) ? a : b));
+    if (!pS && ends.length) pS = lastS ? near(lastS, ends.filter((p) => p !== pN)) : ends.find((p) => p !== pN) || null;
+    bandN.push(pN && pS ? pN : null);
+    bandS.push(pN && pS ? pS : null);
+
+  });
+  const frames = refined(risesAt);
+  for (const F of frames) { riseB.push(F.rb); riseE.push(F.re); riseM.push(F.pts); }
+  // runs of points, broken where there is none
+  const runs = (arr) => {
+    const out = [[]];
+    for (const p of arr) {
+      if (p) out[out.length - 1].push(p.map(r2));
+      else if (out[out.length - 1].length) out.push([]);
+    }
+    return out.filter((l) => l.length > 1);
+  };
+  // the band: for each run of times, its north side forward and its south
+  // side back, a closed outline
+  const band = [];
+  let cur = null;
+  bandN.forEach((pN, i) => {
+    const pS = bandS[i];
+    if (pN && pS) {
+      if (!cur) band.push((cur = { n: [], s: [] }));
+      cur.n.push(pN.map(r2));
+      cur.s.push(pS.map(r2));
+    } else cur = null;
+  });
+  // the lines of the hours: the edge of the penumbra at each hour, in pieces
+  // coming in (beginning) and going out (end), which share their ends; the
+  // ends found exactly, at the terminator too
+  const hours = { begin: [], end: [] };
+  for (let h = Math.ceil((ts[0] - day) / 3600); h <= Math.floor((ts[ts.length - 1] - day) / 3600); h++) {
+    const t = day + h * 3600, g = shadowGeometry(t), a = shadowGeometry(t - 30), b = shadowGeometry(t + 30);
+    const at = (th) => {
+      let z = -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0)), x, y;
+      for (let m = 0; m < 3; m++) {
+        const r = radius(g, 1, z);
+        x = g.x0 + r * Math.cos(th);
+        y = g.y0 + r * Math.sin(th);
+        z = -Math.sqrt(Math.max(0, 1 - x * x - y * y));
+      }
+      const p = toGeo(g, x, y);
+      return { p, kind: p && (outside(b, p, 1) < outside(a, p, 1) ? "begin" : "end") };
+    };
+    const pieces = [];
+    let cur = null, prev = at(0), thPrev = 0;
+    const open = (kind) => { cur = kind ? { kind, pts: [] } : null; if (cur) pieces.push(cur); };
+    open(prev.kind);
+    if (cur) cur.pts.push([0, prev.p]);
+    for (let j = 1; j <= 360; j++) {
+      const th = (j * Math.PI) / 180, q = at(th);
+      if (q.kind !== prev.kind) {
+        // the boundary between thPrev and th
+        let lo = thPrev, hi = th;
+        for (let m = 0; m < 30; m++) {
+          const mid = (lo + hi) / 2;
+          if (at(mid).kind === prev.kind) lo = mid; else hi = mid;
+        }
+        const left = at(lo), right = at(hi);
+        // the point of the boundary, for both sides where they are seen
+        const edgePt = left.p ? [lo, left.p] : right.p ? [hi, right.p] : null;
+        if (cur && edgePt) cur.pts.push(edgePt);
+        open(q.kind);
+        if (cur && edgePt) cur.pts.push(edgePt);
+      }
+      if (cur) cur.pts.push([th, q.p]);
+      prev = q;
+      thPrev = th;
+    }
+    // the circle closes: the last piece goes on with the first
+    if (pieces.length > 1 && pieces[0].kind && pieces[0].kind === pieces[pieces.length - 1].kind && at(0).kind) {
+      const last = pieces.pop();
+      pieces[0].pts = [...last.pts, ...pieces[0].pts];
+    }
+    // more points where they are far apart (near the terminator)
+    const far = (p, q) => Math.hypot(p[0] - q[0], (((p[1] - q[1] + 540) % 360) - 180) * Math.cos(p[0] * RAD)) > 0.8;
+    const dense = (pts) => {
+      const out = [pts[0]];
+      const split = (A, B, depth) => {
+        if (depth < 8 && far(A[1], B[1])) {
+          const th = (A[0] + B[0]) / 2, m = at(th);
+          if (m.p) { split(A, [th, m.p], depth + 1); out.push([th, m.p]); split([th, m.p], B, depth + 1); }
+        }
+      };
+      for (let i = 1; i < pts.length; i++) {
+        // across 0 the angles go on from 2π
+        const A = out[out.length - 1], B = pts[i][0] < A[0] - Math.PI ? [pts[i][0] + 2 * Math.PI, pts[i][1]] : pts[i];
+        split(A, B, 0);
+        out.push(pts[i]);
+      }
+      return out.map(([, p]) => p);
+    };
+    for (const k2 of ["begin", "end"]) {
+      const list = pieces.filter((pc) => pc.kind === k2 && pc.pts.length > 1).map((pc) => dense(pc.pts).map((p) => p.map(r2)));
+      if (list.length) hours[k2].push([h, list]);
+    }
+  }
+  const g = shadowGeometry(tmax), rr = Math.hypot(g.x0, g.y0), S = equatorial("sun", tmax);
+  const greatest = rr < 1 ? toGeo(g, g.x0, g.y0) : toGeo(g, (g.x0 / rr) * 0.9999, (g.y0 / rr) * 0.9999);
+  // fewer points: 0.3° apart at least, the ends kept (the lines are drawn
+  // as curves through them)
+  const thin = (l) => l.filter((p, i) => {
+    if (i === 0 || i === l.length - 1) return true;
+    const q = thin.last;
+    if (!q || Math.hypot(p[0] - q[0], (((p[1] - q[1] + 540) % 360) - 180) * Math.cos(p[0] * RAD)) >= 0.3) { thin.last = p; return true; }
+    return false;
+  });
+  const lines = (ls) => ls.map((l) => { thin.last = null; return thin(l); });
+  // the curves where the eclipse begins and where it ends at sunrise or
+  // sunset meet (at the limits): each end of a line of the first goes on to
+  // the nearest end of the second, within 2°
+  // lines whose ends meet (within 1.5°) made one: the two halves of a
+  // curve born where two points start together
+  const merge = (ls) => {
+    const out = ls.map((l) => l.slice());
+    for (let again = true; again;) {
+      again = false;
+      for (let i = 0; i < out.length && !again; i++) {
+        for (let j = i + 1; j < out.length && !again; j++) {
+          const a = out[i], b = out[j];
+          const ways = [[a[a.length - 1], b[0], () => [...a, ...b]], [a[a.length - 1], b[b.length - 1], () => [...a, ...b.slice().reverse()]],
+            [a[0], b[b.length - 1], () => [...b, ...a]], [a[0], b[0], () => [...b.slice().reverse(), ...a]]];
+          const w = ways.find(([p, q]) => gap(p, q) < 1.5);
+          if (w) { out[i] = w[2](); out.splice(j, 1); again = true; }
+        }
+      }
+    }
+    return out;
+  };
+  const joinEnds = (begin0, end0, max0) => {
+    const begin = merge(begin0), end = merge(end0), max = merge(max0);
+    for (const l of begin) {
+      for (const at of [0, l.length - 1]) {
+        let best = null, bd = 2;
+        for (const m of end) for (const q of [m[0], m[m.length - 1]]) if (gap(l[at], q) < bd) { bd = gap(l[at], q); best = q; }
+        if (best && bd > 0) { if (at === 0) l.unshift(best); else l.push(best); }
+      }
+    }
+    return { begin, end, max };
+  };
+  return {
+    center: lines(runs(center)), band: lines(band.map((b) => [...b.n, ...b.s.reverse()])), penN: lines(runs(penN)), penS: lines(runs(penS)),
+    begin: hours.begin.map(([h, ls]) => [h, lines(ls)]), end: hours.end.map(([h, ls]) => [h, lines(ls)]),
+    rise: joinEnds(lines(chain(riseB)), lines(chain(riseE)), lines(chain(riseM))),
+    greatest, sun: [S.dec, mod360(S.ra - siderealTime(tmax, 0) + 180) - 180],
+  };
 }
 
 // A solar eclipse seen from a place at the time t: the distance between
@@ -973,4 +1161,4 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
-export { aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, solarEclipse, shadowAt, solarLocal, eclipseTrack, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };
+export { aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };

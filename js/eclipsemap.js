@@ -39,18 +39,31 @@ function projector({ lat0, lon0, s }, W, H) {
   };
 }
 
+// The control points of the Bézier from b to c of a centripetal
+// Catmull–Rom curve through a, b, c, e: no loops nor overshoots where the
+// points are unevenly spaced, and the same at any zoom
+function bezier(a, b, c, e) {
+  const d1 = Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1])), d2 = Math.sqrt(Math.hypot(c[0] - b[0], c[1] - b[1]));
+  const d3 = Math.sqrt(Math.hypot(e[0] - c[0], e[1] - c[1]));
+  const c1 = d1 < 1e-9 ? b : [0, 1].map((k) => (d1 * d1 * c[k] - d2 * d2 * a[k] + (2 * d1 * d1 + 3 * d1 * d2 + d2 * d2) * b[k]) / (3 * d1 * (d1 + d2)));
+  const c2 = d3 < 1e-9 ? c : [0, 1].map((k) => (d3 * d3 * b[k] - d2 * d2 * e[k] + (2 * d3 * d3 + 3 * d3 * d2 + d2 * d2) * c[k]) / (3 * d3 * (d3 + d2)));
+  return [c1, c2];
+}
+const fx = (x) => x.toFixed(1);
+const curve = (a, b, c, e) => { const [c1, c2] = bezier(a, b, c, e); return `C${fx(c1[0])} ${fx(c1[1])} ${fx(c2[0])} ${fx(c2[1])} ${fx(c[0])} ${fx(c[1])}`; };
+// the points without repeats
+const distinct = (pts) => pts.filter((p, i) => i === 0 || p[0] !== pts[i - 1][0] || p[1] !== pts[i - 1][1]);
+
 // an SVG path of lines, broken where they go behind the Earth; smooth:
-// curves through the points (Catmull–Rom, as cubic Béziers)
+// curves through the points
 function linesPath(lines, P, smooth = false) {
   let d = "";
-  const f = (x) => x.toFixed(1);
-  const run = (pts) => {
+  const run = (all) => {
+    const pts = distinct(all);
     if (pts.length < 2) return;
-    d += `M${f(pts[0][0])} ${f(pts[0][1])}`;
-    if (!smooth || pts.length < 3) { for (const p of pts.slice(1)) d += `L${f(p[0])} ${f(p[1])}`; return; }
+    d += `M${fx(pts[0][0])} ${fx(pts[0][1])}`;
     for (let i = 0; i + 1 < pts.length; i++) {
-      const a = pts[Math.max(0, i - 1)], b = pts[i], c = pts[i + 1], e = pts[Math.min(pts.length - 1, i + 2)];
-      d += `C${f(b[0] + (c[0] - a[0]) / 6)} ${f(b[1] + (c[1] - a[1]) / 6)} ${f(c[0] - (e[0] - b[0]) / 6)} ${f(c[1] - (e[1] - b[1]) / 6)} ${f(c[0])} ${f(c[1])}`;
+      d += smooth ? curve(pts[Math.max(0, i - 1)], pts[i], pts[i + 1], pts[Math.min(pts.length - 1, i + 2)]) : `L${fx(pts[i + 1][0])} ${fx(pts[i + 1][1])}`;
     }
   };
   for (const line of lines) {
@@ -63,6 +76,15 @@ function linesPath(lines, P, smooth = false) {
     run(pts);
   }
   return d;
+}
+
+// a smooth closed SVG path through points already projected (x, y)
+function closedPath(all) {
+  const pts = distinct(all), n = pts.length;
+  if (n < 3) return "";
+  let d = `M${fx(pts[0][0])} ${fx(pts[0][1])}`;
+  for (let i = 0; i < n; i++) d += curve(pts[(i - 1 + n) % n], pts[i], pts[(i + 1) % n], pts[(i + 2) % n]);
+  return d + "z";
 }
 
 // The night side: the visible part of the hemisphere away from the Sun,
@@ -127,28 +149,19 @@ function mapSVG(m, W, H, view, place = null) {
   svg += `<path class="map-grid" d="${linesPath(grid, P)}"/>`;
   svg += `<path class="map-night" d="${nightPath(m.sun, view, W, H, P)}"/>`;
   svg += `<path class="map-coast" d="${linesPath(coast(), P)}"/>`;
-  // where some of the eclipse is seen (older results: its limits north and south)
+  // the limits of the partial eclipse (older results: the outline of where
+  // it is seen)
   svg += `<path class="map-partial" d="${linesPath(m.outline || [...m.penN, ...m.penS], P, true)}"/>`;
-  // the band of the central phase: quadrilaterals between the pairs of its
-  // limits and, at its ends, the footprints of the umbra, in one layer (so
-  // that they do not darken where they overlap); the corners behind the
-  // Earth brought to its edge; then its limits
+  // the band of the central phase: smooth closed outlines, the points
+  // behind the Earth brought to its edge
   const edgeP = (p) => {
     const [x, y, v] = P(p);
     if (v) return [x, y];
     const r = Math.hypot(x - cx, y - cy) || 1;
     return [cx + ((x - cx) * R) / r, cy + ((y - cy) * R) / r];
   };
-  const poly = (pts) => (pts.some((p) => P(p)[2]) ? `M${pts.map((p) => edgeP(p).map(f1).join(" ")).join("L")}z` : "");
-  const pairs = m.band || [];
-  let quads = "";
-  for (let i = 1; i < pairs.length; i++) {
-    const a = pairs[i - 1], b = pairs[i];
-    if (a && b) quads += poly([[a[0], a[1]], [b[0], b[1]], [b[2], b[3]], [a[2], a[3]]]);
-  }
-  const feet = (m.ends || []).map((pts) => `<path d="${poly(pts)}"/>`).join("");
-  if (quads || feet) svg += `<g class="map-path">${quads ? `<path d="${quads}"/>` : ""}${feet}</g>`;
-  svg += `<path class="map-path-edge" d="${linesPath([...m.umbraN, ...m.umbraS], P, true)}"/>`;
+  const bands = (m.band || []).filter((b) => Array.isArray(b[0]) && b.some((p) => P(p)[2]));
+  if (bands.length) svg += `<path class="map-path" d="${bands.map((b) => closedPath(b.map(edgeP))).join("")}"/>`;
   svg += `<path class="map-center" d="${linesPath(m.center, P, true)}"/>`;
   // the hours (UTC) when the partial eclipse begins and ends, labeled at
   // the visible middle of each line; the maximum at sunrise or sunset

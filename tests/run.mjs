@@ -411,14 +411,19 @@ for (const [jd, i, k] of [[2461345.61, 1, "occulted"], [2461345.75694, 0, "trans
   if (!(m.kind === "total" && Math.abs(m.umbral - 1.151) <= 0.002 && Math.abs(m.max - Date.UTC(2026, 2, 3, 11, 33, 44) / 1000) <= 60)) fail(`lunar eclipse of 2026.03.03: ${m.kind} ${m.umbral}`);
 }
 
-// the map of the eclipse of 2026.08.12: the outline of where it is seen
-// closed (across 180° too), the band of totality without gaps
+// the map of the eclipse of 2026.08.12: one outline of the band of
+// totality; all the lines without jumps (but across 180°)
 {
   const tr = A.eclipseTrack(Date.UTC(2026, 7, 12, 17, 46) / 1000);
-  const closed = (l) => Math.hypot(l[0][0] - l.at(-1)[0], ((l[0][1] - l.at(-1)[1] + 540) % 360) - 180) < 0.01;
-  if (!tr.outline.length || !tr.outline.every(closed)) fail("eclipse map: the outline is not closed");
-  const idx = tr.band.map((p, i) => (p ? i : -1)).filter((i) => i >= 0);
-  if (!idx.length || idx.at(-1) - idx[0] + 1 !== idx.length) fail("eclipse map: the band of totality has gaps");
+  if (tr.band.length !== 1 || tr.band[0].length < 50) fail(`eclipse map: the band is ${tr.band.map((b) => b.length)}`);
+  const lines = [...tr.band, ...tr.center, ...tr.penN, ...tr.penS, ...tr.rise.begin, ...tr.rise.end, ...tr.rise.max,
+    ...tr.begin.flatMap(([, l]) => l), ...tr.end.flatMap(([, l]) => l)];
+  for (const l of lines) {
+    for (let i = 1; i < l.length; i++) {
+      const d = Math.hypot(l[i][0] - l[i - 1][0], (((l[i][1] - l[i - 1][1] + 540) % 360) - 180) * Math.cos(l[i][0] * Math.PI / 180));
+      if (d > 3) { fail(`eclipse map: a jump of ${d.toFixed(1)}° at ${l[i]}`); break; }
+    }
+  }
 }
 
 // eclipses seen from Milan: the Sun sets during the one of 2026.08.12; the

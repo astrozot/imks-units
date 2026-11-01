@@ -6,7 +6,7 @@
 import { Q, UnitError, dimEq } from "./units.js";
 import { UNum, ufuncs, atan2 } from "./unum.js";
 import { isDate, dateQ, yearArg } from "./dates.js";
-import { horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season } from "./astro.js";
+import { horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season } from "./astro.js";
 
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
@@ -295,13 +295,15 @@ function skyBuiltins(env, b) {
       const contacts = [["penumbral begins", e.P1, 60], ["partial begins", e.U1, 30], ["total begins", e.U2, 30], ["maximum", e.max, 10],
         ["total ends", e.U3, 30], ["partial ends", e.U4, 30], ["penumbral ends", e.P4, 60]].filter((r) => r[1] !== null);
       const mags = [["umbral magnitude", new Q(UNum.uncertain(e.umbral, 0.003))], ["penumbral magnitude", new Q(UNum.uncertain(e.penumbral, 0.003))]];
-      if (!place) return named(`${e.kind} lunar eclipse`, [...timed(contacts), ...mags]);
+      // the drawing (app.js), kept with the history
+      const draw = (v) => { v.lunar = lunarDiagram(e, place); return v; };
+      if (!place) return draw(named(`${e.kind} lunar eclipse`, [...timed(contacts), ...mags]));
       // the Moon up: its center above −0.8° (refraction and its radius)
       const alt = (x) => horizontal("moon", x, place).alt, up = (x) => alt(x) > -0.8;
       const moon = horizonRows("moon", e.P1, e.P4, place);
       if (contacts.some((r) => up(r[1])) || moon.length) {
         const rows = contacts.map(([l, x, s]) => [l + (up(x) ? "" : " (Moon down)"), x, s]);
-        return named(`${e.kind} lunar eclipse`, [...timed([...rows, ...moon]), ...mags, ["Moon's altitude", deg(alt(e.max), 0.01)]]);
+        return draw(named(`${e.kind} lunar eclipse`, [...timed([...rows, ...moon]), ...mags, ["Moon's altitude", deg(alt(e.max), 0.01)]]));
       }
       u = e.max + 86400;
     }

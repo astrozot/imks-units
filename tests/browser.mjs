@@ -123,6 +123,11 @@ try {
   expect(await (await lastEntry()).$eval("td.lbl", (td) => td.textContent), /^(transit|shadow|eclipse|occultation)/, "moonevents from the table");
   await clear();
 
+  // the drawing of a lunar eclipse: the Moon at its seven contacts
+  await run("lunareclipse(2026.01.01)");
+  check(await (await lastEntry()).$$eval(".lunar-svg .lunar-moon", (x) => x.length) === 7, "lunareclipse: the drawing");
+  await clear();
+
   // the map of a solar eclipse, and its zoom view
   await run("solareclipse(2024.01.01, (32.7767, -96.797)[deg])");
   check(Boolean(await (await lastEntry()).$(".map-svg .map-path")), "solareclipse: the path on the map");
@@ -141,6 +146,13 @@ try {
   check(!(await page.$('[data-fncat="Eclipses"]')), "the Eclipses page is not in the bar");
   expect(await page.$eval('[data-fncat][aria-selected="true"]', (b) => b.textContent), "Sky", "Sky stays selected on its page");
   check(!(await page.$$eval("#fn-grid .key b", (bs) => bs.some((b) => b.offsetHeight > 30))), "labels wrap in Eclipses");
+  // a moon from the list of moon…
+  await page.click('#fn-grid [data-key="pick:moon"]');
+  await page.waitForTimeout(200);
+  await page.click('[data-pick-insert=\'"Titan"\']');
+  await page.waitForTimeout(150);
+  expect(await line(), '"Titan"', "the list of moons types a name");
+  await clear();
   await page.click('#fn-grid [data-key="fncat:Sky"]');
   await page.waitForTimeout(150);
   check(Boolean(await page.$('#fn-grid [data-key="f:sunrise("]')), "back to Sky");
