@@ -123,6 +123,15 @@ for (const [src, text] of TEXT) {
   if (got !== text) fail(`${src} gives ${got}, not ${text}`);
 }
 
+// The parts of a date
+for (const [src, parts] of [["ymd(2026.10.30 23:59)", "2026,10,30"], ["ymd(2026.10.30, \"hebrew\")", "5787,8,19"], ["ymd(2026.10.30, \"Julian\")", "2026,10,17"],
+  ["ymd(2012.12.21, \"mayan\")", "13,0,0,0,0"], ["ymd(2030.01.05, \"umalqura\")", "1451,9,1"], ["ymd(today).1 - ymd(today - 400[day]).1", "1"]]) {
+  const r = calc.run(src);
+  const got = r.kind !== "value" ? r.message : (Array.isArray(r.q) ? r.q : [r.q]).map((q) => q.x.n).join(",");
+  if (got !== parts) fail(`${src} gives ${got}, not ${parts}`);
+}
+if (calc.run('ymd(today, "aztec")').kind !== "error") fail("ymd with an unknown calendar should be an error");
+
 // Not dates
 for (const src of ["2026.2.30", "hebrew(5786, 13, 1)", "julian(2026, 2, 29)", "chinese(2026, 6, 1, 1)", 'japanese("Showa", 64, 1, 8)', 'holiday("Thanksgiving", 2027)', 'hindu(1948, 1, 31)']) {
   if (calc.run(src).kind !== "error") fail(`${src} should be an error`);

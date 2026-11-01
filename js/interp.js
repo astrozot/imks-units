@@ -529,6 +529,7 @@ const functionDocs = {
   solstice: "The solstices of a year, (June, December): solstice(2027); years −1000 to 3000, to a minute today, less precise far from it (ΔT)",
   lst: "Local sidereal time: lst(t, longitude), or lst(t, (latitude, longitude))",
   holiday: "A holiday in a Gregorian year: holiday(\"Passover\", 2027); Christian, Jewish, Islamic, Chinese, Nowruz, Enkutatash (an unknown name lists them); an Islamic one can come twice in a year: the first",
+  ymd: "The year, month and day of a date, as a list: ymd(2026.10.30) is (2026, 10, 30), and ymd(today).1 the year; ymd(t, \"hebrew\") in another calendar (julian, hebrew, islamic, umalqura, persian, coptic, ethiopic, french, saka, mayan), with days from midnight",
   easter: "Easter Sunday of a year (Gregorian calendar): easter(2027)",
   easter_orthodox: "Orthodox Easter Sunday of a year (from the Julian calendar): easter_orthodox(2027)",
   french: "A date of the French Republican calendar: french(year, month, day), month 13 the complementary days; french(8, 2, 18) is 18 Brumaire VIII",
@@ -568,11 +569,11 @@ const isCalculus = (node) => CALCULUS.has(node.f) &&
 
 // built-in functions that take whole lists; the others apply elementwise
 // the variables of the sensors, which hold their last readings, and the
-// keys (f(x) → Sensors) that measure them
+// keys (ƒ(x) → Sensors) that measure them
 const SENSOR_VARS = { here: "here", lat: "lat", lon: "lon", alt: "alt", speed: "speed", g_local: "g", accel: "accel", tilt: "tilt", heading: "heading", pitch: "pitch" };
 
 // functions that take a string argument
-const STRING_FNS = new Set(["japanese", "holiday"]);
+const STRING_FNS = new Set(["japanese", "holiday", "ymd"]);
 
 const LIST_FNS = new Set(["sum", "mean", "len", "item", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle", ...SKY_FNS]);
 
@@ -814,7 +815,7 @@ class Interpreter {
     if (name === "today") return today(env);
     if (Object.hasOwn(SENSOR_VARS, name)) {
       if (env.readings.has(name)) return env.readings.get(name);
-      throw new CalcError(`${name}: no reading yet; measure it with the ${SENSOR_VARS[name]} key (f(x) → Sensors)`);
+      throw new CalcError(`${name}: no reading yet; measure it with the ${SENSOR_VARS[name]} key (ƒ(x) → Sensors)`);
     }
     if (name === "const") return this.const;
     if (env.isunit(name)) return env.unitValue(name);

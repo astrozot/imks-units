@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS = {
   autoCurrency: true,
   oxrId: "",
   theme: "auto",
+  orient: "auto",
   palette: "classic",
   mc: false,
   mcN: 5000,
@@ -465,13 +466,18 @@ function qHTML(q) {
   return MC.on && env().showErrors && q.x && (q.x.s || q.x.c) && q.x.std > 0 ? html + '<wbr><span class="mcb" title="Monte Carlo">MC</span>' : html;
 }
 
+// SI: no space before the symbols of angles, 30°, 5′, 12″ (but 25 °C)
+const ANGLE_UNITS = new Set(["deg", "arcmin", "arcsec"]);
+const tightUnit = (tree) => tree && tree.length === 1 && ANGLE_UNITS.has(tree[0][0]) && Math.abs(tree[0][1] - 1) < 1e-9;
+
 function qHTMLraw(q) {
   const r = env().display(q);
   if (r.format) return esc(r.text);
   const unit = treeHTML(r.tree);
   let num = numHTML(r.num);
   if (unit && num.includes("±") && !num.startsWith("(")) num = `(${num})`;
-  return `<span class="nb">${r.tilde ? '<span class="tilde">~</span>' : ""}${num}</span>` + (unit ? `<wbr><span class="u">${unit}</span>` : "");
+  const u = !unit ? "" : tightUnit(r.tree) ? `<span class="u tight">${unit}</span>` : `<wbr><span class="u">${unit}</span>`;
+  return `<span class="nb">${r.tilde ? '<span class="tilde">~</span>' : ""}${num}</span>` + u;
 }
 
 function qText(q) {
@@ -1272,6 +1278,9 @@ function unitContext(b) {
   return "other";
 }
 
+// Is the end of b inside quotes, as in 1 @ kg|"| ?
+const inQuotes = (b) => (b.match(/['"]/g) || []).length % 2 === 1;
+
 const isBareUnit = (name) => {
   const iu = env().isunit(name);
   return Boolean(iu && iu[1] !== "");
@@ -1281,7 +1290,9 @@ const isBareUnit = (name) => {
 function insertUnit(name) {
   const b = before();
   const ctx = unitContext(b);
-  if (ctx === "inside") {
+  if (inQuotes(b)) {
+    insert(name);
+  } else if (ctx === "inside") {
     insert((/[\s[/(*]$/.test(b) ? "" : " ") + name);
   } else if (ctx === "spec") {
     insert((/[\s@|/(]$/.test(b) ? "" : " ") + name);
@@ -1322,7 +1333,7 @@ function quoteName(q) {
     return setInput(nb + after(), nb.length);
   }
   m = /([\p{L}_][\p{L}\p{N}_]*)$/u.exec(b);
-  if (m && env().vars.has(m[1])) {
+  if (m && (env().vars.has(m[1]) || env().systems.has(m[1]))) {
     const nb = b.slice(0, m.index) + q + m[1] + q;
     return setInput(nb + after(), nb.length);
   }
@@ -1357,7 +1368,7 @@ function insertName(name) {
   const b = before();
   const ctx = unitContext(b);
   const plain = /^[\p{L}_][\p{L}\p{N}_]*$/u.test(name);
-  if (plain && /^'$/.test(b.slice(-1)) && after()[0] === "'") {
+  if (plain && /^['"]$/.test(b.slice(-1)) && after()[0] === b.slice(-1)) {
     // inside an empty pair of quotes
     insert(name);
     return setCaret(state.caret + 1, 1);
@@ -1528,12 +1539,13 @@ function segments(text) {
         else it = [i, i + s.length];
       }
     } else if ((s[0] === "'" || s[0] === '"') && s.length > 2 && s.at(-1) === s[0]) {
-      // a variable in units: italic within its quotes
+      // a variable in units: italic within its quotes; a unit system upright
       cls = "u";
       const n = s.slice(1, -1);
-      const ph = prettyName(n, { unit: false });
-      if (ph) { html = esc(s[0]) + itHTML(ph) + esc(s[0]); atom = "name"; }
-      else it = [i + 1, i + s.length - 1];
+      const sys = e.systems.has(n);
+      const ph = prettyName(n, { unit: sys });
+      if (ph) { html = esc(s[0]) + (sys ? ph : itHTML(ph)) + esc(s[0]); atom = "name"; }
+      else if (!sys) it = [i + 1, i + s.length - 1];
     } else if (s === "[") { depth++; cls = "u"; unitCtx = false; }
     else if (s === "]") { depth = Math.max(0, depth - 1); cls = "u"; unitCtx = false; }
     else if (/^\s+$/.test(s)) { /* keep context */ }
@@ -1544,10 +1556,12 @@ function segments(text) {
     // spaces are drawn narrow; * after @ is the prefix wildcard, not ×
     segs.push({ s: i, e: i + s.length, cls, html, atom, it, sp: /^\s+$/.test(s), raw: s === "*" && inUnit });
   }
-  // no space between a number and a variable or a parenthesis: 2x, 2(x + 1)
+  // no space between a number and a variable or a parenthesis, 2x,
+  // 2(x + 1), or an angle, 30°
   for (let k = 1; k + 1 < segs.length; k++) {
     const nx = segs[k + 1];
-    if (segs[k].sp && segs[k - 1].cls === "n" && (nx.cls === "v" || text[nx.s] === "(")) segs[k].sp0 = true;
+    const angle = nx.cls === "u" && ANGLE_UNITS.has(text.slice(nx.s, nx.e).replace(/^°$/, "deg"));
+    if (segs[k].sp && segs[k - 1].cls === "n" && (nx.cls === "v" || angle || text[nx.s] === "(")) segs[k].sp0 = true;
   }
   return segs;
 }
@@ -3048,7 +3062,7 @@ function unitsMath(raw) {
   const items = [];
   let sign = 1, m, last = null;
   while (re.lastIndex < raw.length && (m = re.exec(raw))) {
-    if (m[1]) { last = { m: `<mrow><mo>${m[1][0] === "'" ? "‘" : "“"}</mo>${nameMath(m[1].slice(1, -1), { unit: false })}<mo>${m[1][0] === "'" ? "’" : "”"}</mo></mrow>`, e: sign }; items.push(last); }
+    if (m[1]) { last = { m: `<mrow><mo>${m[1][0] === "'" ? "‘" : "“"}</mo>${nameMath(m[1].slice(1, -1), { unit: env().systems.has(m[1].slice(1, -1)) })}<mo>${m[1][0] === "'" ? "’" : "”"}</mo></mrow>`, e: sign }; items.push(last); }
     else if (m[2]) { last = { m: m[2][0] === "*" ? `<mrow><mo>*</mo>${m[2].length > 1 ? nameMath(m[2].slice(1), { unit: true }) : ""}</mrow>` : nameMath(m[2], { unit: true }), e: sign }; items.push(last); }
     else if (m[3] && last) {
       const [p, q] = m[3].split("/").map((v) => Number(v.trim()));
@@ -3273,7 +3287,7 @@ function simpleArg(n) {
 function hasStructure(node) {
   if (!node || typeof node !== "object") return false;
   if (node.t === "bin" && (node.op === "/" || node.op === "^")) return true;
-  if (node.t === "call" && ["sqrt", "cbrt", "abs", "exp", "integrate", "diff"].includes(node.f)) return true;
+  if (node.t === "call" && ["sqrt", "cbrt", "abs", "floor", "ceil", "exp", "integrate", "diff"].includes(node.f)) return true;
   if (node.t === "call" && node.f === "sum" && node.args.length === 4) return true;
   if (node.t === "call" && node.f === "limit" && (node.args.length === 3 || node.args.length === 4)) return true;
   if (node.t === "unit" && /\^|\//.test(node.raw) && node.target.t !== "num") return true;
@@ -4181,10 +4195,10 @@ const FN_SECTIONS = [
     ["erf", "fn small", "f:erf("], ["gcd", "fn small", "f:gcd("], ["lcm", "fn small", "f:lcm("], ["value", "fn small", "f:nominal("], ["error", "fn small", "f:err("],
   ]],
   ["Trig", 5, 4, [
-    ["sin", "fn small", "f:sin("], ["cos", "fn small", "f:cos("], ["tan", "fn small", "f:tan("], ["atan2", "fn small", "f:atan2("], ["rad", "fn small", "u:rad"],
-    ["asin", "fn small", "f:asin("], ["acos", "fn small", "f:acos("], ["atan", "fn small", "f:atan("], ["hypot", "fn small", "f:hypot("], ["°", "fn", "u:deg"],
-    ["sinh", "fn small", "f:sinh("], ["cosh", "fn small", "f:cosh("], ["tanh", "fn small", "f:tanh("], ["π", "fn", "n:pi"], ["′", "fn", "u:arcmin"],
-    ["asinh", "fn small", "f:asinh("], ["acosh", "fn small", "f:acosh("], ["atanh", "fn small", "f:atanh("], ["τ", "fn", "n:tau"], ["″", "fn", "u:arcsec"],
+    ["sin", "fn small", "f:sin("], ["cos", "fn small", "f:cos("], ["tan", "fn small", "f:tan("], ["atan2", "fn small", "f:atan2("], ["rad", "fn small unitk", "u:rad"],
+    ["asin", "fn small", "f:asin("], ["acos", "fn small", "f:acos("], ["atan", "fn small", "f:atan("], ["hypot", "fn small", "f:hypot("], ["°", "fn unitk", "u:deg"],
+    ["sinh", "fn small", "f:sinh("], ["cosh", "fn small", "f:cosh("], ["tanh", "fn small", "f:tanh("], ["π", "fn", "n:pi"], ["′", "fn unitk", "u:arcmin"],
+    ["asinh", "fn small", "f:asinh("], ["acosh", "fn small", "f:acosh("], ["atanh", "fn small", "f:atanh("], ["τ", "fn", "n:tau"], ["″", "fn unitk", "u:arcsec"],
   ]],
   ["Calculus", 4, 3, [
     { fn: "solve", desc: "f(x) = y for x" }, { fn: "roots", desc: "All the x" }, { fn: "polyroots", desc: "Complex too" }, { key: "assign", label: "=", desc: "Equation" },
@@ -4219,11 +4233,12 @@ const FN_SECTIONS = [
     { key: "±", label: "±", desc: "Normal error" }, { key: "f:nominal(", label: "value", desc: "Without error" },
     { key: "f:err(", label: "error", desc: "σ only" }, { engine: true },
   ]],
-  ["Calendars", 4, 4, [
+  ["Calendars", 4, 5, [
     { fn: "date", desc: "y, m, d, h, min" }, { fn: "chinese", desc: "y, m, d, leap" }, { fn: "coptic", desc: "y, m, d" }, { fn: "ethiopic", desc: "y, m, d" },
     { fn: "french", desc: "y, m, d" }, { fn: "hebrew", desc: "y, m, d" }, { fn: "hindu", desc: "y, m, tithi" }, { fn: "islamic", desc: "y, m, d" },
     { key: 'japanese("Reiwa", ', label: "japanese", desc: "era, y, m, d" }, { fn: "julian", desc: "y, m, d" }, { fn: "mayan", desc: "b, k, t, u, k" }, { fn: "persian", desc: "y, m, d" },
     { fn: "saka", desc: "y, m, d" }, { fn: "umalqura", desc: "y, m, d" }, { fn: "easter", desc: "Year" }, { key: "holidays", label: "holiday", desc: "Name, year" },
+    { fn: "ymd", desc: "y, m, d of t" }, { fn: "easter_orthodox", label: "orthodox", desc: "Easter, year" }, { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" },
   ]],
   ["Sky", 4, 5, [
     { fn: "sunrise", desc: "t, place" }, { fn: "sunset", desc: "t, place" }, { fn: "noon", desc: "t, place" }, { fn: "sun", desc: "Alt, az" },
@@ -4365,7 +4380,7 @@ const ABC = {
   ],
   sym: [
     ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
-    ["-", "/", "*", "^", "(", ")", "[", "]", "=", ","],
+    ["-", "/", "*", "^", "(", ")", "[", "]", "°", ","],
     [["αβγ", "layer:greek", 1.5], "'", '"', "!", "#", "%", "~", "|", ["⌫", "backspace", 1.5]],
     [["abc", "layer:abc", 1.4], [".", ".", 1], ["space", " ", 3.3], ["=", "assign", 1], ["@", "@", 1.1], ["⏎", "enter", 1.5]],
   ],
@@ -4451,7 +4466,7 @@ function setSecond(v) {
 
 const releaseSecond = () => { if (state.second === 1) setSecond(0); };
 
-const TABS = [["num", "123"], ["units", "Units"], ["fn", "f(x)"], ["const", "Const"], ["abc", "abc"]];
+const TABS = [["num", "123"], ["units", "Units"], ["fn", "ƒ(x)"], ["const", "Const"], ["abc", "abc"]];
 
 function buildKeypad() {
   tabsEl.innerHTML = TABS.map(([id, label]) =>
@@ -5306,22 +5321,51 @@ function explain(b) {
   return "";
 }
 
-// a long press on the space bar (or ◀ ▶) followed by a slide sideways
-// moves the caret, a character every SLIDE_STEP px, as on the iOS keyboard.
+// a long press on the space bar (or ◀ ▶) followed by a slide moves the
+// caret as on the iOS keyboard: a floating caret follows the finger, and
+// the caret of the text snaps to the nearest character boundary under it.
 // ◀ ▶ with a long press of their own (on the 123 page) slide as soon as
 // they move, and held still jump to the start or the end
-const SLIDE_STEP = 9, SLIDE_HOLD = 300;
-let slide = null, slideTimer = null;
+const SLIDE_HOLD = 300;
+let slide = null, slideTimer = null, floatCaret = null;
 
-function startSlide(s, x) {
+function startSlide(s, x, y) {
   // the key does not type once sliding
   s.on = true;
   held = true;
-  s.caret = state.caret;
-  if (x !== undefined) s.x = x;
+  if (x !== undefined) { s.x = x; s.y = y; }
+  const ce = $(".caret", exprEl);
+  const r = (ce || exprEl).getBoundingClientRect();
+  s.cx = ce ? r.left + r.width / 2 : r.left;
+  s.cy = r.top + r.height / 2;
   s.b.classList.add("sliding");
+  exprEl.classList.add("sliding");
   try { keypadEl.setPointerCapture(s.id); } catch { /* gone */ }
   navigator.vibrate?.(10);
+  slideTo(s, s.x, s.y);
+}
+
+// the floating caret at the finger, moved by (x, y) from where the slide
+// started; past the edges of the text it stays there, and moving back
+// starts at once
+function slideTo(s, x, y) {
+  const r = exprEl.getBoundingClientRect();
+  const fx = s.cx + x - s.x, fy = s.cy + y - s.y;
+  const px = Math.max(r.left + 1, Math.min(r.right - 1, fx));
+  const py = Math.max(r.top + 2, Math.min(r.bottom - 2, fy));
+  s.x += fx - px;
+  s.y += fy - py;
+  const c = caretIndexAt(px, py);
+  if (c !== state.caret) setCaret(c);
+  if (!floatCaret) {
+    floatCaret = document.createElement("div");
+    floatCaret.className = "caret-float";
+    document.body.append(floatCaret);
+  }
+  // on the line of the caret of the text
+  const ce = $(".caret", exprEl);
+  const cr = ce ? ce.getBoundingClientRect() : { top: py - 12, height: 24 };
+  Object.assign(floatCaret.style, { left: px - 1 + "px", top: cr.top + "px", height: cr.height + "px" });
 }
 
 keypadEl.addEventListener("pointerdown", (ev) => {
@@ -5331,7 +5375,7 @@ keypadEl.addEventListener("pointerdown", (ev) => {
   holdStart = { x: ev.clientX, y: ev.clientY };
   clearTimeout(slideTimer);
   slide = b.dataset.ch === " " || b.dataset.key === "left" || b.dataset.key === "right"
-    ? { b, id: ev.pointerId, x: ev.clientX, caret: state.caret, on: false, quick: !!b.dataset.long } : null;
+    ? { b, id: ev.pointerId, x: ev.clientX, y: ev.clientY, on: false, quick: !!b.dataset.long } : null;
   if (slide) {
     const s = slide;
     if (s.quick) {
@@ -5407,18 +5451,21 @@ keypadEl.addEventListener("pointermove", (ev) => {
   if (!slide.on) {
     if (slide.quick && Math.abs(ev.clientX - holdStart.x) > 8) {
       clearTimeout(holdTimer);
-      return startSlide(slide, ev.clientX);
+      return startSlide(slide, ev.clientX, ev.clientY);
     }
     // moving before the long press keeps the key an ordinary tap
     slide.x = ev.clientX;
+    slide.y = ev.clientY;
     return;
   }
-  const c = slide.caret + Math.trunc((ev.clientX - slide.x) / SLIDE_STEP);
-  if (c !== state.caret) setCaret(c, Math.sign(c - state.caret));
+  slideTo(slide, ev.clientX, ev.clientY);
 });
 const endSlide = () => {
   clearTimeout(slideTimer);
   if (slide) slide.b.classList.remove("sliding");
+  exprEl.classList.remove("sliding");
+  floatCaret?.remove();
+  floatCaret = null;
   slide = null;
 };
 const stopRepeat = () => { clearTimeout(repeatTimer); clearInterval(repeatTimer); clearTimeout(holdTimer); };
@@ -6007,6 +6054,8 @@ function renderSettings(root) {
         <input type="checkbox" class="switch" id="set-rainbow" ${s.rainbow ? "checked" : ""}></div>
       <div class="row"><div class="lbl">Constants on the digits<small>On the 123 page, long-press 7 for c, 8 for G, 9 for h…</small></div>
         <input type="checkbox" class="switch" id="set-digitconsts" ${s.digitConsts ? "checked" : ""}></div>
+      <div class="row"><div class="lbl">Orientation<small>Keep the layout vertical or horizontal however the phone is held</small></div>
+        <select id="set-orient">${[["auto", "Follow the device"], ["portrait", "Keep vertical"], ["landscape", "Keep horizontal"]].map(([v, l]) => `<option value="${v}" ${v === (s.orient || "auto") ? "selected" : ""}>${l}</option>`).join("")}</select></div>
       <div class="row"><div class="lbl">Appearance</div>
         <select id="set-theme">${["auto", "light", "dark"].map((x) => `<option ${x === s.theme ? "selected" : ""}>${x}</option>`).join("")}</select></div>
       <div class="row pal-row"><div class="lbl">Colours</div>
@@ -6135,6 +6184,7 @@ function renderSettings(root) {
     }
   });
   $("#set-theme", root).addEventListener("change", (ev) => { s.theme = ev.target.value; save(); applyTheme(); });
+  $("#set-orient", root).addEventListener("change", (ev) => { s.orient = ev.target.value; save(); applyOrientation(); });
   setupCosmoSettings(root, save);
   if (!ARTIFACT) {
     $("#set-autocur", root).addEventListener("change", (ev) => { s.autoCurrency = ev.target.checked; save(); });
@@ -6384,7 +6434,7 @@ async function importData(file) {
 
 const HELP = [
   ["Quantities", "A number followed by units, with or without brackets. Juxtaposed units multiply; one / divides by everything after it.", [
-    ["9.8 m/s^2", "bare units"], ["9.8[m s^-2]", "bracketed"], ["3[m/(s K)]", "parentheses need brackets"], ["2 m^2", "is 2[m^2]"], ["2[m]^2", "is 4[m^2]"],
+    ["9.8 m/s^2", "bare units"], ["9.8[m s^-2]", "bracketed"], ["3[m/s K]", "/ divides by all that follows"], ["2 m^2", "is 2[m^2]"], ["2[m]^2", "is 4[m^2]"],
   ]],
   ["Converting with @", "Write @ and one or more units separated by |. With several units, the shortest combination is used.", [
     ["12 m + 3 cm @ km", ""], ["20 m/s @ km|hour", ""], ["20 m/s @ km|hour|mph", "shortest wins"], ["72 km/hour @ SI", "unit system"], ["6.63e-34[kg m^2 s^-1] @ easy", ""],
@@ -6407,11 +6457,11 @@ const HELP = [
   ["Variables, functions, constants", "Assign with =. Define functions as f(x) = …. NIST constants are in const[\"…\"].", [
     ["v = 50 km/hour # \"Town speed\"", "with a doc string"], ["kinetic(m, v) = m v^2 / 2", ""], ["kinetic(1200 kg, 50 km/h) @ kJ", ""], ["const[\"Rydberg constant\"]", ""], ["m_e c^2 @ MeV", ""], ["10 USD @ EUR", "currencies"],
   ]],
-  ["Cosmology and lensing", "Distances, times and volumes for ΛCDM with the current H_0, Omega_M and Omega_L (Omega_b is also available) (set the default in Settings, or redefine them; Settings can also add the correlated uncertainties of H_0 and Omega_M of the chosen model, which then propagate to every result). Lensing functions take the lens and source redshifts. All are on the f(x) keys.", [
+  ["Cosmology and lensing", "Distances, times and volumes for ΛCDM with the current H_0, Omega_M and Omega_L (Omega_b is also available) (set the default in Settings, or redefine them; Settings can also add the correlated uncertainties of H_0 and Omega_M of the chosen model, which then propagate to every result). Lensing functions take the lens and source redshifts. All are on the ƒ(x) keys.", [
     ["D_L(1) @ Gpc", "luminosity distance"], ["scale(0.5)", "kpc per arcsec"], ["age(0)", ""], ["Omega_M = 0.315", "change the model"],
     ["theta_E(1e12 M_Sun, 0.5, 2)", "Einstein radius"], ["Sigma_cr(0.3, 1.5)", ""], ["theta_E_SIS(250 km/s, 0.5, 2)", ""], ["H(1)", ""],
   ]],
-  ["Solve, integrate, differentiate", "The first argument is an expression in the variable named by the second one. solve finds where the two sides are equal, from a guess or within a range, and roots finds all such values, as a list (polyroots gives all the roots of a polynomial, complex ones too, from its coefficients a0, a1, …); integrate takes limits, which can be ±inf; diff gives the derivative at a point; limit gives the limit at a point (or at ±inf), from both sides or one. Units and errors carry through (in Monte Carlo mode, per sample). On the f(x) Calculus keys.", [
+  ["Solve, integrate, differentiate", "The first argument is an expression in the variable named by the second one. solve finds where the two sides are equal, from a guess or within a range, and roots finds all such values, as a list (polyroots gives all the roots of a polynomial, complex ones too, from its coefficients a0, a1, …); integrate takes limits, which can be ±inf; diff gives the derivative at a point; limit gives the limit at a point (or at ±inf), from both sides or one. Units and errors carry through (in Monte Carlo mode, per sample). On the ƒ(x) Calculus keys.", [
     ["solve(x^2 = 2, x)", ""], ["solve(D_L(z) = 1 Gpc, z, 0, 5)", "redshift at 1 Gpc"], ["solve(age(z) = 1 Gyr, z, 1)", ""], ["solve(cos(x) = x, x, 0, 1)", ""],
     ["roots(x^3 - 6x^2 + 11x = 6, x)", "1, 2, 3"], ["roots(sin(x) = 0.5, x, 0, 10)", ""], ["roots(cos(x) = x/10, x)", ""], ["polyroots((1, 0, 1))", "±i"], ["polyroots((-6, 11, -6, 1))", "x³ − 6x² + 11x − 6"],
     ["integrate(exp(-x^2), x, -inf, inf)", "√π"], ["integrate(9.81 m/s^2, t, 0 s, 2 s)", ""], ["diff(age(z), z, 1) @ Gyr", ""], ["diff(x^3, x, 2)", ""],
@@ -6420,7 +6470,7 @@ const HELP = [
   ["Lists and tables", "A list is written in parentheses, or made with linspace and logspace. Arithmetic, units, @ and functions apply to each value; sum, mean, len, min and max take the whole list. v.n is the element n of v, from 1 (v.-1 is the last; also item(v, n)). sum(f(k), k, a, b) adds f over k = a, a + 1, …, b; b can be inf, as in sum(1/k^2, k, 1, inf). A list of lists is shown as a table, one column per list. Tap a value to insert it; long-press to copy as CSV.", [
     ["z = (0.1, 0.5, 1, 2)", ""], ["D_L(z) @ Gpc", ""], ["(z, D_L(z) @ Gpc, age(z))", "a table"], ["z.2", "the second"], ["linspace(0 m, 10 m, 6)", ""], ["logspace(1, 1000, 4)", ""], ["sum((3, 4, 5) kg)", ""], ["sum(1/k^2, k, 1, inf)", "π²/6"], ["sum((-1)^(k+1)/k, k, 1, inf)", "ln 2"], ["sum(2^k / factorial(k), k, 0, 20)", "≈ e²"],
   ]],
-  ["Vectors", "A vector is a list of components with compatible units. Arithmetic is per component; dot, cross, norm and angle take whole vectors. On the f(x) Lists keys.", [
+  ["Vectors", "A vector is a list of components with compatible units. Arithmetic is per component; dot, cross, norm and angle take whole vectors. On the ƒ(x) Lists keys.", [
     ["F = (3, 4, 0) N", ""], ["d = (2, 0, 1) m", ""], ["dot(F, d)", "work"], ["cross(d, F)", "torque"], ["norm(F)", ""], ["angle(F, d) @ deg", ""],
   ]],
   ["Plots", "plot(f(x), x, a, b) draws a curve; a tuple of expressions draws several. plot(ys) and plot(xs, ys) plot lists. Axes take the units of the values (convert with @); errors show as a 68 % band. Wide positive ranges use log axes; toggle them below the plot. Drag on the plot to read values; a tap opens a larger view: drag to move, pinch or scroll to zoom (scroll: x only, shift-scroll: both), tap to read, double-tap to fit y again; plot(f(x), x, a, b) is computed again over the new range.", [
@@ -6429,24 +6479,24 @@ const HELP = [
   ["Solar system", "Planets, dwarf planets and major moons (NASA fact sheets): M_, R_, rho_, g_, v_esc_, a_, P_, P_rot_ and e_ followed by the body name. M_Earth, R_Earth, M_Jupiter, R_Jupiter, M_Sun, R_Sun and L_Sun are also units. On the Const keys under Solar system.", [
     ["g_Mars / g_Earth", ""], ["rho_Saturn @ g/cm^3", ""], ["M_Jupiter @ M_Earth", ""], ["a_Io", "around Jupiter"], ["P_Neptune @ yr", ""], ["sqrt(G M_Earth / a_Moon) @ km/s", "orbital speed"],
   ]],
-  ["Statistics", "Gaussian and other distributions on the f(x) Stats keys; uncertainties propagate.", [
+  ["Statistics", "Gaussian and other distributions on the ƒ(x) Stats keys; uncertainties propagate.", [
     ["pvalue(5)", "5σ, one-sided"], ["nsigma(0.05)", ""], ["conf(2)", "inside ±2σ"], ["chi2_p(12.3, 5)", "χ² tail"], ["t_p(2.1, 9)", "two-sided"], ["Phiinv(0.975)", ""], ["2.3 fwhm", "σ → FWHM"],
   ]],
   ["More data", "The Const keys have sections for mathematics, particles (PDG masses), astronomy (IAU nominal values), Earth (WGS 84), chemistry, elements and molecules (molar masses M_Fe, M_H2O; ionization energies E_ion_Fe; for elements also T_m_Fe, T_b_Fe, rho_Fe and the electronegativity chi_Fe; for molecules T_m, T_b, H_fus, H_vap, C_p, rho, T_c, p_c, as in T_b_H2O), engineering (ISA), materials (typical values), nuclides (T_half_C14, lambda_C14, m_C14) and information units (bit, B, KiB…).", [
     ["18 g / M_H2O @ mol", ""], ["E_ion_H N_A @ kJ/mol", "ionization energy"], ["H_vap_H2O / M_H2O @ MJ/kg", "latent heat"], ["T_b_C2H5OH @ °C", ""], ["T_m_W @ °C", ""], ["chi_O - chi_H", "bond polarity"], ["T_half_C14 log2(1 / 0.3)", "age when 30 % is left"], ["1 GiB / (100[Mbit/s]) @ s", ""], ["E_steel * 1e-3 @ GPa", ""], ["GM_Earth / a_WGS84^2", ""], ["m_Z c^2 @ GeV", ""], ["L_Edd(10 M_Sun)", ""],
   ]],
-  ["Dates", "Write dates as 2026.10.30 or 2026.10.30 18:42 (local time; after the time, Z or +05:30 gives a time zone): a date minus a date is a duration, a date plus a duration a date. After @, the Units page shows the Dates targets: JD, MJD, the day of the week…, and the Chinese, Coptic, Ethiopian, French Republican, Hebrew, Hindu, Islamic, Japanese, Julian, Mayan, Persian, Saka and Umm al-Qura calendars; on the f(x) page, the Calendars keys build dates, date(y, m, d), chinese(y, m, d, leap), hebrew(y, m, d)…, give Easter, and holiday(“Passover”, 2027) the major holidays of a Gregorian year; now and today are on the Const page, under Time, and on the Sky keys.", [
+  ["Dates", "Write dates as 2026.10.30 or 2026.10.30 18:42 (local time; after the time, Z or +05:30 gives a time zone): a date minus a date is a duration, a date plus a duration a date. After @, the Units page shows the Dates targets: JD, MJD, the day of the week…, and the Chinese, Coptic, Ethiopian, French Republican, Hebrew, Hindu, Islamic, Japanese, Julian, Mayan, Persian, Saka and Umm al-Qura calendars; on the ƒ(x) page, the Calendars keys build dates, date(y, m, d), chinese(y, m, d, leap), hebrew(y, m, d)…, give Easter, and holiday(“Passover”, 2027) the major holidays of a Gregorian year, and ymd(t) splits a date into year, month and day (ymd(t, “hebrew”) in another calendar); now and today are on the Const page, under Time, and on the Calendars and Sky keys.", [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
-    ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
+    ["ymd(today)", "year, month, day"], ["ymd(today).1", "the year"], ["ymd(today, \"hebrew\")", ""], ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
   ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day.", [
     ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
     ["fullmoon(today)", ""], ["equinox(2027)", "(March, September)"], ["sunset(today, here) - sunrise(today, here) @ hms", "day length"], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
   ]],
-  ["Sensors", "The Sensors keys on the f(x) page measure with the phone, keep the value with its error in a variable and type it in: here (latitude, longitude) and lat, lon, alt from the GPS, g, accel and tilt from the accelerometer (hold the phone still for 2 s), heading from the compass (hold it flat), speed while moving, and pitch, the frequency of a steady tone. They need permission the first time, and HTTPS. The variables here, lat, lon, alt, speed, g_local, accel, tilt, heading and pitch hold the last readings, as in sunrise(today, here); the position is refreshed when the app opens, if allowed.", [
+  ["Sensors", "The Sensors keys on the ƒ(x) page measure with the phone, keep the value with its error in a variable and type it in: here (latitude, longitude) and lat, lon, alt from the GPS, g, accel and tilt from the accelerometer (hold the phone still for 2 s), heading from the compass (hold it flat), speed while moving, and pitch, the frequency of a steady tone. They need permission the first time, and HTTPS. The variables here, lat, lon, alt, speed, g_local, accel, tilt, heading and pitch hold the last readings, as in sunrise(today, here); the position is refreshed when the app opens, if allowed.", [
     ["g_local / g", "measured over standard gravity"], ["sunset(today, here)", ""], ["(9.8061±0.0012)[m/s^2] / g", ""], ["2 π sqrt(1[m] / (9.8061±0.0012)[m/s^2])", "a pendulum"], ["12[ft] tan((29.99±0.01)[deg]) @ ft", "a height from a tilt"],
   ]],
-  ["Uncertainties", "Write errors as 3.2 ± 0.1 (or +/-) or 3.2(1). Errors propagate with correlations, including the CODATA correlations between constants. Settings → Uncertainties switches to Monte Carlo, where distributions can be used: N(μ, σ), U(a, b), LogN(m, s), Gamma(k, θ), Beta(a, b), T(ν, μ, s), Tri(a, c, b), truncated with trunc(X, lo, hi). Results then show the median and the 68 % interval, as 12.24 +0.32 −0.27 when the two sides differ; tap MC on a result for its distribution. Tapping a result inserts it as ans_n, the result itself with all its samples and correlations (after a reload, the samples are redrawn from the errors). The f(x) Distributions keys list all distributions and switch the engine.", [
+  ["Uncertainties", "Write errors as 3.2 ± 0.1 (or +/-) or 3.2(1). Errors propagate with correlations, including the CODATA correlations between constants. Settings → Uncertainties switches to Monte Carlo, where distributions can be used: N(μ, σ), U(a, b), LogN(m, s), Gamma(k, θ), Beta(a, b), T(ν, μ, s), Tri(a, c, b), truncated with trunc(X, lo, hi). Results then show the median and the 68 % interval, as 12.24 +0.32 −0.27 when the two sides differ; tap MC on a result for its distribution. Tapping a result inserts it as ans_n, the result itself with all its samples and correlations (after a reload, the samples are redrawn from the errors). The ƒ(x) Distributions keys list all distributions and switch the engine.", [
     ["m_p / m_e", "correlated constants"], ["x = U(1, 3)", ""], ["exp(x)", ""], ["trunc(N(1.4 M_Sun, 0.5 M_Sun), 0 kg)", ""], ["Gamma(2, 3 s)", ""],
   ]],
   ["Typeset view", "Expressions with fractions, roots or powers are also drawn in 2D under the input line and in the history, exactly as the calculator reads them: 1/2 pi shows ½·π, not 1/(2π). Turn it off in Settings → Typeset formulas.", [
@@ -6470,7 +6520,7 @@ function renderHelp(root) {
     <p>On the <b>123</b> page, long-press a key for what is written in grey: its inverse (sin⁻¹ is asin, eˣ for log, the square for √), or more, such as n! on xʸ, ×10⁻ˣ on ×10ˣ, ° on π, mod (the remainder, 7 mod 3 = 1) on ÷, ± on +, x on ×, ~ (absolute ↔ relative, for temperatures) on −, the comma on the point, AC (clear) on ⌫, sgn on |x|, and = (assignment) on ⏎; hold ◀ or ▶ to jump to the start or the end, or slide on them to move. <b>2nd</b> adds what is written in orange: sinh, log₁₀, ∛, x^(1/y), ⌊x⌋, e (and x⁻¹ on a long press of π), for one key; long-press it to keep it on. Settings can also put constants on a long press of the digits (c on 7, G on 8…), and more after 2nd (σ_SB on 7, ε₀ on 8…).</p>
     <p>The bar above the keypad adapts to the cursor: units after a number (angles inside sin, cos, tan), your recent names and common constants after an operator or an opening parenthesis, exponents after ^, and conversions after a value with units.</p>
     <p>On the <b>Units</b> page, tap a prefix and then a unit: <b>k</b> then <b>m</b> gives km. Long-press a unit, prefix or constant to see what it is. With the cursor next to a unit bracket, as in 5[m]|, the Units page puts it inside the bracket, and takes it out again when you leave. After <b>@</b>, the units of the current quantity open automatically and compatible units appear above the keypad.</p>
-    <p>Use <b>abc</b> to type names: the row above the letters guesses the name you are typing. <b>Const</b> has physical constants and your own variables, and <b>f(x)</b> has functions by topic, including cosmology and lensing. Long-press any function key for its arguments.</p>
+    <p>Use <b>abc</b> to type names: the row above the letters guesses the name you are typing. <b>Const</b> has physical constants and your own variables, and <b>ƒ(x)</b> has functions by topic, including cosmology and lensing. Long-press any function key for its arguments.</p>
     <p>For conversions, the Units page has a <b>Systems</b> section (SI, easy, astro, planck…, formats like hms, and quotes for variables as units), a <b>*</b> key for any prefix (after @), and a <b>[ ]</b> key for unit brackets; with a prefix selected after @, a "prefix only" key gives conversions like 1200 s @ k. On the Const page, after @, <b>'x'</b> and <b>"x"</b> keep or remove a constant as a unit.</p>
     <p>The <b>⏎</b> key evaluates; <b>=</b> assigns, as in <code>z = 0.5</code> or <code>f(m, v) = m v^2 / 2</code>. A hardware keyboard also works.</p>
   </div>`;
@@ -6527,6 +6577,95 @@ function applyTheme() {
   else document.documentElement.setAttribute("data-theme", t);
 }
 
+// Orientation: follow the device, or keep the page upright ("portrait")
+// or sideways ("landscape"). Browsers lock the screen only in full screen
+// (on Android), so otherwise the page is turned by 90° (data-rot on
+// <html>, styles.css), and the coordinates of pointers, boxes and hit
+// tests are turned back: for the rest of the app the page simply has the
+// other shape.
+
+let rot = 0;
+
+// the size of the viewport, whatever innerWidth and innerHeight say below
+const viewSize = (() => {
+  const get = (k) => (Object.getOwnPropertyDescriptor(window, k) || Object.getOwnPropertyDescriptor(Window.prototype, k) || {}).get;
+  const gw = get("innerWidth"), gh = get("innerHeight");
+  const de = document.documentElement;
+  return () => (gw && gh ? [gw.call(window), gh.call(window)] : [de.clientWidth, de.clientHeight]);
+})();
+
+// viewport -> page coordinates, and back
+function toPage(x, y) {
+  const [W, H] = viewSize();
+  return rot === 90 ? [y, W - x] : rot === -90 ? [H - y, x] : [x, y];
+}
+function toView(x, y) {
+  const [W, H] = viewSize();
+  return rot === 90 ? [W - y, x] : rot === -90 ? [y, H - x] : [x, y];
+}
+
+// true once the coordinates follow rot
+const rotationShim = (() => {
+  try {
+    const patchXY = (proto) => {
+      const dx = Object.getOwnPropertyDescriptor(proto, "clientX"), dy = Object.getOwnPropertyDescriptor(proto, "clientY");
+      Object.defineProperty(proto, "clientX", { ...dx, get() { const x = dx.get.call(this); return rot ? toPage(x, dy.get.call(this))[0] : x; } });
+      Object.defineProperty(proto, "clientY", { ...dy, get() { const y = dy.get.call(this); return rot ? toPage(dx.get.call(this), y)[1] : y; } });
+    };
+    patchXY(MouseEvent.prototype);
+    if (window.Touch) patchXY(Touch.prototype);
+    const rect = (r) => {
+      const [x1, y1] = toPage(r.left, r.top), [x2, y2] = toPage(r.right, r.bottom);
+      return new DOMRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+    };
+    const box = Element.prototype.getBoundingClientRect, boxes = Element.prototype.getClientRects;
+    Element.prototype.getBoundingClientRect = function () { return rot ? rect(box.call(this)) : box.call(this); };
+    Element.prototype.getClientRects = function () { return rot ? [...boxes.call(this)].map(rect) : boxes.call(this); };
+    for (const k of ["elementFromPoint", "caretPositionFromPoint", "caretRangeFromPoint"]) {
+      const f = Document.prototype[k];
+      if (f) Document.prototype[k] = function (x, y, ...rest) { return rot ? f.call(this, ...toView(x, y), ...rest) : f.call(this, x, y, ...rest); };
+    }
+    for (const [k, i] of [["innerWidth", 0], ["innerHeight", 1]]) {
+      Object.defineProperty(window, k, { configurable: true, get: () => viewSize()[rot ? 1 - i : i] });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+// how the device is turned: 90 with its top on the left, 270 on the right
+const deviceAngle = () => (typeof window.orientation === "number" ? (window.orientation + 360) % 360 : screen.orientation?.angle || 0);
+
+function applyOrientation() {
+  const want = ARTIFACT ? "auto" : state.settings.orient || "auto";
+  const so = screen.orientation;
+  try {
+    if (want === "auto") so?.unlock?.();
+    else so?.lock?.(want).catch(() => {});
+  } catch { /* not supported */ }
+  const [W, H] = viewSize();
+  let r = 0;
+  // on phones and tablets only: a window on a computer has its own shape
+  if (rotationShim && matchMedia("(pointer: coarse)").matches) {
+    // upright: the top of the page at the top of the device
+    if (want === "portrait" && W > H) r = deviceAngle() === 270 ? 90 : -90;
+    else if (want === "landscape" && H > W) r = 90;
+  }
+  const root = document.documentElement;
+  const changed = r !== rot;
+  rot = r;
+  if (r) {
+    root.dataset.rot = r;
+    for (const [k, v] of [["--rot-w", H], ["--rot-h", W], ["--vw", H / 100], ["--vh", W / 100]]) root.style.setProperty(k, v + "px");
+  } else {
+    delete root.dataset.rot;
+    for (const k of ["--rot-w", "--rot-h", "--vw", "--vh"]) root.style.removeProperty(k);
+  }
+  // the page has a new shape
+  if (changed) dispatchEvent(new Event("resize"));
+}
+
 // Clearing, with a way back
 function clearMenu(x, y) {
   const nvars = state.session.filter((l) => /=/.test(l)).length;
@@ -6575,6 +6714,9 @@ function renderSide() {
 async function boot() {
   applyTheme();
   applyPalette();
+  applyOrientation();
+  addEventListener("resize", applyOrientation);
+  addEventListener("orientationchange", () => setTimeout(applyOrientation, 50));
   const [constants, bundled] = window.IMKS_DATA
     ? [window.IMKS_DATA.constants, window.IMKS_DATA.currencies]
     : await Promise.all([

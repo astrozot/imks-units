@@ -90,7 +90,7 @@ try {
   for (const section of ["Calendars", "Sky", "Sensors", "Math"]) {
     await fn(section);
     const wrapped = await page.$$eval("#fn-grid .key b", (bs) => bs.filter((b) => b.offsetHeight > 30).map((b) => b.textContent));
-    check(!wrapped.length, `labels wrap in f(x) → ${section}: ${wrapped.join(", ")}`);
+    check(!wrapped.length, `labels wrap in ƒ(x) → ${section}: ${wrapped.join(", ")}`);
   }
 
   // e on the 123 page, and the holiday picker
@@ -143,6 +143,58 @@ try {
   await page.keyboard.type("sin(2 x) + 2 m");
   check(await page.$$eval("#expr .sp0", (s) => s.length) === 1, "the space in 2 x is not drawn, the one in 2 m is");
   await clear();
+
+  // angles next to their number, 30°, but 2 m and 25 °C apart (SI)
+  await page.keyboard.type("sin(30 deg) + 2 m");
+  check(await page.$$eval("#expr .sp0", (s) => s.length) === 1, "the space in 30 deg is not drawn, the one in 2 m is");
+  await clear();
+  await run("30.5 deg @ deg");
+  check(await page.$$eval(".entry .out .u.tight", (u) => u.length) === 1, "a result in degrees has its unit next to the number");
+  await run("25 °C");
+  check(await page.$$eval(".entry .out .u.tight", (u) => u.length) === 1, "a result in °C keeps its space");
+
+  // a unit system in quotes from the keys: no space, upright
+  await page.keyboard.type("1 @ kg|");
+  await page.click('[data-tab="units"]');
+  await page.click('[data-cat="Systems"]');
+  await page.click('[data-key="q1"]');
+  await page.click('[data-sys="planck"]');
+  expect(await line(), "1 @ kg|'planck'", "a unit system in quotes");
+  check(!(await page.$$eval("#expr .it, #expr i", (s) => s.length)), "a unit system in quotes is upright");
+  await clear();
+
+  // floor and ceil in the typeset view; the degree sign on the abc keys
+  await page.keyboard.type("floor(2.5)");
+  check(await page.$eval("#math2d", (m) => !m.hidden), "floor is typeset");
+  await clear();
+  await page.click('[data-tab="abc"]');
+  await page.click('#abc-page [data-key="layer:sym"]');
+  await page.click('#abc-page [data-ch="°"]');
+  expect(await line(), "°", "the degree key of the abc page");
+  await page.click('#abc-page [data-key="layer:abc"]');
+  await clear();
+
+  // the year, month and day of a date
+  expect(await run("ymd(2026.10.30)"), "(2026, 10, 30)", "ymd");
+
+  // keep vertical: a page held sideways is turned, and keys still work
+  await page.click("#btn-settings");
+  await page.selectOption("#set-orient", "portrait");
+  await page.click("#sheet .sheet-head [data-close]");
+  await page.setViewportSize({ width: 740, height: 360 });
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => document.documentElement.dataset.rot || ""), "-90", "the page turned upright");
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector(".app")).flexDirection), "column", "the upright layout when turned");
+  await page.click('[data-tab="num"]');
+  for (const k of ["4", "2"]) await page.click(`.page.active [data-key="${k}"]`);
+  expect(await line(), "42", "keys on the turned page");
+  await clear();
+  await page.click("#btn-settings");
+  await page.selectOption("#set-orient", "auto");
+  await page.click("#sheet .sheet-head [data-close]");
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => document.documentElement.dataset.rot || ""), "", "the page follows the device again");
 
   // sensors: position (the variables too), motion, compass, a tone
   await page.evaluate(() => {

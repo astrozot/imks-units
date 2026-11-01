@@ -460,6 +460,21 @@ function dateBuiltins(env, b) {
     if (f === null) throw new UnitError(`holiday: no ${name} in ${y}`);
     return dayAt("holiday", f, [], 0);
   };
+  // ymd(t): the year, month and day of the date t, as a list; ymd(t,
+  // "hebrew") in another calendar (days from midnight)
+  b.ymd = (t, cal) => {
+    const usage = 'Usage: ymd(date), or ymd(date, "hebrew") for another calendar';
+    if (!isDate(env, t)) throw new UnitError(usage);
+    const c = civil(t.relative().x.n, env.utc ? 0 : null);
+    const name = cal === undefined ? "gregorian" : typeof cal === "string" ? plainName(cal) : "";
+    if (name === "gregorian") return [c.y, c.mo, c.d].map((n) => new Q(n));
+    const fixed = Math.floor(c.w / 864e5) + UNIX_RD;
+    const from = name === "umalqura" ? umalquraFromFixed : CALENDARS[name]?.[0];
+    if (!from) throw new UnitError(`${usage}; the calendars are ${["gregorian", ...Object.keys(CALENDARS), "umalqura"].sort().join(", ")}`);
+    const p = from(fixed);
+    if (!p.every(Number.isFinite)) throw new UnitError(`Out of the range of the ${name} calendar`);
+    return p.map((n) => new Q(n));
+  };
   // japanese("Reiwa", year, month, day): the months and days are Gregorian
   b.japanese = (era, ...args) => {
     const start = typeof era === "string" ? JAPANESE_ERAS[plainName(era)] : undefined;
