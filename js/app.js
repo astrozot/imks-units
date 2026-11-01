@@ -9,6 +9,7 @@ import { parse, normalize, splitComment, firstLine, functionDocs, tokenize } fro
 import { Q, dimEq, fraction, UnitError } from "./units.js";
 import { HOLIDAY_GROUPS, CALENDAR_ORDER, DATE_FORMATS, isDate, literalText } from "./dates.js";
 import { SENSORS, fixReadings, sensorAvailable } from "./sensors.js";
+import { skySVG, fitView } from "./skyview.js";
 import { formatUNum, formatNumber, UNum, ufuncs, MC, newSourceId, rng, normInv, lhsUniform, mcConfigure, mcStats, formatAsym } from "./unum.js";
 
 const ARTIFACT = Boolean(window.IMKS_ARTIFACT);
@@ -571,8 +572,7 @@ function tableOf(v, src) {
     rows.push(`<tr>${ix}${fmts.map((f) => `<td data-v="${esc(f.text(i))}">${f.html(i)}</td>`).join("")}</tr>`);
   }
   const more = n > TABLE_ROWS ? `<p class="tbl-more">${n - TABLE_ROWS} more rows: long-press to copy them all</p>` : "";
-  const html = (v.sky ? skyHTML(v.sky) : "") +
-    `<div class="tbl-wrap"><table class="vals${v.rows ? " named" : ""}"><thead><tr><th class="ix">${v.rows ? "" : "#"}</th>${th}</tr></thead><tbody>${rows.join("")}</tbody></table></div>${more}`;
+  const html = `<div class="tbl-wrap"><table class="vals${v.rows ? " named" : ""}"><thead><tr><th class="ix">${v.rows ? "" : "#"}</th>${th}</tr></thead><tbody>${rows.join("")}</tbody></table></div>${more}`;
   // CSV: values in the unit of the head, with a σ column where needed
   const q = (s) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   const hcells = [], getters = [];
@@ -590,39 +590,14 @@ function tableOf(v, src) {
   return { html, csv };
 }
 
-// A planet and its moons as in the sky, north up and east to the left:
-// the moons behind the planet or in its shadow hollow, Saturn's rings; the
-// scale for the inner moons, those far out (Iapetus) at the edge
-function skyHTML({ planet, radius, pa, tilt, moons }) {
-  const W = 320, ring = planet === "saturn" ? 2.4 : 1.3;
-  // the moons within five times the median distance set the scale
-  const far = moons.map((m) => Math.hypot(m.east, m.north)).sort((x, y) => x - y);
-  const median = far[Math.floor((far.length - 1) / 2)];
-  const reach = Math.max(radius * ring, ...far.filter((d) => d <= 5 * median));
-  const k = (W / 2 - 16) / reach, r = radius * k, cx = W / 2;
-  const fit = (x, m) => Math.max(-m, Math.min(m, x));
-  const pts = moons.map((m) => ({ m, x: fit(-m.east * k, W / 2 - 8), y: -m.north * k, out: Math.hypot(m.east, m.north) > reach * 1.02 }));
-  // low, to leave room for the table with the keypad open
-  const high = Math.max(r * ring, Math.min(45, Math.max(...pts.map((p) => Math.abs(p.y)))));
-  const H = Math.round(2 * high + 34), cy = H / 2;
-  const f = (x) => x.toFixed(1);
-  let svg = "";
-  // the rings: an ellipse across the pole (at the position angle pa from
-  // the north through the east), as open as the Earth is above them
-  if (planet === "saturn") svg += `<ellipse class="sky-ring" cx="${cx}" cy="${cy}" rx="${f(2.27 * r)}" ry="${f(2.27 * r * Math.abs(Math.sin(tilt * Math.PI / 180)))}" transform="rotate(${f(-pa)} ${cx} ${cy})"/>`;
-  svg += `<circle class="sky-planet" cx="${cx}" cy="${cy}" r="${f(Math.max(r, 2.5))}"/>`;
-  // the labels above and below in turn, from left to right
-  pts.sort((p, q) => p.x - q.x).forEach((p, i) => {
-    const x = cx + p.x, y = cy + fit(p.y, high);
-    const hidden = p.m.doing.includes("occulted") || p.m.doing.includes("eclipsed");
-    if (p.out) {
-      const d = p.x < 0 ? -1 : 1;
-      svg += `<path class="sky-moon" d="M${f(x + 5 * d)} ${f(y)}l${-6 * d} -4v8z"/>`;
-    } else svg += `<circle class="sky-moon${hidden ? " off" : ""}" cx="${f(x)}" cy="${f(y)}" r="2.6"/>`;
-    svg += `<text class="sky-label" x="${f(x)}" y="${f(y + (i % 2 ? 13 : -6))}" text-anchor="middle">${esc(p.m.name.slice(0, 2))}</text>`;
-  });
-  return `<svg class="sky-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(planet)} and its moons">${svg}</svg>` +
-    '<p class="sky-cap">North up, east left; hollow: hidden or eclipsed</p>';
+// The planet and its moons of moons() in the history: the planet and the
+// inner moons, low enough to leave room for the table with the keypad open;
+// tap for the zoom view (openSky)
+function skyHTML(sky) {
+  const W = 320, v = fitView(sky, W, 1e4);
+  const high = Math.max(1.15 * v.s, Math.min(45, Math.max(...sky.moons.map((m) => Math.abs(m.y) * v.s))));
+  const H = Math.round(2 * high + 36);
+  return `<svg class="sky-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(sky.planet)} and its moons">${skySVG(sky, W, H, 0, 0, v.s, { dpr: Math.min(3, window.devicePixelRatio || 1) })}</svg>`;
 }
 
 // The unit an axis is drawn in: the one its largest value is shown in, or
@@ -981,7 +956,7 @@ function renderEntry(e, i) {
     const rid = hasResult(e) ? `<span class="rid" title="Tap to insert ans_${e.rid}">${state.calc ? symHTML(`ans_${e.rid}`) : `ans_${e.rid}`}</span>` : "";
     const name = e.name ? `<span class="name">${state.calc ? symHTML(e.name) : esc(e.name)} =</span>` : "";
     out = e.table
-      ? `<div class="out tbl"><div class="tbl-head">${rid}${name}</div>${e.html}</div>`
+      ? `<div class="out tbl"><div class="tbl-head">${rid}${name}</div>${e.sky ? skyHTML(e.sky) : ""}${e.html}</div>`
       : `<div class="out">${rid}${name}${e.html}</div>`;
   } else if (e.kind === "plot") {
     out = `<div class="out plot">${plotHTML(e.plot)}</div>`;
@@ -1831,6 +1806,7 @@ function evaluate() {
     entry.table = !inline;
     entry.text = listText(r.q);
     entry.csv = t.csv;
+    if (r.q.sky) entry.sky = r.q.sky;
     entry.rid = newRid();
     results.set(entry.rid, r.q);
     restored.delete(entry.rid);
@@ -3713,6 +3689,87 @@ function refreshEntry(e) {
 
 let plotViewResize = null;
 window.addEventListener("resize", () => { if (plotViewResize) plotViewResize(); });
+
+// The zoom view of the moons of history entry e: drag to move, pinch or
+// scroll to zoom, double-tap to fit; the planet drawn sharp when still
+function openSky(e) {
+  openSheet("Moons", (root) => {
+    root.innerHTML = `<p class="plot-in">${exprHTML(e.input)}</p><svg class="sky-svg sky-full" role="img" aria-label="${esc(e.sky.planet)} and its moons"></svg>
+      <p class="sky-hint">Drag to move, pinch or scroll to zoom, double-tap to fit</p>`;
+  });
+  const sky = e.sky, svg = sheetBody.querySelector(".sky-svg");
+  let W = 320, H = 400, v = null, raf = 0, idle = 0;
+  // at most two pixels of the image per pixel: sharp, and quick enough on phones
+  const dpr = () => Math.min(2, window.devicePixelRatio || 1);
+  const draw = (k) => { svg.innerHTML = skySVG(sky, W, H, v.cx, v.cy, v.s, { dpr: k, full: true }); };
+  const redraw = () => {
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(1); });
+    clearTimeout(idle);
+    idle = setTimeout(() => draw(dpr()), 150);
+  };
+  // from all the moons in view to a planet radius of four times the view
+  const all = Math.max(2.5, ...sky.moons.map((m) => Math.hypot(m.x, m.y)));
+  const clampS = (s) => Math.min(4 * Math.min(W, H), Math.max(Math.min(W, H) / 2 / (1.1 * all), s));
+  const size = () => {
+    W = Math.max(240, Math.round(svg.parentElement.clientWidth));
+    H = Math.round(Math.max(240, Math.min(W * 1.2, window.innerHeight - 220)));
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    if (!v) v = fitView(sky, W, H);
+    draw(dpr());
+  };
+  size();
+  plotViewResize = () => { if (svg.isConnected && !sheet.hidden) size(); };
+  const local = (ev) => {
+    const b = svg.getBoundingClientRect();
+    return { x: ((ev.clientX - b.left) * W) / b.width, y: ((ev.clientY - b.top) * H) / b.height };
+  };
+  // the view with the sky under the point p (of the view base) under q, at scale s
+  const keep = (base, p, q, s) => {
+    const sx = base.cx + (p.x - W / 2) / base.s, sy = base.cy - (p.y - H / 2) / base.s;
+    return { cx: sx - (q.x - W / 2) / s, cy: sy + (q.y - H / 2) / s, s };
+  };
+  const pts = new Map();
+  let base = null, moved = false, lastTap = 0;
+  const start = () => { base = { v: { ...v }, pts: new Map([...pts].map(([k, p]) => [k, { ...p }])) }; };
+  svg.addEventListener("pointerdown", (ev) => {
+    svg.setPointerCapture(ev.pointerId);
+    pts.set(ev.pointerId, local(ev));
+    moved = false;
+    start();
+  });
+  svg.addEventListener("pointermove", (ev) => {
+    if (!pts.has(ev.pointerId)) return;
+    pts.set(ev.pointerId, local(ev));
+    const ids = [...pts.keys()].filter((k) => base.pts.has(k));
+    if (ids.length === 1) {
+      const p0 = base.pts.get(ids[0]), p1 = pts.get(ids[0]);
+      if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > 4) moved = true;
+      if (moved) v = keep(base.v, p0, p1, base.v.s);
+    } else if (ids.length >= 2) {
+      const [a0, b0] = ids.slice(0, 2).map((k) => base.pts.get(k)), [a1, b1] = ids.slice(0, 2).map((k) => pts.get(k));
+      const d0 = Math.hypot(a0.x - b0.x, a0.y - b0.y), d1 = Math.hypot(a1.x - b1.x, a1.y - b1.y);
+      const s = clampS(base.v.s * (d0 > 20 ? d1 / d0 : 1));
+      v = keep(base.v, { x: (a0.x + b0.x) / 2, y: (a0.y + b0.y) / 2 }, { x: (a1.x + b1.x) / 2, y: (a1.y + b1.y) / 2 }, s);
+      moved = true;
+    }
+    redraw();
+  });
+  const up = (ev) => {
+    if (!pts.delete(ev.pointerId)) return;
+    if (!moved && !pts.size) {
+      if (ev.timeStamp - lastTap < 350) { v = fitView(sky, W, H); redraw(); lastTap = 0; } else lastTap = ev.timeStamp;
+    }
+    start();
+  };
+  svg.addEventListener("pointerup", up);
+  svg.addEventListener("pointercancel", up);
+  svg.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    const p = local(ev);
+    v = keep(v, p, p, clampS(v.s * Math.exp(-ev.deltaY * 0.002)));
+    redraw();
+  }, { passive: false });
+}
 
 // The zoom view of the plot of history entry e: drag to move, pinch or
 // scroll to zoom (x only; shift: both), tap to read values, double-tap to
@@ -5879,6 +5936,7 @@ historyEl.addEventListener("click", (ev) => {
     openPlot(ent.e);
     return;
   }
+  if (ev.target.closest(".sky-svg") && ent.e.sky) { openSky(ent.e); return; }
   if (ev.target.closest(".plot")) return;
   const cell = ev.target.closest("td[data-v]");
   if (cell && ent.e.kind === "value") {
@@ -6548,7 +6606,7 @@ const HELP = [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
     ["ymd(today)", "year, month, day"], ["ymd(today).1", "the year"], ["ymd(today, \"hebrew\")", ""], ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
-  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension, in hours, and declination; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100. Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). On the ƒ(x) page, the Planets keys hold the functions of the bodies and their names, the Coords keys the coordinates.", [
+  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100. Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). On the ƒ(x) page, the Planets keys hold the functions of the bodies and their names, the Coords keys the coordinates.", [
     ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
     ["fullmoon(today)", ""], ["equinox(2027)", "(March, September)"], ["sunset(today, here) - sunrise(today, here) @ hms", "day length"], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
     ["altaz(\"Jupiter\", now, here)", "(altitude, azimuth)"], ["radec(\"Mars\", now)", ""], ["dist(\"Mars\", now) / c @ min", "light time"], ["dist(\"Moon\", now)", ""], ["mag(\"Saturn\", now)", "with its rings"], ["illum(\"Venus\", now)", "(lit fraction, phase angle)"], ["elong(\"Mercury\", now)", "+ evening, − morning"], ["diam(\"Jupiter\", now)", ""], ["rising(\"Jupiter\", today, here)", ""], ["transit(\"Mars\", today, here)", ""], ["moons(\"Jupiter\", now)", "Galilean moons"], ["moons(\"Saturn\", now)", ""],

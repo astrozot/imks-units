@@ -373,7 +373,7 @@ for (const [jd, i, k] of [[2461345.61, 1, "occulted"], [2461345.75694, 0, "trans
 }
 
 // the functions: right ascension in hours, bodies by name
-for (const [src, text] of [["radec(\"Mars\", 2026.11.01 12:00 Z).1", "9h 27m 17.39s ± 0.10s"], ["radec(\"MARS\", 2026.11.01 12:00 Z).1", "9h 27m 17.39s ± 0.10s"],
+for (const [src, text] of [["radec(\"Mars\", 2026.11.01 12:00 Z).1 @ hms", "9h 27m 17.39s ± 0.10s"], ["radec(\"MARS\", 2026.11.01 12:00 Z).1 @ hms", "9h 27m 17.39s ± 0.10s"],
   ["30 deg @ hms", "2h 0m 0s"], ["dist(\"Moon\", 2026.11.01 12:00 Z) @ km", "(371486±56)[km]"]]) {
   const r = calc.run(src);
   const got = r.kind === "value" ? calc.env.format(r.q) : r.message;
@@ -383,10 +383,10 @@ for (const [src, text] of [["radec(\"Mars\", 2026.11.01 12:00 Z).1", "9h 27m 17.
 // with its proper motion), and the round trips through ecl and altaz
 const text = (q) => (Array.isArray(q) ? `(${q.map(text).join(", ")})` : calc.env.format(q));
 const T0 = "2026.11.01 12:00 Z", MILAN = "(45.46, 9.19)[deg]";
-for (const [src, want] of [["gal2eq((0, 90)[deg])", "(12h 51m 26.275s, 27.12825[deg])"], ["eq2ecl((6h, 23.4392911[deg]))", "(90[deg], 0[deg])"],
-  ["precess((2h 44m 12.975s, 49d 13' 39.896\"), 2000, 2028.8670).1", "2h 46m 11.331s"],
+for (const [src, want] of [["gal2eq((0, 90)[deg]).1 @ hms", "12h 51m 26.275s"], ["gal2eq((0, 90)[deg]).2", "27.12825[deg]"], ["eq2ecl((6h, 23.4392911[deg]))", "(90[deg], 0[deg])"],
+  ["precess((2h 44m 12.975s, 49d 13' 39.896\"), 2000, 2028.8670).1 @ hms", "2h 46m 11.331s"],
   ["precess((2h 44m 12.975s, 49d 13' 39.896\"), 2000, 2028.8670).2 @ dms", "49° 20' 54.534\""],
-  [`hor2eq(altaz("Mars", ${T0}, ${MILAN}), ${T0}, ${MILAN}).1`, "9h 27m 17.1s ± 1.3s"],
+  [`hor2eq(altaz("Mars", ${T0}, ${MILAN}), ${T0}, ${MILAN}).1 @ hms`, "9h 27m 17.1s ± 1.3s"],
   ["sep((5h, 10[deg]), (5h, (10.5 ± 0.1)[deg]))", "(0.50±0.10)[deg]"], ["pa((0, 0)[deg], (1, 0)[deg])", "90[deg]"], ["1 hourangle @ deg", "15[deg]"]]) {
   const r = calc.run(src);
   const got = r.kind === "value" ? text(r.q) : r.message;

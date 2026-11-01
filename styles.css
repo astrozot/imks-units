@@ -344,13 +344,14 @@ table.vals th .u { display: block; color: var(--unit); }
 table.vals .ix { position: sticky; left: 0; background: var(--surface-2); color: var(--muted); font-size: 12px; padding: 5px 6px; text-align: center; }
 table.vals th.ix { z-index: 2; }
 table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); white-space: normal; min-width: 5.5em; max-width: 7em; }
-.sky-svg { display: block; width: 100%; max-width: 420px; margin: 0 auto 6px; }
-.sky-planet { fill: var(--unit); }
-.sky-ring { fill: none; stroke: var(--unit); stroke-width: 1.5; opacity: 0.7; }
-.sky-moon { fill: var(--text); }
-.sky-moon.off { fill: none; stroke: var(--muted); stroke-width: 1; }
-.sky-label { fill: var(--muted); font-size: 10px; font-family: var(--mono); }
-.sky-cap { margin: 0 0 6px; font-size: 11px; color: var(--muted); text-align: center; }
+.sky-svg { display: block; width: 100%; max-width: 420px; margin: 0 auto 6px; cursor: zoom-in; }
+.sky-svg.sky-full { max-width: none; cursor: grab; touch-action: none; }
+.sky-bg { fill: #0b0f1a; }
+.sky-moon { fill: #ececec; }
+.sky-moon.off { fill: none; stroke: #8a92a6; stroke-width: 1; }
+.sky-label { fill: #b8c0d0; font-size: 10px; font-family: var(--mono); }
+.sky-scale { fill: none; stroke: #b8c0d0; stroke-width: 1.2; }
+.sky-hint { margin: 6px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
 table.vals.named th, table.vals.named td { padding: 5px 6px; }
 table.vals td[data-v] { cursor: pointer; }
 table.vals td[data-v]:active { background: var(--surface-2); }

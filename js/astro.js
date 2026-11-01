@@ -383,14 +383,22 @@ function precessVector([x, y, z], T) {
 const dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
 const unit = (a, d) => [cos(d) * cos(a), cos(d) * sin(a), sin(d)];
 
+// Radii of the moons (km)
+const MOON_RADIUS = {
+  Phobos: 11.1, Deimos: 6.2, Io: 1821.6, Europa: 1560.8, Ganymede: 2634.1, Callisto: 2410.3, Mimas: 198.2, Enceladus: 252.1,
+  Tethys: 531.1, Dione: 561.4, Rhea: 763.8, Titan: 2574.7, Hyperion: 135, Iapetus: 734.5, Miranda: 235.8, Ariel: 578.9,
+  Umbriel: 584.7, Titania: 788.9, Oberon: 761.4, Triton: 1353.4,
+};
+
 // The moons of a planet seen from the center of the Earth: for each, its
 // offsets from the planet to the east and to the north (degrees), its
 // distance behind the planet's center (km, negative in front), whether it
 // is in front of the disk (transit), behind it (occulted), in the planet's
 // shadow (eclipsed) or casting its shadow on the planet, and the error of
-// its position (degrees); and the planet's
-// equatorial radius (degrees), the position angle of its north pole and
-// the latitude of the Earth over its equator (degrees)
+// its position (degrees); and the planet's equatorial radius (degrees).
+// For drawing (view): in planet radii, on axes to the west, to the north
+// and toward the Earth, the moons (x, y, z, radius), the north pole and the
+// direction of the Sun
 function moons(planet, t) {
   const sys = MOONS[planet], T = centuries(t);
   const P = equatorial(planet, t), S = equatorial("sun", t);
@@ -406,6 +414,7 @@ function moons(planet, t) {
   const pv = u.map((x) => x * P.dist), sv = unit(S.ra, S.dec).map((x) => x * S.dist);
   const light = pv.map((x, k) => x - sv[k]), ln = Math.hypot(...light), l = light.map((x) => x / ln);
   const pole = toDate(zAxis);
+  const toView = (v) => [-dot(v, east), dot(v, north), -dot(v, u)];
   const out = Object.entries(sys.moons).map(([name, [zt, wt, err]]) => {
     let x = 0, y = 0, z = 0;
     for (let i = 0; i < zt.length; i += 3) {
@@ -418,17 +427,16 @@ function moons(planet, t) {
     const behind = dot(v, u), across = Math.hypot(dot(v, east), dot(v, north));
     const along = dot(v, l), off = Math.sqrt(Math.max(0, dot(v, v) - along * along));
     const disk = across < sys.radius, shade = off < sys.radius;
+    const [vx, vy, vz] = toView(v);
     return {
+      view: { x: vx / sys.radius, y: vy / sys.radius, z: vz / sys.radius, r: (MOON_RADIUS[name] || 0) / sys.radius },
       // seen at its own distance, which differs from the planet's by 0.1 %
       // for Callisto
       name, east: Math.atan2(dot(v, east), P.dist + behind) / RAD, north: Math.atan2(dot(v, north), P.dist + behind) / RAD, behind, err: err / P.dist / RAD,
       transit: disk && behind < 0, occulted: disk && behind > 0, eclipsed: shade && along > 0, shadow: shade && along < 0,
     };
   });
-  return {
-    moons: out, radius: Math.asin(sys.radius / P.dist) / RAD,
-    pa: mod360(Math.atan2(dot(pole, east), dot(pole, north)) / RAD), tilt: -Math.asin(dot(pole, u)) / RAD,
-  };
+  return { moons: out, radius: Math.asin(sys.radius / P.dist) / RAD, pole: toView(pole), sun: toView(l.map((x) => -x)) };
 }
 
 // Local sidereal time in degrees (apparent: with the equation of the

@@ -135,11 +135,11 @@ function skyBuiltins(env, b) {
     const body = bodyOf("altaz", x);
     return altaz(body, when("altaz", t, pre), where("altaz", p, pre));
   };
-  // right ascension in hours (an angle, shown as 5h 34m 32s)
+  // in degrees, both: radec(…).1 @ hms gives the right ascension in hours
   b.radec = (x, t, p) => {
     const body = bodyOf("radec", x), u = when("radec", t, pre);
     const e = seen("radec", body, u, p), err = p === undefined ? posError(body, u) : skyError(body, u);
-    return [env.convert(deg(e.ra, Math.min(err / Math.cos(e.dec * RAD), 180)), ["hms"]), deg(e.dec, err)];
+    return [deg(e.ra, Math.min(err / Math.cos(e.dec * RAD), 180)), deg(e.dec, err)];
   };
   b.ecl = (x, t) => {
     const body = bodyOf("ecl", x), u = when("ecl", t, pre);
@@ -203,9 +203,11 @@ function skyBuiltins(env, b) {
     const doing = (o) => ["transit", "occulted", "eclipsed", "shadow"].filter((k) => o[k]);
     v.heads = ["east", "north"];
     v.rows = m.moons.map((o) => o.name + doing(o).map((k) => ` (${k === "shadow" ? "shadow on " + Name(body) : k})`).join(""));
+    // for drawing (skyview.js), in planet radii, kept with the history
+    const r5 = (x) => Math.round(x * 1e5) / 1e5;
     v.sky = {
-      planet: body, radius: m.radius * 3600, pa: m.pa, tilt: m.tilt,
-      moons: m.moons.map((o) => ({ name: o.name, east: o.east * 3600, north: o.north * 3600, behind: o.behind > 0, doing: doing(o) })),
+      planet: body, radius: r5(m.radius * 3600), pole: m.pole.map(r5), sun: m.sun.map(r5),
+      moons: m.moons.map((o) => ({ name: o.name, x: r5(o.view.x), y: r5(o.view.y), z: r5(o.view.z), r: r5(o.view.r), doing: doing(o) })),
     };
     return v;
   };
@@ -225,7 +227,6 @@ function skyBuiltins(env, b) {
     return [ra, env.checkPure(p[1], name)];
   };
   const angle = (x) => env.convert(new Q(x), ["deg"]);
-  const hours = (x) => env.convert(new Q(x), ["hms"]);
   // the local sidereal time (radians), with the error of UT
   const lstAt = (t, lon) => UNum.uncertain(siderealTime(t, lon) * RAD, 15 * utError(t) / 3600 * RAD);
   // the obliquity: true, of the date t, or mean of J2000
@@ -244,22 +245,22 @@ function skyBuiltins(env, b) {
   b.hor2eq = (p, t, pl) => {
     const [alt, az] = point("hor2eq", p), u = when("hor2eq", t, "(alt, az), "), [lat, lon] = where("hor2eq", pl, "(alt, az), ");
     const [h, dec] = horizon([az, alt], num(lat * RAD));
-    return [hours(wrap(lstAt(u, lon).sub(h))), angle(dec)];
+    return [angle(wrap(lstAt(u, lon).sub(h))), angle(dec)];
   };
   b.eq2ecl = (p, t) => turn(point("eq2ecl", p), obliquity("eq2ecl", t)).map(angle);
   b.ecl2eq = (p, t) => {
     const [ra, dec] = turn(point("ecl2eq", p), obliquity("ecl2eq", t).neg());
-    return [hours(ra), angle(dec)];
+    return [angle(ra), angle(dec)];
   };
   b.eq2gal = (p) => rotate(point("eq2gal", p), GAL).map(angle);
   b.gal2eq = (p) => {
     const [ra, dec] = rotate(point("gal2eq", p), GAL[0].map((_, i) => GAL.map((r) => r[i])));
-    return [hours(ra), angle(dec)];
+    return [angle(ra), angle(dec)];
   };
   b.precess = (p, from, to) => {
     if (to === undefined) throw new UnitError("precess: precess((ra, dec), from, to), the epochs dates or years, as in precess((ra, dec), 2000, today)");
     const [ra, dec] = precess(point("precess", p), epoch("precess", from), epoch("precess", to));
-    return [hours(ra), angle(dec)];
+    return [angle(ra), angle(dec)];
   };
   b.sep = (p1, p2) => angle(separation(point("sep", p1), point("sep", p2)));
   b.pa = (p1, p2) => angle(positionAngle(point("pa", p1), point("pa", p2)));

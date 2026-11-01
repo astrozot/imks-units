@@ -95,6 +95,19 @@ try {
   expect(await run(""), /^0\.4\d+±0\.030$/, "mag of Saturn");
   await clear();
 
+  // the moons of Jupiter: a drawing with the planet, a table with names,
+  // and a zoom view on a tap
+  await run('moons("Jupiter", 2026.11.01 5:00 Z)');
+  const lastEntry = async () => (await page.$$(".entry")).at(-1);
+  const sketch = await (await lastEntry()).$(".sky-svg");
+  check(sketch && (await sketch.$$("image")).length === 1, "moons: the planet is drawn");
+  expect(await (await lastEntry()).$eval("td.lbl", (td) => td.textContent), "Io (shadow on Jupiter)", "moons: Io's shadow");
+  await sketch.click();
+  await page.waitForTimeout(300);
+  check(await page.$$eval(".sky-full image", (x) => x.length) === 1, "moons: the zoom view");
+  await page.keyboard.press("Escape");
+  await clear();
+
   // no key label wraps at 360 px
   for (const section of ["Calendars", "Sky", "Planets", "Coords", "Sensors", "Math"]) {
     await fn(section);

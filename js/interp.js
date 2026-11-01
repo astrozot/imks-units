@@ -529,7 +529,7 @@ const functionDocs = {
   solstice: "The solstices of a year, (June, December): solstice(2027); years −1000 to 3000, to a minute today, less precise far from it (ΔT)",
   lst: "Local sidereal time: lst(t, longitude), or lst(t, (latitude, longitude))",
   altaz: "Altitude and azimuth of a body seen from a place, (alt, az) without refraction: altaz(\"Mars\", t, (latitude, longitude)); the bodies are the Sun, the Moon and the planets, Mercury to Neptune",
-  radec: "Apparent right ascension (in hours) and declination of a body, of the date: radec(\"Mars\", t), geocentric, or radec(\"Mars\", t, (latitude, longitude)) seen from a place",
+  radec: "Apparent right ascension and declination of a body, of the date, in degrees (radec(…).1 @ hms in hours): radec(\"Mars\", t), geocentric, or radec(\"Mars\", t, (latitude, longitude)) seen from a place",
   ecl: "Apparent geocentric ecliptic longitude and latitude of a body, of the date: ecl(\"Mars\", t)",
   mag: "Visual magnitude of a body: mag(\"Venus\", t); the planets after Mallama and Hilton (2018), Saturn with its rings",
   illum: "Illuminated fraction of the disk of a body and its phase angle (Sun–body–Earth): illum(\"Venus\", t)",
