@@ -63,21 +63,17 @@ function hitGlobe(o, d, f) {
   return [(-B - q) / A, (-B + q) / A];
 }
 
-// The planet as an image: the part of the sky from (x0, y0) (the top left
-// corner, planet radii) over w × h pixels of scale s (pixels per radius),
-// as a data URL, or null when the planet is not there
-function planetImage(sky, x0, y0, w, h, s) {
+// The pixels of the planet, for the context ctx: the part of the sky from
+// (x0, y0) (the top left corner, planet radii) over w × h pixels of scale s
+// (pixels per radius)
+function planetPixels(ctx, sky, x0, y0, w, h, s) {
   const { planet, pole, sun, moons } = sky, f = FLAT[planet] || 0;
-  if (w < 1 || h < 1 || w * h > 4e6) return null;
   const [e1, e2, p] = axes(pole);
   const toP = (v) => [dot(v, e1), dot(v, e2), dot(v, p)];
   // the Earth's direction and the Sun's, on the planet's axes
   const view = toP([0, 0, 1]), light = toP(sun), sat = planet === "saturn";
   const shadows = moons.filter((m) => m.r > 0).map((m) => ({ c: toP([m.x, m.y, m.z]), r: Math.max(m.r, 0.7 / s) }));
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d"), img = ctx.createImageData(w, h), px = img.data;
+  const img = ctx.createImageData(w, h), px = img.data;
   const litFace = Math.sign(light[2]) === Math.sign(view[2]);
   for (let j = 0; j < h; j++) {
     const y = y0 - (j + 0.5) / s;
@@ -135,8 +131,40 @@ function planetImage(sky, x0, y0, w, h, s) {
       }
     }
   }
-  ctx.putImageData(img, 0, 0);
-  return canvas.toDataURL();
+  return img;
+}
+
+// the part of the view (W × H, centered on cx, cy, s pixels per radius)
+// where the planet and its rings can be: left, top, right, bottom
+function planetBox(sky, W, H, cx, cy, s) {
+  const reach = sky.planet === "saturn" ? 2.3 : 1.02;
+  return [Math.max(0, W / 2 + (-reach - cx) * s), Math.max(0, H / 2 - (reach - cy) * s),
+    Math.min(W, W / 2 + (reach - cx) * s), Math.min(H, H / 2 - (-reach - cy) * s)];
+}
+
+// The planet in a canvas covering the view, k pixels per pixel of the view
+function drawPlanet(canvas, sky, W, H, cx, cy, s, k) {
+  canvas.width = Math.round(W * k);
+  canvas.height = Math.round(H * k);
+  const ctx = canvas.getContext("2d");
+  const [L, T, R, B] = planetBox(sky, W, H, cx, cy, s);
+  if (R <= L || B <= T) return;
+  const x = Math.floor(L * k), y = Math.floor(T * k), w = Math.ceil(R * k) - x, h = Math.ceil(B * k) - y;
+  ctx.putImageData(planetPixels(ctx, sky, cx + (x / k - W / 2) / s, cy - (y / k - H / 2) / s, w, h, s * k), x, y);
+}
+
+// the planet as an image (a data URL) at (L, T) of the view, or ""
+function planetImage(sky, W, H, cx, cy, s, k) {
+  const [L, T, R, B] = planetBox(sky, W, H, cx, cy, s);
+  if (R <= L || B <= T) return "";
+  const w = Math.ceil((R - L) * k), h = Math.ceil((B - T) * k);
+  if (w * h > 4e6) return "";
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.putImageData(planetPixels(ctx, sky, cx + (L - W / 2) / s, cy - (T - H / 2) / s, w, h, s * k), 0, 0);
+  return `<image href="${canvas.toDataURL()}" x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${(w / k).toFixed(1)}" height="${(h / k).toFixed(1)}"/>`;
 }
 
 // a round length for the scale, about a fifth of the width, in arcseconds
@@ -150,21 +178,13 @@ function scaleBar(arcsecPerPx, W) {
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-// The planet and its moons in an SVG of W × H, centered on (cx, cy) (planet
-// radii), s pixels per radius; dpr pixels of the image per pixel; the
+// The moons, their names, the scale and the directions over a view of
+// W × H centered on (cx, cy) (planet radii), s pixels per radius: SVG; the
 // moons' names in full, or their first two letters
-function skySVG(sky, W, H, cx, cy, s, { dpr = 1, full = false } = {}) {
-  const sat = sky.planet === "saturn", reach = sat ? 2.3 : 1.02;
+function overlaySVG(sky, W, H, cx, cy, s, full = false) {
   const f1 = (x) => x.toFixed(1);
   const X = (x) => W / 2 + (x - cx) * s, Y = (y) => H / 2 - (y - cy) * s;
-  let svg = `<rect class="sky-bg" width="${W}" height="${H}" rx="10"/>`;
-  // the image of the part of the planet in view
-  const L = Math.max(0, X(-reach)), R = Math.min(W, X(reach)), T = Math.max(0, Y(reach)), B = Math.min(H, Y(-reach));
-  if (R > L && B > T) {
-    const k = dpr, w = Math.ceil((R - L) * k), h = Math.ceil((B - T) * k);
-    const url = planetImage(sky, cx + (L - W / 2) / s, cy - (T - H / 2) / s, w, h, s * k);
-    if (url) svg += `<image href="${url}" x="${f1(L)}" y="${f1(T)}" width="${f1(w / k)}" height="${f1(h / k)}"/>`;
-  }
+  let svg = "";
   // the moons, those hidden behind the planet or in its shadow as rings;
   // the labels above and below in turn, from left to right
   const pts = sky.moons.map((m) => ({ m, x: X(m.x), y: Y(m.y) })).sort((a, b) => a.x - b.x);
@@ -191,6 +211,12 @@ function skySVG(sky, W, H, cx, cy, s, { dpr = 1, full = false } = {}) {
   return svg;
 }
 
+// All in one SVG, the planet as an image of dpr pixels per pixel (for the
+// history)
+function skySVG(sky, W, H, cx, cy, s, { dpr = 1, full = false } = {}) {
+  return `<rect class="sky-bg" width="${W}" height="${H}" rx="10"/>` + planetImage(sky, W, H, cx, cy, s, dpr) + overlaySVG(sky, W, H, cx, cy, s, full);
+}
+
 // The view that shows the planet and the moons within five times their
 // median distance (those farther out at the edge), for W × H pixels
 function fitView(sky, W, H) {
@@ -200,4 +226,4 @@ function fitView(sky, W, H) {
   return { cx: 0, cy: 0, s: Math.min((W / 2 - 18) / reach, (H / 2 - 16) / 1.2) };
 }
 
-export { skySVG, fitView };
+export { skySVG, overlaySVG, drawPlanet, fitView };

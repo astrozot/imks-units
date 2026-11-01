@@ -345,14 +345,49 @@ table.vals .ix { position: sticky; left: 0; background: var(--surface-2); color:
 table.vals th.ix { z-index: 2; }
 table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); white-space: normal; min-width: 5.5em; max-width: 7em; }
 .sky-svg { display: block; width: 100%; max-width: 420px; margin: 0 auto 6px; cursor: zoom-in; }
-.sky-svg.sky-full { max-width: none; cursor: grab; touch-action: none; }
+.sky-stage { position: relative; overflow: hidden; border-radius: 10px; background: #0b0f1a; touch-action: none; }
+.sky-stage .sky-canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; }
+.sky-stage .sky-svg.sky-full { position: absolute; left: 0; top: 0; width: 100%; height: 100%; max-width: none; margin: 0; cursor: grab; touch-action: none; }
+.sky-time { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
 .sky-bg { fill: #0b0f1a; }
 .sky-moon { fill: #ececec; }
 .sky-moon.off { fill: none; stroke: #8a92a6; stroke-width: 1; }
 .sky-label { fill: #b8c0d0; font-size: 10px; font-family: var(--mono); }
 .sky-scale { fill: none; stroke: #b8c0d0; stroke-width: 1.2; }
+.map-svg { display: block; width: 100%; max-width: 420px; margin: 0 auto 4px; cursor: zoom-in; }
+.map-svg.map-full { max-width: none; cursor: grab; touch-action: none; }
+.map-bg { fill: #0b0f1a; }
+.map-sea { fill: #13314f; }
+.map-grid { fill: none; stroke: #24496e; stroke-width: 0.5; }
+.map-night { fill: rgba(0, 0, 0, 0.45); }
+.map-coast { fill: none; stroke: #b4c6d8; stroke-width: 0.8; stroke-linejoin: round; }
+.map-partial { fill: none; stroke: #e8c070; stroke-width: 1.2; stroke-dasharray: 4 3; }
+.map-path { fill: #ff7a45; fill-opacity: 0.8; stroke: #ff7a45; stroke-width: 1; }
+.map-path-edge { fill: none; stroke: #ff7a45; stroke-width: 1.5; }
+.map-center { fill: none; stroke: #ffe0c8; stroke-width: 0.8; }
+.map-greatest { fill: #ffe0c8; stroke: #0b0f1a; stroke-width: 1; }
+.map-place { fill: #ffffff; stroke: #2f6fde; stroke-width: 2; }
+.map-begin { fill: none; stroke: #7fc8ff; stroke-width: 0.8; }
+.map-end { fill: none; stroke: #c3a6ff; stroke-width: 0.8; }
+.map-horizon { fill: none; stroke: #ffffff; stroke-width: 1; stroke-dasharray: 1 3; stroke-linecap: round; }
+.map-tick { fill: #ffe0c8; }
+.map-label { font-size: 9px; font-family: var(--mono); paint-order: stroke; stroke: #0b0f1a; stroke-width: 2.5px; }
+.map-label.map-begin { fill: #7fc8ff; }
+.map-label.map-end { fill: #c3a6ff; }
+.map-label.map-time { fill: #ffe0c8; }
+.map-key .k-begin { border-top: 2px solid #7fc8ff; height: 0; }
+.map-key .k-end { border-top: 2px solid #c3a6ff; height: 0; }
+.map-key .k-horizon { border-top: 2px dotted #8a92a6; height: 0; }
+.map-key i { display: inline-block; width: 12px; height: 8px; margin: 0 4px 0 8px; vertical-align: middle; }
+.map-key .k-path { background: #ff7a45; }
+.map-key .k-partial { border-top: 2px dashed #e8c070; height: 0; }
+.map-key .k-place { width: 8px; border-radius: 50%; background: #fff; border: 2px solid #2f6fde; }
+.out.sky td.lbl { cursor: pointer; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
 .sky-hint { margin: 6px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
 table.vals.named th, table.vals.named td { padding: 5px 6px; }
+/* short tables with named rows (moons): whole, so that a swipe on them
+   scrolls the history */
+.tbl-wrap.named { max-height: none; overflow-y: hidden; overscroll-behavior: auto; }
 table.vals td[data-v] { cursor: pointer; }
 table.vals td[data-v]:active { background: var(--surface-2); }
 .entry .tbl-more { margin: 4px 0 0; font-size: 13px; color: var(--muted); }

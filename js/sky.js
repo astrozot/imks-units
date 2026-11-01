@@ -6,25 +6,26 @@
 import { Q, UnitError, dimEq } from "./units.js";
 import { UNum, ufuncs, atan2 } from "./unum.js";
 import { isDate, dateQ, yearArg } from "./dates.js";
-import { horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, riseSet, nextPhase, moonPhase, siderealTime, season } from "./astro.js";
+import { horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season } from "./astro.js";
 
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
 // are not taken elementwise
-const SKY_FNS = ["sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit"];
+const SKY_FNS = ["sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse"];
 // the coordinate functions, whose points are lists (lon, lat)
 const COORD_FNS = ["eq2hor", "hor2eq", "eq2ecl", "ecl2eq", "eq2gal", "gal2eq", "precess", "sep", "pa"];
 // the functions whose first argument is the name of a body
-const BODY_FNS = ["altaz", "radec", "ecl", "dist", "mag", "illum", "elong", "diam", "rising", "setting", "transit", "moons"];
+const BODY_FNS = ["altaz", "radec", "ecl", "dist", "mag", "illum", "elong", "diam", "rising", "setting", "transit", "moons", "moonpos", "moonevents"];
 const BODIES = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
 // the planets with moons in moons.js
 const MOON_PLANETS = ["mars", "jupiter", "saturn", "uranus", "neptune"];
 
 // Errors of the apparent geocentric positions (arcseconds), from the
 // comparison with JPL Horizons over 1600 to 2400 (VSOP87 itself drifts for
-// Uranus and Neptune), and of the distances (relative)
-const POS_ERR = { sun: 0.3, moon: 10, mercury: 1, venus: 1, mars: 1.5, jupiter: 1, saturn: 1.5, uranus: 4, neptune: 6 };
-const DIST_ERR = { moon: 1.5e-4 };
+// Uranus and Neptune; the Moon 3″ near 1600, 10″ outside), and of the
+// distances (relative)
+const POS_ERR = { sun: 0.3, moon: 1.5, mercury: 1, venus: 1, mars: 1.5, jupiter: 1, saturn: 1.5, uranus: 4, neptune: 6 };
+const DIST_ERR = { moon: 1e-5 };
 // Errors of the magnitudes: of the formulas against observations, and for
 // Mars its seasons and the face it shows (not modeled)
 const MAG_ERR = { sun: 0.01, moon: 0.1, mercury: 0.05, venus: 0.02, mars: 0.15, jupiter: 0.02, saturn: 0.03, uranus: 0.03, neptune: 0.02 };
@@ -35,6 +36,19 @@ const MAG_ERR = { sun: 0.01, moon: 0.1, mercury: 0.05, venus: 0.02, mars: 0.15, 
 const utError = (t) => Math.hypot(0.9, 0.8 * ((t / 31557600 - 30) / 100) ** 2);
 const posError = (body, t) => Math.hypot(POS_ERR[body], (body === "moon" ? 0.55 : 0.04) * utError(t)) / 3600;
 const skyError = (body, t) => Math.hypot(posError(body, t), 15 * utError(t) / 3600);
+
+// what a moon is doing
+const doing = (o) => ["transit", "occulted", "eclipsed", "shadow"].filter((k) => o[k]);
+
+// The moons of a planet at the time t for drawing (skyview.js), kept with
+// the history: in planet radii, the planet's radius in arcseconds, and t
+function skyView(planet, t, m = moons(planet, t)) {
+  const r5 = (x) => Math.round(x * 1e5) / 1e5;
+  return {
+    planet, t, radius: r5(m.radius * 3600), pole: m.pole.map(r5), sun: m.sun.map(r5),
+    moons: m.moons.map((o) => ({ name: o.name, x: r5(o.view.x), y: r5(o.view.y), z: r5(o.view.z), r: r5(o.view.r), doing: doing(o) })),
+  };
+}
 
 // ---------------------------------------------------------------------
 // Coordinates, with errors: angles are UNum in radians
@@ -197,19 +211,137 @@ function skyBuiltins(env, b) {
   b.moons = (x, t) => {
     const body = bodyOf("moons", x);
     if (!MOON_PLANETS.includes(body)) throw new UnitError("moons: the planets with moons are Mars, Jupiter, Saturn, Uranus and Neptune");
-    const m = moons(body, when("moons", t, pre));
+    const u = when("moons", t, pre), m = moons(body, u);
     const sec = (d, e) => env.convert(new Q(UNum.uncertain(d * RAD, e * RAD)), ["arcsec"]);
     const v = [m.moons.map((o) => sec(o.east, o.err)), m.moons.map((o) => sec(o.north, o.err))];
-    const doing = (o) => ["transit", "occulted", "eclipsed", "shadow"].filter((k) => o[k]);
     v.heads = ["east", "north"];
     v.rows = m.moons.map((o) => o.name + doing(o).map((k) => ` (${k === "shadow" ? "shadow on " + Name(body) : k})`).join(""));
-    // for drawing (skyview.js), in planet radii, kept with the history
-    const r5 = (x) => Math.round(x * 1e5) / 1e5;
-    v.sky = {
-      planet: body, radius: r5(m.radius * 3600), pole: m.pole.map(r5), sun: m.sun.map(r5),
-      moons: m.moons.map((o) => ({ name: o.name, x: r5(o.view.x), y: r5(o.view.y), z: r5(o.view.z), r: r5(o.view.r), doing: doing(o) })),
-    };
+    v.sky = skyView(body, u, m);
     return v;
+  };
+
+  // a moon by name: "Io", "titan"…
+  const moonOf = (name, x) => {
+    const m = typeof x === "string" ? x.trim().toLowerCase() : "";
+    const moon = m && m[0].toUpperCase() + m.slice(1);
+    if (!m || !planetOf(moon)) throw new UnitError(`${name}: the first argument is a moon of Mars, Jupiter, Saturn, Uranus or Neptune, as in ${name}("Io", now)`);
+    return moon;
+  };
+  // a moon's offsets from its planet, to the east and to the north
+  b.moonpos = (x, t) => {
+    const moon = moonOf("moonpos", x), u = when("moonpos", t, '"Io", ');
+    const o = moons(planetOf(moon), u).moons.find((m) => m.name === moon);
+    return [o.east, o.north].map((d) => env.convert(new Q(UNum.uncertain(d * RAD, o.err * RAD)), ["arcsec"]));
+  };
+  // The next events of a moon from t on, one of each kind (within 30
+  // days): a table of their beginnings and ends; with a kind ("eclipse", "occultation", "transit",
+  // "shadow"), the beginning and the end of the next one. Times of the
+  // moon's center, with the error of its position over its speed, and 20 s
+  // for the shadow taken as a cylinder
+  const KINDS = { transit: "transit", shadow: "shadow", eclipse: "eclipsed", eclipsed: "eclipsed", occultation: "occulted", occulted: "occulted" };
+  const KIND_TEXT = { transit: "transit", shadow: "shadow", eclipsed: "eclipse", occulted: "occultation" };
+  b.moonevents = (x, t, kind) => {
+    const moon = moonOf("moonevents", x), u = when("moonevents", t, '"Io", '), planet = planetOf(moon);
+    const want = kind === undefined ? null : KINDS[typeof kind === "string" ? kind.trim().toLowerCase() : ""];
+    if (kind !== undefined && !want) throw new UnitError('moonevents: the kinds are "eclipse", "occultation", "transit" and "shadow"');
+    // the next of each kind
+    const events = moonEvents(moon, u).filter((e, i, all) => (!want || e[0] === want) && all.findIndex((f) => f[0] === e[0]) === i);
+    const sigma = (time) => {
+      const a = moons(planet, time - 30).moons.find((m) => m.name === moon), c = moons(planet, time + 30).moons.find((m) => m.name === moon);
+      const speed = Math.hypot(c.east - a.east, c.north - a.north) / 60;
+      return Math.min(3600, 20 + (speed > 0 ? a.err / speed : 3600));
+    };
+    const date = (time) => dateQ(env, UNum.uncertain(time, sigma(time)));
+    if (want) {
+      if (!events.length) throw new UnitError(`moonevents: no ${kind} of ${moon} within 30 days`);
+      return [date(events[0][1]), date(events[0][2])];
+    }
+    if (!events.length) throw new UnitError(`moonevents: no events of ${moon} within 30 days`);
+    const text = (k) => (k === "shadow" ? `shadow on ${Name(planet)}` : KIND_TEXT[k]);
+    const v = [events.flatMap((e) => [date(e[1]), date(e[2])])];
+    v.heads = [moon];
+    v.rows = events.flatMap((e) => [`${text(e[0])} begins`, `${text(e[0])} ends`]);
+    return v;
+  };
+
+  // a table of dates and numbers with named rows, under a head
+  const named = (head, rows) => {
+    const v = [rows.map((r) => r[1])];
+    v.heads = [head];
+    v.rows = rows.map((r) => r[0]);
+    return v;
+  };
+  const at = (x, s) => dateQ(env, UNum.uncertain(x, s));
+  // The next lunar eclipse after t: its contacts (the umbral ones to half a
+  // minute, as the edge of the shadow is soft) and magnitudes
+  // rising and setting of a body between a and b: rows [label, time, error]
+  const horizonRows = (body, a, b, place) => [true, false].map((rising) => {
+    const e = riseSet(body, a - 1, place, rising);
+    return e && e.t <= b ? [`${body === "sun" ? "Sun" : "Moon"} ${rising ? "rises" : "sets"}`, e.t, Math.min(0.15 / e.rate, 3600)] : null;
+  }).filter(Boolean);
+  // rows [label, time, error] in time order, as dates
+  const timed = (rows) => rows.sort((a, b) => a[1] - b[1]).map(([l, x, s]) => [l, at(x, s)]);
+  // The next lunar eclipse after t: its contacts (the umbral ones to half a
+  // minute, as the edge of the shadow is soft) and magnitudes; with a
+  // place, the next one seen from there (the Moon up during some of it),
+  // with the contacts under the horizon marked, the rising or setting of
+  // the Moon during it and its altitude at the maximum
+  b.lunareclipse = (t, p) => {
+    let u = when("lunareclipse", t);
+    const place = p === undefined ? null : where("lunareclipse", p);
+    for (let n = 0; n < 40; n++) {
+      const e = lunarEclipse(u);
+      if (!e) break;
+      const contacts = [["penumbral begins", e.P1, 60], ["partial begins", e.U1, 30], ["total begins", e.U2, 30], ["maximum", e.max, 10],
+        ["total ends", e.U3, 30], ["partial ends", e.U4, 30], ["penumbral ends", e.P4, 60]].filter((r) => r[1] !== null);
+      const mags = [["umbral magnitude", new Q(UNum.uncertain(e.umbral, 0.003))], ["penumbral magnitude", new Q(UNum.uncertain(e.penumbral, 0.003))]];
+      if (!place) return named(`${e.kind} lunar eclipse`, [...timed(contacts), ...mags]);
+      // the Moon up: its center above −0.8° (refraction and its radius)
+      const alt = (x) => horizontal("moon", x, place).alt, up = (x) => alt(x) > -0.8;
+      const moon = horizonRows("moon", e.P1, e.P4, place);
+      if (contacts.some((r) => up(r[1])) || moon.length) {
+        const rows = contacts.map(([l, x, s]) => [l + (up(x) ? "" : " (Moon down)"), x, s]);
+        return named(`${e.kind} lunar eclipse`, [...timed([...rows, ...moon]), ...mags, ["Moon's altitude", deg(alt(e.max), 0.01)]]);
+      }
+      u = e.max + 86400;
+    }
+    throw new UnitError(`lunareclipse: none ${place ? "seen here " : ""}in the next 20 years`);
+  };
+  // The next solar eclipse after t: its greatest phase on the Earth, gamma
+  // and magnitude; with a place, the next one seen from there (the Sun up
+  // during some of it): its contacts, maximum, magnitude, the part of the
+  // Sun covered and the Sun's altitude
+  b.solareclipse = (t, p) => {
+    let u = when("solareclipse", t);
+    if (p === undefined) {
+      const e = solarEclipse(u);
+      if (!e) throw new UnitError("solareclipse: none found");
+      const v = named(`${e.kind} solar eclipse`, [["greatest eclipse", at(e.max, 10)], ["gamma", new Q(UNum.uncertain(e.gamma, 0.0005))],
+        ["magnitude", new Q(UNum.uncertain(e.magnitude, 0.0005))]]);
+      // the map (eclipsemap.js), kept with the history
+      v.eclipse = eclipseTrack(e.max);
+      return v;
+    }
+    const place = where("solareclipse", p);
+    for (let n = 0; n < 40; n++) {
+      const e = solarEclipse(u);
+      if (!e) break;
+      const l = solarLocal(e.max, place);
+      const up = (a) => a !== null && a > -0.833;
+      if (l && (up(l.altC1) || up(l.altMax) || up(l.altC4))) {
+        const low = (a) => (a !== null && a < -0.833 ? " (Sun down)" : "");
+        const events = [["begins" + low(l.altC1), l.C1, 5], ["maximum" + low(l.altMax), l.max, 5], ["ends" + low(l.altC4), l.C4, 5],
+          ...horizonRows("sun", l.C1, l.C4, place)];
+        if (l.C2 !== null) events.push([`${l.kind} begins`, l.C2, 5], [`${l.kind} ends`, l.C3, 5]);
+        const rows = [...timed(events), ["magnitude", new Q(UNum.uncertain(l.magnitude, 0.001))],
+          ["Sun covered", new Q(UNum.uncertain(l.obscuration, 0.001))], ["Sun's altitude", deg(l.altMax, 0.01)]];
+        const v = named(`${l.kind} solar eclipse${e.kind !== l.kind ? ` (${e.kind})` : ""}`, rows);
+        v.eclipse = { ...eclipseTrack(e.max), place };
+        return v;
+      }
+      u = e.max + 86400;
+    }
+    throw new UnitError("solareclipse: none seen here in the next 20 years");
   };
 
   for (const body of ["sun", "moon"]) {
@@ -322,4 +454,4 @@ function skyBuiltins(env, b) {
   };
 }
 
-export { SKY_FNS, BODY_FNS, COORD_FNS, skyBuiltins };
+export { SKY_FNS, BODY_FNS, COORD_FNS, skyBuiltins, skyView };

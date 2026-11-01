@@ -30,7 +30,10 @@ Horizons). It needs no packages and takes a few seconds.
 `js/moons.js` holds series for the major moons of Mars, Jupiter, Saturn,
 Uranus and Neptune: `node tools/moons.mjs <dir>` fetches their positions
 from JPL Horizons into `<dir>` (once) and fits the series, in about a
-quarter of an hour.
+quarter of an hour. `js/moonseries.js`, the Moon, comes the same way from
+`node tools/moon.mjs <dir> 2` (about 10 minutes), and `js/coast.js`, the
+coastlines of the maps of the eclipses, from Natural Earth with
+`node tools/coast.mjs ne_110m_coastline.geojson`.
 
 `node tests/browser.mjs` checks the app in Chromium at phone size, with
 simulated sensors (position, motion, compass, microphone). It needs

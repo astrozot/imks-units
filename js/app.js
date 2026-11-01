@@ -7,9 +7,11 @@
 import { createCalculator, loadCurrencies } from "./defs.js";
 import { parse, normalize, splitComment, firstLine, functionDocs, tokenize } from "./interp.js";
 import { Q, dimEq, fraction, UnitError } from "./units.js";
-import { HOLIDAY_GROUPS, CALENDAR_ORDER, DATE_FORMATS, isDate, literalText } from "./dates.js";
+import { HOLIDAY_GROUPS, CALENDAR_ORDER, DATE_FORMATS, isDate, literalText, dateQ } from "./dates.js";
 import { SENSORS, fixReadings, sensorAvailable } from "./sensors.js";
-import { skySVG, fitView } from "./skyview.js";
+import { skySVG, overlaySVG, drawPlanet, fitView } from "./skyview.js";
+import { skyView } from "./sky.js";
+import { mapSVG, mapView } from "./eclipsemap.js";
 import { formatUNum, formatNumber, UNum, ufuncs, MC, newSourceId, rng, normInv, lhsUniform, mcConfigure, mcStats, formatAsym } from "./unum.js";
 
 const ARTIFACT = Boolean(window.IMKS_ARTIFACT);
@@ -572,7 +574,7 @@ function tableOf(v, src) {
     rows.push(`<tr>${ix}${fmts.map((f) => `<td data-v="${esc(f.text(i))}">${f.html(i)}</td>`).join("")}</tr>`);
   }
   const more = n > TABLE_ROWS ? `<p class="tbl-more">${n - TABLE_ROWS} more rows: long-press to copy them all</p>` : "";
-  const html = `<div class="tbl-wrap"><table class="vals${v.rows ? " named" : ""}"><thead><tr><th class="ix">${v.rows ? "" : "#"}</th>${th}</tr></thead><tbody>${rows.join("")}</tbody></table></div>${more}`;
+  const html = `<div class="tbl-wrap${v.rows ? " named" : ""}"><table class="vals${v.rows ? " named" : ""}"><thead><tr><th class="ix">${v.rows ? "" : "#"}</th>${th}</tr></thead><tbody>${rows.join("")}</tbody></table></div>${more}`;
   // CSV: values in the unit of the head, with a σ column where needed
   const q = (s) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   const hcells = [], getters = [];
@@ -956,7 +958,7 @@ function renderEntry(e, i) {
     const rid = hasResult(e) ? `<span class="rid" title="Tap to insert ans_${e.rid}">${state.calc ? symHTML(`ans_${e.rid}`) : `ans_${e.rid}`}</span>` : "";
     const name = e.name ? `<span class="name">${state.calc ? symHTML(e.name) : esc(e.name)} =</span>` : "";
     out = e.table
-      ? `<div class="out tbl"><div class="tbl-head">${rid}${name}</div>${e.sky ? skyHTML(e.sky) : ""}${e.html}</div>`
+      ? `<div class="out tbl${e.sky ? " sky" : ""}"><div class="tbl-head">${rid}${name}</div>${e.sky ? skyHTML(e.sky) : ""}${e.map ? mapHTML(e.map) : ""}${e.html}</div>`
       : `<div class="out">${rid}${name}${e.html}</div>`;
   } else if (e.kind === "plot") {
     out = `<div class="out plot">${plotHTML(e.plot)}</div>`;
@@ -1807,6 +1809,7 @@ function evaluate() {
     entry.text = listText(r.q);
     entry.csv = t.csv;
     if (r.q.sky) entry.sky = r.q.sky;
+    if (r.q.eclipse) entry.map = r.q.eclipse;
     entry.rid = newRid();
     results.set(entry.rid, r.q);
     restored.delete(entry.rid);
@@ -3690,47 +3693,42 @@ function refreshEntry(e) {
 let plotViewResize = null;
 window.addEventListener("resize", () => { if (plotViewResize) plotViewResize(); });
 
-// The zoom view of the moons of history entry e: drag to move, pinch or
-// scroll to zoom, double-tap to fit; the planet drawn sharp when still
-function openSky(e) {
-  openSheet("Moons", (root) => {
-    root.innerHTML = `<p class="plot-in">${exprHTML(e.input)}</p><svg class="sky-svg sky-full" role="img" aria-label="${esc(e.sky.planet)} and its moons"></svg>
-      <p class="sky-hint">Drag to move, pinch or scroll to zoom, double-tap to fit</p>`;
+// The map of a solar eclipse in the history (tap for openMap)
+function mapHTML(m) {
+  const W = 320, H = 240;
+  return `<svg class="map-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Map of the eclipse">${mapSVG(m, W, H, mapView(m, W, H), m.place)}</svg>` +
+    '<p class="sky-hint map-key"><i class="k-path"></i>central path (UTC) <i class="k-partial"></i>limits of the partial eclipse <i class="k-begin"></i>begins <i class="k-end"></i>ends (hour UTC) <i class="k-horizon"></i>maximum at sunrise or sunset <i class="k-place"></i>place</p>';
+}
+
+// The zoom view of the map of history entry e: drag to turn the Earth,
+// pinch or scroll to zoom, double-tap to go back
+function openMap(e) {
+  openSheet("Eclipse", (root) => {
+    root.innerHTML = `<p class="plot-in">${exprHTML(e.input)}</p><svg class="map-svg map-full" role="img" aria-label="Map of the eclipse"></svg>
+      <p class="sky-hint">Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back</p>`;
   });
-  const sky = e.sky, svg = sheetBody.querySelector(".sky-svg");
-  let W = 320, H = 400, v = null, raf = 0, idle = 0;
-  // at most two pixels of the image per pixel: sharp, and quick enough on phones
-  const dpr = () => Math.min(2, window.devicePixelRatio || 1);
-  const draw = (k) => { svg.innerHTML = skySVG(sky, W, H, v.cx, v.cy, v.s, { dpr: k, full: true }); };
-  const redraw = () => {
-    if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(1); });
-    clearTimeout(idle);
-    idle = setTimeout(() => draw(dpr()), 150);
-  };
-  // from all the moons in view to a planet radius of four times the view
-  const all = Math.max(2.5, ...sky.moons.map((m) => Math.hypot(m.x, m.y)));
-  const clampS = (s) => Math.min(4 * Math.min(W, H), Math.max(Math.min(W, H) / 2 / (1.1 * all), s));
+  const m = e.map, svg = sheetBody.querySelector(".map-svg");
+  let W = 320, H = 320, v = null, raf = 0;
+  const draw = () => { svg.innerHTML = mapSVG(m, W, H, v, m.place); };
+  const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
   const size = () => {
     W = Math.max(240, Math.round(svg.parentElement.clientWidth));
-    H = Math.round(Math.max(240, Math.min(W * 1.2, window.innerHeight - 220)));
+    H = Math.round(Math.max(240, Math.min(W * 1.1, window.innerHeight - 220)));
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    if (!v) v = fitView(sky, W, H);
-    draw(dpr());
+    if (!v) v = mapView(m, W, H);
+    draw();
   };
   size();
   plotViewResize = () => { if (svg.isConnected && !sheet.hidden) size(); };
+  const base0 = () => mapView(m, W, H).s;
+  const clampS = (s) => Math.min(base0() * 30, Math.max(base0() * 0.8, s));
   const local = (ev) => {
     const b = svg.getBoundingClientRect();
     return { x: ((ev.clientX - b.left) * W) / b.width, y: ((ev.clientY - b.top) * H) / b.height };
   };
-  // the view with the sky under the point p (of the view base) under q, at scale s
-  const keep = (base, p, q, s) => {
-    const sx = base.cx + (p.x - W / 2) / base.s, sy = base.cy - (p.y - H / 2) / base.s;
-    return { cx: sx - (q.x - W / 2) / s, cy: sy + (q.y - H / 2) / s, s };
-  };
   const pts = new Map();
   let base = null, moved = false, lastTap = 0;
-  const start = () => { base = { v: { ...v }, pts: new Map([...pts].map(([k, p]) => [k, { ...p }])) }; };
+  const start = () => { base = { v: { ...v }, pts: new Map([...pts].map(([id, p]) => [id, { ...p }])) }; };
   svg.addEventListener("pointerdown", (ev) => {
     svg.setPointerCapture(ev.pointerId);
     pts.set(ev.pointerId, local(ev));
@@ -3740,16 +3738,17 @@ function openSky(e) {
   svg.addEventListener("pointermove", (ev) => {
     if (!pts.has(ev.pointerId)) return;
     pts.set(ev.pointerId, local(ev));
-    const ids = [...pts.keys()].filter((k) => base.pts.has(k));
+    const ids = [...pts.keys()].filter((id) => base.pts.has(id));
     if (ids.length === 1) {
       const p0 = base.pts.get(ids[0]), p1 = pts.get(ids[0]);
       if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > 4) moved = true;
-      if (moved) v = keep(base.v, p0, p1, base.v.s);
+      // turn the Earth: a radian for every radius of the drag
+      const lat0 = Math.max(-89, Math.min(89, base.v.lat0 + ((p1.y - p0.y) / base.v.s) * 57.3));
+      v = { ...base.v, lat0, lon0: base.v.lon0 - ((p1.x - p0.x) / base.v.s) * 57.3 / Math.max(0.2, Math.cos(lat0 * Math.PI / 180)) };
     } else if (ids.length >= 2) {
-      const [a0, b0] = ids.slice(0, 2).map((k) => base.pts.get(k)), [a1, b1] = ids.slice(0, 2).map((k) => pts.get(k));
+      const [a0, b0] = ids.slice(0, 2).map((id) => base.pts.get(id)), [a1, b1] = ids.slice(0, 2).map((id) => pts.get(id));
       const d0 = Math.hypot(a0.x - b0.x, a0.y - b0.y), d1 = Math.hypot(a1.x - b1.x, a1.y - b1.y);
-      const s = clampS(base.v.s * (d0 > 20 ? d1 / d0 : 1));
-      v = keep(base.v, { x: (a0.x + b0.x) / 2, y: (a0.y + b0.y) / 2 }, { x: (a1.x + b1.x) / 2, y: (a1.y + b1.y) / 2 }, s);
+      v = { ...base.v, s: clampS(base.v.s * (d0 > 20 ? d1 / d0 : 1)) };
       moved = true;
     }
     redraw();
@@ -3757,7 +3756,167 @@ function openSky(e) {
   const up = (ev) => {
     if (!pts.delete(ev.pointerId)) return;
     if (!moved && !pts.size) {
-      if (ev.timeStamp - lastTap < 350) { v = fitView(sky, W, H); redraw(); lastTap = 0; } else lastTap = ev.timeStamp;
+      if (ev.timeStamp - lastTap < 350) { v = mapView(m, W, H); redraw(); lastTap = 0; } else lastTap = ev.timeStamp;
+    }
+    start();
+  };
+  svg.addEventListener("pointerup", up);
+  svg.addEventListener("pointercancel", up);
+  svg.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    v = { ...v, s: clampS(v.s * Math.exp(-ev.deltaY * 0.002)) };
+    redraw();
+  }, { passive: false });
+}
+
+// The zoom view of the moons of history entry e: drag to move, pinch or
+// scroll to zoom, double-tap to fit; the time runs forward or backward at
+// a speed, the moons at every frame. The planet is a canvas under the
+// moons: while the view moves it is only moved and scaled, then drawn
+// again sharp
+const SKY_SPEEDS = [-36000, -3600, -600, -60, -10, -1, 1, 10, 60, 600, 3600, 36000];
+
+// the events of a moon at the Unix time t, as a new calculation
+function showMoonEvents(name, t) {
+  const d = new Date(Math.round(t) * 1000), p = (n) => String(n).padStart(2, "0");
+  const date = `${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} Z`;
+  if (!sheet.hidden) closeSheet();
+  setInput(`moonevents("${name}", ${date})`);
+  evaluate();
+}
+function openSky(e) {
+  openSheet("Moons", (root) => {
+    root.innerHTML = `<p class="plot-in">${exprHTML(e.input)}</p>
+      <div class="sky-stage"><canvas class="sky-canvas"></canvas><svg class="sky-svg sky-full" role="img" aria-label="${esc(e.sky.planet)} and its moons"></svg></div>
+      <div class="sky-time"><button class="chip" data-sky="slower" aria-label="Slower or backward">◀◀</button><button class="chip" data-sky="play" aria-label="Play">▶</button><button class="chip" data-sky="faster" aria-label="Faster">▶▶</button><button class="chip" data-sky="reset">Reset</button></div>
+      <p class="sky-hint"><span class="sky-when"></span> · <span class="sky-speed"></span></p>
+      <p class="sky-hint">Drag to move, pinch or scroll to zoom, double-tap to fit; tap a moon for its events</p>`;
+  });
+  const root = sheetBody, svg = root.querySelector(".sky-svg"), canvas = root.querySelector(".sky-canvas"), stage = root.querySelector(".sky-stage");
+  let sky = e.sky, t = sky.t, W = 320, H = 400, v = null, drawn = null, raf = 0, idle = 0;
+  let speed = 6, playing = false, last = 0, planetAt = 0;
+  const k = () => Math.min(2, window.devicePixelRatio || 1);
+  // the planet sharp for the view, and the canvas back in place
+  const sharp = () => {
+    drawPlanet(canvas, sky, W, H, v.cx, v.cy, v.s, playing ? 1 : k());
+    drawn = { ...v };
+    canvas.style.transform = "";
+  };
+  // the canvas of the view drawn moved and scaled to the view v
+  const follow = () => {
+    const m = v.s / drawn.s;
+    const tx = W / 2 + (drawn.cx - v.cx) * v.s - (W / 2) * m, ty = H / 2 - (drawn.cy - v.cy) * v.s - (H / 2) * m;
+    canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${m})`;
+  };
+  const label = () => {
+    root.querySelector(".sky-when").textContent = sky.t === undefined ? "" : env().format(dateQ(env(), UNum.of(Math.round(t))));
+    const x = SKY_SPEEDS[speed];
+    root.querySelector(".sky-speed").textContent = `${x < 0 ? "backward " : ""}×${Math.abs(x)}${playing ? "" : ", paused"}`;
+    root.querySelector('[data-sky="play"]').textContent = playing ? "❚❚" : "▶";
+  };
+  const overlay = () => { svg.innerHTML = overlaySVG(sky, W, H, v.cx, v.cy, v.s, true); };
+  const moved = () => {
+    overlay();
+    follow();
+    clearTimeout(idle);
+    idle = setTimeout(sharp, 120);
+  };
+  const size = () => {
+    W = Math.max(240, Math.round(stage.clientWidth));
+    H = Math.round(Math.max(240, Math.min(W * 1.2, window.innerHeight - 300)));
+    stage.style.height = `${H}px`;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    if (!v) v = fitView(sky, W, H);
+    overlay();
+    sharp();
+    label();
+  };
+  size();
+  plotViewResize = () => { if (svg.isConnected && !sheet.hidden) size(); };
+
+  // the time: the moons at every frame, the planet three times a second
+  const tick = (now) => {
+    if (!playing || !svg.isConnected) { raf = 0; return; }
+    if (last) t += SKY_SPEEDS[speed] * (now - last) / 1000;
+    last = now;
+    if (sky.t !== undefined) {
+      sky = skyView(sky.planet, t);
+      overlay();
+      if (now - planetAt > 300) { planetAt = now; sharp(); }
+      label();
+    }
+    raf = requestAnimationFrame(tick);
+  };
+  const play = (on) => {
+    playing = on;
+    last = 0;
+    if (on && !raf) raf = requestAnimationFrame(tick);
+    if (!on) sharp();
+    label();
+  };
+  root.querySelector(".sky-time").addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-sky]");
+    if (!b || sky.t === undefined) return;
+    const a = b.dataset.sky;
+    if (a === "play") play(!playing);
+    else if (a === "faster" || a === "slower") {
+      speed = Math.max(0, Math.min(SKY_SPEEDS.length - 1, speed + (a === "faster" ? 1 : -1)));
+      play(true);
+    } else if (a === "reset") {
+      t = e.sky.t;
+      sky = e.sky;
+      speed = 6;
+      play(false);
+      overlay();
+    }
+  });
+
+  const local = (ev) => {
+    const b = svg.getBoundingClientRect();
+    return { x: ((ev.clientX - b.left) * W) / b.width, y: ((ev.clientY - b.top) * H) / b.height };
+  };
+  // the view with the sky under the point p (of the view base) under q, at scale s
+  const keep = (base, p, q, s) => {
+    const sx = base.cx + (p.x - W / 2) / base.s, sy = base.cy - (p.y - H / 2) / base.s;
+    return { cx: sx - (q.x - W / 2) / s, cy: sy + (q.y - H / 2) / s, s };
+  };
+  // from all the moons in view to a planet radius of four times the view
+  const all = Math.max(2.5, ...sky.moons.map((m) => Math.hypot(m.x, m.y)));
+  const clampS = (s) => Math.min(4 * Math.min(W, H), Math.max(Math.min(W, H) / 2 / (1.1 * all), s));
+  const pts = new Map();
+  let base = null, dragged = false, lastTap = 0, moving = 0;
+  const start = () => { base = { v: { ...v }, pts: new Map([...pts].map(([id, p]) => [id, { ...p }])) }; };
+  svg.addEventListener("pointerdown", (ev) => {
+    svg.setPointerCapture(ev.pointerId);
+    pts.set(ev.pointerId, local(ev));
+    dragged = false;
+    start();
+  });
+  svg.addEventListener("pointermove", (ev) => {
+    if (!pts.has(ev.pointerId)) return;
+    pts.set(ev.pointerId, local(ev));
+    const ids = [...pts.keys()].filter((id) => base.pts.has(id));
+    if (ids.length === 1) {
+      const p0 = base.pts.get(ids[0]), p1 = pts.get(ids[0]);
+      if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > 4) dragged = true;
+      if (dragged) v = keep(base.v, p0, p1, base.v.s);
+    } else if (ids.length >= 2) {
+      const [a0, b0] = ids.slice(0, 2).map((id) => base.pts.get(id)), [a1, b1] = ids.slice(0, 2).map((id) => pts.get(id));
+      const d0 = Math.hypot(a0.x - b0.x, a0.y - b0.y), d1 = Math.hypot(a1.x - b1.x, a1.y - b1.y);
+      const s = clampS(base.v.s * (d0 > 20 ? d1 / d0 : 1));
+      v = keep(base.v, { x: (a0.x + b0.x) / 2, y: (a0.y + b0.y) / 2 }, { x: (a1.x + b1.x) / 2, y: (a1.y + b1.y) / 2 }, s);
+      dragged = true;
+    }
+    if (!moving) moving = requestAnimationFrame(() => { moving = 0; moved(); });
+  });
+  const up = (ev) => {
+    if (!pts.delete(ev.pointerId)) return;
+    if (!dragged && !pts.size) {
+      // a moon under the finger: its events
+      const p = local(ev), X = (x) => W / 2 + (x - v.cx) * v.s, Y = (y) => H / 2 - (y - v.cy) * v.s;
+      const near = sky.t === undefined ? null : sky.moons.find((m) => Math.hypot(X(m.x) - p.x, Y(m.y) - p.y) < 16);
+      if (near) { showMoonEvents(near.name, t); return; }
+      if (ev.timeStamp - lastTap < 350) { v = fitView(sky, W, H); moved(); lastTap = 0; } else lastTap = ev.timeStamp;
     }
     start();
   };
@@ -3767,7 +3926,7 @@ function openSky(e) {
     ev.preventDefault();
     const p = local(ev);
     v = keep(v, p, p, clampS(v.s * Math.exp(-ev.deltaY * 0.002)));
-    redraw();
+    moved();
   }, { passive: false });
 }
 
@@ -4340,8 +4499,16 @@ const FN_SECTIONS = [
     { fn: "moonrise", desc: "t, place" }, { fn: "moonset", desc: "t, place" }, { fn: "moon", desc: "Alt, az" }, { fn: "phase", desc: "Lit, age" },
     { fn: "newmoon", desc: "Next after t" }, { fn: "firstquarter", label: "1st quarter", desc: "Next after t" }, { fn: "fullmoon", desc: "Next after t" }, { fn: "lastquarter", label: "last quarter", desc: "Next after t" },
     { fn: "equinox", desc: "Year" }, { fn: "solstice", desc: "Year" }, { fn: "lst", desc: "Sidereal time" }, { fn: "date", desc: "y, m, d, h, min" },
-    { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "u:JD", label: "JD", desc: "Julian day" },
+    { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "fncat:Eclipses", label: "Eclipses…", desc: "Moons, JD" },
   ]],
+  // a page of Sky (not in the bar of the sections): eclipses and moons
+  ["Eclipses", 4, 5, [
+    { fn: "lunareclipse", label: "lunar ecl.", desc: "t, place" }, { fn: "solareclipse", label: "solar ecl.", desc: "t, place" }, { fn: "moons", desc: "Planet, t" }, { fn: "moonevents", label: "events", desc: "Moon, t" },
+    { fn: "moonpos", desc: "Moon, t" }, { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" },
+    { key: '"Jupiter"', label: "Jupiter", desc: "♃" }, { key: '"Saturn"', label: "Saturn", desc: "♄" }, { key: '"Io"', label: "Io", desc: "Jupiter I" }, { key: '"Europa"', label: "Europa", desc: "Jupiter II" },
+    { key: '"Ganymede"', label: "Ganymede", desc: "Jupiter III" }, { key: '"Callisto"', label: "Callisto", desc: "Jupiter IV" }, { key: '"Titan"', label: "Titan", desc: "Saturn VI" }, { key: '"eclipse"', label: "eclipse", desc: "Event kind" },
+    { fn: "date", desc: "y, m, d, h, min" }, { key: "u:JD", label: "JD", desc: "Julian day" }, { key: '"transit"', label: "transit", desc: "Event kind" }, { key: "fncat:Sky", label: "◀ Sky", desc: "Back" },
+  ], "Sky"],
   // the bodies insert their names, as altaz("Mars", now, here)
   ["Planets", 5, 5, [
     { fn: "altaz", desc: "Alt, az" }, { fn: "radec", desc: "Ra, dec" }, { fn: "dist", desc: "From Earth" }, { fn: "mag", desc: "Magnitude" }, { fn: "moons", desc: "Sketch" },
@@ -4420,6 +4587,11 @@ const USAGE = {
 };
 
 const KEY_HELP = {
+  "fncat:Eclipses": "Eclipses of the Sun and the Moon, the moons of the planets and their events, the Julian day",
+  "fncat:Sky": "Back to the Sky keys",
+  '"eclipse"': 'A kind of event of a moon: moonevents("Io", t, "eclipse") gives the beginning and end of its next eclipse',
+  '"transit"': 'A kind of event of a moon: moonevents("Io", t, "transit") gives the beginning and end of its next transit',
+  ...Object.fromEntries(["Io", "Europa", "Ganymede", "Callisto", "Titan"].map((m) => [`"${m}"`, `${m}, for moonpos("${m}", t) and moonevents("${m}", t)`])),
   // the bodies of the Planets keys
   ...Object.fromEntries(["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"].map((b) =>
     [`"${b}"`, `${b}, the first argument of altaz, radec, dist, mag, illum, elong, diam, ecl, rising, setting, transit${["Sun", "Moon", "Mercury", "Venus"].includes(b) ? "" : " and moons"}, as in mag("${b}", now)`])),
@@ -4601,7 +4773,7 @@ function buildKeypad() {
         ${actionsHTML("units")}
     </div>
     <div class="page wide-page" data-page="fn">
-      <div class="cats" id="fn-cats">${FN_SECTIONS.map(([n]) => `<button class="cat" data-fncat="${esc(n)}">${esc(n)}</button>`).join("")}</div>
+      <div class="cats" id="fn-cats">${FN_SECTIONS.filter((x) => !x[4]).map(([n]) => `<button class="cat" data-fncat="${esc(n)}">${esc(n)}</button>`).join("")}</div>
       <div class="fn-grid" id="fn-grid"></div>
       ${actionsHTML("fn")}
     </div>
@@ -4766,7 +4938,9 @@ function setFnCat(name) {
   if (!FN_SECTIONS.some((s) => s[0] === name)) name = "Math";
   state.fnCat = name;
   store.set("fnCat", name);
-  for (const c of document.querySelectorAll("[data-fncat]")) c.setAttribute("aria-selected", String(c.dataset.fncat === name));
+  // a page of a section (Eclipses of Sky) shows that section selected
+  const tab = FN_SECTIONS.find((x) => x[0] === name)[4] || name;
+  for (const c of document.querySelectorAll("[data-fncat]")) c.setAttribute("aria-selected", String(c.dataset.fncat === tab));
   renderFnGrid();
   const g = $("#fn-grid");
   if (g) g.scrollTop = 0;
@@ -5195,6 +5369,7 @@ function keyAction(k) {
   if (k.startsWith("n:")) return insertName(k.slice(2));
   if (k.startsWith("u:")) return insertUnit(k.slice(2));
   if (k.startsWith("sensor:")) return readSensor(k.slice(7));
+  if (k.startsWith("fncat:")) return setFnCat(k.slice(6));
   if (k.startsWith("layer:")) {
     state.layer = k.slice(6);
     state.shift = 0;
@@ -5937,6 +6112,13 @@ historyEl.addEventListener("click", (ev) => {
     return;
   }
   if (ev.target.closest(".sky-svg") && ent.e.sky) { openSky(ent.e); return; }
+  if (ev.target.closest(".map-svg") && ent.e.map) { openMap(ent.e); return; }
+  // a moon of the table: its events
+  const moonCell = ev.target.closest("td.lbl");
+  if (moonCell && ent.e.sky && ent.e.sky.t !== undefined) {
+    const m = ent.e.sky.moons[moonCell.parentElement.rowIndex - 1];
+    if (m) { showMoonEvents(m.name, ent.e.sky.t); return; }
+  }
   if (ev.target.closest(".plot")) return;
   const cell = ev.target.closest("td[data-v]");
   if (cell && ent.e.kind === "value") {
@@ -6606,10 +6788,10 @@ const HELP = [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
     ["ymd(today)", "year, month, day"], ["ymd(today).1", "the year"], ["ymd(today, \"hebrew\")", ""], ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
-  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100. Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). On the ƒ(x) page, the Planets keys hold the functions of the bodies and their names, the Coords keys the coordinates.", [
+  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100; tap the drawing to zoom and to see the moons move, faster or backward, and a moon, there or in the table, for its events. moonpos(“Io”, t) gives one moon's offsets, moonevents(“Io”, t) its next transit, shadow, eclipse and occultation (within 30 days), and moonevents(“Io”, t, “eclipse”) the beginning and end of the next eclipse. lunareclipse(t) gives the next lunar eclipse, its contacts and magnitudes; solareclipse(t) the next solar eclipse, its kind, greatest phase, gamma and magnitude, and solareclipse(t, place) the next one seen from a place, with its contacts to a few seconds and the sunrise or sunset during it; its map shows the path, the hours (UTC) when the partial eclipse begins and ends, and where the maximum is at sunrise or sunset. lunareclipse(t, place) gives the next lunar eclipse seen from a place. The Eclipses… key of the Sky keys opens these functions, the moons and the Julian day. Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). On the ƒ(x) page, the Planets keys hold the functions of the bodies and their names, the Coords keys the coordinates.", [
     ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
     ["fullmoon(today)", ""], ["equinox(2027)", "(March, September)"], ["sunset(today, here) - sunrise(today, here) @ hms", "day length"], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
-    ["altaz(\"Jupiter\", now, here)", "(altitude, azimuth)"], ["radec(\"Mars\", now)", ""], ["dist(\"Mars\", now) / c @ min", "light time"], ["dist(\"Moon\", now)", ""], ["mag(\"Saturn\", now)", "with its rings"], ["illum(\"Venus\", now)", "(lit fraction, phase angle)"], ["elong(\"Mercury\", now)", "+ evening, − morning"], ["diam(\"Jupiter\", now)", ""], ["rising(\"Jupiter\", today, here)", ""], ["transit(\"Mars\", today, here)", ""], ["moons(\"Jupiter\", now)", "Galilean moons"], ["moons(\"Saturn\", now)", ""],
+    ["altaz(\"Jupiter\", now, here)", "(altitude, azimuth)"], ["radec(\"Mars\", now)", ""], ["dist(\"Mars\", now) / c @ min", "light time"], ["dist(\"Moon\", now)", ""], ["mag(\"Saturn\", now)", "with its rings"], ["illum(\"Venus\", now)", "(lit fraction, phase angle)"], ["elong(\"Mercury\", now)", "+ evening, − morning"], ["diam(\"Jupiter\", now)", ""], ["rising(\"Jupiter\", today, here)", ""], ["transit(\"Mars\", today, here)", ""], ["moons(\"Jupiter\", now)", "Galilean moons"], ["moons(\"Saturn\", now)", ""], ["lunareclipse(today)", ""], ["solareclipse(today)", ""], ["solareclipse(today, here)", "seen from here"],
     ["sep(radec(\"Moon\", now), radec(\"Jupiter\", now))", "Moon to Jupiter"], ["eq2hor((5h 35m 17s, -5.39[deg]), now, here)", "Orion nebula"], ["eq2gal((5h 35m 17s, -5.39[deg]))", ""], ["precess((5h 35m 17s, -5.39[deg]), 2000, today)", ""], ["refract(5[deg]) @ arcmin", ""],
   ]],
   ["Sensors", "The Sensors keys on the ƒ(x) page measure with the phone, keep the value with its error in a variable and type it in: here (latitude, longitude) and lat, lon, alt from the GPS, g, accel and tilt from the accelerometer (hold the phone still for 2 s), heading from the compass (hold it flat), speed while moving, and pitch, the frequency of a steady tone. They need permission the first time, and HTTPS. The variables here, lat, lon, alt, speed, g_local, accel, tilt, heading and pitch hold the last readings, as in sunrise(today, here); the position is refreshed when the app opens, if allowed.", [

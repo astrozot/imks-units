@@ -271,7 +271,7 @@ for (const [k, ms, year = 2027, tol = 90] of SEASONS) {
 // The Sun, the Moon and the planets, against JPL Horizons (DE441): apparent
 // geocentric right ascension and declination (degrees), distance (au), at
 // Julian days of TT from 1600 to 2400. Within 1″ for the Sun and the inner
-// planets, more for Uranus and Neptune (VSOP87), 10″ for the Moon.
+// planets, more for Uranus and Neptune (VSOP87), 2″ for the Moon.
 
 const PLACES = [
   ["sun", 2305500.5, 335.632568587, -10.166911338, 0.99075734919586], ["sun", 2415020.5, 281.045942957, -23.062916418, 0.98326627292084], ["sun", 2451545, 281.277554826, -23.032489039, 0.98332763198913],
@@ -293,7 +293,7 @@ const PLACES = [
   ["neptune", 2305500.5, 148.880896953, 13.316665067, 29.1545733397688], ["neptune", 2415020.5, 84.841069687, 22.066379319, 28.9202265660462], ["neptune", 2451545, 305.432803804, -19.213246467, 31.0244926146295],
   ["neptune", 2461345.5, 2.474457764, -0.469166715, 29.0737641486530], ["neptune", 2597500.5, 106.479743514, 21.625831008, 30.7360891863144],
 ];
-const PLACE_TOL = { sun: 0.3, moon: 10, mercury: 1, venus: 1, mars: 1.5, jupiter: 1, saturn: 1.5, uranus: 4, neptune: 6.5 };
+const PLACE_TOL = { sun: 0.3, moon: 2, mercury: 1, venus: 1, mars: 1.5, jupiter: 1, saturn: 1.5, uranus: 4, neptune: 6.5 };
 for (const [body, jd, ra, dec, au] of PLACES) {
   const t = (jd - 2440587.5) * 86400 - A.deltaT(2000 + (jd - 2451545) / 365.25);
   const p = A.equatorial(body, t), r = Math.PI / 180;
@@ -301,6 +301,14 @@ for (const [body, jd, ra, dec, au] of PLACES) {
   const sep = Math.acos(Math.min(1, c)) / r * 3600, rel = p.dist / 149597870.7 / au - 1;
   if (!(sep <= PLACE_TOL[body])) fail(`${body} at JD ${jd}: ${sep.toFixed(2)}″ from Horizons`);
   if (!(Math.abs(rel) <= (body === "moon" ? 1.5e-4 : 1e-5))) fail(`${body} at JD ${jd}: distance ${rel.toExponential(1)} from Horizons`);
+}
+
+// the Moon's range of the observer tables of Horizons differs from the
+// geometric distance by 1e-4: the distance against its vectors, at JD
+// 2461345.5 TT, 369938.709 km, to 3 km
+{
+  const d = A.equatorial("moon", (2461345.5 - 2440587.5) * 86400 - A.deltaT(2026.8)).dist;
+  if (!(Math.abs(d - 369938.709) <= 3)) fail(`Moon distance ${d.toFixed(1)} km, not 369938.7`);
 }
 
 // seen from Milan (45.46°, 9.19°) on 2026.11.01 12:00 UT, against Horizons
@@ -366,15 +374,55 @@ for (const [planet, jd, name, east, north, code] of MOON_REFS) {
   const got = o.eclipsed ? "u" : o.occulted ? "O" : o.transit ? "t" : "*";
   if (got !== code) fail(`${name} at JD ${jd}: ${got}, not ${code}`);
 }
+// Io's events after 2026.11.01 0:00 UT, the times of its center between
+// those of its first and last contacts in Horizons (to the minute, UT)
+{
+  const ev = A.moonEvents("Io", Date.UTC(2026, 10, 1) / 1000, 2);
+  const at = (kind, i) => ev.find((e) => e[0] === kind)[i];
+  for (const [kind, i, lo, hi] of [["eclipsed", 1, [2, 1, 42], [2, 1, 46]], ["occulted", 2, [2, 5, 14], [2, 5, 18]],
+    ["transit", 1, [1, 5, 45], [1, 5, 49]], ["transit", 2, [1, 8, 3], [1, 8, 7]]]) {
+    const t = at(kind, i), from = Date.UTC(2026, 10, ...lo) / 1000, to = Date.UTC(2026, 10, ...hi) / 1000;
+    if (!(t >= from && t <= to)) fail(`Io ${kind} ${i === 1 ? "begins" : "ends"} at ${new Date(t * 1000).toISOString()}, out of Horizons' range`);
+  }
+}
 // Europa behind Jupiter, Io in front of it (Horizons: O and t)
 for (const [jd, i, k] of [[2461345.61, 1, "occulted"], [2461345.75694, 0, "transit"]]) {
   const o = A.moons("jupiter", (jd - 2440587.5) * 86400).moons[i];
   if (!o[k]) fail(`${o.name} at JD ${jd} is not ${k}`);
 }
 
+// eclipses: the kinds of the solar eclipses of 2023 to 2028 (NASA), the
+// greatest eclipse of 2024.04.08 from the vectors of Horizons (18:17:13 UT,
+// gamma 0.34403), totality at Dallas from the topocentric Sun and Moon of
+// Horizons (18:40:40.9 to 18:44:37.0 UT), the lunar eclipse of 2026.03.03
+// (NASA: umbral magnitude 1.151)
+{
+  const kinds = [];
+  for (let t = Date.UTC(2023, 0, 1) / 1000, i = 0; i < 12; i++) { const e = A.solarEclipse(t); kinds.push(e.kind); t = e.max + 86400; }
+  const want = "hybrid annular total annular partial partial annular total annular total annular total";
+  if (kinds.join(" ") !== want) fail(`solar eclipses 2023 to 2028: ${kinds.join(" ")}`);
+  const e = A.solarEclipse(Date.UTC(2024, 3, 1) / 1000);
+  if (!(Math.abs(e.max - Date.UTC(2024, 3, 8, 18, 17, 13) / 1000) <= 10 && Math.abs(e.gamma - 0.34403) <= 0.0005)) fail(`eclipse of 2024.04.08: ${e.max}, ${e.gamma}`);
+  const l = A.solarLocal(e.max, [32.7767, -96.797]);
+  if (!(Math.abs(l.C2 - Date.UTC(2024, 3, 8, 18, 40, 40.9) / 1000) <= 3 && Math.abs(l.C3 - Date.UTC(2024, 3, 8, 18, 44, 37) / 1000) <= 3)) {
+    fail(`totality at Dallas: ${new Date(l.C2 * 1000).toISOString()} to ${new Date(l.C3 * 1000).toISOString()}`);
+  }
+  const m = A.lunarEclipse(Date.UTC(2026, 0, 1) / 1000);
+  if (!(m.kind === "total" && Math.abs(m.umbral - 1.151) <= 0.002 && Math.abs(m.max - Date.UTC(2026, 2, 3, 11, 33, 44) / 1000) <= 60)) fail(`lunar eclipse of 2026.03.03: ${m.kind} ${m.umbral}`);
+}
+
+// eclipses seen from Milan: the Sun sets during the one of 2026.08.12; the
+// lunar eclipse of 2026.03.03 is in daylight there, the next is 2026.08.28
+{
+  const r = calc.run("solareclipse(2026.03.01, (45.46, 9.19)[deg])");
+  if (r.kind !== "value" || !r.q.rows.includes("Sun sets") || !r.q.rows.includes("ends (Sun down)")) fail(`solar eclipse at Milan: ${r.q?.rows || r.message}`);
+  const l = calc.run("lunareclipse(2026.01.01, (45.46, 9.19)[deg])");
+  if (l.kind !== "value" || !calc.env.format(l.q[0][0]).startsWith("2026.08.28") || !l.q.rows.includes("Moon sets")) fail(`lunar eclipse at Milan: ${l.q?.rows || l.message}`);
+}
+
 // the functions: right ascension in hours, bodies by name
 for (const [src, text] of [["radec(\"Mars\", 2026.11.01 12:00 Z).1 @ hms", "9h 27m 17.39s ± 0.10s"], ["radec(\"MARS\", 2026.11.01 12:00 Z).1 @ hms", "9h 27m 17.39s ± 0.10s"],
-  ["30 deg @ hms", "2h 0m 0s"], ["dist(\"Moon\", 2026.11.01 12:00 Z) @ km", "(371486±56)[km]"]]) {
+  ["30 deg @ hms", "2h 0m 0s"], ["dist(\"Moon\", 2026.11.01 12:00 Z) @ km", "371475.1(37)[km]"]]) {
   const r = calc.run(src);
   const got = r.kind === "value" ? calc.env.format(r.q) : r.message;
   if (got !== text) fail(`${src} gives ${got}, not ${text}`);

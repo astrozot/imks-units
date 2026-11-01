@@ -104,9 +104,46 @@ try {
   expect(await (await lastEntry()).$eval("td.lbl", (td) => td.textContent), "Io (shadow on Jupiter)", "moons: Io's shadow");
   await sketch.click();
   await page.waitForTimeout(300);
-  check(await page.$$eval(".sky-full image", (x) => x.length) === 1, "moons: the zoom view");
+  // the planet on the canvas (some pixels not transparent), the moons over it
+  check(await page.$eval(".sky-canvas", (c) => c.getContext("2d").getImageData(0, 0, c.width, c.height).data.some((x, i) => i % 4 === 3 && x > 0)), "moons: the planet in the zoom view");
+  check(await page.$$eval(".sky-full .sky-moon", (x) => x.length) === 4, "moons: the moons in the zoom view");
+  // the time runs, sixty times faster after ▶▶ ▶▶
+  const when0 = await page.$eval(".sky-when", (x) => x.textContent);
+  await page.click('[data-sky="faster"]');
+  await page.click('[data-sky="faster"]');
+  await page.waitForTimeout(1500);
+  await page.click('[data-sky="play"]');
+  check(await page.$eval(".sky-when", (x) => x.textContent) !== when0, "moons: the time runs");
+  expect(await page.$eval(".sky-speed", (x) => x.textContent), "×60, paused", "moons: the speed");
   await page.keyboard.press("Escape");
   await clear();
+  // a moon of the table: its events
+  await (await (await lastEntry()).$$("td.lbl"))[1].click();
+  await page.waitForTimeout(400);
+  expect(await (await lastEntry()).$eval("td.lbl", (td) => td.textContent), /^(transit|shadow|eclipse|occultation)/, "moonevents from the table");
+  await clear();
+
+  // the map of a solar eclipse, and its zoom view
+  await run("solareclipse(2024.01.01, (32.7767, -96.797)[deg])");
+  check(Boolean(await (await lastEntry()).$(".map-svg .map-path")), "solareclipse: the path on the map");
+  check(Boolean(await (await lastEntry()).$(".map-svg .map-place")), "solareclipse: the place on the map");
+  await (await (await lastEntry()).$(".map-svg")).click();
+  await page.waitForTimeout(300);
+  check(Boolean(await page.$(".map-full .map-coast")), "solareclipse: the zoom view of the map");
+  await page.keyboard.press("Escape");
+  await clear();
+
+  // the Eclipses page of Sky, from its key and back
+  await fn("Sky");
+  await page.click('#fn-grid [data-key="fncat:Eclipses"]');
+  await page.waitForTimeout(150);
+  check(Boolean(await page.$('#fn-grid [data-key="f:solareclipse("]')), "the Eclipses page");
+  check(!(await page.$('[data-fncat="Eclipses"]')), "the Eclipses page is not in the bar");
+  expect(await page.$eval('[data-fncat][aria-selected="true"]', (b) => b.textContent), "Sky", "Sky stays selected on its page");
+  check(!(await page.$$eval("#fn-grid .key b", (bs) => bs.some((b) => b.offsetHeight > 30))), "labels wrap in Eclipses");
+  await page.click('#fn-grid [data-key="fncat:Sky"]');
+  await page.waitForTimeout(150);
+  check(Boolean(await page.$('#fn-grid [data-key="f:sunrise("]')), "back to Sky");
 
   // no key label wraps at 360 px
   for (const section of ["Calendars", "Sky", "Planets", "Coords", "Sensors", "Math"]) {
@@ -171,9 +208,9 @@ try {
   check(await page.$$eval("#expr .sp0", (s) => s.length) === 1, "the space in 30 deg is not drawn, the one in 2 m is");
   await clear();
   await run("30.5 deg @ deg");
-  check(await page.$$eval(".entry .out .u.tight", (u) => u.length) === 1, "a result in degrees has its unit next to the number");
+  check(await (await lastEntry()).$$eval(".out .u.tight", (u) => u.length) === 1, "a result in degrees has its unit next to the number");
   await run("25 °C");
-  check(await page.$$eval(".entry .out .u.tight", (u) => u.length) === 1, "a result in °C keeps its space");
+  check(await (await lastEntry()).$$eval(".out .u.tight", (u) => u.length) === 0, "a result in °C keeps its space");
 
   // a unit system in quotes from the keys: no space, upright
   await page.keyboard.type("1 @ kg|");
