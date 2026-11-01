@@ -39,17 +39,28 @@ function projector({ lat0, lon0, s }, W, H) {
   };
 }
 
-// an SVG path of lines, broken where they go behind the Earth
-function linesPath(lines, P) {
+// an SVG path of lines, broken where they go behind the Earth; smooth:
+// curves through the points (Catmull–Rom, as cubic Béziers)
+function linesPath(lines, P, smooth = false) {
   let d = "";
-  for (const line of lines) {
-    let pen = false;
-    for (const p of line) {
-      const [x, y, v] = P(p);
-      if (!v) { pen = false; continue; }
-      d += `${pen ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
-      pen = true;
+  const f = (x) => x.toFixed(1);
+  const run = (pts) => {
+    if (pts.length < 2) return;
+    d += `M${f(pts[0][0])} ${f(pts[0][1])}`;
+    if (!smooth || pts.length < 3) { for (const p of pts.slice(1)) d += `L${f(p[0])} ${f(p[1])}`; return; }
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[Math.max(0, i - 1)], b = pts[i], c = pts[i + 1], e = pts[Math.min(pts.length - 1, i + 2)];
+      d += `C${f(b[0] + (c[0] - a[0]) / 6)} ${f(b[1] + (c[1] - a[1]) / 6)} ${f(c[0] - (e[0] - b[0]) / 6)} ${f(c[1] - (e[1] - b[1]) / 6)} ${f(c[0])} ${f(c[1])}`;
     }
+  };
+  for (const line of lines) {
+    let pts = [];
+    for (const p of line) {
+      const q = P(p);
+      if (q[2]) pts.push(q);
+      else { run(pts); pts = []; }
+    }
+    run(pts);
   }
   return d;
 }
@@ -116,14 +127,29 @@ function mapSVG(m, W, H, view, place = null) {
   svg += `<path class="map-grid" d="${linesPath(grid, P)}"/>`;
   svg += `<path class="map-night" d="${nightPath(m.sun, view, W, H, P)}"/>`;
   svg += `<path class="map-coast" d="${linesPath(coast(), P)}"/>`;
-  svg += `<path class="map-partial" d="${linesPath([...m.penN, ...m.penS], P)}"/>`;
-  // the path of the central phase: the band between the limits, and its line
-  if (m.umbraN.length === 1 && m.umbraS.length === 1) {
-    const band = [...m.umbraN[0], ...m.umbraS[0].slice().reverse()].map(P);
-    if (band.every((p) => p[2])) svg += `<path class="map-path" d="M${band.map((p) => `${f1(p[0])} ${f1(p[1])}`).join("L")}z"/>`;
-    else svg += `<path class="map-path-edge" d="${linesPath([...m.umbraN, ...m.umbraS], P)}"/>`;
-  } else svg += `<path class="map-path-edge" d="${linesPath([...m.umbraN, ...m.umbraS], P)}"/>`;
-  svg += `<path class="map-center" d="${linesPath(m.center, P)}"/>`;
+  // where some of the eclipse is seen (older results: its limits north and south)
+  svg += `<path class="map-partial" d="${linesPath(m.outline || [...m.penN, ...m.penS], P, true)}"/>`;
+  // the band of the central phase: quadrilaterals between the pairs of its
+  // limits and, at its ends, the footprints of the umbra, in one layer (so
+  // that they do not darken where they overlap); the corners behind the
+  // Earth brought to its edge; then its limits
+  const edgeP = (p) => {
+    const [x, y, v] = P(p);
+    if (v) return [x, y];
+    const r = Math.hypot(x - cx, y - cy) || 1;
+    return [cx + ((x - cx) * R) / r, cy + ((y - cy) * R) / r];
+  };
+  const poly = (pts) => (pts.some((p) => P(p)[2]) ? `M${pts.map((p) => edgeP(p).map(f1).join(" ")).join("L")}z` : "");
+  const pairs = m.band || [];
+  let quads = "";
+  for (let i = 1; i < pairs.length; i++) {
+    const a = pairs[i - 1], b = pairs[i];
+    if (a && b) quads += poly([[a[0], a[1]], [b[0], b[1]], [b[2], b[3]], [a[2], a[3]]]);
+  }
+  const feet = (m.ends || []).map((pts) => `<path d="${poly(pts)}"/>`).join("");
+  if (quads || feet) svg += `<g class="map-path">${quads ? `<path d="${quads}"/>` : ""}${feet}</g>`;
+  svg += `<path class="map-path-edge" d="${linesPath([...m.umbraN, ...m.umbraS], P, true)}"/>`;
+  svg += `<path class="map-center" d="${linesPath(m.center, P, true)}"/>`;
   // the hours (UTC) when the partial eclipse begins and ends, labeled at
   // the visible middle of each line; the maximum at sunrise or sunset
   const hh = (h) => `${String(((Math.round(h) % 24) + 24) % 24).padStart(2, "0")}h`;
@@ -135,11 +161,15 @@ function mapSVG(m, W, H, view, place = null) {
   };
   for (const [kind, cls] of [["begin", "map-begin"], ["end", "map-end"]]) {
     for (const [h, lines] of m[kind] || []) {
-      svg += `<path class="${cls}" d="${linesPath(lines, P)}"/>`;
+      svg += `<path class="${cls}" d="${linesPath(lines, P, true)}"/>`;
       for (const line of lines) if (line.length > 8) svg += label(line, hh(h), cls);
     }
   }
-  if (m.horizon) svg += `<path class="map-horizon" d="${linesPath(m.horizon, P)}"/>`;
+  // where it begins, is greatest and ends at sunrise or sunset
+  if (m.rise) {
+    svg += `<path class="map-horizon faint" d="${linesPath([...m.rise.begin, ...m.rise.end], P, true)}"/>`;
+    svg += `<path class="map-horizon" d="${linesPath(m.rise.max, P, true)}"/>`;
+  } else if (m.horizon) svg += `<path class="map-horizon" d="${linesPath(m.horizon, P)}"/>`;
   // the times on the central line, every half hour
   for (const seg of m.center) {
     for (let i = 1; i < seg.length; i++) {

@@ -411,6 +411,16 @@ for (const [jd, i, k] of [[2461345.61, 1, "occulted"], [2461345.75694, 0, "trans
   if (!(m.kind === "total" && Math.abs(m.umbral - 1.151) <= 0.002 && Math.abs(m.max - Date.UTC(2026, 2, 3, 11, 33, 44) / 1000) <= 60)) fail(`lunar eclipse of 2026.03.03: ${m.kind} ${m.umbral}`);
 }
 
+// the map of the eclipse of 2026.08.12: the outline of where it is seen
+// closed (across 180° too), the band of totality without gaps
+{
+  const tr = A.eclipseTrack(Date.UTC(2026, 7, 12, 17, 46) / 1000);
+  const closed = (l) => Math.hypot(l[0][0] - l.at(-1)[0], ((l[0][1] - l.at(-1)[1] + 540) % 360) - 180) < 0.01;
+  if (!tr.outline.length || !tr.outline.every(closed)) fail("eclipse map: the outline is not closed");
+  const idx = tr.band.map((p, i) => (p ? i : -1)).filter((i) => i >= 0);
+  if (!idx.length || idx.at(-1) - idx[0] + 1 !== idx.length) fail("eclipse map: the band of totality has gaps");
+}
+
 // eclipses seen from Milan: the Sun sets during the one of 2026.08.12; the
 // lunar eclipse of 2026.03.03 is in daylight there, the next is 2026.08.28
 {

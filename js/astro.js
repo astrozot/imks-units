@@ -661,7 +661,9 @@ function shadowGeometry(t) {
 // longitudes lons; NaN where there is none) at the level: [lat, lon] lines
 function contour(grid, lats, lons, level) {
   const segs = [];
+  // the crossing on an edge, the same from both of its cells
   const at = (i, j, i2, j2) => {
+    if (i2 < i || (i2 === i && j2 < j)) [i, j, i2, j2] = [i2, j2, i, j];
     const a = grid[i][j], b = grid[i2][j2], f = (level - a) / (b - a);
     return [lats[i] + f * (lats[i2] - lats[i]), lons[j] + f * (lons[j2] - lons[j])];
   };
@@ -677,7 +679,8 @@ function contour(grid, lats, lons, level) {
     }
   }
   // the segments joined into lines
-  const key = (p) => `${p[0].toFixed(4)},${p[1].toFixed(4)}`, ends = new Map(), used = new Set(), lines = [];
+  // −180° and 180° are the same longitude: lines go on across it
+  const key = (p) => `${p[0].toFixed(4)},${(p[1] === -180 ? 180 : p[1]).toFixed(4)}`, ends = new Map(), used = new Set(), lines = [];
   segs.forEach((sg, n) => sg.forEach((p) => { const k = key(p); ends.set(k, [...(ends.get(k) || []), n]); }));
   segs.forEach((sg, n) => {
     if (used.has(n)) return;
@@ -698,56 +701,110 @@ function contour(grid, lats, lons, level) {
   return lines;
 }
 
-// For a solar eclipse with its greatest phase at tmax, on a grid of 2° of
-// the Earth: the UTC hours (from 0h of the day of tmax) when the partial
-// eclipse begins and ends, where the Sun is up then; lines of these times
-// at each hour (begin, end: [hour, lines]); and the line where the
-// maximum is at sunrise or sunset (horizon)
+// The value of a grid at a point, between its nodes (bilinear)
+function sample(grid, lats, lons, [la, lo]) {
+  const di = lats[1] - lats[0], dj = lons[1] - lons[0];
+  const i = Math.min(lats.length - 2, Math.max(0, Math.floor((la - lats[0]) / di)));
+  const j = Math.min(lons.length - 2, Math.max(0, Math.floor((lo - lons[0]) / dj)));
+  const u = (la - lats[i]) / di, v = (lo - lons[j]) / dj;
+  return (1 - u) * ((1 - v) * grid[i][j] + v * grid[i][j + 1]) + u * ((1 - v) * grid[i + 1][j] + v * grid[i + 1][j + 1]);
+}
+
+// The parts of lines where all the grids are positive, cut where one of
+// them changes sign
+function clip(lines, grids, lats, lons) {
+  const out = [];
+  for (const line of lines) {
+    let cur = [];
+    const vals = line.map((p) => grids.map((g) => sample(g, lats, lons, p)));
+    const ok = (k) => vals[k].every((x) => x > 0);
+    for (let k = 0; k < line.length; k++) {
+      if (k > 0 && ok(k) !== ok(k - 1)) {
+        // where the first grid that changes sign crosses zero
+        let f = 0.5;
+        vals[k].forEach((x, n) => {
+          const y = vals[k - 1][n];
+          if ((x > 0) !== (y > 0)) f = y / (y - x);
+        });
+        const p = line[k - 1].map((c, n) => Math.round((c + f * (line[k][n] - c)) * 10) / 10);
+        cur.push(p);
+        if (!ok(k)) { if (cur.length > 1) out.push(cur); cur = []; } else cur = [p];
+      }
+      if (ok(k)) cur.push(line[k]);
+    }
+    if (cur.length > 1) out.push(cur);
+  }
+  return out;
+}
+
+// For a solar eclipse with its greatest phase at tmax, on a grid of 1.5° of
+// the Earth, every minute: lines of the UTC hours (from 0h of the day of
+// tmax) when the partial eclipse begins and ends where the Sun is up then
+// (begin, end: [hour, lines]); the outline of where some of it is seen;
+// and the lines where it begins, is greatest and ends at sunrise or sunset
+// (rise: { begin, max, end })
 function eclipseContours(tmax) {
   const day = Math.floor(tmax / 86400) * 86400, ts = [];
   for (let t = tmax - 4 * 3600; t <= tmax + 4 * 3600; t += 60) ts.push(t);
   const G = ts.map(shadowGeometry);
   const cg = G.map((g) => Math.cos(g.gast * RAD)), sg = G.map((g) => Math.sin(g.gast * RAD));
   const lats = [], lons = [];
-  for (let la = -90; la <= 90; la += 2) lats.push(la);
-  for (let lo = -180; lo <= 180; lo += 2) lons.push(lo);
-  const begin = [], end = [], horizon = [];
+  for (let la = -90; la <= 90; la += 1.5) lats.push(la);
+  for (let lo = -180; lo <= 180; lo += 1.5) lons.push(lo);
+  // for each place: how deep in the penumbra at most (deep), whether some of
+  // the eclipse is seen with the Sun up (seen), the hours of its beginning
+  // and end (else of the closest approach) and the height of the Sun then
+  // (zeta, negative when it is up)
+  const F = { deep: [], seen: [], begin: [], end: [], zBegin: [], zEnd: [], zMax: [] };
   for (const la of lats) {
     const u = Math.atan(0.99664719 * Math.tan(la * RAD)), cu = Math.cos(u), su = Math.sin(u);
-    const rb = [], re = [], rh = [];
+    const row = Object.fromEntries(Object.keys(F).map((k) => [k, []]));
     for (const lo of lons) {
       const cl = Math.cos(lo * RAD), sl = Math.sin(lo * RAD);
-      // the place at each time: how far inside the penumbra (negative
-      // outside) and how high the Sun (above the horizon: zeta < 0)
-      let first = NaN, last = NaN, prev = null, best = null;
+      let first = null, last = null, best = null, seen = -Infinity, prev = null;
       G.forEach((g, n) => {
         const P = [cu * (cl * cg[n] - sl * sg[n]), cu * (sl * cg[n] + cl * sg[n]), su];
         const xi = dot(P, g.e1), eta = dot(P, g.e2), zeta = dot(P, g.d);
         const inside = g.rm + (zeta - g.zm) * g.f1 - Math.hypot(xi - g.x0, eta - g.y0);
-        if (prev && prev.inside <= 0 && inside > 0) first = { t: ts[n - 1] + 60 * prev.inside / (prev.inside - inside), up: zeta < 0 };
-        if (prev && prev.inside > 0 && inside <= 0) last = { t: ts[n - 1] + 60 * prev.inside / (prev.inside - inside), up: zeta < 0 };
-        if (inside > 0 && (!best || inside > best.inside)) best = { inside, zeta };
-        prev = { inside };
+        seen = Math.max(seen, Math.min(inside, -zeta));
+        if (prev) {
+          const f = prev.inside / (prev.inside - inside), t = ts[n - 1] + 60 * f, z = prev.zeta + f * (zeta - prev.zeta);
+          if (prev.inside <= 0 && inside > 0 && !first) first = { t, z };
+          if (prev.inside > 0 && inside <= 0) last = { t, z };
+        }
+        if (!best || inside > best.inside) best = { inside, zeta, t: ts[n] };
+        prev = { inside, zeta };
       });
-      rb.push(first && first.up ? (first.t - day) / 3600 : NaN);
-      re.push(last && last.up ? (last.t - day) / 3600 : NaN);
-      rh.push(best ? best.zeta : NaN);
+      // no contact: the closest approach, for both
+      first = first || best;
+      last = last || best;
+      row.deep.push(best.inside);
+      row.seen.push(seen);
+      row.begin.push((first.t - day) / 3600);
+      row.end.push((last.t - day) / 3600);
+      row.zBegin.push(first.z ?? first.zeta);
+      row.zEnd.push(last.z ?? last.zeta);
+      row.zMax.push(best.zeta);
     }
-    begin.push(rb);
-    end.push(re);
-    horizon.push(rh);
+    for (const k of Object.keys(F)) F[k].push(row[k]);
   }
-  const hours = (grid) => {
-    const vals = grid.flat().filter((x) => !Number.isNaN(x));
-    if (!vals.length) return [];
-    const out = [];
+  const neg = (g) => g.map((r) => r.map((x) => -x));
+  // the hours, where the eclipse is and the Sun up at that contact
+  const hours = (grid, z) => {
+    const within = [F.deep, neg(z)], out = [];
+    const deep = F.deep.flat(), vals = grid.flat().filter((x, n) => deep[n] > 0);
+    if (!vals.length) return out;
     for (let h = Math.ceil(Math.min(...vals)); h <= Math.floor(Math.max(...vals)); h++) {
-      const lines = contour(grid, lats, lons, h);
+      const lines = clip(contour(grid, lats, lons, h), within, lats, lons);
       if (lines.length) out.push([h, lines]);
     }
     return out;
   };
-  return { begin: hours(begin), end: hours(end), horizon: contour(horizon, lats, lons, 0) };
+  const rise = (z) => clip(contour(z, lats, lons, 0), [F.deep], lats, lons);
+  return {
+    begin: hours(F.begin, F.zBegin), end: hours(F.end, F.zEnd), outline: contour(F.seen, lats, lons, 0),
+    rise: { begin: rise(F.zBegin), max: rise(F.zMax), end: rise(F.zEnd) },
+  };
 }
 
 // The track of a solar eclipse on the Earth around its greatest phase at
@@ -755,7 +812,8 @@ function eclipseContours(tmax) {
 // (north and south: of totality or of the annular phase) and of the
 // penumbra (of the partial eclipse), as segments of [latitude, longitude]
 // (geodetic, degrees; the central line with the UTC hour, from 0h of the
-// day); the point of greatest eclipse and the one with the Sun overhead
+// day); the band of the central phase, as pairs of points of its limits,
+// and at its ends the footprints of the umbra; the point of greatest eclipse and the one with the Sun overhead
 // then; and the lines of the times of eclipseContours
 function eclipseTrack(tmax) {
   const k = 1 / 0.99664719, f2e = 0.99330562;
@@ -773,7 +831,8 @@ function eclipseTrack(tmax) {
   };
   // the radius of a cone (penumbra: +1, umbra: −1) at the height z
   const radius = (g, sign, z) => g.rm + sign * (z - g.zm) * (sign > 0 ? g.f1 : g.f2);
-  // the points at a cone's radius from the axis across its motion
+  // the points at a cone's radius from the axis across its motion, or null
+  // off the Earth's sunlit side
   const edge = (g, n, sign, side) => {
     let z = -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0)), x, y;
     for (let i = 0; i < 3; i++) {
@@ -784,29 +843,47 @@ function eclipseTrack(tmax) {
     }
     return surface(g, x, y);
   };
-  const curves = { center: [[]], umbraN: [[]], umbraS: [[]], penN: [[]], penS: [[]] };
+  const curves = { center: [[]], umbraN: [[]], umbraS: [[]], penN: [[]], penS: [[]] }, band = [], ends = [];
   const push = (name, p) => {
     const c = curves[name], seg = c[c.length - 1];
     if (p) seg.push(p.map((x) => Math.round(x * 100) / 100));
     else if (seg.length) c.push([]);
   };
-  for (let t = tmax - 4 * 3600; t <= tmax + 4 * 3600; t += 120) {
+  // every two minutes, every 15 s where the axis grazes the Earth (the
+  // ends of the path, which stretch there)
+  for (let t = tmax - 4 * 3600, step = 120; t <= tmax + 4 * 3600; t += step) {
     const g = shadow(t), a = shadow(t - 30), b = shadow(t + 30);
+    step = Math.abs(Math.hypot(g.x0, g.y0) - 1) < 0.1 ? 15 : 120;
     const vx = b.x0 - a.x0, vy = b.y0 - a.y0, vn = Math.hypot(vx, vy), n = [-vy / vn, vx / vn];
     // north first: the side toward the north pole of the plane
     const north = n[1] * 1 >= 0 ? 1 : -1;
     const central = g.x0 * g.x0 + g.y0 * g.y0 < 1;
     const c = central ? surface(g, g.x0, g.y0) : null;
     push("center", c && [...c, (t - Math.floor(tmax / 86400) * 86400) / 3600]);
-    push("umbraN", central ? edge(g, n, -1, north) : null);
-    push("umbraS", central ? edge(g, n, -1, -north) : null);
+    const uN = central ? edge(g, n, -1, north) : null, uS = central ? edge(g, n, -1, -north) : null;
+    push("umbraN", uN);
+    push("umbraS", uS);
+    // the band of the central phase, by pairs of its limits
+    band.push(uN && uS ? [...uN, ...uS].map((x) => Math.round(x * 100) / 100) : null);
+    // at the ends of the path, where a limit has left the Earth's sunlit
+    // side, the footprint of the umbra, cut at the terminator
+    if (central && (!uN || !uS)) {
+      const z0 = -Math.sqrt(1 - g.x0 * g.x0 - g.y0 * g.y0), L = Math.abs(radius(g, -1, z0)), poly = [];
+      for (let i = 0; i < 24; i++) {
+        let x = g.x0 + L * Math.cos(i * Math.PI / 12), y = g.y0 + L * Math.sin(i * Math.PI / 12);
+        const r = Math.hypot(x, y);
+        if (r > 0.99999) { x *= 0.99999 / r; y *= 0.99999 / r; }
+        poly.push(surface(g, x, y).map((v) => Math.round(v * 100) / 100));
+      }
+      ends.push(poly);
+    }
     push("penN", edge(g, n, 1, north));
     push("penS", edge(g, n, 1, -north));
   }
   for (const c of Object.values(curves)) if (!c[c.length - 1].length) c.pop();
   const g = shadow(tmax), rr = Math.hypot(g.x0, g.y0), S = equatorial("sun", tmax);
   const greatest = rr < 1 ? surface(g, g.x0, g.y0) : surface(g, g.x0 / rr * 0.9999, g.y0 / rr * 0.9999);
-  return { ...curves, greatest, sun: [S.dec, mod360(S.ra - siderealTime(tmax, 0) + 180) - 180], ...eclipseContours(tmax) };
+  return { ...curves, band, ends, greatest, sun: [S.dec, mod360(S.ra - siderealTime(tmax, 0) + 180) - 180], ...eclipseContours(tmax) };
 }
 
 // A solar eclipse seen from a place at the time t: the distance between

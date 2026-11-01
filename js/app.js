@@ -3697,7 +3697,7 @@ window.addEventListener("resize", () => { if (plotViewResize) plotViewResize(); 
 function mapHTML(m) {
   const W = 320, H = 240;
   return `<svg class="map-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Map of the eclipse">${mapSVG(m, W, H, mapView(m, W, H), m.place)}</svg>` +
-    '<p class="sky-hint map-key"><i class="k-path"></i>central path (UTC) <i class="k-partial"></i>limits of the partial eclipse <i class="k-begin"></i>begins <i class="k-end"></i>ends (hour UTC) <i class="k-horizon"></i>maximum at sunrise or sunset <i class="k-place"></i>place</p>';
+    '<p class="sky-hint map-key"><i class="k-path"></i>central path (UTC) <i class="k-partial"></i>where it is seen <i class="k-begin"></i>begins <i class="k-end"></i>ends (hour UTC) <i class="k-horizon"></i>at sunrise or sunset (bright: maximum) <i class="k-place"></i>place</p>';
 }
 
 // The zoom view of the map of history entry e: drag to turn the Earth,
