@@ -513,9 +513,11 @@ const functionDocs = {
   ethiopic: "A date of the Ethiopian calendar: ethiopic(year, month, day), month 13 is Pagume",
   chinese: "A date of the Chinese calendar: chinese(year, month, day, leap), year as the Gregorian year in which it begins, leap 1 for a leap month",
   japanese: "A date of the Japanese calendar: japanese(\"Reiwa\", year, month, day); eras from Meiji (Gregorian since Meiji 6, 1873)",
-  sun: "Altitude and azimuth of the Sun, (alt, az) without refraction: sun(t, (latitude, longitude)); the place can be left out once set in Settings",
+  sun: "Altitude and azimuth of the Sun, (alt, az) without refraction: sun(t, (latitude, longitude)); the place can also be (latitude, longitude, height) or a name, as \"Milan\", and left out once set in Settings",
+  place: "A place by name, as (latitude, longitude, height): place(\"Milan\"); the large cities are built in, other places and addresses are looked up online (OpenStreetMap, the elevation from a terrain map) and kept",
   moon: "Altitude and azimuth of the Moon seen from a place, (alt, az) without refraction: moon(t, (latitude, longitude))",
-  sunrise: "The next sunrise after t: sunrise(t, (latitude, longitude)); with a third argument, when the Sun's center reaches that altitude, e.g. −6° for civil twilight",
+  sunrise: "The next sunrise after t: sunrise(t, (latitude, longitude)); with a third argument, when the Sun's center reaches that altitude, e.g. −6° for civil twilight, or −50′ − dip(height) for a sea horizon seen from above",
+  dip: "Dip of a sea horizon seen from a height, with the terrestrial refraction (1.76′ √(h/m)): dip(100[m]); for sunrise(t, place, −50′ − dip(h))",
   sunset: "The next sunset after t: sunset(t, (latitude, longitude)); with a third argument, when the Sun's center reaches that altitude, e.g. −6° for civil twilight",
   moonrise: "The next moonrise after t: moonrise(t, (latitude, longitude))",
   moonset: "The next moonset after t: moonset(t, (latitude, longitude))",
@@ -528,10 +530,10 @@ const functionDocs = {
   equinox: "The equinoxes of a year, (March, September): equinox(2027); years −1000 to 3000, to a minute today, less precise far from it (ΔT)",
   solstice: "The solstices of a year, (June, December): solstice(2027); years −1000 to 3000, to a minute today, less precise far from it (ΔT)",
   lst: "Local sidereal time: lst(t, longitude), or lst(t, (latitude, longitude))",
-  altaz: "Altitude and azimuth of a body seen from a place, (alt, az) without refraction: altaz(\"Mars\", t, (latitude, longitude)); the bodies are the Sun, the Moon and the planets, Mercury to Neptune",
-  radec: "Apparent right ascension and declination of a body, of the date, in degrees (radec(…).1 @ hms in hours): radec(\"Mars\", t), geocentric, or radec(\"Mars\", t, (latitude, longitude)) seen from a place",
+  altaz: "Altitude and azimuth of a body seen from a place, (alt, az) without refraction: altaz(\"Mars\", t, (latitude, longitude)); the bodies are the Sun, the Moon and the planets, Mercury to Neptune, and the stars and other objects by name (\"Vega\", \"M31\"; those not built in looked up online, SIMBAD)",
+  radec: "Apparent right ascension and declination of a body, of the date, in degrees (radec(…).1 @ hms in hours): radec(\"Mars\", t), geocentric, or radec(\"Mars\", t, (latitude, longitude)) seen from a place; radec(\"Vega\") alone, the catalog position of a star (ICRS, J2000)",
   ecl: "Apparent geocentric ecliptic longitude and latitude of a body, of the date: ecl(\"Mars\", t)",
-  mag: "Visual magnitude of a body: mag(\"Venus\", t); the planets after Mallama and Hilton (2018), Saturn with its rings",
+  mag: "Visual magnitude of a body: mag(\"Venus\", t); the planets after Mallama and Hilton (2018), Saturn with its rings; mag(\"Vega\"), the catalog V magnitude of a star or another object",
   illum: "Illuminated fraction of the disk of a body and its phase angle (Sun–body–Earth): illum(\"Venus\", t)",
   elong: "Elongation of a body, its angle from the Sun, positive to the east (evening sky), negative to the west (morning sky): elong(\"Venus\", t)",
   diam: "Apparent equatorial diameter of a body: diam(\"Jupiter\", t), or diam(\"Moon\", t, (latitude, longitude)) seen from a place (the Sun and the Moon in arcmin, the planets in arcsec)",
@@ -553,7 +555,7 @@ const functionDocs = {
   sep: "Angular distance between two points of the sky: sep((ra1, dec1), (ra2, dec2)), or (lon, lat) pairs",
   pa: "Position angle of a point from another, from the north through the east: pa((ra1, dec1), (ra2, dec2))",
   refract: "Atmospheric refraction at a true altitude, to add to it (Sæmundsson): refract(alt), or refract(alt, pressure, temperature), 101 kPa and 10 °C if left out",
-  dist: "Distance of a body from the Earth's center, in au (the Moon in km): dist(\"Mars\", t), or dist(\"Mars\", t, (latitude, longitude)) from a place",
+  dist: "Distance of a body from the Earth's center, in au (the Moon in km): dist(\"Mars\", t), or dist(\"Mars\", t, (latitude, longitude)) from a place; dist(\"Sirius\"), the distance of a star from its parallax, in pc",
   holiday: "A holiday in a Gregorian year: holiday(\"Passover\", 2027); Christian, Jewish, Islamic, Chinese, Nowruz, Enkutatash (an unknown name lists them); an Islamic one can come twice in a year: the first",
   ymd: "The year, month and day of a date, as a list: ymd(2026.10.30) is (2026, 10, 30), and ymd(today).1 the year; ymd(t, \"hebrew\") in another calendar (julian, hebrew, islamic, umalqura, persian, coptic, ethiopic, french, saka, mayan), with days from midnight",
   easter: "Easter Sunday of a year (Gregorian calendar): easter(2027)",
@@ -599,7 +601,7 @@ const isCalculus = (node) => CALCULUS.has(node.f) &&
 const SENSOR_VARS = { here: "here", lat: "lat", lon: "lon", alt: "alt", speed: "speed", g_local: "g", accel: "accel", tilt: "tilt", heading: "heading", pitch: "pitch" };
 
 // functions that take a string argument
-const STRING_FNS = new Set(["japanese", "holiday", "ymd", ...BODY_FNS]);
+const STRING_FNS = new Set(["japanese", "holiday", "ymd", ...BODY_FNS, ...SKY_FNS]);
 
 const LIST_FNS = new Set(["sum", "mean", "len", "item", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle", ...SKY_FNS, ...COORD_FNS]);
 
@@ -1051,7 +1053,8 @@ class Interpreter {
   }
 
   wrapError(e) {
-    if (e instanceof UnitError || e instanceof CalcError) return { kind: "error", message: e.message };
+    // a name to look up online (lookup.js) comes with the error
+    if (e instanceof UnitError || e instanceof CalcError) return { kind: "error", message: e.message, ...(e.lookup && { lookup: e.lookup }) };
     if (e instanceof RangeError) return { kind: "error", message: "Recursion too deep" };
     throw e;
   }

@@ -1,20 +1,23 @@
-// The Sun, the Moon and the planets in the interpreter: sun(t, place),
-// sunrise(t, place), altaz("Mars", t, place)…, where the place is
-// (latitude, longitude), or the location of the settings (env.location).
-// The astronomy is in astro.js.
+// The Sun, the Moon, the planets and the stars in the interpreter: sun(t,
+// place), sunrise(t, place), altaz("Mars", t, place), altaz("Vega", t,
+// place)…, where the place is (latitude, longitude), (latitude, longitude,
+// height), a name ("Milan"), or the location of the settings
+// (env.location). The astronomy is in astro.js, the names in lookup.js.
 
 import { Q, UnitError, dimEq } from "./units.js";
 import { UNum, ufuncs, atan2 } from "./unum.js";
 import { isDate, dateQ, yearArg } from "./dates.js";
+import { findObject, findPlace } from "./lookup.js";
 import { horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season } from "./astro.js";
 
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
 // are not taken elementwise
-const SKY_FNS = ["sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse"];
+const SKY_FNS = ["place", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse"];
 // the coordinate functions, whose points are lists (lon, lat)
 const COORD_FNS = ["eq2hor", "hor2eq", "eq2ecl", "ecl2eq", "eq2gal", "gal2eq", "precess", "sep", "pa"];
-// the functions whose first argument is the name of a body
+// the functions whose first argument is the name of a body (a star or
+// another object too, for most)
 const BODY_FNS = ["altaz", "radec", "ecl", "dist", "mag", "illum", "elong", "diam", "rising", "setting", "transit", "moons", "moonpos", "moonevents"];
 const BODIES = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
 // the planets with moons in moons.js
@@ -34,7 +37,9 @@ const MAG_ERR = { sun: 0.01, moon: 0.1, mercury: 0.05, venus: 0.02, mars: 0.15, 
 // from the present (roughly). The Earth turns 15″ in a second, and the
 // Moon moves 0.55″ (the planets less than 0.04″).
 const utError = (t) => Math.hypot(0.9, 0.8 * ((t / 31557600 - 30) / 100) ** 2);
-const posError = (body, t) => Math.hypot(POS_ERR[body], (body === "moon" ? 0.55 : 0.04) * utError(t)) / 3600;
+// (stars and other objects: their catalog positions, to about 0.2″, and
+// the reduction to the date, 0.2″)
+const posError = (body, t) => Math.hypot(typeof body === "object" ? 0.3 : POS_ERR[body], (body === "moon" ? 0.55 : 0.04) * utError(t)) / 3600;
 const skyError = (body, t) => Math.hypot(posError(body, t), 15 * utError(t) / 3600);
 
 // what a moon is doing
@@ -121,21 +126,36 @@ function skyBuiltins(env, b) {
     if (!(Math.abs(x) <= 8.64e12)) throw new UnitError(`${name}: the date is out of range`);
     return x;
   };
+  // [latitude, longitude (degrees), height (m)]: the height is 0 if not
+  // given
   const where = (name, p, pre = "") => {
     if (p === undefined) {
       if (env.location) return env.location;
-      throw new UnitError(`${name}: give the place, as in ${name}(${pre}today, (45.46, 9.19)[deg]), or set a location in Settings`);
+      throw new UnitError(`${name}: give the place, as in ${name}(${pre}today, (45.46, 9.19)[deg]) or ${name}(${pre}today, "Milan"), or set a location in Settings`);
     }
-    if (!Array.isArray(p) || p.length < 2 || !p.every((q) => q instanceof Q)) throw new UnitError(`${name}: the place is (latitude, longitude)`);
-    return [p[0], p[1]].map((q) => env.checkPure(q, name).n / RAD);
+    if (typeof p === "string") {
+      const c = findPlace(env, p.trim());
+      return [c.lat, c.lon, c.h];
+    }
+    const usage = `${name}: the place is (latitude, longitude), (latitude, longitude, height) or a name, as "Milan"`;
+    if (!Array.isArray(p) || p.length < 2 || p.length > 3 || !p.every((q) => q instanceof Q)) throw new UnitError(usage);
+    const [lat, lon] = [p[0], p[1]].map((q) => env.checkPure(q, name).n / RAD);
+    if (!(Math.abs(lat) <= 90)) throw new UnitError(usage);
+    if (p.length === 2) return [lat, lon, 0];
+    if (!dimEq(p[2].d, env.unitValue("m").d)) throw new UnitError(`${name}: the height is a length, as in (45.46[deg], 9.19[deg], 120[m])`);
+    return [lat, lon, p[2].x.n];
   };
   const deg = (x, err) => env.convert(new Q(UNum.uncertain(x * RAD, err * RAD)), ["deg"]);
   const days = (x) => env.convert(env.mul(new Q(x), env.unitValue("day")), ["day"]);
 
-  const bodyOf = (name, x) => {
+  // a body: "sun"… "neptune", or a star or another object (lookup.js); for
+  // the functions of the solar system only, its bodies
+  const bodyOf = (name, x, solar = false) => {
     const body = typeof x === "string" ? x.trim().toLowerCase() : "";
-    if (!BODIES.includes(body)) throw new UnitError(`${name}: the first argument is a body, "Sun", "Moon", "Mercury"… "Neptune", as in ${name}("Mars", now)`);
-    return body;
+    if (BODIES.includes(body)) return body;
+    if (!body) throw new UnitError(`${name}: the first argument is a body, "Sun", "Moon", "Mercury"… "Neptune"${solar ? "" : ", or a star, as \"Vega\""}, as in ${name}("Mars", now)`);
+    if (solar) throw new UnitError(`${name}: the bodies are "Sun", "Moon", "Mercury"… "Neptune"`);
+    return findObject(env, x.trim());
   };
   const pre = '"Mars", ';
   const altaz = (body, x, p) => {
@@ -150,8 +170,11 @@ function skyBuiltins(env, b) {
     return altaz(body, when("altaz", t, pre), where("altaz", p, pre));
   };
   // in degrees, both: radec(…).1 @ hms gives the right ascension in hours
+  // radec("Vega") alone: the catalog position (ICRS, epoch J2000)
   b.radec = (x, t, p) => {
-    const body = bodyOf("radec", x), u = when("radec", t, pre);
+    const body = bodyOf("radec", x);
+    if (t === undefined && typeof body === "object") return [deg(body.ra, 0.2 / 3600), deg(body.dec, 0.2 / 3600)];
+    const u = when("radec", t, pre);
     const e = seen("radec", body, u, p), err = p === undefined ? posError(body, u) : skyError(body, u);
     return [deg(e.ra, Math.min(err / Math.cos(e.dec * RAD), 180)), deg(e.dec, err)];
   };
@@ -160,20 +183,31 @@ function skyBuiltins(env, b) {
     const e = ecliptic(body, centuries(u)), err = posError(body, u);
     return [deg(e.lon, Math.min(err / Math.cos(e.lat * RAD), 180)), deg(e.lat, err)];
   };
+  // of a star, from its parallax (in parsecs; the parallax to 0.5 mas)
   b.dist = (x, t, p) => {
-    const body = bodyOf("dist", x), u = when("dist", t, pre);
+    const body = bodyOf("dist", x);
+    if (typeof body === "object") {
+      if (!(body.plx > 0)) throw new UnitError(`dist: no parallax known for ${body.name}`);
+      return env.convert(env.mul(new Q(UNum.uncertain(1000 / body.plx, 1000 / body.plx * 0.5 / body.plx)), env.unitValue("pc")), ["pc"]);
+    }
+    const u = when("dist", t, pre);
     const d = seen("dist", body, u, p).dist;
     const q = env.mul(new Q(UNum.uncertain(d, d * (DIST_ERR[body] ?? 1e-5))), env.unitValue("km"));
     return env.convert(q, [body === "moon" ? "km" : "au"]);
   };
 
+  // of a star, its catalog V magnitude (no date needed)
   b.mag = (x, t) => {
     const body = bodyOf("mag", x);
+    if (typeof body === "object") {
+      if (typeof body.mag !== "number") throw new UnitError(`mag: no magnitude known for ${body.name}`);
+      return new Q(UNum.uncertain(body.mag, 0.01));
+    }
     return new Q(UNum.uncertain(magnitude(body, when("mag", t, pre)), MAG_ERR[body]));
   };
   // the illuminated fraction of the disk and the phase angle (Sun–body–Earth)
   b.illum = (x, t) => {
-    const body = bodyOf("illum", x), i = aspect(body, when("illum", t, pre)).phase;
+    const body = bodyOf("illum", x, true), i = aspect(body, when("illum", t, pre)).phase;
     const err = body === "moon" ? 0.003 : 0.001;
     return [new Q(UNum.uncertain((1 + Math.cos(i * RAD)) / 2, Math.sin(i * RAD) / 2 * err * RAD)), deg(i, err)];
   };
@@ -183,11 +217,11 @@ function skyBuiltins(env, b) {
     return deg(aspect(body, u).elong, posError(body, u));
   };
   b.diam = (x, t, p) => {
-    const body = bodyOf("diam", x), u = when("diam", t, pre);
+    const body = bodyOf("diam", x, true), u = when("diam", t, pre);
     const d = diameter(body, u, p === undefined ? undefined : where("diam", p, pre));
     return env.convert(new Q(UNum.uncertain(d * RAD, d * RAD * 2e-4)), [body === "sun" || body === "moon" ? "arcmin" : "arcsec"]);
   };
-  const Name = (body) => body[0].toUpperCase() + body.slice(1);
+  const Name = (body) => (typeof body === "object" ? body.name : body[0].toUpperCase() + body.slice(1));
   // rising and setting: refraction near the horizon varies by about 0.15°
   const riseOrSet = (name, body, t, p, h0, rising) => {
     const e = riseSet(body, t, p, rising, h0 === undefined ? null : env.checkPure(h0, name).n / RAD);
@@ -209,7 +243,7 @@ function skyBuiltins(env, b) {
   // east and to the north; for the app, their names, what they are doing
   // and the planet (sky), to label the rows and draw them
   b.moons = (x, t) => {
-    const body = bodyOf("moons", x);
+    const body = bodyOf("moons", x, true);
     if (!MOON_PLANETS.includes(body)) throw new UnitError("moons: the planets with moons are Mars, Jupiter, Saturn, Uranus and Neptune");
     const u = when("moons", t, pre), m = moons(body, u);
     const sec = (d, e) => env.convert(new Q(UNum.uncertain(d * RAD, e * RAD)), ["arcsec"]);
@@ -346,6 +380,13 @@ function skyBuiltins(env, b) {
     throw new UnitError("solareclipse: none seen here in the next 20 years");
   };
 
+  // a place by name, as (latitude, longitude, height)
+  b.place = (x) => {
+    if (typeof x !== "string") throw new UnitError('place: the argument is a name, as place("Milan")');
+    const [lat, lon, h] = where("place", x);
+    return [deg(lat, 0), deg(lon, 0), env.convert(env.mul(new Q(h), env.unitValue("m")), ["m"])];
+  };
+
   for (const body of ["sun", "moon"]) {
     b[body] = (t, p) => altaz(body, when(body, t), where(body, p));
     for (const rising of [true, false]) {
@@ -415,6 +456,14 @@ function skyBuiltins(env, b) {
       return 1.02 / Math.tan((d + 10.3 / (d + 5.11)) * RAD) / 60 * RAD * k;
     };
     return angle(env.checkPure(h, "refract").map(f, (x) => (f(x + 1e-6) - f(x - 1e-6)) / 2e-6));
+  };
+
+  // the dip of a sea horizon seen from a height h, with the terrestrial
+  // refraction (k = 0.13): 1.76′ √(h/m)
+  b.dip = (h) => {
+    if (!(h instanceof Q) || !dimEq(h.d, env.unitValue("m").d) || !(h.x.n >= 0)) throw new UnitError("dip: the argument is a height, as in dip(100[m])");
+    const f = (x) => 1.76 / 60 * RAD * Math.sqrt(Math.max(x, 0));
+    return env.convert(new Q(h.x.map(f, (x) => (x > 0 ? f(x) / (2 * x) : 0))), ["arcmin"]);
   };
 
   // solar noon: the Sun on the meridian, to a few seconds

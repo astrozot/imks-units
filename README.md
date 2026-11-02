@@ -20,8 +20,8 @@ as the service worker serves the cached copy first).
 
 `node tests/run.mjs` checks dates and time zones, the calendars (against
 the calendars of `Intl` where it has them), the holidays, and the Sun, the
-Moon and the planets (against times from PyEphem and positions from JPL
-Horizons). It needs no packages and takes a few seconds.
+Moon, the planets and the stars (against times from PyEphem and positions
+from JPL Horizons and astropy). It needs no packages and takes a few seconds.
 
 `js/vsop87.js` holds the VSOP87D series of the planets, truncated to about
 1″: `node tools/vsop87.mjs <dir> 1` writes it from the files `VSOP87D.mer`
@@ -34,6 +34,15 @@ quarter of an hour. `js/moonseries.js`, the Moon, comes the same way from
 `node tools/moon.mjs <dir> 2` (about 10 minutes), and `js/coast.js`, the
 coastlines of the maps of the eclipses, from Natural Earth with
 `node tools/coast.mjs ne_110m_coastline.geojson`.
+
+`js/catalog.js` holds the stars named by the IAU (IAU Catalog of Star
+Names, with proper motions and parallaxes from the HYG database), the
+Messier and other named deep-sky objects (OpenNGC, CC BY-SA 4.0) and the
+capitals and cities of 500 000 people or more, with their elevation
+(GeoNames, CC BY 4.0): `node tools/catalog.mjs <dir>` writes it from the
+files listed at the top of the tool. Other names are looked up online when
+asked for: objects in SIMBAD (CDS, through Sesame), places in OpenStreetMap
+(Nominatim, ODbL) with their elevation from Open-Meteo (Copernicus DEM).
 
 `node tests/browser.mjs` checks the app in Chromium at phone size, with
 simulated sensors (position, motion, compass, microphone). It needs

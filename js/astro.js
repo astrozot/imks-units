@@ -2,9 +2,12 @@
 // and sidereal time, after Meeus, "Astronomical Algorithms" (the Moon of
 // chapter 47 with its largest terms; the Sun and the planets from VSOP87,
 // in vsop87.js). Times are Unix seconds (UT), angles degrees, places
-// [latitude, longitude] in degrees, east positive. The bodies are "sun",
-// "moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus" and
-// "neptune".
+// [latitude, longitude] in degrees, east positive, or [latitude,
+// longitude, height] with the height above sea level in metres. The bodies
+// are "sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn",
+// "uranus" and "neptune", or a star or other object outside the solar
+// system, as { ra, dec, pmra, pmdec, plx, rv } (ICRS, epoch J2000: degrees,
+// mas/yr with μα cos δ, mas, km/s).
 
 import { VSOP87 } from "./vsop87.js";
 import { MOONS } from "./moons.js";
@@ -46,7 +49,7 @@ function nutation(T) {
   const dpsi = (-17.2 * sin(om) - 1.32 * sin(2 * ls) - 0.23 * sin(2 * lm) + 0.21 * sin(2 * om)) / 3600;
   const deps = (9.2 * cos(om) + 0.57 * cos(2 * ls) + 0.1 * cos(2 * lm) - 0.09 * cos(2 * om)) / 3600;
   const eps0 = 23.439291111 - 0.013004167 * T - 1.639e-7 * T * T + 5.036e-7 * T ** 3;
-  return { dpsi, eps: eps0 + deps };
+  return { dpsi, eps: eps0 + deps, eps0 };
 }
 
 // ---------------------------------------------------------------------
@@ -194,6 +197,30 @@ function moonEcliptic(T) {
   return { lon: mod360(Lp + sl / 1e6 + nutation(T).dpsi), lat: sb / 1e6, dist: 385000.56 + sr / 1000 };
 }
 
+// The apparent ecliptic longitude and latitude (degrees) and distance (km)
+// of a star: moved by its proper motion and radial velocity to the date,
+// precessed to the mean equator of the date and turned to its ecliptic,
+// seen from the Earth (the annual parallax, where known) as it moves
+// (aberration), with nutation. Without a parallax, 1e18 km (about a
+// hundred light years), far enough for no parallax from the surface
+const MAS = RAD / 3.6e6;
+function starEcliptic(s, T) {
+  const y = T * 100, u = unit(s.ra, s.dec);
+  const e = [-sin(s.ra), cos(s.ra), 0], n = [-sin(s.dec) * cos(s.ra), -sin(s.dec) * sin(s.ra), cos(s.dec)];
+  // the radial velocity as a relative change of the distance per year
+  const vr = s.plx > 0 ? (s.rv || 0) * s.plx / (4.740470 * 1000 * 206264.806) : 0;
+  const p = u.map((x, k) => x + y * (MAS * ((s.pmra || 0) * e[k] + (s.pmdec || 0) * n[k]) + vr * x));
+  const [qx, qy, qz] = precessVector(p, T), eps0 = nutation(T).eps0;
+  let g = [qx, qy * cos(eps0) + qz * sin(eps0), -qy * sin(eps0) + qz * cos(eps0)];
+  const [E, V] = heliocentric("earth", T, true);
+  // in au, from the Earth
+  const d = s.plx > 0 ? 206264806 / s.plx / Math.hypot(...p) : 0;
+  if (d) g = g.map((x, k) => x * d - E[k]);
+  const r = Math.hypot(...g), a = g.map((x, k) => x + r * V[k] / C_AU);
+  const lon = Math.atan2(a[1], a[0]) / RAD, lat = Math.atan2(a[2], Math.hypot(a[0], a[1])) / RAD;
+  return { lon: mod360(lon + nutation(T).dpsi), lat, dist: d ? r * AU : 1e18 };
+}
+
 // ---------------------------------------------------------------------
 // Coordinates
 
@@ -205,7 +232,7 @@ function gmst(t) {
 
 // Apparent geocentric ecliptic longitude and latitude (degrees) and
 // distance (km) of a body
-const ecliptic = (body, T) => (body === "moon" ? moonEcliptic(T) : planetEcliptic(body, T));
+const ecliptic = (body, T) => (typeof body === "object" ? starEcliptic(body, T) : body === "moon" ? moonEcliptic(T) : planetEcliptic(body, T));
 
 // Right ascension and declination (degrees) of a body, its distance (km):
 // apparent, geocentric
@@ -220,12 +247,13 @@ function equatorial(body, t) {
   };
 }
 
-// The same seen from a place on the surface (WGS 84, at sea level): the
-// geocentric position minus the place
-function topocentric(body, t, [lat, lon]) {
+// The same seen from a place on the surface (WGS 84, its height above sea
+// level taken as above the ellipsoid): the geocentric position minus the
+// place
+function topocentric(body, t, [lat, lon, h = 0]) {
   const { ra, dec, dist } = equatorial(body, t);
   const lst = siderealTime(t, lon), u = Math.atan(0.99664719 * Math.tan(lat * RAD));
-  const rc = 6378.137 * Math.cos(u), rs = 6378.137 * 0.99664719 * Math.sin(u);
+  const rc = 6378.137 * Math.cos(u) + h / 1000 * cos(lat), rs = 6378.137 * 0.99664719 * Math.sin(u) + h / 1000 * sin(lat);
   const x = dist * cos(dec) * cos(ra) - rc * cos(lst), y = dist * cos(dec) * sin(ra) - rc * sin(lst);
   const z = dist * sin(dec) - rs;
   return { ra: mod360(Math.atan2(y, x) / RAD), dec: Math.atan2(z, Math.hypot(x, y)) / RAD, dist: Math.hypot(x, y, z) };
@@ -271,13 +299,19 @@ function crossing(f, t, rising, span = 2 * 86400, step = 600) {
   return null;
 }
 
-// Rising or setting of the upper limb, with the standard refraction of
-// 34′: the Sun at −0.833° (or at h0, for twilights), the Moon at −34′
-// minus its semidiameter, the planets at −34′ (or at h0)
+// The refraction at the horizon (degrees): the standard 34′ at sea level,
+// less with the pressure of the standard atmosphere at the height h (m)
+const horizonRefraction = (h = 0) => 0.5667 * Math.max(0, 1 - 2.25577e-5 * h) ** 5.25588;
+
+// Rising or setting of the upper limb, with the refraction at the horizon
+// (34′ at sea level): the Sun at −0.833° (or at h0, for twilights), the
+// Moon at −34′ minus its semidiameter, the planets and stars at −34′ (or
+// at h0)
 function riseSet(body, t, place, rising, h0 = null) {
+  const r = horizonRefraction(place[2]);
   const f = body === "moon"
-    ? (x) => { const h = horizontal("moon", x, place); return h.alt + 0.5667 + Math.asin(RADIUS.moon / h.dist) / RAD; }
-    : (x) => horizontal(body, x, place).alt - (h0 ?? (body === "sun" ? -0.8333 : -0.5667));
+    ? (x) => { const h = horizontal("moon", x, place); return h.alt + r + Math.asin(RADIUS.moon / h.dist) / RAD; }
+    : (x) => horizontal(body, x, place).alt - (h0 ?? (body === "sun" ? -0.2666 - r : -r));
   const e = crossing(f, t, rising);
   if (e === null) return null;
   // how fast the altitude changes, for the uncertainty
@@ -1161,4 +1195,4 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
-export { aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };
+export { horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };

@@ -14,6 +14,8 @@ import { skyView } from "./sky.js";
 import { mapSVG, mapView } from "./eclipsemap.js";
 import { osmMap, TILES } from "./osmmap.js";
 import { MOONS } from "./moons.js";
+import { findPlace, fetchObject, fetchPlace, fetchElevation } from "./lookup.js";
+import { STARS, DEEP, CITIES } from "./catalog.js";
 import { formatUNum, formatNumber, UNum, ufuncs, MC, newSourceId, rng, normInv, lhsUniform, mcConfigure, mcStats, formatAsym } from "./unum.js";
 
 const ARTIFACT = Boolean(window.IMKS_ARTIFACT);
@@ -348,7 +350,9 @@ function applySettings(calc) {
   calc.env.showErrors = s.errors;
   calc.env.utc = Boolean(s.utc);
   const loc = s.location;
-  calc.env.location = loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lon) ? [loc.lat, loc.lon] : null;
+  calc.env.location = loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lon) ? [loc.lat, loc.lon, Number.isFinite(loc.h) ? loc.h : 0] : null;
+  // the stars and places found online (lookup.js), kept
+  calc.env.lookups = lookups();
   if (s.system && s.system !== "none") calc.run(`%defaultsystem ${s.system}`);
   else calc.env.defaultsystem = null;
   const c = { ...DEFAULT_SETTINGS.cosmo, ...(s.cosmo || {}) };
@@ -1813,18 +1817,58 @@ function builtinTarget(src) {
   return { shown, what: doc ? `the built-in ${doc.charAt(0).toLowerCase() + doc.slice(1)}` : `the built-in ${name}` };
 }
 
+// The stars, objects and places found online, by the keys of lookup.js:
+// { objects, places }, kept on the device so the history computes offline
+let lookupCache = null;
+function lookups() {
+  if (!lookupCache) {
+    const l = store.get("lookups", {});
+    lookupCache = { objects: l.objects || {}, places: l.places || {} };
+  }
+  return lookupCache;
+}
+
+function showError(message) {
+  previewEl.classList.add("error");
+  previewEl.textContent = message;
+  const ed = $(".editor");
+  ed.classList.remove("shake");
+  void ed.offsetWidth;
+  ed.classList.add("shake");
+}
+
+// A name not known (a star, an object or a place): look it up online, keep
+// it, and evaluate the line again if it is still the same
+let lookingUp = false;
+async function lookUp({ kind, name }, src) {
+  if (lookingUp) return;
+  if (navigator.onLine === false) { showError(`Offline: cannot look up "${name}"`); return; }
+  lookingUp = true;
+  previewEl.classList.remove("error");
+  previewEl.innerHTML = `<span class="muted">Looking up “${esc(name)}” online…</span>`;
+  try {
+    const [k, v] = await (kind === "object" ? fetchObject : fetchPlace)(name);
+    const l = lookups();
+    l[kind === "object" ? "objects" : "places"][k] = v;
+    store.set("lookups", l);
+    toast(kind === "object" ? `Found ${v.name}` : `Found ${v.name}, ${Math.round(v.h)} m`, 4000);
+    if (state.text.trim() === src) evaluate();
+  } catch (e) {
+    if (state.text.trim() === src) showError(e.message);
+    else toast(e.message);
+  } finally {
+    lookingUp = false;
+  }
+}
+
 function evaluate() {
   const src = state.text.trim();
   if (!src) return;
   const shadow = builtinTarget(src);
   const r = state.calc.run(src);
   if (r.kind === "error") {
-    previewEl.classList.add("error");
-    previewEl.textContent = r.message;
-    const ed = $(".editor");
-    ed.classList.remove("shake");
-    void ed.offsetWidth;
-    ed.classList.add("shake");
+    if (r.lookup) { lookUp(r.lookup, src); return; }
+    showError(r.message);
     return;
   }
   const entry = { input: src, kind: r.kind };
@@ -4610,18 +4654,20 @@ const FN_SECTIONS = [
     { fn: "date", desc: "y, m, d, h, min" }, { key: "u:JD", label: "JD", desc: "Julian day" }, { key: "pick:planet", label: "planet…", desc: "Pick one" }, { key: "fncat:Sky", label: "◀ Sky", desc: "Back" },
   ], "Sky"],
   // the bodies insert their names, as altaz("Mars", now, here)
-  ["Planets", 5, 5, [
+  ["Planets", 5, 6, [
     { fn: "altaz", desc: "Alt, az" }, { fn: "radec", desc: "Ra, dec" }, { fn: "dist", desc: "From Earth" }, { fn: "mag", desc: "Magnitude" }, { fn: "moons", desc: "Sketch" },
     { fn: "illum", desc: "Lit, phase" }, { fn: "elong", desc: "From Sun" }, { fn: "diam", desc: "Diameter" }, { fn: "ecl", desc: "Lon, lat" }, { fn: "transit", desc: "Meridian" },
     { fn: "rising", desc: "After t" }, { fn: "setting", desc: "After t" }, { key: "now", label: "now", desc: "Date, time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" },
     { key: '"Sun"', label: "Sun", desc: "☉" }, { key: '"Moon"', label: "Moon", desc: "☾" }, { key: '"Mercury"', label: "Mercury", desc: "☿" }, { key: '"Venus"', label: "Venus", desc: "♀" }, { key: '"Mars"', label: "Mars", desc: "♂" },
     { key: '"Jupiter"', label: "Jupiter", desc: "♃" }, { key: '"Saturn"', label: "Saturn", desc: "♄" }, { key: '"Uranus"', label: "Uranus", desc: "♅" }, { key: '"Neptune"', label: "Neptune", desc: "♆" }, { fn: "date", desc: "y, m, d" },
+    { key: "pick:star", label: "star…", desc: "Pick one" }, { key: "pick:deep", label: "deep sky…", desc: "Messier…" }, { key: "pick:city", label: "place…", desc: "Pick one" }, { fn: "place", desc: "Lat, lon, h" }, { fn: "sep", desc: "Distance" },
   ]],
-  ["Coords", 4, 4, [
+  ["Coords", 4, 5, [
     { fn: "eq2hor", desc: "→ alt, az" }, { fn: "hor2eq", desc: "→ ra, dec" }, { fn: "eq2ecl", desc: "→ ecliptic" }, { fn: "ecl2eq", desc: "→ ra, dec" },
     { fn: "eq2gal", desc: "→ galactic" }, { fn: "gal2eq", desc: "→ ra, dec" }, { fn: "precess", desc: "p, from, to" }, { fn: "refract", desc: "Altitude" },
     { fn: "sep", desc: "Distance" }, { fn: "pa", desc: "Position angle" }, { fn: "radec", desc: "Ra, dec" }, { key: "u:hourangle", label: "hourangle", desc: "15°" },
     { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" }, { fn: "date", desc: "y, m, d, h, min" },
+    { key: "pick:star", label: "star…", desc: "Pick one" }, { key: "pick:deep", label: "deep sky…", desc: "Messier…" }, { key: "pick:city", label: "place…", desc: "Pick one" }, { fn: "place", desc: "Lat, lon, h" },
   ]],
   ["Sensors", 4, 3, [
     { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "sensor:lat", label: "lat", desc: "Latitude" }, { key: "sensor:lon", label: "lon", desc: "Longitude" }, { key: "sensor:alt", label: "alt", desc: "Altitude" },
@@ -4690,6 +4736,9 @@ const KEY_HELP = {
   "fncat:Eclipses": "Eclipses of the Sun and the Moon, the moons of the planets and their events, the Julian day",
   "fncat:Sky": "Back to the Sky keys",
   "pick:moon": "A list of the moons, grouped by planet: tap one to type its name",
+  "pick:star": 'The stars named by the IAU, the brightest first, and those found online: tap one to type its name, as in rising("Sirius", today)',
+  "pick:deep": 'The Messier objects and other named nebulae, clusters and galaxies: tap one to type its name, as in transit("M31", today)',
+  "pick:city": 'The large cities, with their elevation, and the places found online: tap one to type its name, as in sunrise(today, "Rome")',
   "pick:event": 'A list of the kinds of events of moons (eclipse, occultation, transit, shadow) for moonevents("Io", t, "eclipse")',
   "pick:planet": "A list of the planets with moons: tap one to type its name",
   // the bodies of the Planets keys
@@ -5583,7 +5632,37 @@ function renderHolidays(root) {
 
 // Lists to pick a name from, opened by a key (pick:name): groups of
 // [inserted text, label, description]
+const magText = (m) => (typeof m === "number" ? `V ${String(m).replace("-", "−")}` : "");
 const PICK_LISTS = {
+  star: () => ({
+    title: "Stars", note: 'Tap a star to type its name, as in rising("Sirius", today). Any other name (Bayer, HD, HIP…) is looked up online.',
+    groups: [
+      ["Brightest", STARS.filter((x) => x[7] < 1.5).map((x) => [`"${x[0]}"`, x[0], magText(x[7])])],
+      ["Bright", STARS.filter((x) => x[7] >= 1.5 && x[7] < 2.5).map((x) => [`"${x[0]}"`, x[0], magText(x[7])])],
+      ["Found online", Object.values(lookups().objects).map((o) => [`"${o.name.replace(/ \(.*$/, "")}"`, o.name, magText(o.mag)])],
+      ["Others named by the IAU", STARS.filter((x) => !(x[7] < 2.5)).sort((a, b) => a[0].localeCompare(b[0])).map((x) => [`"${x[0]}"`, x[0], magText(x[7])])],
+    ],
+    search: true,
+  }),
+  deep: () => ({
+    title: "Deep sky", note: 'Tap an object to type its name, as in transit("M31", today). Others (NGC 7000, IC 434…) are looked up online.',
+    groups: [
+      ["Messier", DEEP.filter((d) => /^M\d/.test(d[0][0])).map((d) => [`"${d[0][0]}"`, d[0][0], d[0][2] || d[4]])],
+      ["Named", DEEP.filter((d) => !/^M\d/.test(d[0][0])).sort((a, b) => a[0][1].localeCompare(b[0][1])).map((d) => [`"${d[0][0]}"`, d[0][1], d[0][0]])],
+    ],
+    search: true,
+  }),
+  city: () => {
+    const cities = CITIES.trim().split("\n").map((l) => l.split("|"));
+    return {
+      title: "Places", note: 'Tap a place to type its name, as in sunrise(today, "Rome"). Any other place or address is looked up online.',
+      groups: [
+        ["Found online", Object.values(lookups().places).map((p) => [JSON.stringify(p.name.split(",")[0]), p.name, `${Math.round(p.h)} m`])],
+        ["Cities, largest first", cities.map(([n, , cc, , , h]) => [`"${n}"`, `${n}, ${cc}`, `${h} m`])],
+      ],
+      search: true,
+    };
+  },
   moon: () => ({
     title: "Moons", note: 'Tap a moon to type its name, as in moonevents("Io", now).',
     groups: Object.entries(MOONS).map(([planet, { moons }]) => [planet[0].toUpperCase() + planet.slice(1), Object.keys(moons).map((m) => [`"${m}"`, m, ""])]),
@@ -5604,9 +5683,19 @@ const PICK_LISTS = {
 
 function openPick(name) {
   const list = PICK_LISTS[name]();
+  // long lists: a search field, which shows the first matches only
+  const groupsHTML = (q = "") => {
+    const k = q.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const match = ([, label, desc]) => !k || `${label} ${desc}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(k);
+    // the names that begin with the search first
+    const starts = ([, label]) => (k && !label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().startsWith(k) ? 1 : 0);
+    return list.groups.map(([g, items]) => [g, items.filter(match).sort((a, b) => starts(a) - starts(b)).slice(0, list.search ? 120 : Infinity)]).filter(([, items]) => items.length)
+      .map(([g, items]) => `<h3>${esc(g)}</h3><div class="ex names">${items.map(([ins, label, desc]) => `<button data-pick-insert="${esc(ins)}">${esc(label)}${desc ? `<span>${esc(desc)}</span>` : ""}</button>`).join("")}</div>`).join("")
+      || '<p class="muted">None here; the name can be typed and looked up online.</p>';
+  };
   openSheet(list.title, (root) => {
-    root.innerHTML = `<div class="help"><p>${esc(list.note)}</p>${list.groups.map(([g, items]) =>
-      `<h3>${esc(g)}</h3><div class="ex names">${items.map(([ins, label, desc]) => `<button data-pick-insert="${esc(ins)}">${esc(label)}${desc ? `<span>${esc(desc)}</span>` : ""}</button>`).join("")}</div>`).join("")}</div>`;
+    root.innerHTML = `<div class="help"><p>${esc(list.note)}</p>${list.search ? '<input type="search" class="search pick-search" placeholder="Search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">' : ""}<div class="pick-groups">${groupsHTML()}</div></div>`;
+    $(".pick-search", root)?.addEventListener("input", (ev) => { $(".pick-groups", root).innerHTML = groupsHTML(ev.target.value); });
     root.addEventListener("click", (ev) => {
       const b = ev.target.closest("[data-pick-insert]");
       if (!b) return;
@@ -6510,7 +6599,9 @@ function renderSettings(root) {
     <div class="group">
       <div class="row"><div class="lbl">Latitude<small>Degrees, north positive; for sunrise(today)…</small></div><input type="text" inputmode="decimal" class="num" id="set-lat" value="${s.location ? esc(String(s.location.lat)) : ""}" placeholder="45.46"></div>
       <div class="row"><div class="lbl">Longitude<small>Degrees, east positive</small></div><input type="text" inputmode="decimal" class="num" id="set-lon" value="${s.location ? esc(String(s.location.lon)) : ""}" placeholder="9.19"></div>
-      <div class="row"><div class="lbl">Current position<small id="loc-status">From the GPS, once; it is not tracked</small></div><button class="act" id="set-locate">Locate</button></div>
+      <div class="row"><div class="lbl">Elevation<small>Metres above sea level; 0 if empty</small></div><input type="text" inputmode="decimal" class="num" id="set-h" value="${s.location && Number.isFinite(s.location.h) ? esc(String(s.location.h)) : ""}" placeholder="0"></div>
+      <div class="row"><div class="lbl">Place<small id="loc-found">${s.location?.name ? esc(s.location.name) : "A city or an address; online if not one of the large cities"}</small></div><input type="text" id="set-place" placeholder="Milan" enterkeyhint="search"></div>
+      <div class="row"><div class="lbl">Current position<small id="loc-status">From the GPS, once; it is not tracked; the elevation from a terrain map (online)</small></div><button class="act" id="set-locate">Locate</button></div>
     </div>
 
     <div class="group-title">Cosmology</div>
@@ -6568,29 +6659,59 @@ function renderSettings(root) {
   $("#set-digits", root).addEventListener("change", (ev) => { s.digits = Number(ev.target.value); save(); applySettings(state.calc); refresh(); });
   $("#set-errors", root).addEventListener("change", (ev) => { s.errors = ev.target.checked; save(); applySettings(state.calc); refresh(); });
   $("#set-utc", root).addEventListener("change", (ev) => { s.utc = ev.target.checked; save(); applySettings(state.calc); refresh(); });
-  // the location: both fields, or neither
-  const setLocation = () => {
-    const [lat, lon] = ["#set-lat", "#set-lon"].map((id) => $(id, root).value.trim().replace(",", "."));
+  // the location: latitude and longitude, or neither; the elevation 0 if
+  // left out; the name of the place found, until the fields are edited
+  const setLocation = (name = null) => {
+    const [lat, lon, h] = ["#set-lat", "#set-lon", "#set-h"].map((id) => $(id, root).value.trim().replace(",", "."));
     const ok = lat !== "" && lon !== "" && Math.abs(Number(lat)) <= 90 && Math.abs(Number(lon)) <= 180;
-    s.location = ok ? { lat: Number(lat), lon: Number(lon) } : null;
+    s.location = ok ? { lat: Number(lat), lon: Number(lon), h: h !== "" && Number.isFinite(Number(h)) ? Number(h) : 0, ...(name && { name }) } : null;
+    $("#loc-found", root).textContent = name || "A city or an address; online if not one of the large cities";
     save();
     applySettings(state.calc);
     refresh();
   };
-  $("#set-lat", root).addEventListener("change", setLocation);
-  $("#set-lon", root).addEventListener("change", setLocation);
+  const fill = (lat, lon, h) => {
+    $("#set-lat", root).value = String(Number(lat.toFixed(4)));
+    $("#set-lon", root).value = String(Number(lon.toFixed(4)));
+    $("#set-h", root).value = String(Math.round(h));
+  };
+  for (const id of ["#set-lat", "#set-lon", "#set-h"]) $(id, root).addEventListener("change", () => setLocation());
+  // a place by name: a built-in city, one found before, or online
+  $("#set-place", root).addEventListener("change", async (ev) => {
+    const name = ev.target.value.trim(), found = $("#loc-found", root);
+    if (!name) return;
+    try {
+      let v;
+      try { v = findPlace(state.calc.env, name); } catch (e) {
+        if (!e.lookup) throw e;
+        found.textContent = "Looking it up…";
+        let k;
+        [k, v] = await fetchPlace(name);
+        lookups().places[k] = v;
+        store.set("lookups", lookups());
+      }
+      fill(v.lat, v.lon, v.h);
+      setLocation(v.name);
+      ev.target.value = "";
+    } catch (e) { found.textContent = e.message; }
+  });
   $("#set-locate", root).addEventListener("click", () => {
     const status = $("#loc-status", root);
     status.textContent = "Locating…";
     let p;
     try { p = SENSORS.here.read(); } catch (e) { status.textContent = e.message; return; }
-    p.then((r) => {
+    p.then(async (r) => {
       const [[lat], [lon]] = r.list;
-      $("#set-lat", root).value = lat.toFixed(4);
-      $("#set-lon", root).value = lon.toFixed(4);
-      setLocation();
       setFixReadings();
-      status.textContent = "Set from the GPS";
+      // the elevation of the terrain there, or else the GPS altitude (above
+      // the ellipsoid, and rough)
+      let h = null, from = "the terrain map";
+      try { h = await fetchElevation(lat, lon); } catch { /* offline */ }
+      const alt = fixReadings().alt;
+      if (h === null && alt) { h = alt.list[0][0]; from = "the GPS altitude"; }
+      fill(lat, lon, h ?? 0);
+      setLocation();
+      status.textContent = h === null ? "Set from the GPS; no elevation (offline)" : `Set from the GPS; the elevation from ${from}`;
     }).catch((e) => { status.textContent = e.message; });
   });
   $("#set-typeset", root).addEventListener("change", (ev) => { s.typeset = ev.target.checked; save(); renderHistory(); updateMath2d(); });
@@ -6808,6 +6929,7 @@ function exportData(root) {
     session: state.session,
     defs: state.defs,
     settings: { ...state.settings, oxrId: "" },
+    lookups: lookups(),
   };
   const json = JSON.stringify(data, null, 1);
   if (ARTIFACT) {
@@ -6847,6 +6969,10 @@ async function importData(file) {
     state.session = Array.isArray(data.session) ? data.session : [];
     state.defs = typeof data.defs === "string" ? data.defs : "";
     state.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}), oxrId: state.settings.oxrId };
+    if (data.lookups) {
+      lookupCache = { objects: { ...lookups().objects, ...data.lookups.objects }, places: { ...lookups().places, ...data.lookups.places } };
+      store.set("lookups", lookupCache);
+    }
     results = new Map();
     restoredIds = new Map();
     restored.clear();
@@ -6925,9 +7051,10 @@ const HELP = [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
     ["ymd(today)", "year, month, day"], ["ymd(today).1", "the year"], ["ymd(today, \"hebrew\")", ""], ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
-  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), or from the location set in Settings: sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100; tap the drawing to zoom and to see the moons move, faster or backward, and a moon, there or in the table, for its events. moonpos(“Io”, t) gives one moon's offsets, moonevents(“Io”, t) its next transit, shadow, eclipse and occultation (within 30 days), and moonevents(“Io”, t, “eclipse”) the beginning and end of the next eclipse. lunareclipse(t) gives the next lunar eclipse, its contacts and magnitudes; solareclipse(t) the next solar eclipse, its kind, greatest phase, gamma and magnitude, and solareclipse(t, place) the next one seen from a place, with its contacts to a few seconds and the sunrise or sunset during it; its map shows the path, the hours (UTC) when the partial eclipse begins and ends, and where the maximum is at sunrise or sunset; tap it to zoom, and to see it on OpenStreetMap, a topographic, dark or satellite map (online). lunareclipse(t, place) gives the next lunar eclipse seen from a place; its drawing shows the Moon's path through the Earth's penumbra and umbra, with the times (UTC) of the contacts (P1, U1… P4), dashed where the Moon is down. The Eclipses… key of the Sky keys opens these functions, the moons and the Julian day. Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). On the ƒ(x) page, the Planets keys hold the functions of the bodies and their names, the Coords keys the coordinates.", [
+  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), (latitude, longitude, height) or a name, as \"Milan\", or from the location set in Settings (its elevation, 0 if left out): sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100; tap the drawing to zoom and to see the moons move, faster or backward, and a moon, there or in the table, for its events. moonpos(“Io”, t) gives one moon's offsets, moonevents(“Io”, t) its next transit, shadow, eclipse and occultation (within 30 days), and moonevents(“Io”, t, “eclipse”) the beginning and end of the next eclipse. lunareclipse(t) gives the next lunar eclipse, its contacts and magnitudes; solareclipse(t) the next solar eclipse, its kind, greatest phase, gamma and magnitude, and solareclipse(t, place) the next one seen from a place, with its contacts to a few seconds and the sunrise or sunset during it; its map shows the path, the hours (UTC) when the partial eclipse begins and ends, and where the maximum is at sunrise or sunset; tap it to zoom, and to see it on OpenStreetMap, a topographic, dark or satellite map (online). lunareclipse(t, place) gives the next lunar eclipse seen from a place; its drawing shows the Moon's path through the Earth's penumbra and umbra, with the times (UTC) of the contacts (P1, U1… P4), dashed where the Moon is down. The Eclipses… key of the Sky keys opens these functions, the moons and the Julian day. Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). The height of a place moves the Moon by its parallax (0.5″ a kilometre) and makes the refraction at the horizon smaller, with the pressure of the standard atmosphere (34′ at sea level, 24′ at 3000 m): rising and setting a minute or so later; a sea horizon seen from above is lower by dip(h), as in sunrise(t, place, −50′ − dip(h)). The stars named by the IAU and the Messier and other named deep-sky objects are bodies too, by name: altaz(“Vega”, t, place), rising(“Sirius”, t, place), transit(“M31”, t, place), radec(“Vega”, t), apparent (proper motion, precession, nutation, aberration and parallax, to about 0.3″), radec(“Vega”) the catalog position (ICRS, J2000), mag(“Vega”) and dist(“Sirius”) from the parallax. place(“Milan”) gives (latitude, longitude, height); the large cities are built in. Other names, of objects (“NGC 7000”, “HD 12345”, “alf Cen”) or places (“Mount Etna”, an address), are looked up online when you press =: objects in SIMBAD, places in OpenStreetMap with their elevation from a terrain map; they are kept on the device, so the history computes offline. On the ƒ(x) page, the Planets keys hold the functions of the bodies and their names, star…, deep sky… and place… to pick one, the Coords keys the coordinates.", [
     ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
     ["fullmoon(today)", ""], ["equinox(2027)", "(March, September)"], ["sunset(today, here) - sunrise(today, here) @ hms", "day length"], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
+    ["rising(\"Sirius\", today, \"Rome\")", ""], ["transit(\"M31\", today, \"Milan\")", "Andromeda galaxy"], ["altaz(\"Betelgeuse\", now, here)", ""], ["place(\"Denver\")", "with its elevation"], ["sunrise(today, (-16.5[deg], -68.15[deg], 3640[m]))", "La Paz"], ["dip(100[m])", "sea horizon"],
     ["altaz(\"Jupiter\", now, here)", "(altitude, azimuth)"], ["radec(\"Mars\", now)", ""], ["dist(\"Mars\", now) / c @ min", "light time"], ["dist(\"Moon\", now)", ""], ["mag(\"Saturn\", now)", "with its rings"], ["illum(\"Venus\", now)", "(lit fraction, phase angle)"], ["elong(\"Mercury\", now)", "+ evening, − morning"], ["diam(\"Jupiter\", now)", ""], ["rising(\"Jupiter\", today, here)", ""], ["transit(\"Mars\", today, here)", ""], ["moons(\"Jupiter\", now)", "Galilean moons"], ["moons(\"Saturn\", now)", ""], ["lunareclipse(today)", ""], ["solareclipse(today)", ""], ["solareclipse(today, here)", "seen from here"],
     ["sep(radec(\"Moon\", now), radec(\"Jupiter\", now))", "Moon to Jupiter"], ["eq2hor((5h 35m 17s, -5.39[deg]), now, here)", "Orion nebula"], ["eq2gal((5h 35m 17s, -5.39[deg]))", ""], ["precess((5h 35m 17s, -5.39[deg]), 2000, today)", ""], ["refract(5[deg]) @ arcmin", ""],
   ]],

@@ -2,7 +2,8 @@
 //
 // Dates and time zones, calendars (against the calendars of Intl, which
 // browsers and Node share, where it has them), holidays, and the Sun, the
-// Moon and the planets (against PyEphem and JPL Horizons, stored below). Prints
+// Moon, the planets and the stars (against PyEphem, JPL Horizons and
+// astropy, stored below), and names of stars and places. Prints
 // the failures and exits with 1 if there are any.
 
 import fs from "node:fs";
@@ -318,6 +319,43 @@ for (const [body, az, alt] of [["sun", 194.720898976, 28.819999943], ["moon", 29
   const h = A.horizontal(body, Date.UTC(2026, 10, 1, 12) / 1000, [45.46, 9.19]);
   const d = Math.hypot(h.alt - alt, (h.az - az) * Math.cos(alt * Math.PI / 180)) * 3600;
   if (!(d <= (body === "moon" ? 10 : 1))) fail(`${body} seen from Milan: ${d.toFixed(2)}″ from Horizons`);
+}
+
+// stars, against astropy (space motion, then its true equator and equinox
+// of the date): apparent right ascension and declination of the catalog
+// stars (catalog.js), to 0.4″; Barnard's Star and Proxima for the proper
+// motion and parallax: [star, Unix time, ra, dec]
+const { STARS } = await import(new URL("js/catalog.js", root));
+for (const [name, t, ra, dec] of [
+  ["Sirius", -2208988800, 100.195566, -16.57974], ["Polaris", -2208988800, 20.753661, 88.78109], ["Barnard's Star", -2208988800, 268.236809, 4.393341],
+  ["Proxima Centauri", -2208988800, 215.740382, -62.250909], ["Vega", -2208988800, 278.383774, 38.690976], ["Sirius", 1793620800, 101.587533, -16.74998],
+  ["Polaris", 1793620800, 47.241025, 89.376512], ["Barnard's Star", 1793620800, 269.777615, 4.744514], ["Proxima Centauri", 1793620800, 217.876449, -62.792692],
+  ["Vega", 1793620800, 279.459154, 38.812306], ["Sirius", 4115491200, 102.388616, -16.864161], ["Polaris", 4115491200, 88.070463, 89.543416],
+  ["Barnard's Star", 4115491200, 270.676173, 4.956451], ["Proxima Centauri", 4115491200, 219.168957, -63.102133], ["Vega", 4115491200, 280.091876, 38.881059]]) {
+  const s = STARS.find((x) => x[0] === name), r = Math.PI / 180;
+  const p = A.equatorial({ ra: s[1], dec: s[2], pmra: s[3], pmdec: s[4], plx: s[5], rv: s[6] }, t);
+  const c = Math.sin(dec * r) * Math.sin(p.dec * r) + Math.cos(dec * r) * Math.cos(p.dec * r) * Math.cos((ra - p.ra) * r);
+  const sep = Math.acos(Math.min(1, c)) / r * 3600;
+  if (!(sep <= 0.4)) fail(`${name} at ${new Date(t * 1000).toISOString().slice(0, 10)}: ${sep.toFixed(2)}″ from astropy`);
+}
+
+// the height of a place: the Moon from Milan at 3000 m against sea level,
+// 2026.11.01 12:00 UT, 1.6611″ lower (astropy)
+{
+  const t = Date.UTC(2026, 10, 1, 12) / 1000;
+  const d = (A.horizontal("moon", t, [45.46, 9.19, 3000]).alt - A.horizontal("moon", t, [45.46, 9.19]).alt) * 3600;
+  if (!(Math.abs(d + 1.6611) <= 0.001)) fail(`the Moon from 3000 m: ${d.toFixed(4)}″, not −1.6611″`);
+}
+
+// stars and places by name, and names to look up
+for (const [src, text] of [['place("Milan")', "(45.464[deg], 9.19[deg], 122[m])"], ['mag("Vega")', "0.030±0.010"], ['radec("M31").2', "41.269060(56)[deg]"]]) {
+  const r = calc.run(src);
+  const show = (q) => (Array.isArray(q) ? `(${q.map(show).join(", ")})` : calc.env.format(q));
+  const got = r.kind === "value" ? show(r.q) : r.message;
+  if (got !== text) fail(`${src} gives ${got}, not ${text}`);
+}
+for (const [src, kind] of [['place("Nowhere at all")', "place"], ['radec("HD 12345")', "object"]]) {
+  if (calc.run(src).lookup?.kind !== kind) fail(`${src} should ask to look up a ${kind}`);
 }
 
 // brightness and aspect, against Horizons (Mallama and Hilton, 2018):
