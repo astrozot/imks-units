@@ -98,7 +98,7 @@ async function osmMap(el, m, key) {
     line([...m.rise.begin, ...m.rise.end], { color: C.rise, weight: 1, opacity: 0.6, dashArray: "1 4" });
     line(m.rise.max, { color: C.rise, weight: 1.5, dashArray: "2 4" });
   }
-  for (const b of m.band || []) if (Array.isArray(b[0])) L.polygon(unwrap(b), { color: C.band, weight: 1, fillColor: C.band, fillOpacity: 0.45, interactive: false }).addTo(map);
+  for (const b of m.band || []) if (Array.isArray(b?.[0])) L.polygon(unwrap(b), { color: C.band, weight: 1, fillColor: C.band, fillOpacity: 0.45, interactive: false }).addTo(map);
   line(m.center, { color: C.center, weight: 1.5 });
   // the times on the central line, every half hour
   for (const seg of m.center) {
@@ -114,7 +114,7 @@ async function osmMap(el, m, key) {
   if (m.place) L.circleMarker(m.place, { radius: 6, color: C.place, weight: 3, fillColor: "#ffffff", fillOpacity: 1 }).bindTooltip("Place").addTo(map);
   // the whole eclipse in view
   // (within 80° of latitude: the map has no tiles near the poles)
-  const all = [...(m.penN || []), ...(m.penS || []), ...(m.band || []).filter((b) => Array.isArray(b[0])), ...(m.outline || [])].flatMap(unwrap)
+  const all = [...(m.penN || []), ...(m.penS || []), ...(m.band || []).filter((b) => Array.isArray(b?.[0])), ...(m.outline || [])].flatMap(unwrap)
     .map(([lat, lon]) => [Math.max(-80, Math.min(80, lat)), lon]);
   if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [10, 10] });
   else map.setView(m.greatest || [0, 0], 2);

@@ -160,7 +160,7 @@ function mapSVG(m, W, H, view, place = null) {
     const r = Math.hypot(x - cx, y - cy) || 1;
     return [cx + ((x - cx) * R) / r, cy + ((y - cy) * R) / r];
   };
-  const bands = (m.band || []).filter((b) => Array.isArray(b[0]) && b.some((p) => P(p)[2]));
+  const bands = (m.band || []).filter((b) => Array.isArray(b?.[0]) && b.some((p) => P(p)[2]));
   if (bands.length) svg += `<path class="map-path" d="${bands.map((b) => closedPath(b.map(edgeP))).join("")}"/>`;
   svg += `<path class="map-center" d="${linesPath(m.center, P, true)}"/>`;
   // the hours (UTC) when the partial eclipse begins and ends, labeled at

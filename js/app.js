@@ -1088,9 +1088,23 @@ function renderHistory() {
   hint.className = "hist-hint";
   hint.textContent = "Tap an expression to reuse it, a result to insert it as ans_n";
   frag.appendChild(hint);
-  state.history.forEach((e, i) => frag.appendChild(renderEntry(e, i)));
+  state.history.forEach((e, i) => frag.appendChild(safeEntry(e, i)));
   historyEl.appendChild(frag);
   scrollHistory();
+}
+
+// An entry saved by an older version, whose drawing this one cannot read:
+// shown without the drawing, so that it does not stop the rest of the app
+function safeEntry(e, i) {
+  try {
+    return renderEntry(e, i);
+  } catch (err) {
+    console.warn("History entry without its drawing:", err);
+    delete e.sky;
+    delete e.map;
+    delete e.lunar;
+    return renderEntry(e, i);
+  }
 }
 
 function appendEntry(e) {
