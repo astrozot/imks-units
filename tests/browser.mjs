@@ -135,6 +135,8 @@ try {
   await (await (await lastEntry()).$(".map-svg")).click();
   await page.waitForTimeout(300);
   check(Boolean(await page.$(".map-full .map-coast")), "solareclipse: the zoom view of the map");
+  // the globe or online maps (not loaded here)
+  check(await page.$$eval(".map-select option", (o) => o.length) === 5, "solareclipse: the choice of maps");
   await page.keyboard.press("Escape");
   await clear();
 
@@ -194,7 +196,8 @@ try {
   // the delete key removes whole names, exponents and keys' text
   const del = () => page.click('.page.active [data-key="backspace"]');
   for (const [typed, want] of [["5 @ hebrew", "5 @ "], ["5 @ dow", "5 @ "], ["5 @ hms", "5 @ "], ["5 @ km/h", "5 @ km"],
-    ["2 + now", "2 +"], ["today", ""], ["x^2", "x"], ["x^-1", "x"], ["y = ", "y"], ["(1, ", "(1"], ["2 ln(2)", "2 "], ["age(0)", ""]]) {
+    ["2 + now", "2 +"], ["today", ""], ["x^2", "x"], ["x^-1", "x"], ["y = ", "y"], ["(1, ", "(1"], ["2 ln(2)", "2 "], ["age(0)", ""],
+    ['moons("Jupiter"', "moons("], ['moons("Jupiter", "Io"', 'moons("Jupiter", '], ['x = "ab', 'x = "a']]) {
     await clear();
     await page.keyboard.type(typed);
     await del();

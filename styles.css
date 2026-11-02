@@ -364,6 +364,11 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .lunar-moon.max { fill-opacity: 0.85; }
 .lunar-moon.down { stroke-dasharray: 2 2; stroke-opacity: 0.6; }
 .map-svg { display: block; width: 100%; max-width: 420px; margin: 0 auto 4px; cursor: zoom-in; }
+.map-views { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; color: var(--muted); }
+.map-select { font: inherit; font-size: 15px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
+.osm-map { width: 100%; border-radius: 10px; overflow: hidden; touch-action: none; }
+.osm-label span { font: 10px var(--mono); white-space: nowrap; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff; }
+.osm-map.dark .osm-label span { text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
 .map-svg.map-full { max-width: none; cursor: grab; touch-action: none; }
 .map-bg { fill: #0b0f1a; }
 .map-sea { fill: #13314f; }

@@ -67,7 +67,11 @@ function hitGlobe(o, d, f) {
 // (x0, y0) (the top left corner, planet radii) over w × h pixels of scale s
 // (pixels per radius)
 function planetPixels(ctx, sky, x0, y0, w, h, s) {
-  const { planet, pole, sun, moons } = sky, f = FLAT[planet] || 0;
+  const { planet, moons } = sky, f = FLAT[planet] || 0;
+  // the pole and the Sun made unit vectors again: rounded to 1e-5 in the
+  // view, their lengths off by 1e-5 would shift a moon's shadow, 15 radii
+  // away, by as much as its size
+  const unit = (v) => v.map((x) => x / Math.hypot(...v)), pole = unit(sky.pole), sun = unit(sky.sun);
   const [e1, e2, p] = axes(pole);
   const toP = (v) => [dot(v, e1), dot(v, e2), dot(v, p)];
   // the Earth's direction and the Sun's, on the planet's axes

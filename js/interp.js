@@ -228,7 +228,7 @@ function tokenize(src) {
     if (c === '"' || c === "'") {
       const j = src.indexOf(c, i + 1);
       if (j < 0) throw new CalcError("Unterminated string");
-      toks.push({ t: "str", v: src.slice(i + 1, j), pos: i });
+      toks.push({ t: "str", v: src.slice(i + 1, j), q: c, pos: i });
       i = j + 1;
       continue;
     }
@@ -323,7 +323,7 @@ function parse(src, env) {
       case "id":
         return { t: "name", v: k.v };
       case "str":
-        return { t: "str", v: k.v };
+        return { t: "str", v: k.v, q: k.q };
       case "(": {
         const items = [expr()];
         while (at(",")) { next(); items.push(expr()); }
