@@ -371,7 +371,8 @@ function parse(src, env) {
         if (k && k.index && !minus) i = { t: "num", x: k.x };
         else if (k && k.t === "id") i = { t: "name", v: k.v };
         else if (k && k.t === "(") { pos--; i = primary(false, true); }
-        else throw new CalcError("After the dot, the number of an element: v.2, v.n or v.(n+1)");
+        else if (k && k.t === "str" && !minus) i = { t: "str", v: k.v, q: k.q };
+        else throw new CalcError("After the dot, the number of an element: v.2, v.n or v.(n+1), or the name of a row: v.\"full moon\"");
         node = { t: "index", a: node, i: minus ? { t: "un", op: "-", a: i } : i };
       } else break;
     }
@@ -526,6 +527,9 @@ const functionDocs = {
   firstquarter: "The next first quarter of the Moon after t",
   fullmoon: "The next full moon after t",
   lastquarter: "The next last quarter of the Moon after t",
+  sunday: "The day of the Sun at a place from t, as a table: civil dawn, sunrise, noon, sunset, civil dusk and the length of the day: sunday(t, (latitude, longitude)); one of them by name, sunday(today).\"sunset\"",
+  moonphases: "The next new moon, first quarter, full moon and last quarter after t, as a table in time order: moonphases(t); one of them by name, moonphases(today).\"full moon\"",
+  seasons: "The equinoxes and solstices of a year, as a table: seasons(2027); one of them by name, seasons(2027).\"June solstice\"",
   noon: "Solar noon, the Sun on the meridian, next after t: noon(t, (latitude, longitude))",
   equinox: "The equinoxes of a year, (March, September): equinox(2027); years −1000 to 3000, to a minute today, less precise far from it (ΔT)",
   solstice: "The solstices of a year, (June, December): solstice(2027); years −1000 to 3000, to a minute today, less precise far from it (ΔT)",
@@ -579,7 +583,7 @@ Object.assign(functionDocs, {
   sum: "Sum of a list, sum(list), or of an expression over whole numbers, sum(f(k), k, a, b); b can be inf",
   mean: "Mean of a list: mean(list)",
   len: "Number of values in a list: len(list)",
-  item: "An element of a list, from 1: item(list, n), also written list.n; n < 0 counts from the end",
+  item: "An element of a list, from 1: item(list, n), also written list.n; n < 0 counts from the end; a row of a table by its name: item(moonphases(today), \"full moon\"), also moonphases(today).\"full moon\"",
   dot: "Scalar product of two vectors: dot(a, b)",
   cross: "Vector product of two 3-vectors: cross(a, b)",
   norm: "Length of a vector: norm(v)",
@@ -602,7 +606,7 @@ const isCalculus = (node) => CALCULUS.has(node.f) &&
 const SENSOR_VARS = { here: "here", lat: "lat", lon: "lon", alt: "alt", speed: "speed", g_local: "g", accel: "accel", tilt: "tilt", heading: "heading", pitch: "pitch" };
 
 // functions that take a string argument
-const STRING_FNS = new Set(["japanese", "holiday", "ymd", ...BODY_FNS, ...SKY_FNS]);
+const STRING_FNS = new Set(["japanese", "holiday", "ymd", "item", ...BODY_FNS, ...SKY_FNS]);
 
 const LIST_FNS = new Set(["sum", "mean", "len", "item", "min", "max", "linspace", "logspace", "plot", "polyroots", "hypot", "dot", "cross", "norm", "angle", ...SKY_FNS, ...COORD_FNS]);
 
@@ -614,6 +618,34 @@ function element(env, v, i, name = "v.n") {
   const j = k < 0 ? v.length + k : k - 1;
   if (k === 0 || j < 0 || j >= v.length) throw new CalcError(`${name}: n is from 1 to ${v.length}, or from −1 to −${v.length} from the end`);
   return v[j];
+}
+
+// The row of a table by its name (v.rows, as "full moon" of
+// moonphases(t)): its value, or the values of its columns; or a column by
+// its head (v.heads). Names compare without case, and without a note in
+// parentheses ("maximum (Moon down)") if that leaves one
+function named(v, name, fn = "v.\"name\"") {
+  const norm = (s) => String(s).toLowerCase().replace(/\s+/g, " ").trim();
+  const bare = (s) => norm(s).replace(/\s*\([^)]*\)/g, "").trim();
+  const want = norm(name);
+  const pick = (labels) => {
+    if (!labels) return -1;
+    let k = labels.findIndex((l) => norm(l) === want);
+    if (k < 0) {
+      const ks = labels.map((l, j) => (bare(l) === want ? j : -1)).filter((j) => j >= 0);
+      if (ks.length === 1) k = ks[0];
+    }
+    return k;
+  };
+  if (!Array.isArray(v)) throw new CalcError(`${fn}: only tables have named rows`);
+  const cols = v.some(Array.isArray) ? v : [v];
+  const r = pick(v.rows);
+  if (r >= 0) return cols.length === 1 ? cols[0][r] : cols.map((c) => c[r]);
+  const h = pick(v.heads);
+  if (h >= 0 && cols.length > 1) return cols[h];
+  const names = [...(v.rows || []), ...(v.heads && cols.length > 1 ? v.heads : [])];
+  if (!names.length) throw new CalcError(`${fn}: this list has no named rows`);
+  throw new CalcError(`${fn}: no row "${name}"; the rows are ${names.map((n) => `"${n}"`).join(", ")}`);
 }
 
 // f applied elementwise where args are lists (several lists must have the
@@ -777,6 +809,7 @@ class Interpreter {
     };
     b.item = (v, i, ...rest) => {
       if (i === undefined || rest.length) throw new CalcError("Usage: item(list, n), as item((1, 2, 4), 2) = 2");
+      if (typeof i === "string") return named(v, i, "item");
       return broadcast((k) => element(env, v, k, "item"), [i]);
     };
     const count = (fn, n) => {
@@ -861,7 +894,14 @@ class Interpreter {
       throw new CalcError("Expected a quantity");
     };
     // a quantity, or a list of them (possibly nested)
-    const val = (v) => (Array.isArray(v) ? v.map(val) : asQ(v));
+    // (a table keeps the names of its rows and columns)
+    const val = (v) => {
+      if (!Array.isArray(v)) return asQ(v);
+      const l = v.map(val);
+      if (v.rows) l.rows = v.rows;
+      if (v.heads) l.heads = v.heads;
+      return l;
+    };
     switch (node.t) {
       case "num":
         return new Q(node.x);
@@ -934,6 +974,7 @@ class Interpreter {
         return broadcast(f, args.map(arg));
       }
       case "index":
+        if (node.i.t === "str") return named(ev(node.a), node.i.v);
         return broadcast((i) => element(env, ev(node.a), i), [val(ev(node.i))]);
       case "convert": {
         const spec = splitSpec(node.spec);

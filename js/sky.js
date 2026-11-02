@@ -13,7 +13,7 @@ import { orbitAge, satellitePasses, horizontal, equatorial, topocentric, eclipti
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
 // are not taken elementwise
-const SKY_FNS = ["place", "passes", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse"];
+const SKY_FNS = ["place", "passes", "sunday", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse"];
 // the coordinate functions, whose points are lists (lon, lat)
 const COORD_FNS = ["eq2hor", "hor2eq", "eq2ecl", "ecl2eq", "eq2gal", "gal2eq", "precess", "sep", "pa"];
 // the functions whose first argument is the name of a body (a star or
@@ -545,6 +545,41 @@ function skyBuiltins(env, b) {
     if (!(h instanceof Q) || !dimEq(h.d, env.unitValue("m").d) || !(h.x.n >= 0)) throw new UnitError("dip: the argument is a height, as in dip(100[m])");
     const f = (x) => 1.76 / 60 * RAD * Math.sqrt(Math.max(x, 0));
     return env.convert(new Q(h.x.map(f, (x) => (x > 0 ? f(x) / (2 * x) : 0))), ["arcmin"]);
+  };
+
+  // The day of the Sun at a place, from t: civil dawn, sunrise, noon,
+  // sunset, civil dusk and the length of the day, as a table (a row by
+  // name: sunday(today)."sunset"); the events that do not happen (polar
+  // day or night) are left out
+  b.sunday = (t, p) => {
+    const u = when("sunday", t), place = where("sunday", p);
+    const event = (rising, h0) => {
+      const e = riseSet("sun", u, place, rising, h0);
+      return e && e.t - u < 86400 + 3600 ? [e.t, Math.min(0.15 / e.rate, 3600)] : null;
+    };
+    const rise = event(true), set = event(false);
+    const rows = [["civil dawn", event(true, -6)], ["sunrise", rise], ["noon", [transit("sun", u, place[1]), 2]], ["sunset", set], ["civil dusk", event(false, -6)]]
+      .filter((r) => r[1] && r[1][0] !== null).sort((a, b) => a[1][0] - b[1][0]).map(([l, [x, e]]) => [l, at(x, e)]);
+    if (rise && set && set[0] > rise[0]) rows.push(["day length", env.convert(env.mul(new Q(UNum.uncertain(set[0] - rise[0], Math.hypot(rise[1], set[1]))), env.unitValue("s")), ["hms"])]);
+    return named("Sun", rows);
+  };
+  // the next new moon, first quarter, full moon and last quarter after t,
+  // in time order (moonphases(today)."full moon")
+  b.moonphases = (t) => {
+    const u = when("moonphases", t);
+    const rows = [["new moon", 0], ["first quarter", 90], ["full moon", 180], ["last quarter", 270]].map(([l, k]) => [l, nextPhase(u, k)])
+      .sort((a, b) => a[1] - b[1]).map(([l, x]) => [l, at(x, 60)]);
+    return named("Moon phases", rows);
+  };
+  // the equinoxes and solstices of a year (seasons(2027)."June solstice")
+  b.seasons = (y) => {
+    const year = yearArg(env, "seasons", y);
+    const rows = ["March equinox", "June solstice", "September equinox", "December solstice"].map((l, k) => {
+      const t = season(year, k);
+      if (t === null) throw new UnitError("seasons: the years from −1000 to 3000");
+      return [l, at(t, Math.hypot(60, 0.8 * ((year - 2000) / 100) ** 2))];
+    });
+    return named(String(year), rows);
   };
 
   // solar noon: the Sun on the meridian, to a few seconds

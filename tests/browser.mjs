@@ -77,8 +77,8 @@ try {
   check(await page.$eval('[data-cat][aria-selected="true"]', (b) => b.textContent) === "Dates", "@ after a date opens Units → Dates");
   await clear();
 
-  // now and today on the Sky keys, as names
-  await fn("Sky");
+  // now and today on the Calendars keys, as names
+  await fn("Calendars");
   await page.click('#fn-grid [data-key="now"]');
   await page.keyboard.type(" - ");
   await page.click('#fn-grid [data-key="n:today"]');
@@ -86,13 +86,43 @@ try {
   expect(await run(" @ h"), /^\d+(\.\d+)?\s*h$/, "now - today");
   await clear();
 
-  // a body and a function from the Planets keys
+  // a function from the Planets keys, then its arguments from their pages:
+  // a body, a date (typed), and a place left to the settings
   await fn("Planets");
   await page.click('#fn-grid [data-key="f:mag("]');
-  await page.click('#fn-grid [data-key=\'"Saturn"\']');
-  await page.keyboard.type(", 2026.11.01)");
-  expect(await line(), 'mag("Saturn", 2026.11.01)', "the Planets keys");
+  await page.waitForTimeout(150);
+  check(Boolean(await page.$('#fn-grid [data-arg=\'"Saturn"\']')), "the page of bodies after mag(");
+  expect(await page.$eval('[data-fncat][aria-selected="true"]', (b) => b.textContent), "Planets", "Planets stays selected on a page of arguments");
+  await page.click('#fn-grid [data-arg=\'"Saturn"\']');
+  await page.waitForTimeout(150);
+  expect(await line(), 'mag("Saturn", ', "a body typed, and the next argument");
+  check(Boolean(await page.$('#fn-grid [data-arg="today"]')), "the page of dates");
+  await page.keyboard.type("2026.11.01)");
   expect(await run(""), /^0\.4\d+±0\.030$/, "mag of Saturn");
+  await clear();
+  // a moon, a date and a kind: the last closes the call
+  await page.click('#fn-grid [data-key="f:moonevents("]');
+  await page.waitForTimeout(150);
+  await page.click('#fn-grid [data-arg=\'"Io"\']');
+  await page.click('#fn-grid [data-arg="today"]');
+  await page.click('#fn-grid [data-arg=\'"eclipse"\']');
+  await page.waitForTimeout(150);
+  expect(await line(), 'moonevents("Io", today, "eclipse")', "a moon, a date and a kind from their pages");
+  check(Boolean(await page.$('#fn-grid [data-key="f:moonevents("]')), "back to Planets after the call");
+  await clear();
+  // a section tapped wins over the page of arguments; a number shows 123
+  await page.click('#fn-grid [data-key="f:diam("]');
+  await page.waitForTimeout(150);
+  check(await page.$eval('#fn-grid [data-key="pick:star"]', (b) => b.disabled), "no stars for diam");
+  await page.click('[data-fncat="Sky"]');
+  await page.waitForTimeout(150);
+  check(Boolean(await page.$('#fn-grid [data-key="f:seasons("]')), "a section over the page of arguments");
+  await clear();
+  await page.click('#fn-grid [data-key="f:seasons("]');
+  await page.waitForTimeout(150);
+  expect(await page.$eval('[data-tab][aria-selected="true"]', (b) => b.dataset.tab), "num", "a year shows the 123 keys");
+  await page.keyboard.type('2027)."June solstice"');
+  expect(await run(""), /^2027\.06\.21 16:1\d/, "a row by name");
   await clear();
 
   // the moons of Jupiter: a drawing with the planet, a table with names,
@@ -140,24 +170,18 @@ try {
   await page.keyboard.press("Escape");
   await clear();
 
-  // the Eclipses page of Sky, from its key and back
-  await fn("Sky");
-  await page.click('#fn-grid [data-key="fncat:Eclipses"]');
+  // the dates of other calendars, from their page
+  await fn("Calendars");
+  await page.click('#fn-grid [data-key="fncat:Calendar"]');
   await page.waitForTimeout(150);
-  check(Boolean(await page.$('#fn-grid [data-key="f:solareclipse("]')), "the Eclipses page");
-  check(!(await page.$('[data-fncat="Eclipses"]')), "the Eclipses page is not in the bar");
-  expect(await page.$eval('[data-fncat][aria-selected="true"]', (b) => b.textContent), "Sky", "Sky stays selected on its page");
-  check(!(await page.$$eval("#fn-grid .key b", (bs) => bs.some((b) => b.offsetHeight > 30))), "labels wrap in Eclipses");
-  // a moon from the list of moon…
-  await page.click('#fn-grid [data-key="pick:moon"]');
-  await page.waitForTimeout(200);
-  await page.click('[data-pick-insert=\'"Titan"\']');
+  check(!(await page.$('[data-fncat="Calendar"]')), "the Calendar page is not in the bar");
+  expect(await page.$eval('[data-fncat][aria-selected="true"]', (b) => b.textContent), "Calendars", "Calendars stays selected on its page");
+  await page.click('#fn-grid [data-key="f:japanese("]');
   await page.waitForTimeout(150);
-  expect(await line(), '"Titan"', "the list of moons types a name");
+  await page.click('#fn-grid [data-arg=\'"Reiwa"\']');
+  await page.keyboard.type("8, 10, 30)");
+  expect(await run(""), /^2026\.10\.30/, "japanese, the era from its page");
   await clear();
-  await page.click('#fn-grid [data-key="fncat:Sky"]');
-  await page.waitForTimeout(150);
-  check(Boolean(await page.$('#fn-grid [data-key="f:sunrise("]')), "back to Sky");
 
   // no key label wraps at 360 px
   for (const section of ["Calendars", "Sky", "Planets", "Coords", "Sensors", "Math"]) {

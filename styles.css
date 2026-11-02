@@ -1266,6 +1266,8 @@ math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
 /* Help */
 .help h3 { font-size: 16px; margin: 20px 0 6px; }
 .help .pick-search { margin: 6px 0 2px; }
+.fn-grid .arg-note { grid-column: 1 / -1; align-self: start; margin: 4px 2px 0; font-size: 13px; color: var(--muted); line-height: 1.35; }
+.fn-grid .arg-note b { color: var(--text); font-weight: 600; }
 .help p { font-size: 15px; line-height: 1.5; margin: 6px 0; }
 .help .ex { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .help .ex button {
