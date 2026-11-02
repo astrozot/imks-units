@@ -8,17 +8,17 @@ import { Q, UnitError, dimEq } from "./units.js";
 import { UNum, ufuncs, atan2 } from "./unum.js";
 import { isDate, dateQ, yearArg } from "./dates.js";
 import { findObject, findPlace } from "./lookup.js";
-import { horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season } from "./astro.js";
+import { orbitAge, satellitePasses, horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season } from "./astro.js";
 
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
 // are not taken elementwise
-const SKY_FNS = ["place", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse"];
+const SKY_FNS = ["place", "passes", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse"];
 // the coordinate functions, whose points are lists (lon, lat)
 const COORD_FNS = ["eq2hor", "hor2eq", "eq2ecl", "ecl2eq", "eq2gal", "gal2eq", "precess", "sep", "pa"];
 // the functions whose first argument is the name of a body (a star or
 // another object too, for most)
-const BODY_FNS = ["altaz", "radec", "ecl", "dist", "mag", "illum", "elong", "diam", "rising", "setting", "transit", "moons", "moonpos", "moonevents"];
+const BODY_FNS = ["passes", "altaz", "radec", "ecl", "dist", "mag", "illum", "elong", "diam", "rising", "setting", "transit", "moons", "moonpos", "moonevents"];
 const BODIES = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
 // the planets with moons in moons.js
 const MOON_PLANETS = ["mars", "jupiter", "saturn", "uranus", "neptune"];
@@ -37,10 +37,38 @@ const MAG_ERR = { sun: 0.01, moon: 0.1, mercury: 0.05, venus: 0.02, mars: 0.15, 
 // from the present (roughly). The Earth turns 15″ in a second, and the
 // Moon moves 0.55″ (the planets less than 0.04″).
 const utError = (t) => Math.hypot(0.9, 0.8 * ((t / 31557600 - 30) / 100) ** 2);
-// (stars and other objects: their catalog positions, to about 0.2″, and
-// the reduction to the date, 0.2″)
-const posError = (body, t) => Math.hypot(typeof body === "object" ? 0.3 : POS_ERR[body], (body === "moon" ? 0.55 : 0.04) * utError(t)) / 3600;
-const skyError = (body, t) => Math.hypot(posError(body, t), 15 * utError(t) / 3600);
+// Stars and other objects: their catalog positions, to about 0.2″, and the
+// reduction to the date, 0.2″. Minor planets and comets on a fixed orbit:
+// 5″, and 60″ (years from its epoch)², at 1 au (roughly, from Ceres, Vesta
+// and Eros against JPL Horizons), as a distance, seen from the Earth; near
+// the Earth (within 0.05 au) also its pull, not in the orbit, over the
+// months of the approach, about 10 GM/v² (Apophis in April 2029).
+// Satellites, seen at a distance dist (km): 1 km at the epoch of their
+// elements, and 2 km a day and 0.3 km a day² from it
+const SAT_KM = (days) => 1 + 2 * days + 0.3 * days * days;
+const AU_KM = 149597870.7;
+function orbitError(body, t) {
+  const v = (x) => {
+    const e = equatorial(body, x), a = e.ra * RAD, d = e.dec * RAD;
+    return [Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)].map((c) => c * e.dist);
+  };
+  const d = equatorial(body, t).dist;
+  let km = (5 + 60 * orbitAge(body, t) ** 2) / 206265 * AU_KM;
+  if (d < 0.05 * AU_KM) {
+    const a = v(t - 1800), b = v(t + 1800), speed = Math.hypot(...a.map((x, k) => x - b[k])) / 3600;
+    km = Math.hypot(km, 10 * 398600.4 / (speed * speed));
+  }
+  return km / d / RAD * 3600;
+}
+function posError(body, t, dist) {
+  let e = POS_ERR[body];
+  if (typeof body === "object") {
+    if (body.sgp4) return Math.min(SAT_KM(Math.abs(t - body.epoch) / 86400) / dist / RAD, 180);
+    e = body.orbits ? orbitError(body, t) : 0.3;
+  }
+  return Math.min(Math.hypot(e, (body === "moon" ? 0.55 : 0.04) * utError(t)) / 3600, 180);
+}
+const skyError = (body, t, dist) => Math.min(Math.hypot(posError(body, t, dist), 15 * utError(t) / 3600), 180);
 
 // what a moon is doing
 const doing = (o) => ["transit", "occulted", "eclipsed", "shadow"].filter((k) => o[k]);
@@ -148,18 +176,31 @@ function skyBuiltins(env, b) {
   const deg = (x, err) => env.convert(new Q(UNum.uncertain(x * RAD, err * RAD)), ["deg"]);
   const days = (x) => env.convert(env.mul(new Q(x), env.unitValue("day")), ["day"]);
 
-  // a body: "sun"… "neptune", or a star or another object (lookup.js); for
-  // the functions of the solar system only, its bodies
-  const bodyOf = (name, x, solar = false) => {
+  // a body: "sun"… "neptune", or a star, another object, a minor planet, a
+  // comet or a satellite (lookup.js), of the kinds allowed ("star", "orbit"
+  // for minor planets and comets, "satellite"); for the functions of the
+  // solar system only, its bodies
+  const KINDS_OF = { star: "stars", orbit: "minor planets and comets", satellite: "satellites" };
+  const kindOf = (body) => (body.sgp4 ? "satellite" : body.orbits ? "orbit" : "star");
+  const bodyOf = (name, x, kinds = ["star", "orbit", "satellite"]) => {
     const body = typeof x === "string" ? x.trim().toLowerCase() : "";
     if (BODIES.includes(body)) return body;
-    if (!body) throw new UnitError(`${name}: the first argument is a body, "Sun", "Moon", "Mercury"… "Neptune"${solar ? "" : ", or a star, as \"Vega\""}, as in ${name}("Mars", now)`);
-    if (solar) throw new UnitError(`${name}: the bodies are "Sun", "Moon", "Mercury"… "Neptune"`);
-    return findObject(env, x.trim());
+    if (!body) throw new UnitError(`${name}: the first argument is a body, "Sun", "Moon", "Mercury"… "Neptune"${kinds.length ? ', or a star, a minor planet, a comet or a satellite by name, as "Vega", "Ceres"' : ""}, as in ${name}("Mars", now)`);
+    if (!kinds.length) throw new UnitError(`${name}: the bodies are "Sun", "Moon", "Mercury"… "Neptune"`);
+    const o = findObject(env, x.trim());
+    if (!kinds.includes(kindOf(o))) throw new UnitError(`${name}: not for ${KINDS_OF[kindOf(o)]} (${o.name})`);
+    return o;
+  };
+  // a satellite whose elements no longer hold (decayed, or long before or
+  // after their epoch)
+  const held = (body, x) => {
+    if (Number.isNaN(x)) throw new UnitError(`${body.name}: its elements of ${new Date(body.epoch * 1000).toISOString().slice(0, 10)} do not hold at this date`);
   };
   const pre = '"Mars", ';
   const altaz = (body, x, p) => {
-    const h = horizontal(body, x, p), err = skyError(body, x);
+    const h = horizontal(body, x, p);
+    if (body.sgp4) held(body, h.alt);
+    const err = skyError(body, x, h.dist);
     return [deg(h.alt, err), deg(h.az, err)];
   };
   // apparent places, geocentric, or seen from a place: the place is
@@ -173,32 +214,44 @@ function skyBuiltins(env, b) {
   // radec("Vega") alone: the catalog position (ICRS, epoch J2000)
   b.radec = (x, t, p) => {
     const body = bodyOf("radec", x);
-    if (t === undefined && typeof body === "object") return [deg(body.ra, 0.2 / 3600), deg(body.dec, 0.2 / 3600)];
+    if (t === undefined && typeof body === "object" && kindOf(body) === "star") return [deg(body.ra, 0.2 / 3600), deg(body.dec, 0.2 / 3600)];
     const u = when("radec", t, pre);
-    const e = seen("radec", body, u, p), err = p === undefined ? posError(body, u) : skyError(body, u);
+    const e = seen("radec", body, u, p);
+    if (body.sgp4) held(body, e.dist);
+    const err = p === undefined ? posError(body, u, e.dist) : skyError(body, u, e.dist);
     return [deg(e.ra, Math.min(err / Math.cos(e.dec * RAD), 180)), deg(e.dec, err)];
   };
   b.ecl = (x, t) => {
-    const body = bodyOf("ecl", x), u = when("ecl", t, pre);
+    const body = bodyOf("ecl", x, ["star", "orbit"]), u = when("ecl", t, pre);
     const e = ecliptic(body, centuries(u)), err = posError(body, u);
     return [deg(e.lon, Math.min(err / Math.cos(e.lat * RAD), 180)), deg(e.lat, err)];
   };
-  // of a star, from its parallax (in parsecs; the parallax to 0.5 mas)
+  // of a star, from its parallax (in parsecs; the parallax to 0.5 mas); of
+  // a satellite in km
   b.dist = (x, t, p) => {
     const body = bodyOf("dist", x);
-    if (typeof body === "object") {
+    if (typeof body === "object" && kindOf(body) === "star") {
       if (!(body.plx > 0)) throw new UnitError(`dist: no parallax known for ${body.name}`);
       return env.convert(env.mul(new Q(UNum.uncertain(1000 / body.plx, 1000 / body.plx * 0.5 / body.plx)), env.unitValue("pc")), ["pc"]);
     }
     const u = when("dist", t, pre);
     const d = seen("dist", body, u, p).dist;
-    const q = env.mul(new Q(UNum.uncertain(d, d * (DIST_ERR[body] ?? 1e-5))), env.unitValue("km"));
+    if (body.sgp4) {
+      held(body, d);
+      return env.convert(env.mul(new Q(UNum.uncertain(d, SAT_KM(Math.abs(u - body.epoch) / 86400))), env.unitValue("km")), ["km"]);
+    }
+    // minor planets and comets: their position error along the line of sight
+    const rel = body.orbits ? posError(body, u) * RAD : DIST_ERR[body] ?? 1e-5;
+    const q = env.mul(new Q(UNum.uncertain(d, d * rel)), env.unitValue("km"));
     return env.convert(q, [body === "moon" ? "km" : "au"]);
   };
 
-  // of a star, its catalog V magnitude (no date needed)
+  // of a star, its catalog V magnitude (no date needed); minor planets
+  // from H and G (to 0.1 or so), comets from their total magnitude (often
+  // off by a magnitude or more)
   b.mag = (x, t) => {
-    const body = bodyOf("mag", x);
+    const body = bodyOf("mag", x, ["star", "orbit"]);
+    if (body.orbits) return new Q(UNum.uncertain(magnitude(body, when("mag", t, pre)), body.M1 !== undefined ? 1 : 0.1));
     if (typeof body === "object") {
       if (typeof body.mag !== "number") throw new UnitError(`mag: no magnitude known for ${body.name}`);
       return new Q(UNum.uncertain(body.mag, 0.01));
@@ -207,43 +260,71 @@ function skyBuiltins(env, b) {
   };
   // the illuminated fraction of the disk and the phase angle (Sun–body–Earth)
   b.illum = (x, t) => {
-    const body = bodyOf("illum", x, true), i = aspect(body, when("illum", t, pre)).phase;
+    const body = bodyOf("illum", x, ["orbit"]), i = aspect(body, when("illum", t, pre)).phase;
     const err = body === "moon" ? 0.003 : 0.001;
     return [new Q(UNum.uncertain((1 + Math.cos(i * RAD)) / 2, Math.sin(i * RAD) / 2 * err * RAD)), deg(i, err)];
   };
   // the angle from the Sun, positive to the east (an evening object)
   b.elong = (x, t) => {
-    const body = bodyOf("elong", x), u = when("elong", t, pre);
+    const body = bodyOf("elong", x, ["star", "orbit"]), u = when("elong", t, pre);
     return deg(aspect(body, u).elong, posError(body, u));
   };
   b.diam = (x, t, p) => {
-    const body = bodyOf("diam", x, true), u = when("diam", t, pre);
+    const body = bodyOf("diam", x, []), u = when("diam", t, pre);
     const d = diameter(body, u, p === undefined ? undefined : where("diam", p, pre));
     return env.convert(new Q(UNum.uncertain(d * RAD, d * RAD * 2e-4)), [body === "sun" || body === "moon" ? "arcmin" : "arcsec"]);
   };
   const Name = (body) => (typeof body === "object" ? body.name : body[0].toUpperCase() + body.slice(1));
   // rising and setting: refraction near the horizon varies by about 0.15°
+  // (satellites: also their position error over their speed)
   const riseOrSet = (name, body, t, p, h0, rising) => {
+    if (body.sgp4) held(body, horizontal(body, t, p).alt);
     const e = riseSet(body, t, p, rising, h0 === undefined ? null : env.checkPure(h0, name).n / RAD);
     if (!e) throw new UnitError(`${name}: ${body === "sun" || body === "moon" ? "the " : ""}${Name(body)} does not ${rising ? "rise" : "set"} here within two days`);
-    return dateQ(env, UNum.uncertain(e.t, Math.min(0.15 / e.rate, 3600)));
+    const err = body.sgp4 ? Math.hypot(0.15, posError(body, e.t, horizontal(body, e.t, p).dist)) : 0.15;
+    return dateQ(env, UNum.uncertain(e.t, Math.min(err / e.rate, 3600)));
   };
   for (const [name, rising] of [["rising", true], ["setting", false]]) {
     b[name] = (x, t, p, h0) => riseOrSet(name, bodyOf(name, x), when(name, t, pre), where(name, p, pre), h0, rising);
   }
   // on the meridian, to a few seconds
   b.transit = (x, t, p) => {
-    const body = bodyOf("transit", x);
+    const body = bodyOf("transit", x, ["star", "orbit"]);
     const e = transit(body, when("transit", t, pre), where("transit", p, pre)[1]);
     if (e === null) throw new UnitError(`transit: no transit of ${Name(body)} within two days`);
     return dateQ(env, UNum.uncertain(e, 2));
+  };
+
+  // The passes of a satellite over a place, for a day or the days given
+  // (up to 10): a table of its risings, highest points and settings, with
+  // the directions (and the altitude at the highest), and whether it can be
+  // seen (sunlit, in a dark sky)
+  const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+  const compass = (az) => COMPASS[Math.round(az / 22.5) % 16];
+  b.passes = (x, t, p, n) => {
+    const body = bodyOf("passes", x, ["satellite"]), u = when("passes", t, '"ISS", '), place = where("passes", p, '"ISS", ');
+    const days = n === undefined ? 1 : env.checkPure(n, "passes").n;
+    if (!(days > 0 && days <= 10)) throw new UnitError("passes: up to 10 days, as in passes(\"ISS\", today, place, 3)");
+    held(body, horizontal(body, u, place).alt);
+    const list = satellitePasses(body, u, place, days);
+    if (!list.length) throw new UnitError(`passes: ${body.name} does not pass over here within ${days === 1 ? "a day" : `${days} days`}`);
+    // rising and setting: the refraction and the position error over the
+    // speed; the highest point, flat, to a few seconds
+    const time = (e) => at(e.t, e.rate ? Math.min(Math.hypot(0.15, posError(body, e.t, horizontal(body, e.t, place).dist)) / e.rate, 3600) : 5);
+    const rows = list.flatMap((q, k) => {
+      const pre = list.length > 1 ? `${k + 1}. ` : "";
+      return [[`${pre}rises ${compass(q.rise.az)}`, time(q.rise)],
+        [`${pre}highest ${Math.round(q.max.alt)}° ${compass(q.max.az)}${q.visible ? " (visible)" : ""}`, time(q.max)],
+        [`${pre}sets ${compass(q.set.az)}`, time(q.set)]];
+    });
+    return named(body.name, rows);
   };
 
   // the moons of a planet, as a table of their offsets from it, to the
   // east and to the north; for the app, their names, what they are doing
   // and the planet (sky), to label the rows and draw them
   b.moons = (x, t) => {
-    const body = bodyOf("moons", x, true);
+    const body = bodyOf("moons", x, []);
     if (!MOON_PLANETS.includes(body)) throw new UnitError("moons: the planets with moons are Mars, Jupiter, Saturn, Uranus and Neptune");
     const u = when("moons", t, pre), m = moons(body, u);
     const sec = (d, e) => env.convert(new Q(UNum.uncertain(d * RAD, e * RAD)), ["arcsec"]);

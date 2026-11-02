@@ -16,6 +16,7 @@ import { osmMap, TILES } from "./osmmap.js";
 import { MOONS } from "./moons.js";
 import { findPlace, fetchObject, fetchPlace, fetchElevation } from "./lookup.js";
 import { STARS, DEEP, CITIES } from "./catalog.js";
+import { MINOR_PLANETS } from "./minorplanets.js";
 import { formatUNum, formatNumber, UNum, ufuncs, MC, newSourceId, rng, normInv, lhsUniform, mcConfigure, mcStats, formatAsym } from "./unum.js";
 
 const ARTIFACT = Boolean(window.IMKS_ARTIFACT);
@@ -1839,33 +1840,55 @@ function showError(message) {
 
 // A name not known (a star, an object or a place): look it up online, keep
 // it, and evaluate the line again if it is still the same
-let lookingUp = false;
-async function lookUp({ kind, name }, src) {
-  if (lookingUp) return;
-  if (navigator.onLine === false) { showError(`Offline: cannot look up "${name}"`); return; }
-  lookingUp = true;
+let lookingUp = null;
+async function lookUp({ kind, name, refresh }, src) {
+  if (lookingUp) { toast(`Still looking up “${lookingUp}”…`); return; }
+  // old elements of a satellite: offline, the ones kept
+  if (navigator.onLine === false) {
+    if (refresh) evaluate(false);
+    else showError(`Offline: cannot look up "${name}"`);
+    return;
+  }
+  lookingUp = name;
+  // the error of the preview, due after a pause, would cover the message
+  clearTimeout(previewTimer);
   previewEl.classList.remove("error");
-  previewEl.innerHTML = `<span class="muted">Looking up “${esc(name)}” online…</span>`;
+  previewEl.innerHTML = `<span class="muted">${refresh ? "Updating" : "Looking up"} “${esc(name)}” online…</span>`;
   try {
-    const [k, v] = await (kind === "object" ? fetchObject : fetchPlace)(name);
     const l = lookups();
-    l[kind === "object" ? "objects" : "places"][k] = v;
+    let v;
+    if (kind === "object") {
+      const found = await fetchObject(name);
+      for (const [k, o] of found) l.objects[k] = o;
+      v = found[0][1];
+    } else {
+      let k;
+      [k, v] = await fetchPlace(name);
+      l.places[k] = v;
+    }
     store.set("lookups", l);
-    toast(kind === "object" ? `Found ${v.name}` : `Found ${v.name}, ${Math.round(v.h)} m`, 4000);
+    toast(kind === "place" ? `Found ${v.name}, ${Math.round(v.h)} m` : `${refresh ? "Updated" : "Found"} ${v.name}`, 4000);
     if (state.text.trim() === src) evaluate();
   } catch (e) {
-    if (state.text.trim() === src) showError(e.message);
+    if (refresh) {
+      toast(`${e.message}; with the elements kept`);
+      if (state.text.trim() === src) evaluate(false);
+    } else if (state.text.trim() === src) showError(e.message);
     else toast(e.message);
   } finally {
-    lookingUp = false;
+    lookingUp = null;
   }
 }
 
-function evaluate() {
+// refresh: the elements of satellites a day old are fetched again
+// (lookup.js), only for a line typed
+function evaluate(refresh = true) {
   const src = state.text.trim();
   if (!src) return;
   const shadow = builtinTarget(src);
-  const r = state.calc.run(src);
+  state.calc.env.refresh = refresh;
+  let r;
+  try { r = state.calc.run(src); } finally { state.calc.env.refresh = false; }
   if (r.kind === "error") {
     if (r.lookup) { lookUp(r.lookup, src); return; }
     showError(r.message);
@@ -4644,33 +4667,40 @@ const FN_SECTIONS = [
     { fn: "moonrise", desc: "t, place" }, { fn: "moonset", desc: "t, place" }, { fn: "moon", desc: "Alt, az" }, { fn: "phase", desc: "Lit, age" },
     { fn: "newmoon", desc: "Next after t" }, { fn: "firstquarter", label: "1st quarter", desc: "Next after t" }, { fn: "fullmoon", desc: "Next after t" }, { fn: "lastquarter", label: "last quarter", desc: "Next after t" },
     { fn: "equinox", desc: "Year" }, { fn: "solstice", desc: "Year" }, { fn: "lst", desc: "Sidereal time" }, { fn: "date", desc: "y, m, d, h, min" },
-    { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "fncat:Eclipses", label: "Eclipses…", desc: "Moons, JD" },
+    { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon, h" }, { key: "fncat:Eclipses", label: "Eclipses…", desc: "Moons, JD" },
   ]],
   // a page of Sky (not in the bar of the sections): eclipses and moons
   ["Eclipses", 4, 4, [
     { fn: "lunareclipse", label: "lunar ecl.", desc: "t, place" }, { fn: "solareclipse", label: "solar ecl.", desc: "t, place" }, { fn: "moons", desc: "Planet, t" }, { fn: "moonevents", label: "events", desc: "Moon, t, kind" },
-    { fn: "moonpos", desc: "Moon, t" }, { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" },
+    { fn: "moonpos", desc: "Moon, t" }, { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon, h" },
     { key: '"Jupiter"', label: "Jupiter", desc: "♃" }, { key: '"Saturn"', label: "Saturn", desc: "♄" }, { key: "pick:moon", label: "moon…", desc: "Pick one" }, { key: "pick:event", label: "event…", desc: "Pick a kind" },
     { fn: "date", desc: "y, m, d, h, min" }, { key: "u:JD", label: "JD", desc: "Julian day" }, { key: "pick:planet", label: "planet…", desc: "Pick one" }, { key: "fncat:Sky", label: "◀ Sky", desc: "Back" },
   ], "Sky"],
   // the bodies insert their names, as altaz("Mars", now, here)
-  ["Planets", 5, 6, [
+  ["Planets", 5, 5, [
     { fn: "altaz", desc: "Alt, az" }, { fn: "radec", desc: "Ra, dec" }, { fn: "dist", desc: "From Earth" }, { fn: "mag", desc: "Magnitude" }, { fn: "moons", desc: "Sketch" },
     { fn: "illum", desc: "Lit, phase" }, { fn: "elong", desc: "From Sun" }, { fn: "diam", desc: "Diameter" }, { fn: "ecl", desc: "Lon, lat" }, { fn: "transit", desc: "Meridian" },
-    { fn: "rising", desc: "After t" }, { fn: "setting", desc: "After t" }, { key: "now", label: "now", desc: "Date, time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" },
+    { fn: "rising", desc: "After t" }, { fn: "setting", desc: "After t" }, { key: "now", label: "now", desc: "Date, time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon, h" },
     { key: '"Sun"', label: "Sun", desc: "☉" }, { key: '"Moon"', label: "Moon", desc: "☾" }, { key: '"Mercury"', label: "Mercury", desc: "☿" }, { key: '"Venus"', label: "Venus", desc: "♀" }, { key: '"Mars"', label: "Mars", desc: "♂" },
-    { key: '"Jupiter"', label: "Jupiter", desc: "♃" }, { key: '"Saturn"', label: "Saturn", desc: "♄" }, { key: '"Uranus"', label: "Uranus", desc: "♅" }, { key: '"Neptune"', label: "Neptune", desc: "♆" }, { fn: "date", desc: "y, m, d" },
-    { key: "pick:star", label: "star…", desc: "Pick one" }, { key: "pick:deep", label: "deep sky…", desc: "Messier…" }, { key: "pick:city", label: "place…", desc: "Pick one" }, { fn: "place", desc: "Lat, lon, h" }, { fn: "sep", desc: "Distance" },
+    { key: '"Jupiter"', label: "Jupiter", desc: "♃" }, { key: '"Saturn"', label: "Saturn", desc: "♄" }, { key: '"Uranus"', label: "Uranus", desc: "♅" }, { key: '"Neptune"', label: "Neptune", desc: "♆" }, { key: "fncat:Objects", label: "Objects…", desc: "Stars…" },
   ]],
-  ["Coords", 4, 5, [
+  // a page of Planets (not in the bar of the sections): stars, deep sky,
+  // minor planets, comets, satellites and places by name
+  ["Objects", 4, 5, [
+    { fn: "altaz", desc: "Alt, az" }, { fn: "radec", desc: "Ra, dec" }, { fn: "rising", desc: "After t" }, { fn: "setting", desc: "After t" },
+    { fn: "transit", desc: "Meridian" }, { fn: "mag", desc: "Magnitude" }, { fn: "dist", desc: "Distance" }, { fn: "passes", desc: "Satellite" },
+    { key: "pick:star", label: "star…", desc: "Pick one" }, { key: "pick:deep", label: "deep sky…", desc: "Messier…" }, { key: "pick:minor", label: "asteroid…", desc: "Minor planet" }, { key: "pick:comet", label: "comet…", desc: "Pick one" },
+    { key: "pick:satellite", label: "satellite…", desc: "Pick one" }, { key: "pick:city", label: "place…", desc: "Pick one" }, { fn: "place", desc: "Lat, lon, h" }, { key: "sensor:here", label: "here", desc: "Lat, lon, h" },
+    { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { fn: "date", desc: "y, m, d, h, min" }, { key: "fncat:Planets", label: "◀ Planets", desc: "Back" },
+  ], "Planets"],
+  ["Coords", 4, 4, [
     { fn: "eq2hor", desc: "→ alt, az" }, { fn: "hor2eq", desc: "→ ra, dec" }, { fn: "eq2ecl", desc: "→ ecliptic" }, { fn: "ecl2eq", desc: "→ ra, dec" },
     { fn: "eq2gal", desc: "→ galactic" }, { fn: "gal2eq", desc: "→ ra, dec" }, { fn: "precess", desc: "p, from, to" }, { fn: "refract", desc: "Altitude" },
     { fn: "sep", desc: "Distance" }, { fn: "pa", desc: "Position angle" }, { fn: "radec", desc: "Ra, dec" }, { key: "u:hourangle", label: "hourangle", desc: "15°" },
-    { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon" }, { fn: "date", desc: "y, m, d, h, min" },
-    { key: "pick:star", label: "star…", desc: "Pick one" }, { key: "pick:deep", label: "deep sky…", desc: "Messier…" }, { key: "pick:city", label: "place…", desc: "Pick one" }, { fn: "place", desc: "Lat, lon, h" },
+    { key: "now", label: "now", desc: "Date and time", it: true }, { key: "n:today", label: "today", desc: "Midnight" }, { key: "sensor:here", label: "here", desc: "Lat, lon, h" }, { fn: "date", desc: "y, m, d, h, min" },
   ]],
   ["Sensors", 4, 3, [
-    { key: "sensor:here", label: "here", desc: "Lat, lon" }, { key: "sensor:lat", label: "lat", desc: "Latitude" }, { key: "sensor:lon", label: "lon", desc: "Longitude" }, { key: "sensor:alt", label: "alt", desc: "Altitude" },
+    { key: "sensor:here", label: "here", desc: "Lat, lon, h" }, { key: "sensor:lat", label: "lat", desc: "Latitude" }, { key: "sensor:lon", label: "lon", desc: "Longitude" }, { key: "sensor:alt", label: "alt", desc: "Altitude" },
     { key: "sensor:g", label: "g", desc: "Gravity" }, { key: "sensor:accel", label: "accel", desc: "x, y, z" }, { key: "sensor:tilt", label: "tilt", desc: "From level" }, { key: "sensor:heading", label: "heading", desc: "Compass" },
     { key: "sensor:speed", label: "speed", desc: "GPS" }, { key: "sensor:pitch", label: "pitch", desc: "Sound (Hz)" },
   ]],
@@ -4734,10 +4764,15 @@ const USAGE = {
 
 const KEY_HELP = {
   "fncat:Eclipses": "Eclipses of the Sun and the Moon, the moons of the planets and their events, the Julian day",
+  "fncat:Objects": "Stars, deep-sky objects, minor planets, comets and artificial satellites by name, the passes of satellites, and places by name",
   "fncat:Sky": "Back to the Sky keys",
+  "fncat:Planets": "Back to the Planets keys",
   "pick:moon": "A list of the moons, grouped by planet: tap one to type its name",
   "pick:star": 'The stars named by the IAU, the brightest first, and those found online: tap one to type its name, as in rising("Sirius", today)',
   "pick:deep": 'The Messier objects and other named nebulae, clusters and galaxies: tap one to type its name, as in transit("M31", today)',
+  "pick:minor": 'The brighter minor planets, the dwarf planets and some visited ones, and those found online: tap one to type its name, as in mag("Vesta", now); others by name, number or designation are looked up online',
+  "pick:comet": 'The comets found before, and some famous ones: tap one to type its name, as in radec("12P", now); any comet is looked up online (Minor Planet Center)',
+  "pick:satellite": 'Satellites by name or NORAD number, their elements from CelesTrak (online, updated when a day old): tap one to type its name, as in passes("ISS", today)',
   "pick:city": 'The large cities, with their elevation, and the places found online: tap one to type its name, as in sunrise(today, "Rome")',
   "pick:event": 'A list of the kinds of events of moons (eclipse, occultation, transit, shadow) for moonevents("Io", t, "eclipse")',
   "pick:planet": "A list of the planets with moons: tap one to type its name",
@@ -4746,7 +4781,7 @@ const KEY_HELP = {
     [`"${b}"`, `${b}, the first argument of altaz, radec, dist, mag, illum, elong, diam, ecl, rising, setting, transit${["Sun", "Moon", "Mercury", "Venus"].includes(b) ? "" : " and moons"}, as in mag("${b}", now)`])),
   holidays: 'A holiday in a Gregorian year, holiday("Passover", 2027): tap to choose it from the list',
   'japanese("Reiwa", ': 'A date of the Japanese calendar: japanese("Reiwa", year, month, day); the eras are Meiji, Taisho, Showa, Heisei, Reiwa',
-  "sensor:here": "Your position as (latitude, longitude), with the error from the GPS accuracy; the variable here keeps it",
+  "sensor:here": "Your position as (latitude, longitude, altitude), the altitude when the device reports it (often above the WGS 84 ellipsoid, not sea level), with the errors from the GPS accuracy; the variable here keeps it",
   "sensor:lat": "Your latitude, with the error from the GPS accuracy",
   "sensor:lon": "Your longitude, with the error from the GPS accuracy",
   "sensor:alt": "Your altitude, as the device reports it (often above the WGS 84 ellipsoid, not sea level)",
@@ -5633,13 +5668,17 @@ function renderHolidays(root) {
 // Lists to pick a name from, opened by a key (pick:name): groups of
 // [inserted text, label, description]
 const magText = (m) => (typeof m === "number" ? `V ${String(m).replace("-", "−")}` : "");
+// the objects found online of a kind, once each (they are kept under
+// several keys)
+const found = (test) => [...new Set(Object.values(lookups().objects))].filter(test).filter((o, i, all) => all.findIndex((x) => x.name === o.name) === i);
+const COMETS = ["1P/Halley", "2P/Encke", "12P/Pons-Brooks", "13P/Olbers", "29P/Schwassmann-Wachmann", "46P/Wirtanen", "67P/Churyumov-Gerasimenko", "109P/Swift-Tuttle", "C/1995 O1 (Hale-Bopp)", "C/2023 A3 (Tsuchinshan-ATLAS)"];
 const PICK_LISTS = {
   star: () => ({
     title: "Stars", note: 'Tap a star to type its name, as in rising("Sirius", today). Any other name (Bayer, HD, HIP…) is looked up online.',
     groups: [
       ["Brightest", STARS.filter((x) => x[7] < 1.5).map((x) => [`"${x[0]}"`, x[0], magText(x[7])])],
       ["Bright", STARS.filter((x) => x[7] >= 1.5 && x[7] < 2.5).map((x) => [`"${x[0]}"`, x[0], magText(x[7])])],
-      ["Found online", Object.values(lookups().objects).map((o) => [`"${o.name.replace(/ \(.*$/, "")}"`, o.name, magText(o.mag)])],
+      ["Found online", found((o) => o.ra !== undefined).map((o) => [`"${o.name.replace(/ \(.*$/, "")}"`, o.name, magText(o.mag)])],
       ["Others named by the IAU", STARS.filter((x) => !(x[7] < 2.5)).sort((a, b) => a[0].localeCompare(b[0])).map((x) => [`"${x[0]}"`, x[0], magText(x[7])])],
     ],
     search: true,
@@ -5663,6 +5702,29 @@ const PICK_LISTS = {
       search: true,
     };
   },
+  minor: () => ({
+    title: "Minor planets", note: 'Tap one to type its name, as in mag("Vesta", now). Any other, by name, number or designation (2004 MN4), is looked up online.',
+    groups: [
+      ["Found online", found((o) => o.kind === "minor planet").map((o) => [JSON.stringify(o.name), o.name, `H ${o.H}`])],
+      ["Built in", MINOR_PLANETS.map(([n, name, H]) => [JSON.stringify(name || String(n)), name ? `${n} ${name}` : `(${n})`, `H ${H}`])],
+    ],
+    search: true,
+  }),
+  comet: () => ({
+    title: "Comets", note: 'Tap one to type its name, as in radec("12P", now). Any comet, by designation (C/2023 A3) or name, is looked up online (Minor Planet Center) and kept.',
+    groups: [
+      ["Found online", found((o) => o.kind === "comet").map((o) => [JSON.stringify(o.name.replace(/ \(.*$/, "")), o.name, ""])],
+      ["Famous", COMETS.map((c) => [JSON.stringify(c.replace(/ \(.*$/, "")), c, ""])],
+    ],
+    search: true,
+  }),
+  satellite: () => ({
+    title: "Satellites", note: 'Tap one to type its name, as in passes("ISS", today). Others by name (as CelesTrak has it) or as "NORAD 25544"; the elements come from CelesTrak and are updated when a day old. Only near-Earth orbits (periods under 225 minutes).',
+    groups: [
+      ["Found online", found((o) => o.kind === "satellite").map((o) => [`"NORAD ${o.omm.NORAD_CAT_ID}"`, o.name, `NORAD ${o.omm.NORAD_CAT_ID}`])],
+      ["Known names", [['"ISS"', "ISS", "Space station"], ['"Tiangong"', "Tiangong", "Chinese space station"], ['"Hubble"', "Hubble", "Space telescope"]]],
+    ],
+  }),
   moon: () => ({
     title: "Moons", note: 'Tap a moon to type its name, as in moonevents("Io", now).',
     groups: Object.entries(MOONS).map(([planet, { moons }]) => [planet[0].toUpperCase() + planet.slice(1), Object.keys(moons).map((m) => [`"${m}"`, m, ""])]),
@@ -5730,17 +5792,21 @@ function readSensor(name) {
 }
 
 // (9.8061±0.0012)[m/s^2], (45.4642(4), 9.1900(6))[deg]
+// with units per element, each with its own: (45.4642(4)[deg] @ deg,
+// 9.1900(6)[deg] @ deg, 120(5)[m])
 function readingText(r) {
   const xs = r.list.map(([v, s]) => (s > 0 ? formatUNum({ n: v, std: s }, 15, true) : String(Number(v.toPrecision(5)))));
+  const one = (x, u) => (x.includes("±") ? `(${x})[${u}]` : `${x}[${u}]`) + (r.units && u === "deg" ? " @ deg" : "");
+  if (r.units) return `(${xs.map((x, i) => one(x, r.units[i])).join(", ")})`;
   if (xs.length > 1) return `(${xs.join(", ")})[${r.unit}]`;
-  return xs[0].includes("±") ? `(${xs[0]})[${r.unit}]` : `${xs[0]}[${r.unit}]`;
+  return one(xs[0], r.unit);
 }
 
 // The sensor variables (here, tilt…) hold the last readings, shown in their
 // units (degrees for angles); kept as text, they come back after a reload,
 // so the history keeps its values
 function setReading(name, r) {
-  const text = `${readingText(r)} @ ${r.unit}`;
+  const text = r.units ? readingText(r) : `${readingText(r)} @ ${r.unit}`;
   try { state.calc.env.readings.set(name, state.calc.evalExpr(text)); } catch { return; }
   store.set("readings", { ...store.get("readings", {}), [name]: text });
 }
@@ -7051,10 +7117,10 @@ const HELP = [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
     ["ymd(today)", "year, month, day"], ["ymd(today).1", "the year"], ["ymd(today, \"hebrew\")", ""], ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
-  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), (latitude, longitude, height) or a name, as \"Milan\", or from the location set in Settings (its elevation, 0 if left out): sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100; tap the drawing to zoom and to see the moons move, faster or backward, and a moon, there or in the table, for its events. moonpos(“Io”, t) gives one moon's offsets, moonevents(“Io”, t) its next transit, shadow, eclipse and occultation (within 30 days), and moonevents(“Io”, t, “eclipse”) the beginning and end of the next eclipse. lunareclipse(t) gives the next lunar eclipse, its contacts and magnitudes; solareclipse(t) the next solar eclipse, its kind, greatest phase, gamma and magnitude, and solareclipse(t, place) the next one seen from a place, with its contacts to a few seconds and the sunrise or sunset during it; its map shows the path, the hours (UTC) when the partial eclipse begins and ends, and where the maximum is at sunrise or sunset; tap it to zoom, and to see it on OpenStreetMap, a topographic, dark or satellite map (online). lunareclipse(t, place) gives the next lunar eclipse seen from a place; its drawing shows the Moon's path through the Earth's penumbra and umbra, with the times (UTC) of the contacts (P1, U1… P4), dashed where the Moon is down. The Eclipses… key of the Sky keys opens these functions, the moons and the Julian day. Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). The height of a place moves the Moon by its parallax (0.5″ a kilometre) and makes the refraction at the horizon smaller, with the pressure of the standard atmosphere (34′ at sea level, 24′ at 3000 m): rising and setting a minute or so later; a sea horizon seen from above is lower by dip(h), as in sunrise(t, place, −50′ − dip(h)). The stars named by the IAU and the Messier and other named deep-sky objects are bodies too, by name: altaz(“Vega”, t, place), rising(“Sirius”, t, place), transit(“M31”, t, place), radec(“Vega”, t), apparent (proper motion, precession, nutation, aberration and parallax, to about 0.3″), radec(“Vega”) the catalog position (ICRS, J2000), mag(“Vega”) and dist(“Sirius”) from the parallax. place(“Milan”) gives (latitude, longitude, height); the large cities are built in. Other names, of objects (“NGC 7000”, “HD 12345”, “alf Cen”) or places (“Mount Etna”, an address), are looked up online when you press =: objects in SIMBAD, places in OpenStreetMap with their elevation from a terrain map; they are kept on the device, so the history computes offline. On the ƒ(x) page, the Planets keys hold the functions of the bodies and their names, star…, deep sky… and place… to pick one, the Coords keys the coordinates.", [
+  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), (latitude, longitude, height) or a name, as \"Milan\", or from the location set in Settings (its elevation, 0 if left out): sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100; tap the drawing to zoom and to see the moons move, faster or backward, and a moon, there or in the table, for its events. moonpos(“Io”, t) gives one moon's offsets, moonevents(“Io”, t) its next transit, shadow, eclipse and occultation (within 30 days), and moonevents(“Io”, t, “eclipse”) the beginning and end of the next eclipse. lunareclipse(t) gives the next lunar eclipse, its contacts and magnitudes; solareclipse(t) the next solar eclipse, its kind, greatest phase, gamma and magnitude, and solareclipse(t, place) the next one seen from a place, with its contacts to a few seconds and the sunrise or sunset during it; its map shows the path, the hours (UTC) when the partial eclipse begins and ends, and where the maximum is at sunrise or sunset; tap it to zoom, and to see it on OpenStreetMap, a topographic, dark or satellite map (online). lunareclipse(t, place) gives the next lunar eclipse seen from a place; its drawing shows the Moon's path through the Earth's penumbra and umbra, with the times (UTC) of the contacts (P1, U1… P4), dashed where the Moon is down. The Eclipses… key of the Sky keys opens these functions, the moons and the Julian day. Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). The height of a place moves the Moon by its parallax (0.5″ a kilometre) and makes the refraction at the horizon smaller, with the pressure of the standard atmosphere (34′ at sea level, 24′ at 3000 m): rising and setting a minute or so later; a sea horizon seen from above is lower by dip(h), as in sunrise(t, place, −50′ − dip(h)). The stars named by the IAU and the Messier and other named deep-sky objects are bodies too, by name: altaz(“Vega”, t, place), rising(“Sirius”, t, place), transit(“M31”, t, place), radec(“Vega”, t), apparent (proper motion, precession, nutation, aberration and parallax, to about 0.3″), radec(“Vega”) the catalog position (ICRS, J2000), mag(“Vega”) and dist(“Sirius”) from the parallax. place(“Milan”) gives (latitude, longitude, height); the large cities are built in. Other names, of objects (“NGC 7000”, “HD 12345”, “alf Cen”) or places (“Mount Etna”, an address), are looked up online when you press =: objects in SIMBAD, places in OpenStreetMap with their elevation from a terrain map; they are kept on the device, so the history computes offline. Minor planets and comets are bodies too: about 175 brighter minor planets, the dwarf planets and some visited ones are built in, with their orbits of each year from 2016 to 2040 (good to some arcseconds; further from those years, and near the Earth, the error grows, as shown); others, by name, number or designation (“2004 MN4”), and comets (“12P”, “C/2023 A3”, “Halley”), come from the Minor Planet Center. Artificial satellites in near-Earth orbits (“ISS”, “Hubble”, “Tiangong”, others by name or as “NORAD 25544”) come from CelesTrak, updated when a day old: altaz(“ISS”, now, here), rising and setting, and passes(“ISS”, today, here), the passes of a day (or up to 10), with directions and whether it can be seen. The here key gives (latitude, longitude, altitude) when the device reports the altitude. On the ƒ(x) page, the Planets keys hold the functions of the bodies and their names, Objects… the stars, deep-sky objects, minor planets, comets, satellites and places to pick, the Coords keys the coordinates.", [
     ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
     ["fullmoon(today)", ""], ["equinox(2027)", "(March, September)"], ["sunset(today, here) - sunrise(today, here) @ hms", "day length"], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
-    ["rising(\"Sirius\", today, \"Rome\")", ""], ["transit(\"M31\", today, \"Milan\")", "Andromeda galaxy"], ["altaz(\"Betelgeuse\", now, here)", ""], ["place(\"Denver\")", "with its elevation"], ["sunrise(today, (-16.5[deg], -68.15[deg], 3640[m]))", "La Paz"], ["dip(100[m])", "sea horizon"],
+    ["rising(\"Sirius\", today, \"Rome\")", ""], ["transit(\"M31\", today, \"Milan\")", "Andromeda galaxy"], ["altaz(\"Betelgeuse\", now, here)", ""], ["place(\"Denver\")", "with its elevation"], ["sunrise(today, (-16.5[deg], -68.15[deg], 3640[m]))", "La Paz"], ["dip(100[m])", "sea horizon"], ["mag(\"Vesta\", now)", ""], ["rising(\"Ceres\", today, \"Rome\")", ""], ["passes(\"ISS\", today, \"Rome\")", "online"],
     ["altaz(\"Jupiter\", now, here)", "(altitude, azimuth)"], ["radec(\"Mars\", now)", ""], ["dist(\"Mars\", now) / c @ min", "light time"], ["dist(\"Moon\", now)", ""], ["mag(\"Saturn\", now)", "with its rings"], ["illum(\"Venus\", now)", "(lit fraction, phase angle)"], ["elong(\"Mercury\", now)", "+ evening, − morning"], ["diam(\"Jupiter\", now)", ""], ["rising(\"Jupiter\", today, here)", ""], ["transit(\"Mars\", today, here)", ""], ["moons(\"Jupiter\", now)", "Galilean moons"], ["moons(\"Saturn\", now)", ""], ["lunareclipse(today)", ""], ["solareclipse(today)", ""], ["solareclipse(today, here)", "seen from here"],
     ["sep(radec(\"Moon\", now), radec(\"Jupiter\", now))", "Moon to Jupiter"], ["eq2hor((5h 35m 17s, -5.39[deg]), now, here)", "Orion nebula"], ["eq2gal((5h 35m 17s, -5.39[deg]))", ""], ["precess((5h 35m 17s, -5.39[deg]), 2000, today)", ""], ["refract(5[deg]) @ arcmin", ""],
   ]],

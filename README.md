@@ -44,6 +44,14 @@ files listed at the top of the tool. Other names are looked up online when
 asked for: objects in SIMBAD (CDS, through Sesame), places in OpenStreetMap
 (Nominatim, ODbL) with their elevation from Open-Meteo (Copernicus DEM).
 
+`js/minorplanets.js` holds the orbits of about 175 minor planets (the
+brighter ones, the dwarf planets, some visited or famous) on the first of
+January of each year from 2016 to 2040: `node tools/minorplanets.mjs <dir>`
+fetches them from the JPL Small-Body Database and Horizons into `<dir>`
+(once). Other minor planets and the comets come online from the Minor
+Planet Center, artificial satellites from CelesTrak, followed with SGP4
+(`js/sgp4.js`, near-Earth orbits only), checked against python-sgp4.
+
 `node tests/browser.mjs` checks the app in Chromium at phone size, with
 simulated sensors (position, motion, compass, microphone). It needs
 Playwright (`npm install playwright-core`, then `CHROME=/path/to/chrome`;

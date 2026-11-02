@@ -222,8 +222,15 @@ async function tone(ms = 1500) {
 
 // ---------------------------------------------------------------------
 
+// here: (latitude, longitude), and the altitude when the device reports
+// it, as (latitude, longitude, height) for the places of the sky functions
+function hereReading(c) {
+  if (c.altitude === null || c.altitude === undefined) return { list: latLon(c), unit: "deg" };
+  return { list: [...latLon(c), [c.altitude, (c.altitudeAccuracy || 0) / 1.96]], unit: "deg", units: ["deg", "deg", "m"] };
+}
+
 const SENSORS = {
-  here: { hint: "Locating…", read: async () => ({ list: latLon(await locate()), unit: "deg" }) },
+  here: { hint: "Locating…", read: async () => hereReading(await locate()) },
   lat: { hint: "Locating…", read: async () => ({ list: [latLon(await locate())[0]], unit: "deg" }) },
   lon: { hint: "Locating…", read: async () => ({ list: [latLon(await locate())[1]], unit: "deg" }) },
   alt: {
@@ -259,7 +266,7 @@ const SENSORS = {
 function fixReadings() {
   if (!lastFix) return {};
   const c = lastFix.c, [lat, lon] = latLon(c);
-  const r = { here: { list: [lat, lon], unit: "deg" }, lat: { list: [lat], unit: "deg" }, lon: { list: [lon], unit: "deg" } };
+  const r = { here: hereReading(c), lat: { list: [lat], unit: "deg" }, lon: { list: [lon], unit: "deg" } };
   if (c.altitude !== null) r.alt = { list: [[c.altitude, (c.altitudeAccuracy || 0) / 1.96]], unit: "m" };
   return r;
 }

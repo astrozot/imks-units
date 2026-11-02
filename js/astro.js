@@ -5,13 +5,19 @@
 // [latitude, longitude] in degrees, east positive, or [latitude,
 // longitude, height] with the height above sea level in metres. The bodies
 // are "sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn",
-// "uranus" and "neptune", or a star or other object outside the solar
+// "uranus" and "neptune"; a star or other object outside the solar
 // system, as { ra, dec, pmra, pmdec, plx, rv } (ICRS, epoch J2000: degrees,
-// mas/yr with μα cos δ, mas, km/s).
+// mas/yr with μα cos δ, mas, km/s); a minor planet or a comet, as { orbit:
+// { q, e, i, node, peri, tp } } (heliocentric, ecliptic and equinox of
+// J2000: au, degrees, the time of perihelion as a Julian day of TT) or as
+// { orbits: [[epoch (Julian day), q, e, i, node, peri, tp]…] }, the
+// elements of the epoch nearest to the date; or an artificial satellite,
+// as { sgp4, epoch } (sgp4.js, the epoch in Unix seconds).
 
 import { VSOP87 } from "./vsop87.js";
 import { MOONS } from "./moons.js";
 import { MOON } from "./moonseries.js";
+import { sgp4 } from "./sgp4.js";
 
 const RAD = Math.PI / 180;
 const sin = (x) => Math.sin(x * RAD), cos = (x) => Math.cos(x * RAD);
@@ -221,6 +227,79 @@ function starEcliptic(s, T) {
   return { lon: mod360(lon + nutation(T).dpsi), lat, dist: d ? r * AU : 1e18 };
 }
 
+// The root of f(x) = M, f growing on [−b, b] (Kepler's equation): Newton's
+// method, kept within the bracket (near-parabolic orbits), starting from
+// the cube root that holds near 0 for e near 1
+function kepler(f, df, M, b) {
+  let lo = -b, hi = b, x = Math.max(lo, Math.min(hi, Math.sign(M) * Math.min(Math.abs(M), Math.cbrt(6 * Math.abs(M)))));
+  for (let k = 0; k < 100; k++) {
+    const v = f(x) - M;
+    if (v > 0) hi = x; else lo = x;
+    let next = x - v / df(x);
+    if (!(next > lo && next < hi)) next = (lo + hi) / 2;
+    const done = Math.abs(next - x) <= 1e-15 * Math.max(1, Math.abs(x));
+    x = next;
+    if (done) break;
+  }
+  return x;
+}
+
+// Minor planets and comets: the heliocentric position (au, ecliptic and
+// equinox of J2000) on a fixed orbit (two bodies), at the Julian day jd of
+// TT; elliptic, parabolic or hyperbolic
+const GAUSS = 0.01720209895;
+function orbitPosition(o, jd) {
+  const { q, e } = o, dt = jd - o.tp;
+  let x, y;
+  if (Math.abs(e - 1) < 1e-6) {
+    // Barker's equation
+    const W = 3 * GAUSS / Math.SQRT2 / q ** 1.5 * dt;
+    const Y = Math.cbrt(W / 2 + Math.sqrt(W * W / 4 + 1)), s = Y - 1 / Y;
+    x = q * (1 - s * s);
+    y = 2 * q * s;
+  } else {
+    const a = q / Math.abs(1 - e), M = GAUSS / a ** 1.5 * dt;
+    if (e < 1) {
+      const E = kepler((E) => E - e * Math.sin(E), (E) => 1 - e * Math.cos(E), M - 2 * Math.PI * Math.round(M / (2 * Math.PI)), Math.PI);
+      x = a * (Math.cos(E) - e);
+      y = a * Math.sqrt(1 - e * e) * Math.sin(E);
+    } else {
+      const H = kepler((H) => e * Math.sinh(H) - H, (H) => e * Math.cosh(H) - 1, M, Math.asinh(Math.abs(M) / e) + 1);
+      x = a * (e - Math.cosh(H));
+      y = a * Math.sqrt(e * e - 1) * Math.sinh(H);
+    }
+  }
+  // from the plane of the orbit to the ecliptic
+  const cw = cos(o.peri), sw = sin(o.peri), cn = cos(o.node), sn = sin(o.node), ci = cos(o.i), si = sin(o.i);
+  const xp = x * cw - y * sw, yp = x * sw + y * cw;
+  return [xp * cn - yp * ci * sn, xp * sn + yp * ci * cn, yp * si];
+}
+
+// from the ecliptic of J2000 to the ecliptic of the date
+function eclipticOfDate([x, y, z], T) {
+  const e0 = 23.4392911;
+  const v = precessVector([x, y * cos(e0) - z * sin(e0), y * sin(e0) + z * cos(e0)], T);
+  const eps = nutation(T).eps0;
+  return [v[0], v[1] * cos(eps) + v[2] * sin(eps), -v[1] * sin(eps) + v[2] * cos(eps)];
+}
+
+// The apparent ecliptic longitude and latitude (degrees) and distance (km)
+// of a minor planet or a comet, as for the planets: light time, aberration,
+// nutation
+function orbitEcliptic(o, T) {
+  const [E, V] = heliocentric("earth", T, true);
+  const jd = 2451545 + T * 36525;
+  let g, tau = 0;
+  for (let k = 0; k < 3; k++) {
+    const P = eclipticOfDate(orbitPosition(o, jd - tau), T);
+    g = P.map((x, i) => x - E[i]);
+    tau = Math.hypot(...g) / C_AU;
+  }
+  const dist = Math.hypot(...g), a = g.map((x, k) => x + dist * V[k] / C_AU);
+  const lon = Math.atan2(a[1], a[0]) / RAD, lat = Math.atan2(a[2], Math.hypot(a[0], a[1])) / RAD;
+  return { lon: mod360(lon + nutation(T).dpsi), lat, dist: dist * AU };
+}
+
 // ---------------------------------------------------------------------
 // Coordinates
 
@@ -232,12 +311,37 @@ function gmst(t) {
 
 // Apparent geocentric ecliptic longitude and latitude (degrees) and
 // distance (km) of a body
-const ecliptic = (body, T) => (typeof body === "object" ? starEcliptic(body, T) : body === "moon" ? moonEcliptic(T) : planetEcliptic(body, T));
+const ecliptic = (body, T) => (typeof body === "object" ? (body.orbits || body.orbit ? orbitEcliptic(orbitOf(body, T), T) : starEcliptic(body, T))
+  : body === "moon" ? moonEcliptic(T) : planetEcliptic(body, T));
+
+// the orbit of a minor planet or comet at T: of the epoch nearest to it
+function orbitOf(body, T) {
+  if (body.orbit) return body.orbit;
+  const jd = 2451545 + T * 36525;
+  let best = body.orbits[0];
+  for (const o of body.orbits) if (Math.abs(o[0] - jd) < Math.abs(best[0] - jd)) best = o;
+  const [, q, e, i, node, peri, tp] = best;
+  return { q, e, i, node, peri, tp };
+}
+// the years from the date to the nearest epoch of the orbits
+const orbitAge = (body, t) => Math.min(...body.orbits.map((o) => Math.abs(o[0] - jdOf(t)))) / 365.25;
+
+// An artificial satellite: its geocentric position (TEME, km) at the time
+// t, or null when SGP4 no longer holds
+const satellitePosition = (body, t) => sgp4(body.sgp4, (t - body.epoch) / 60);
 
 // Right ascension and declination (degrees) of a body, its distance (km):
 // apparent, geocentric
 function equatorial(body, t) {
   const T = centuries(t);
+  if (body.sgp4) {
+    // TEME: the true equator, from the mean equinox (the equation of the
+    // equinoxes); NaN once SGP4 fails
+    const p = satellitePosition(body, t);
+    if (!p) return { ra: NaN, dec: NaN, dist: NaN };
+    const n = nutation(T);
+    return { ra: mod360(Math.atan2(p[1], p[0]) / RAD + n.dpsi * cos(n.eps)), dec: Math.atan2(p[2], Math.hypot(p[0], p[1])) / RAD, dist: Math.hypot(...p) };
+  }
   const p = ecliptic(body, T);
   const eps = nutation(T).eps;
   return {
@@ -312,10 +416,51 @@ function riseSet(body, t, place, rising, h0 = null) {
   const f = body === "moon"
     ? (x) => { const h = horizontal("moon", x, place); return h.alt + r + Math.asin(RADIUS.moon / h.dist) / RAD; }
     : (x) => horizontal(body, x, place).alt - (h0 ?? (body === "sun" ? -0.2666 - r : -r));
-  const e = crossing(f, t, rising);
+  // satellites pass in minutes: steps of 20 s
+  const e = body.sgp4 ? crossing(f, t, rising, 2 * 86400, 20) : crossing(f, t, rising);
   if (e === null) return null;
   // how fast the altitude changes, for the uncertainty
   return { t: e, rate: Math.abs(f(e + 30) - f(e - 30)) / 60 };
+}
+
+// The passes of a satellite over a place from t, for the days given: its
+// rising, highest point and setting (time, altitude, azimuth), and whether
+// it can be seen, sunlit (outside the Earth's shadow, taken as a cylinder)
+// with the Sun 6° or more below the horizon. A pass under way at t counts
+function satellitePasses(body, t, place, days) {
+  const passes = [], end = t + days * 86400;
+  const alt = (x) => horizontal(body, x, place).alt, r = horizonRefraction(place[2]);
+  let x = t;
+  // under way: from its rising, up to 20 minutes before
+  if (alt(t) > -r) {
+    const back = crossing((y) => alt(t - y) + r, 0, false, 1200, 10);
+    x = back === null ? t : t - back - 1;
+  }
+  while (x < end && passes.length < 30) {
+    const rise = riseSet(body, x, place, true);
+    if (!rise || rise.t > end) break;
+    const set = riseSet(body, rise.t + 1, place, false);
+    if (!set) break;
+    // the highest point, by golden sections
+    let a = rise.t, b = set.t;
+    for (let k = 0; k < 40; k++) {
+      const m1 = b - 0.618 * (b - a), m2 = a + 0.618 * (b - a);
+      if (alt(m1) < alt(m2)) a = m1; else b = m2;
+    }
+    const top = (a + b) / 2;
+    let visible = false;
+    for (let y = rise.t; y <= set.t && !visible; y += 10) {
+      const p = satellitePosition(body, y), sun = equatorial("sun", y);
+      const sv = [cos(sun.dec) * cos(sun.ra), cos(sun.dec) * sin(sun.ra), sin(sun.dec)];
+      const along = p[0] * sv[0] + p[1] * sv[1] + p[2] * sv[2];
+      const lit = along > 0 || Math.hypot(...p.map((v, k) => v - along * sv[k])) > 6378.137;
+      visible = lit && horizontal("sun", y, place).alt < -6;
+    }
+    const at = (y) => { const h = horizontal(body, y, place); return { t: y, alt: h.alt, az: h.az }; };
+    passes.push({ rise: { ...at(rise.t), rate: rise.rate }, max: at(top), set: { ...at(set.t), rate: set.rate }, visible });
+    x = set.t + 60;
+  }
+  return passes;
 }
 
 // The next passage of a body on the meridian of a longitude after t
@@ -390,6 +535,14 @@ function subLatitudes(body, t) {
 function magnitude(body, t) {
   const { r, delta, phase: a } = aspect(body, t);
   const d = 5 * Math.log10(r / AU * delta / AU);
+  // comets: total magnitude M1 + 5 log Δ + K log r; minor planets: the H, G
+  // system (Bowell et al. 1989)
+  if (typeof body === "object") {
+    if (body.M1 !== undefined) return body.M1 + 5 * Math.log10(delta / AU) + body.K * Math.log10(r / AU);
+    const ta = Math.tan(a * RAD / 2);
+    const phi1 = Math.exp(-3.33 * ta ** 0.63), phi2 = Math.exp(-1.87 * ta ** 1.22);
+    return body.H + d - 2.5 * Math.log10((1 - body.G) * phi1 + body.G * phi2);
+  }
   const poly = (cs) => cs.reduce((s, c, k) => s + c * a ** k, 0);
   switch (body) {
     case "sun": return -26.74 + 5 * Math.log10(delta / AU);
@@ -1195,4 +1348,4 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
-export { horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };
+export { orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };

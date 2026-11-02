@@ -339,6 +339,38 @@ for (const [name, t, ra, dec] of [
   if (!(sep <= 0.4)) fail(`${name} at ${new Date(t * 1000).toISOString().slice(0, 10)}: ${sep.toFixed(2)}″ from astropy`);
 }
 
+// minor planets (minorplanets.js), against JPL Horizons: apparent
+// geocentric right ascension and declination at Julian days of TT, to 30″
+// (the elements of the nearest year), and their error estimates cover
+// them; [name, JD, ra, dec]
+{
+  const { calc: c2 } = createCalculator({ constants: window.IMKS_DATA.constants });
+  for (const [name, jd, ra, dec] of [["Ceres", 2460800.5, 359.96095626, -9.598611859], ["Ceres", 2461700.5, 189.882797911, 4.16115348],
+    ["Vesta", 2460800.5, 222.574584307, -4.212995782], ["Vesta", 2462500.5, 326.566740195, -18.410506815],
+    ["Eros", 2461345.5, 257.039287022, -26.266387322], ["Eros", 2461700.5, 149.90474675, 17.641103558],
+    ["Apophis", 2461345.5, 250.372242657, -20.333721467], ["Apophis", 2462500.5, 59.975934544, 13.668293603]]) {
+    const t = (jd - 2440587.5) * 86400 - A.deltaT(2000 + (jd - 2451545) / 365.25);
+    const r = c2.run(`radec("${name}", ${t}[s] + 1970.01.01 0:00 Z)`);
+    if (r.kind !== "value") { fail(`${name}: ${r.message}`); continue; }
+    const [a, d] = r.q.map((q) => q.x.n * 180 / Math.PI), e = r.q[1].x.std * 180 / Math.PI * 3600, k = Math.PI / 180;
+    const sep = Math.acos(Math.min(1, Math.sin(dec * k) * Math.sin(d * k) + Math.cos(dec * k) * Math.cos(d * k) * Math.cos((ra - a) * k))) / k * 3600;
+    if (!(sep <= 30)) fail(`${name} at JD ${jd}: ${sep.toFixed(1)}″ from Horizons`);
+    if (!(sep <= 3 * e)) fail(`${name} at JD ${jd}: ${sep.toFixed(1)}″ from Horizons, more than 3σ (${e.toFixed(1)}″)`);
+  }
+}
+
+// SGP4 against python-sgp4 (2.25, WGS 72, improved mode): the ISS, TEME
+// positions (km) from a day before its epoch to a week after, to 1 m
+{
+  const { sgp4init, sgp4 } = await import(new URL("js/sgp4.js", root));
+  const rec = sgp4init({ MEAN_MOTION: 15.49150046, ECCENTRICITY: 0.0007139, INCLINATION: 51.6332, RA_OF_ASC_NODE: 335.9757, ARG_OF_PERICENTER: 339.3739, MEAN_ANOMALY: 20.6961, BSTAR: 0.00010508 });
+  for (const [t, p] of [[0, [6205.046205, -2765.812653, 0.00672]], [90, [5733.85491, -3494.465309, -1036.818641]], [1440, [-5978.950933, 3244.107928, -73.629562]],
+    [4320, [-5394.807241, 4139.278464, -206.54003]], [10080, [-3870.559297, 5570.806569, -518.665082]], [-1440, [-6417.534159, 2255.568922, 43.669286]]]) {
+    const d = Math.hypot(...sgp4(rec, t).map((x, k) => x - p[k]));
+    if (!(d <= 0.001)) fail(`SGP4 at ${t} min: ${(d * 1000).toFixed(1)} m from python-sgp4`);
+  }
+}
+
 // the height of a place: the Moon from Milan at 3000 m against sea level,
 // 2026.11.01 12:00 UT, 1.6611″ lower (astropy)
 {
@@ -497,7 +529,7 @@ for (const [src, want] of [["gal2eq((0, 90)[deg]).1 @ hms", "12h 51m 26.275s"], 
   const r = calc.run(`eq2ecl(radec("Mars", ${T0}), ${T0}) - ecl("Mars", ${T0})`);
   if (r.kind !== "value" || !r.q.every((q) => Math.abs(q.x.n) < 1e-10)) fail(`eq2ecl(radec("Mars", t), t) is not ecl("Mars", t)`);
 }
-for (const src of ["radec(\"Pluto\", now)", "radec(now)", "dist(\"Mars\", 5)", "altaz(\"Mars\", now, 5)", "sep((1, 2, 3), (1, 2))", "precess((0, 0), 2000)", "refract(0, 101 kPa, 5 m)"]) {
+for (const src of ["radec(\"Vulcan\", now)", "radec(now)", "dist(\"Mars\", 5)", "altaz(\"Mars\", now, 5)", "sep((1, 2, 3), (1, 2))", "precess((0, 0), 2000)", "refract(0, 101 kPa, 5 m)"]) {
   if (calc.run(src).kind !== "error") fail(`${src} should be an error`);
 }
 
