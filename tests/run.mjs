@@ -520,6 +520,76 @@ for (const [jd, i, k] of [[2461345.61, 1, "occulted"], [2461345.75694, 0, "trans
   if (l.kind !== "value" || !calc.env.format(l.q[0][0]).startsWith("2026.08.28") || !l.q.rows.includes("Moon sets")) fail(`lunar eclipse at Milan: ${l.q?.rows || l.message}`);
 }
 
+// conjunctions and occultations: the great conjunction of 2020 (JPL
+// Horizons: in right ascension at 13:32:13 UT, 0.10420° apart); Regulus
+// behind the Moon at Milan (Horizons: the Moon's limb within 0.3″ of the
+// star at the times found, in 2036); Venus in front of Jupiter in 2065
+{
+  const c = calc.run("conjunction(\"Jupiter\", \"Saturn\", 2020.06.01)");
+  if (c.kind !== "value" || Math.abs(c.q[0][0].relative().x.n - Date.UTC(2020, 11, 21, 13, 32, 13) / 1000) > 120
+    || Math.abs(c.q[0][1].x.n * 180 / Math.PI - 0.1042) > 0.0002) fail(`conjunction: ${c.message || c.q[0].map((q) => calc.env.format(q))}`);
+  const o = calc.run("occultation(\"Regulus\", 2036.05.01, (45.46, 9.19, 120[m])[deg])");
+  const rows = o.q?.rows || [];
+  if (o.kind !== "value" || rows[0] !== "disappears (dark limb)" || rows[1] !== "reappears (bright limb)"
+    || Math.abs(o.q[0][0].relative().x.n - Date.UTC(2036, 4, 31, 15, 0, 48) / 1000) > 3
+    || Math.abs(o.q[0][1].relative().x.n - Date.UTC(2036, 4, 31, 16, 17, 11) / 1000) > 3) fail(`occultation of Regulus: ${o.message || rows}`);
+  const v = calc.run("occultation(\"Jupiter\", \"Venus\", 2026.01.01, (30, 0)[deg])");
+  if (v.kind !== "value" || Math.abs(v.q[0][0].relative().x.n - Date.UTC(2065, 10, 22, 12, 40) / 1000) > 120) fail(`Venus in front of Jupiter: ${v.message || v.q.rows}`);
+}
+// Saturn's rings behind the Moon at Milan (2036.12.09): their contacts
+// around the globe's, and at each the Moon's limb on the edge of the A ring
+// (136775 km, in the plane of Saturn's equator, its pole precessed here by
+// IAU 1976), within 0.05″, against the edge in steps of 0.1°
+{
+  const MILAN = [45.46, 9.19, 120], R = Math.PI / 180;
+  const e = A.occultation("saturn", "moon", Date.UTC(2036, 11, 1) / 1000, MILAN, 1);
+  if (!e || !(e.R1 < e.C1 && e.C1 < e.C2 && e.C2 < e.R2 && e.R3 < e.C3 && e.C3 < e.C4 && e.C4 < e.R4)) fail(`Saturn's rings: contacts ${e && [e.R1, e.C1, e.C2, e.R2, e.R3, e.C3, e.C4, e.R4]}`);
+  const v = ({ ra, dec, dist }) => [dist * Math.cos(dec * R) * Math.cos(ra * R), dist * Math.cos(dec * R) * Math.sin(ra * R), dist * Math.sin(dec * R)];
+  const ang = (a, b) => Math.acos((a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / Math.hypot(...a) / Math.hypot(...b)) / R * 3600;
+  const pole = (t) => {
+    const T = A.centuries(t), as = R / 3600, [a0, d0] = [40.589 * R, 83.537 * R];
+    const z1 = (2306.2181 * T + 0.30188 * T * T) * as, z = (2306.2181 * T + 1.09468 * T * T) * as, th = (2004.3109 * T - 0.42665 * T * T) * as;
+    const a = Math.atan2(Math.cos(d0) * Math.sin(a0 + z1), Math.cos(th) * Math.cos(d0) * Math.cos(a0 + z1) - Math.sin(th) * Math.sin(d0)) + z;
+    const d = Math.asin(Math.sin(th) * Math.cos(d0) * Math.cos(a0 + z1) + Math.cos(th) * Math.sin(d0));
+    return [Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)];
+  };
+  for (const [k, far] of [["R1", false], ["R2", true], ["R3", true], ["R4", false]]) {
+    if (!e) break;
+    const t = e[k], m = A.topocentric("moon", t, MILAN), c = v(A.topocentric("saturn", t, MILAN)), n = pole(t);
+    const h = Math.hypot(n[1], n[2]), u1 = [0, n[2] / h, -n[1] / h], u2 = [n[1] * u1[2] - n[2] * u1[1], n[2] * u1[0] - n[0] * u1[2], n[0] * u1[1] - n[1] * u1[0]];
+    const ds = Array.from({ length: 3600 }, (_, i) => ang(v(m), c.map((x, j) => x + 136775 * (Math.cos(i * R / 10) * u1[j] + Math.sin(i * R / 10) * u2[j]))));
+    const off = (far ? Math.max(...ds) : Math.min(...ds)) - Math.asin(0.2725076 * 6378.137 / m.dist) / R * 3600;
+    if (Math.abs(off) > 0.05) fail(`Saturn's rings: at ${k} the edge is ${off.toFixed(3)}″ from the Moon's limb`);
+  }
+}
+// the track of an occultation (Regulus, 2026.03.29): seen from points of
+// its limits the star grazes the Moon's limb, from its central line it
+// passes behind the center (within 0.6″, the points rounded to 0.01°);
+// the lines of the hours
+{
+  const R = Math.PI / 180, regulus = { ra: 152.0929625, dec: 11.9672083, pmra: -248.73, pmdec: 5.59, plx: 41.13 };
+  const m = A.occultationTrack(regulus, "moon", Date.UTC(2026, 2, 29, 18, 50) / 1000);
+  const v = ({ ra, dec, dist }) => [dist * Math.cos(dec * R) * Math.cos(ra * R), dist * Math.cos(dec * R) * Math.sin(ra * R), dist * Math.sin(dec * R)];
+  const ang = (a, b) => Math.acos(Math.min(1, (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / Math.hypot(...a) / Math.hypot(...b))) / R * 3600;
+  // the least distance of the centers seen from p (by minutes, then half seconds), less the Moon's radius
+  const least = (p, limb) => {
+    const d = (t) => { const a = A.topocentric("moon", t, p); return ang(v(a), v(A.topocentric(regulus, t, p))) - (limb ? Math.asin(0.2725076 * 6378.137 / a.dist) / R * 3600 : 0); };
+    let best = Infinity, tb = 0;
+    for (let t = m.t - 4 * 3600; t < m.t + 4 * 3600; t += 60) if (d(t) < best) { best = d(t); tb = t; }
+    for (let t = tb - 60; t < tb + 60; t += 0.5) if (d(t) < best) { best = d(t); tb = t; }
+    return best;
+  };
+  for (const [name, lines, limb] of [["northern limit", m.penN, true], ["southern limit", m.penS, true], ["central line", m.center, false]]) {
+    if (!lines.length) { fail(`occultation track: no ${name}`); continue; }
+    const l = lines[0];
+    for (const p of [l[Math.floor(l.length / 4)], l[Math.floor(l.length / 2)]]) {
+      const off = least([p[0], p[1], 0], limb);
+      if (Math.abs(off) > 0.6) fail(`occultation track: on the ${name} at ${p.slice(0, 2)} the star is ${off.toFixed(2)}″ off`);
+    }
+  }
+  if (m.band.length || m.step !== 1 || m.begin.length < 3 || m.end.length < 3) fail(`occultation track: band ${m.band.length}, step ${m.step}, hours ${m.begin.length}/${m.end.length}`);
+}
+
 // the functions: right ascension in hours, bodies by name
 for (const [src, text] of [["radec(\"Mars\", 2026.11.01 12:00 Z).1 @ hms", "9h 27m 17.39s ± 0.10s"], ["radec(\"MARS\", 2026.11.01 12:00 Z).1 @ hms", "9h 27m 17.39s ± 0.10s"],
   ["30 deg @ hms", "2h 0m 0s"], ["dist(\"Moon\", 2026.11.01 12:00 Z) @ km", "371475.1(37)[km]"]]) {

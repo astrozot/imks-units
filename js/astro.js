@@ -896,15 +896,21 @@ function solarEclipse(t) {
 // stretched to the polar radius): the axis d (away from the Sun), axes e1,
 // e2 across it, the foot of the axis (x0, y0) on the plane through the
 // Earth's center, the Moon's height zm along d, its radius rm, the slopes of
-// the penumbra (f1) and of the umbra (f2), and the sidereal time (degrees)
-function shadowGeometry(t) {
+// the penumbra (f1) and of the umbra (f2), and the sidereal time (degrees).
+// For an occultation (occ: { target, front }), the shadow of the body in
+// front in the light of the target: of the Moon's mean limb, a cylinder
+// for a star; for a planet behind, its penumbra where it is partly covered
+// and its umbra where wholly (the disks taken round)
+function shadowGeometry(t, occ = null) {
   const k = 1 / 0.99664719, st = (v) => [v[0], v[1], v[2] * k].map((x) => x / R_EARTH);
-  const m = st(vec(equatorial("moon", t))), s = st(vec(equatorial("sun", t)));
+  const m = st(vec(equatorial(occ ? occ.front : "moon", t))), s = st(vec(equatorial(occ ? occ.target : "sun", t)));
   const ms = m.map((x, i) => x - s[i]), len = Math.hypot(...ms), d = ms.map((x) => x / len);
   const h = Math.hypot(d[0], d[1]), e1 = [-d[1] / h, d[0] / h, 0];
   const e2 = [d[1] * e1[2] - d[2] * e1[1], d[2] * e1[0] - d[0] * e1[2], d[0] * e1[1] - d[1] * e1[0]];
-  const rm = 1737.4 / R_EARTH, rs = R_SUN / R_EARTH;
-  return { d, e1, e2, x0: dot(m, e1), y0: dot(m, e2), zm: dot(m, d), rm, f1: (rs + rm) / len, f2: (rs - rm) / len, gast: siderealTime(t, 0) };
+  const rm = (occ ? limbRadius(occ.front) : 1737.4) / R_EARTH, rs = (occ ? limbRadius(occ.target) : R_SUN) / R_EARTH;
+  // the axis unstretched (D), for the shape of the shadow across it
+  const D = ms.map((x, i) => (i === 2 ? x / k : x)), Dn = Math.hypot(...D);
+  return { d, e1, e2, x0: dot(m, e1), y0: dot(m, e2), zm: dot(m, d), rm, f1: (rs + rm) / len, f2: (rs - rm) / len, gast: siderealTime(t, 0), D: D.map((x) => x / Dn) };
 }
 
 // A point (x, y) of the plane of a shadow g (shadowGeometry), on the sunlit
@@ -1021,7 +1027,13 @@ function solarPhase(t, place) {
 //   at sunrise or sunset
 // - greatest: the point of greatest eclipse; sun: the point with the Sun
 //   overhead then
-function eclipseTrack(tmax) {
+// - step: the hours between the lines of the hours, tick: between the
+//   times on the central line
+// For an occultation (occ, as in shadowGeometry) the same with its shadow,
+// sunrise and sunset there the target's rising and setting, and the lines
+// closer when it crosses the Earth in minutes (a planet in front)
+function eclipseTrack(tmax, occ = null) {
+  const sg = (t) => shadowGeometry(t, occ);
   const k = 1 / 0.99664719, f2e = 0.99330562, day = Math.floor(tmax / 86400) * 86400, r2 = (x) => Math.round(x * 100) / 100;
   // the plane of a shadow and the Earth: a point (x, y) of the sunlit side
   // to [lat, lon], and back (with its height z, negative on the sunlit side)
@@ -1037,12 +1049,25 @@ function eclipseTrack(tmax) {
     const P = [Math.cos(u) * Math.cos(l), Math.cos(u) * Math.sin(l), Math.sin(u)];
     return [dot(P, g.e1), dot(P, g.e2), dot(P, g.d)];
   };
-  // a cone's radius at the height z: penumbra (+1) and umbra (−1, its size)
-  const radius = (g, sign, z) => Math.abs(g.rm + sign * (z - g.zm) * (sign > 0 ? g.f1 : g.f2));
+  // the shadow, round across its axis, made an ellipse by the stretched
+  // Earth (0.34 %: 6 km at the edge of the Moon's shadow, which matters
+  // for the limits of an occultation; under a km at the edge of a total
+  // eclipse, left out for eclipses): its radius toward th, in parts of
+  // the round one
+  const shape = (g, th) => {
+    if (!occ || th === undefined) return 1;
+    const u = [0, 1, 2].map((i) => Math.cos(th) * g.e1[i] + Math.sin(th) * g.e2[i]);
+    u[2] /= k;
+    const a = dot(u, g.D);
+    return 1 / Math.hypot(...u.map((x, i) => x - a * g.D[i]));
+  };
+  // a cone's radius at the height z (toward th): penumbra (+1) and umbra
+  // (−1, its size)
+  const radius = (g, sign, z, th) => Math.abs(g.rm + sign * (z - g.zm) * (sign > 0 ? g.f1 : g.f2)) * shape(g, th);
   // how far a place is outside a cone (negative inside)
   const outside = (g, p, sign) => {
     const [x, y, z] = toPlane(g, p);
-    return Math.hypot(x - g.x0, y - g.y0) - radius(g, sign, z);
+    return Math.hypot(x - g.x0, y - g.y0) - radius(g, sign, z, Math.atan2(y - g.y0, x - g.x0));
   };
   // the points of the terminator at a cone's edge (two circles meeting)
   const meet = (g, sign) => {
@@ -1055,7 +1080,7 @@ function eclipseTrack(tmax) {
   const edge = (g, n, sign, side) => {
     let z = -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0)), x, y;
     for (let i = 0; i < 3; i++) {
-      const r = radius(g, sign, z);
+      const r = radius(g, sign, z, Math.atan2(side * n[1], side * n[0]));
       x = g.x0 + side * r * n[0];
       y = g.y0 + side * r * n[1];
       z = -Math.sqrt(Math.max(0, 1 - x * x - y * y));
@@ -1091,7 +1116,7 @@ function eclipseTrack(tmax) {
     const at = (th) => {
       let z = -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0)), x, y;
       for (let m = 0; m < 3; m++) {
-        const r = radius(g, sign, z);
+        const r = radius(g, sign, z, th);
         x = g.x0 + r * Math.cos(th);
         y = g.y0 + r * Math.sin(th);
         z = -Math.sqrt(Math.max(0, 1 - x * x - y * y));
@@ -1134,22 +1159,32 @@ function eclipseTrack(tmax) {
   const gap = (p, q) => Math.hypot(p[0] - q[0], (((p[1] - q[1] + 540) % 360) - 180) * Math.cos(p[0] * RAD));
   const northness = (g, nN, p) => { const [x, y] = toPlane(g, p); return (x - g.x0) * nN[0] + (y - g.y0) * nN[1]; };
   // every 30 s, every 2 s while the umbra grazes the Earth (the ends of
-  // the band, where its two sides close)
+  // the band, where its two sides close), for four hours each side; for
+  // an occultation, steps in which the shadow moves as far (0.005 Earth
+  // radii), while it crosses the Earth; the lines of the hours at least
+  // three
+  let step = 30, span = 4 * 3600, lineStep = 1;
+  if (occ) {
+    const a = sg(tmax - 30), b = sg(tmax + 30), v = Math.hypot(b.x0 - a.x0, b.y0 - a.y0) / 60;
+    step = Math.min(30, Math.max(0.2, 0.005 / v));
+    span = Math.min(4 * 3600, (1.3 + radius(sg(tmax), 1, 0)) / v);
+    lineStep = [1, 0.5, 0.25, 1 / 6, 1 / 12, 1 / 30, 1 / 60].find((x) => (2 * span) / 3600 / x >= 3) ?? 1 / 60;
+  }
   const ts = [], G = [];
-  for (let t = tmax - 4 * 3600; t <= tmax + 4 * 3600;) {
-    const g = shadowGeometry(t);
+  for (let t = tmax - span; t <= tmax + span;) {
+    const g = sg(t);
     ts.push(t);
     G.push(g);
     // (and while the edge of the penumbra grazes it, from outside or inside:
     // the ends of the limits and of the curves at sunrise or sunset)
     const r0 = Math.hypot(g.x0, g.y0), L1 = radius(g, 1, 0);
-    t += Math.abs(r0 - 1) < radius(g, -1, 0) + 0.03 || Math.abs(r0 - 1 - L1) < 0.03 || Math.abs(r0 - 1 + L1) < 0.03 ? 2 : 30;
+    t += Math.abs(r0 - 1) < radius(g, -1, 0) + 0.03 || Math.abs(r0 - 1 - L1) < 0.03 || Math.abs(r0 - 1 + L1) < 0.03 ? step / 15 : step;
   }
   // At the time t: where the penumbra's edge meets the terminator, the
   // eclipse beginning there (rb) or ending (re) at sunrise or sunset, and
   // where the greatest eclipse is at sunrise or sunset (pts)
   const risesAt = (t) => {
-    const g = shadowGeometry(t), a = shadowGeometry(t - 15), b = shadowGeometry(t + 15);
+    const g = sg(t), a = sg(t - step / 2), b = sg(t + step / 2);
     // where the penumbra's edge meets the terminator: the eclipse begins or
     // ends there at sunrise or sunset, as the edge comes in or goes out
     const rb = [], re = [];
@@ -1286,12 +1321,12 @@ function eclipseTrack(tmax) {
   // coming in (beginning) and going out (end), which share their ends; the
   // ends found exactly, at the terminator too
   const hours = { begin: [], end: [] };
-  for (let h = Math.ceil((ts[0] - day) / 3600); h <= Math.floor((ts[ts.length - 1] - day) / 3600); h++) {
-    const t = day + h * 3600, g = shadowGeometry(t), a = shadowGeometry(t - 30), b = shadowGeometry(t + 30);
+  for (let n = Math.ceil((ts[0] - day) / 3600 / lineStep); n <= Math.floor((ts[ts.length - 1] - day) / 3600 / lineStep); n++) {
+    const h = n * lineStep, t = day + h * 3600, g = sg(t), a = sg(t - step), b = sg(t + step);
     const at = (th) => {
       let z = -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0)), x, y;
       for (let m = 0; m < 3; m++) {
-        const r = radius(g, 1, z);
+        const r = radius(g, 1, z, th);
         x = g.x0 + r * Math.cos(th);
         y = g.y0 + r * Math.sin(th);
         z = -Math.sqrt(Math.max(0, 1 - x * x - y * y));
@@ -1352,7 +1387,9 @@ function eclipseTrack(tmax) {
       if (list.length) hours[k2].push([h, list]);
     }
   }
-  const g = shadowGeometry(tmax), rr = Math.hypot(g.x0, g.y0), S = equatorial("sun", tmax);
+  const g = sg(tmax), rr = Math.hypot(g.x0, g.y0), S = equatorial("sun", tmax);
+  // a star: the umbra is the penumbra, no band of its own
+  const point = occ && !limbRadius(occ.target);
   const greatest = rr < 1 ? toGeo(g, g.x0, g.y0) : toGeo(g, (g.x0 / rr) * 0.9999, (g.y0 / rr) * 0.9999);
   // fewer points: 0.3° apart at least, the ends kept (the lines are drawn
   // as curves through them)
@@ -1396,10 +1433,10 @@ function eclipseTrack(tmax) {
     return { begin, end, max };
   };
   return {
-    center: lines(runs(center)), band: lines(band.map((b) => [...b.n, ...b.s.reverse()])), penN: lines(runs(penN)), penS: lines(runs(penS)),
+    center: lines(runs(center)), band: point ? [] : lines(band.map((b) => [...b.n, ...b.s.reverse()])), penN: lines(runs(penN)), penS: lines(runs(penS)),
     begin: hours.begin.map(([h, ls]) => [h, lines(ls)]), end: hours.end.map(([h, ls]) => [h, lines(ls)]),
-    rise: joinEnds(lines(chain(riseB)), lines(chain(riseE)), lines(chain(riseM))),
-    greatest, sun: [S.dec, mod360(S.ra - siderealTime(tmax, 0) + 180) - 180], t: tmax,
+    rise: joinEnds(lines(chain(riseB)), lines(chain(riseE)), occ ? [] : lines(chain(riseM))),
+    greatest, sun: [S.dec, mod360(S.ra - siderealTime(tmax, 0) + 180) - 180], t: tmax, step: lineStep, tick: Math.min(0.5, lineStep),
   };
 }
 
@@ -1438,6 +1475,185 @@ function solarLocal(t, place) {
     magnitude: (g.sun + g.moon - g.d) / (2 * g.sun), obscuration: obscuration(g.sun, g.moon, g.d),
   };
   return { ...e, altC1: alt(e.C1), altMax: alt(max), altC4: alt(e.C4) };
+}
+
+// ---------------------------------------------------------------------
+// Conjunctions and occultations
+
+// The fastest motions in right ascension (degrees a day), seen from a
+// place (the Moon also moves by its parallax as the Earth turns), so that
+// steps of the difference over them cannot jump over a conjunction; stars
+// barely move, minor planets and comets seldom faster than 5° a day
+const RA_SPEED = { moon: 27, sun: 1.3, mercury: 3, venus: 2, mars: 1.2, jupiter: 0.3, saturn: 0.2, uranus: 0.1, neptune: 0.1 };
+const raSpeed = (body) => (typeof body === "string" ? RA_SPEED[body] : body.orbits ? 5 : 0.01);
+const seenFrom = (body, t, place) => (place ? topocentric(body, t, place) : equatorial(body, t));
+// the position angle (degrees) of q from p, from the north through the east
+function positionAngle(p, q) {
+  const da = q.ra - p.ra;
+  return mod360(Math.atan2(sin(da), cos(p.dec) * Math.tan(q.dec * RAD) - sin(p.dec) * cos(da)) / RAD);
+}
+
+// The next conjunction in right ascension of the bodies a and b after t,
+// seen from the center of the Earth or from a place, within the years
+// given: its time and the rate of the difference (degrees a second), the
+// declination of a, and b north of a by sep (degrees, south when
+// negative); their closest approach (closest) and least separation; or
+// null
+function conjunction(a, b, t, place = null, years = 200) {
+  const f = (x) => mod360(seenFrom(a, x, place).ra - seenFrom(b, x, place).ra + 180) - 180;
+  const v = (raSpeed(a) + raSpeed(b)) / 86400, end = t + years * 31557600;
+  let x = t, fx = f(x), c = null;
+  // steps of the difference over the speed: no conjunction in between
+  while (x < end && c === null) {
+    const y = x + Math.max(Math.abs(fx), 0.01) / v, fy = f(y);
+    if (fx < 0 !== fy < 0 && Math.abs(fx - fy) < 180) c = zero(f, x, y);
+    x = y;
+    fx = fy;
+  }
+  if (c === null) return null;
+  const A = seenFrom(a, c, place), B = seenFrom(b, c, place);
+  const d = (u) => sep(vec(seenFrom(a, u, place)), vec(seenFrom(b, u, place)));
+  // the closest approach, near the conjunction: days for the slow planets,
+  // months for Uranus and Neptune
+  let h = Math.max(0.5, 2 / (v * 86400)) * 86400, closest = least(d, c, h);
+  while (Math.abs(closest - c) > 0.9 * h && h < 365 * 86400) closest = least(d, c, h *= 2);
+  return { t: c, rate: Math.abs(f(c + 30) - f(c - 30)) / 60, dec: A.dec, sep: B.dec - A.dec, closest, least: d(closest) };
+}
+
+// The radii (km) of the bodies in front: the Moon's mean limb, k = 0.2725076
+// Earth radii as in the predictions of occultations; the planets
+// equatorial; stars, minor planets and comets as points
+const limbRadius = (body) => (body === "moon" ? 0.2725076 * R_EARTH : RADIUS[body] ?? 0);
+const angularRadius = (body, dist) => Math.asin(Math.min(1, limbRadius(body) / dist)) / RAD;
+
+// The limb of an oblate planet seen at s, toward the point q of the sky,
+// as a part of its equatorial radius: an ellipse, its minor axis along the
+// pole as seen, b′ = √(b² cos²D + a² sin²D) with D the latitude of the
+// Earth from the planet; across the line of the centers, so within 0.05″
+// for touching disks
+function limbShape(body, s, q, T) {
+  const f = FLATTENING[body];
+  if (!f) return 1;
+  const u = unit(s.ra, s.dec), w = unit(q.ra, q.dec), pole = precessVector(unit(...MOONS[body].pole), T);
+  const sinD = -dot(u, pole), b = Math.sqrt((1 - f) ** 2 * (1 - sinD * sinD) + sinD * sinD);
+  // the pole and q on the sky, from the planet's center
+  const P = pole.map((x, k) => x + sinD * u[k]), Q = w.map((x, k) => x - dot(w, u) * u[k]);
+  const n = Math.hypot(...P) * Math.hypot(...Q);
+  const c = n > 0 ? dot(P, Q) / n : 0;
+  return b / Math.sqrt(c * c + b * b * (1 - c * c));
+}
+
+// An occultation seen from a place, near its geocentric closest approach
+// at t: the separation of the centers and the radii of the body in front
+// (R) and of the other (r) toward each other, in degrees
+function occultationAt(target, front, t, place) {
+  const p = topocentric(target, t, place), o = topocentric(front, t, place), T = centuries(t);
+  return {
+    d: sep(vec(o), vec(p)), o, p,
+    R: angularRadius(front, o.dist) * limbShape(front, o, p, T), r: angularRadius(target, p.dist) * limbShape(target, p, o, T),
+  };
+}
+// Saturn's rings: the outer edge of the A ring (km), in the plane of its
+// equator
+const RING_A = 136775;
+// The nearest and the farthest points of the outer edge of the rings from
+// the direction o (degrees): the edge seen from the place, Saturn at s
+// (topocentric), around the circle in steps of 4°, then refined
+function ringReach(o, s, T) {
+  const n = precessVector(unit(...MOONS.saturn.pole), T), h = Math.hypot(n[0], n[1]);
+  const e1 = [-n[1] / h, n[0] / h, 0], e2 = [n[1] * e1[2] - n[2] * e1[1], n[2] * e1[0] - n[0] * e1[2], n[0] * e1[1] - n[1] * e1[0]];
+  const c = vec(s), w = vec(o);
+  const d = (a) => sep(w, c.map((x, k) => x + RING_A * (Math.cos(a) * e1[k] + Math.sin(a) * e2[k])));
+  const extreme = (sign) => {
+    let best = 0;
+    for (let k = 1; k < 90; k++) if (sign * d(k * Math.PI / 45) < sign * d(best)) best = k * Math.PI / 45;
+    // golden section, to 0.01° along the edge
+    let a = best - Math.PI / 45, b = best + Math.PI / 45;
+    while (b - a > 2e-4) {
+      const m1 = a + (b - a) * 0.382, m2 = a + (b - a) * 0.618;
+      if (sign * d(m1) < sign * d(m2)) b = m2; else a = m1;
+    }
+    return sign * d((a + b) / 2);
+  };
+  return { near: extreme(1), far: -extreme(-1) };
+}
+
+function occultationLocal(target, front, t, place) {
+  const at = (x) => occultationAt(target, front, x, place);
+  // the parallax of the Moon shifts the time by up to two hours, and it
+  // passes a star in up to two hours more; the planets take minutes
+  const h = front === "moon" ? 4 * 3600 : 12 * 3600;
+  const max = least((x) => at(x).d, t, h), g = at(max);
+  if (g.o.dist > g.p.dist) return null;
+  // Saturn's rings: they reach out to 2.3 times its radius, and may be
+  // covered without the globe
+  const rings = target === "saturn";
+  const reach = (x) => { const a = at(x); return { ...ringReach(a.o, a.p, centuries(x)), R: a.R }; };
+  const G = rings ? reach(max) : null;
+  if (g.d >= g.R + g.r && !(rings && G.near < G.R)) return null;
+  const outer = (x) => { const a = at(x); return a.d - (a.R + a.r); };
+  const inner = (x) => { const a = at(x); return a.d - Math.abs(a.R - a.r); };
+  const hit = g.d < g.R + g.r;
+  const C1 = hit ? zero(outer, max - h, max) : null, C4 = hit ? zero(outer, max, max + h) : null;
+  const full = hit && g.r > 0 && g.d < Math.abs(g.R - g.r);
+  const C2 = full ? zero(inner, C1, max) : null, C3 = full ? zero(inner, max, C4) : null;
+  // the rings: their first and last contacts (the nearest point of the
+  // edge on the limb), and while they are wholly covered (the farthest)
+  const ringOut = (x) => { const a = reach(x); return a.near - a.R; };
+  const ringIn = (x) => { const a = reach(x); return a.far - a.R; };
+  const R1 = rings ? zero(ringOut, max - h, max) : null, R4 = rings ? zero(ringOut, max, max + h) : null;
+  const ringsFull = rings && G.far < G.R;
+  const R2 = ringsFull ? zero(ringIn, R1, max) : null, R3 = ringsFull ? zero(ringIn, max, R4) : null;
+  const rate = (f, x) => (x === null ? null : Math.abs(f(x + 5) - f(x - 5)) / 10);
+  // where on the limb it goes in and out (its center, at the first and the
+  // last contacts), and whether the Sun lights the limb there
+  const first = R1 ?? C1, last = R4 ?? C4;
+  const pa = (x) => { const a = at(x); return positionAngle(a.o, a.p); };
+  const sunPA = (x) => positionAngle(topocentric(front, x, place), topocentric("sun", x, place));
+  const lit = (x) => cos(pa(x) - sunPA(x)) > 0;
+  return {
+    max, C1, C2, C3, C4, R1, R2, R3, R4, first, last, least: g.d, R: g.R, r: g.r, covers: g.R > g.r,
+    rates: { C1: rate(outer, C1), C2: rate(inner, C2), C3: rate(inner, C3), C4: rate(outer, C4), R1: rate(ringOut, R1), R2: rate(ringIn, R2), R3: rate(ringIn, R3), R4: rate(ringOut, R4) },
+    paIn: pa(first), paOut: pa(last), litIn: lit(first), litOut: lit(last),
+  };
+}
+
+// The next occultation of target by the body in front (the Moon or a
+// planet) after t seen from a place, above the horizon or not, within the
+// years given: the times of the contacts (C1, C4 the outer ones; C2, C3
+// the inner ones, null for a star or when it is not wholly covered; for
+// Saturn also those of its rings, R1… R4, and C1… C4 null when only the
+// rings are covered), the first and the last of them, their rates
+// (degrees a second), the position angles on the limb where the target
+// goes in and out and whether the Sun lights the limb there; or
+// null. The conjunctions in right ascension, then their geocentric closest
+// approach within the parallax, then the place
+function occultation(target, front, t, place, years) {
+  const end = t + years * 31557600;
+  for (let u = t; u < end;) {
+    const c = conjunction(front, target, u, null, (end - u) / 31557600);
+    if (c === null) return null;
+    const g = (x) => sep(vec(equatorial(front, x)), vec(equatorial(target, x)));
+    const tg = least(g, c.t, (front === "moon" ? 0.3 : 2) * 86400);
+    const o = equatorial(front, tg), p = equatorial(target, tg);
+    const parallax = Math.asin(R_EARTH / o.dist) / RAD - Math.asin(Math.min(1, R_EARTH / p.dist)) / RAD;
+    const reach = target === "saturn" ? Math.asin(RING_A / p.dist) / RAD : angularRadius(target, p.dist);
+    if (g(tg) < parallax + angularRadius(front, o.dist) + reach + 0.01) {
+      const e = occultationLocal(target, front, tg, place);
+      if (e && e.first !== null && e.last !== null && e.last > t) return e;
+    }
+    u = c.t + 86400;
+  }
+  return null;
+}
+
+// The track on the Earth of an occultation of target by the body in front
+// with its local maximum near t (eclipseTrack, with the shadow's axis
+// nearest to the Earth's center then)
+function occultationTrack(target, front, t) {
+  const occ = { target, front };
+  const tmax = least((x) => { const g = shadowGeometry(x, occ); return Math.hypot(g.x0, g.y0); }, t, 3 * 3600);
+  return eclipseTrack(tmax, occ);
 }
 
 // Local sidereal time in degrees (apparent: with the equation of the
@@ -1490,4 +1706,4 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
-export { orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };
+export { conjunction, occultation, occultationLocal, occultationTrack, orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };

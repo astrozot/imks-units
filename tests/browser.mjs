@@ -115,6 +115,19 @@ try {
   expect(await line(), 'moonevents("Io", today, "eclipse")', "a moon, a date and a kind from their pages");
   check(Boolean(await page.$('#fn-grid [data-key="f:moonevents("]')), "back to Planets after the call");
   await clear();
+  // two bodies: the second, in front, the Moon or a planet (not the Sun)
+  await fn("Sky");
+  await page.click('#fn-grid [data-key="f:occultation("]');
+  await page.waitForTimeout(150);
+  await page.click('#fn-grid [data-arg=\'"Saturn"\']');
+  await page.waitForTimeout(150);
+  check(await page.$eval('#fn-grid [data-arg=\'"Sun"\']', (b) => b.disabled), "the Sun is not in front");
+  await page.click('#fn-grid [data-arg=\'"Moon"\']');
+  await page.click('#fn-grid [data-arg="today"]');
+  await page.waitForTimeout(150);
+  expect(await line(), 'occultation("Saturn", "Moon", today, ', "a body, the one in front and a date from their pages");
+  await clear();
+  await fn("Planets");
   // the place closes passes( (its days are seldom given)
   await page.click('#fn-grid [data-key="f:passes("]');
   await page.waitForTimeout(150);
@@ -224,6 +237,14 @@ try {
   const shared = await page.evaluate(() => window.shared?.[0]);
   check(shared?.name === "lunar-eclipse.png" && shared.type === "image/png" && shared.size > 20000, `lunar eclipse: the picture shared (${JSON.stringify(shared)})`);
   await page.keyboard.press("Escape");
+  await clear();
+
+  // the map of an occultation: its limits and the star's rising or setting
+  await run('occultation("Regulus", 2026.01.01, "Milan")');
+  await page.waitForTimeout(2500);
+  const occMap = await lastEntry();
+  check(Boolean(await occMap.$(".map-svg .map-partial")), "occultation: the map with its limits");
+  expect(await occMap.$eval(".map-key", (p) => p.textContent), /limits.*Regulus rising or setting/, "occultation: the key of the map");
   await clear();
 
   // the map of a solar eclipse, and its zoom view

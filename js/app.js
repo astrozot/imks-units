@@ -13,7 +13,7 @@ import { skySVG, overlaySVG, drawPlanet, fitView } from "./skyview.js";
 import { skyView } from "./sky.js";
 import { mapSVG, mapView, unproject } from "./eclipsemap.js";
 import { osmMap, TILES } from "./osmmap.js";
-import { shadowMap, solarContacts, solarLocal, solarPhase } from "./astro.js";
+import { shadowMap, solarContacts, solarLocal, solarPhase, occultationLocal, horizontal } from "./astro.js";
 import { snapshot } from "./snapshot.js";
 import { MOONS } from "./moons.js";
 import { findPlace, fetchObject, fetchPlace, fetchElevation } from "./lookup.js";
@@ -1768,7 +1768,7 @@ function caretIndexAt(x, y) {
 let previewTimer = null;
 
 // the functions too slow to compute at every key: on ⏎ only
-const SLOW_FNS = /\b(solareclipse|lunareclipse|moonevents)\s*\(/;
+const SLOW_FNS = /\b(solareclipse|lunareclipse|moonevents|conjunction|occultation)\s*\(/;
 
 // The value of src (for an assignment, of its right side) without running it
 function evalPreview(src, calc = state.calc, { lists = false } = {}) {
@@ -4015,11 +4015,15 @@ function openLunar(e) {
   show(store.get("lunarView", "sim"));
 }
 
-// The map of a solar eclipse in the history (tap for openMap)
+// The map of a solar eclipse, or of an occultation, in the history (tap
+// for openMap)
+const occName = (o) => (typeof o.target === "string" ? o.target[0].toUpperCase() + o.target.slice(1) : o.target.name || o.names[0]);
 function mapHTML(m) {
-  const W = 320, H = 240;
-  return `<svg class="map-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Map of the eclipse">${mapSVG(m, W, H, mapView(m, W, H), m.place)}</svg>` +
-    '<p class="sky-hint map-key"><i class="k-path"></i>central path (UTC) <i class="k-partial"></i>where it is seen <i class="k-begin"></i>begins <i class="k-end"></i>ends (hour UTC) <i class="k-horizon"></i>at sunrise or sunset (bright: maximum) <i class="k-place"></i>place</p>';
+  const W = 320, H = 240, o = m.occ;
+  const key = o
+    ? `${m.band.length ? `<i class="k-path"></i>${o.covers ? "wholly covered" : `${o.names[1]} wholly in front`} ` : ""}${m.penN.length || m.penS.length ? '<i class="k-partial"></i>limits ' : ""}<i class="k-begin"></i>begins <i class="k-end"></i>ends (${m.step < 1 ? "UTC" : "hour UTC"}) <i class="k-horizon"></i>${esc(occName(o))} rising or setting <i class="k-place"></i>place`
+    : '<i class="k-path"></i>central path (UTC) <i class="k-partial"></i>where it is seen <i class="k-begin"></i>begins <i class="k-end"></i>ends (hour UTC) <i class="k-horizon"></i>at sunrise or sunset (bright: maximum) <i class="k-place"></i>place';
+  return `<svg class="map-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Map of the ${o ? "occultation" : "eclipse"}">${mapSVG(m, W, H, mapView(m, W, H), m.place)}</svg><p class="sky-hint map-key">${key}</p>`;
 }
 
 // The zoom view of the map of history entry e: drag to turn the Earth,
@@ -4036,23 +4040,27 @@ const zoomOf = (s, lat) => Math.log2((s * 2 * Math.PI * Math.cos(lat * Math.PI /
 const scaleOf = (zoom, lat) => (256 * 2 ** zoom) / (2 * Math.PI * Math.cos(lat * Math.PI / 180));
 function openMap(e) {
   const views = [["globe", "Globe"], ...Object.entries(TILES).map(([k, t]) => [k, t.name])];
-  const m = e.map, canSim = typeof m.t === "number";
+  // an occultation: no simulation of the shadow (made for the Sun), but
+  // places tapped for the occultation there
+  const m = e.map, occ = m.occ || null, canSim = typeof m.t === "number" && !occ, canPick = canSim || Boolean(occ);
+  const localAt = (p) => (occ ? occultationLocal(occ.target, occ.front, m.t, p) : solarLocal(m.t, p));
+  const what = occ ? "occultation" : "eclipse";
   // the place: of the calculation, or tapped on the map
   let place = m.place || null;
   // the contacts on the Earth, and at the place; 2 s into the phase they
   // begin or end, not on its edge
   const c = canSim ? solarContacts(m.t) : null;
-  let l = canSim && place ? solarLocal(m.t, place) : null;
+  let l = canPick && place ? localAt(place) : null;
   const marks = () => [["P1", c.P1], ["U1", c.U1], ["max", m.t], ["U4", c.U4], ["P4", c.P4], ...(l ? [["C1", l.C1], ["C2", l.C2], ["C3", l.C3], ["C4", l.C4]] : [])]
     .filter(([, t]) => t !== null).map(([n, t]) => [n, t + (/[12]$/.test(n) ? 2 : /[34]$/.test(n) ? -2 : 0)]).sort((a, b) => a[1] - b[1]);
   const chips = () => (canSim ? marks().map(([n, t]) => `<button class="chip" data-map-t="${t}">${n}</button>`).join("") : "");
   const from = canSim ? (c.P1 ?? m.t - 3 * 3600) - 600 : 0, to = canSim ? (c.P4 ?? m.t + 3 * 3600) + 600 : 0;
   const modes = [["map", "Map"], ["sim", "Simulation"]];
-  openSheet("Eclipse", (root) => {
+  openSheet(occ ? "Occultation" : "Eclipse", (root) => {
     root.innerHTML = `<p class="plot-in">${exprHTML(e.input)}</p>
       ${canSim ? `<div class="seg map-modes" role="tablist">${modes.map(([v, n]) => `<button data-map-mode="${v}" role="tab">${n}</button>`).join("")}</div>` : ""}
       <label class="map-views">Map <select class="map-select" aria-label="Map">${views.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
-      <svg class="map-svg map-full" role="img" aria-label="Map of the eclipse"></svg><div class="osm-map" hidden></div>
+      <svg class="map-svg map-full" role="img" aria-label="Map of the ${what}"></svg><div class="osm-map" hidden></div>
       <div class="map-sim" hidden>
       <p class="map-when"></p>
       <div class="lunar-play"><button class="chip" data-map="play" aria-label="Play">▶</button><input type="range" class="map-slider" min="${from}" max="${to}" step="30" value="${m.t}" aria-label="Time"></div>
@@ -4061,9 +4069,10 @@ function openMap(e) {
       <p class="sky-hint map-hint">Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back</p>`;
   }, () => {
     const caption = sim ? [e.input, sheetBody.querySelector(".map-when").textContent] : [e.input];
+    const name = occ ? "occultation" : "solar-eclipse";
     return sheetBody.querySelector(".osm-map").hidden
-      ? { root: sheetBody.querySelector(".map-svg"), caption, name: "solar-eclipse" }
-      : { root: sheetBody.querySelector(".osm-map"), hide: ".leaflet-control-zoom", text: ".osm-label span, .leaflet-control-attribution", caption, name: "solar-eclipse" };
+      ? { root: sheetBody.querySelector(".map-svg"), caption, name }
+      : { root: sheetBody.querySelector(".osm-map"), hide: ".leaflet-control-zoom", text: ".osm-label span, .leaflet-control-attribution", caption, name };
   });
   const svg = sheetBody.querySelector(".map-svg"), osm = sheetBody.querySelector(".osm-map"), hint = sheetBody.querySelector(".map-hint");
   const slider = sheetBody.querySelector(".map-slider"), when = sheetBody.querySelector(".map-when"), localBox = sheetBody.querySelector(".map-local");
@@ -4092,13 +4101,13 @@ function openMap(e) {
     svg.style.display = globe ? "" : "none";
     osm.hidden = globe;
     osm.classList.toggle("dark", Boolean(TILES[view]?.dark));
-    hint.textContent = (globe ? "Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back" : "Online map: drag to move, pinch or scroll to zoom") + (canSim ? "; tap a place for the eclipse there" : "");
+    hint.textContent = (globe ? "Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back" : "Online map: drag to move, pinch or scroll to zoom") + (canPick ? `; tap a place for the ${what} there` : "");
     if (sim) hint.textContent += "; the penumbra darker where more of the Sun is covered, the umbra in a ring";
     store.set("mapView", view);
     if (globe) return redraw();
     osm.style.height = `${Math.round(Math.max(240, Math.min(sheetBody.clientWidth * (sim ? 1 : 1.1), window.innerHeight - (sim ? 380 : 260))))}px`;
     try {
-      const o = await osmMap(osm, m, view, { sim, place, pick: canSim ? pick : null, view: chosen ? { center: [v.lat0, v.lon0], zoom: zoomOf(v.s, v.lat0) } : null });
+      const o = await osmMap(osm, m, view, { sim, place, pick: canPick ? pick : null, view: chosen ? { center: [v.lat0, v.lon0], zoom: zoomOf(v.s, v.lat0) } : null });
       if (!osm.isConnected || token !== shown) o.remove();
       else {
         osmNow = o;
@@ -4146,6 +4155,7 @@ function openMap(e) {
   const showLocal = () => {
     if (!place) { localBox.innerHTML = ""; return; }
     const head = `<b>${ll(place)}</b>`;
+    if (occ) return showOccultation(head);
     const up = (a) => a !== null && a > -0.833;
     if (!l) { localBox.innerHTML = `<p>${head}: no eclipse</p>`; return; }
     const seen = up(l.altC1) || up(l.altMax) || up(l.altC4);
@@ -4158,9 +4168,26 @@ function openMap(e) {
       <table class="map-contacts"><tr><th></th><th>UTC</th>${state.settings.utc ? "" : "<th>local</th>"}</tr>${rows}</table>
       <button class="chip" data-map="calc">Calculate here</button>`;
   };
+  // the occultation seen from the place: its contacts (UTC, and local),
+  // the target's altitude (below the horizon marked) and the Sun's
+  const showOccultation = (head) => {
+    const TN = occName(occ);
+    if (!l) { localBox.innerHTML = `<p>${head}: no occultation</p>`; return; }
+    const alt = (t) => horizontal(occ.target, t, place).alt, up = (t) => alt(t) > -0.5;
+    const hms = (t) => new Date(t * 1000).toISOString().slice(11, 19);
+    const lt = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const rows = (l.r ? [["first contact", l.first], [l.covers ? "disappears" : "second contact", l.C2], [l.covers ? "reappears" : "third contact", l.C3], ["last contact", l.last]]
+      : [["disappears", l.first], ["reappears", l.last]])
+      .filter(([, t]) => t !== null)
+      .map(([n, t]) => `<tr><td>${n}${up(t) ? "" : ` (${esc(TN)} down)`}</td><td>${hms(t)}</td>${state.settings.utc ? "" : `<td>${lt(t)}</td>`}</tr>`).join("");
+    const seen = [l.first, l.max, l.last].some(up), sun = horizontal("sun", l.max, place).alt;
+    localBox.innerHTML = `<p>${head}: ${esc(TN)} occulted${seen ? `, ${Math.round(alt(l.max))}° high` : ", below the horizon"}, the Sun ${Math.abs(Math.round(sun))}° ${sun < 0 ? "below the horizon" : "high"}</p>
+      <table class="map-contacts"><tr><th></th><th>UTC</th>${state.settings.utc ? "" : "<th>local</th>"}</tr>${rows}</table>
+      <button class="chip" data-map="calc">Calculate here</button>`;
+  };
   function pick(p) {
     place = [Math.round(p[0] * 1e4) / 1e4, Math.round(p[1] * 1e4) / 1e4];
-    l = canSim ? solarLocal(m.t, place) : null;
+    l = canPick ? localAt(place) : null;
     showLocal();
     sheetBody.querySelector(".lunar-chips").innerHTML = chips();
     if (osmNow) osmNow.setPlace(place);
@@ -4170,8 +4197,9 @@ function openMap(e) {
   // the whole calculation at the place, from the day before the eclipse
   const calcHere = () => {
     const d = new Date((m.t - 86400) * 1000), p2 = (n) => String(n).padStart(2, "0");
+    const date = `${d.getUTCFullYear()}.${p2(d.getUTCMonth() + 1)}.${p2(d.getUTCDate())} 00:00:00 Z`, at = `(${place[0]}, ${place[1]})[deg]`;
     closeSheet();
-    setInput(`solareclipse(${d.getUTCFullYear()}.${p2(d.getUTCMonth() + 1)}.${p2(d.getUTCDate())} 00:00:00 Z, (${place[0]}, ${place[1]})[deg])`);
+    setInput(occ ? `occultation(${JSON.stringify(occ.names[0])}, ${JSON.stringify(occ.names[1])}, ${date}, ${at})` : `solareclipse(${date}, ${at})`);
     evaluate();
   };
   let play = 0, last = 0;
@@ -4256,7 +4284,7 @@ function openMap(e) {
       if (ev.timeStamp - lastTap < 350) { v = mapView(m, W, H); chosen = false; redraw(); lastTap = 0; } else {
         lastTap = ev.timeStamp;
         const q = local(ev), p = unproject(v, W, H, q.x, q.y);
-        if (p && canSim) tapPick = setTimeout(() => pick(p), 350);
+        if (p && canPick) tapPick = setTimeout(() => pick(p), 350);
       }
     }
     start();
@@ -5008,17 +5036,18 @@ const FN_SECTIONS = [
   ["Sky", 5, 3, [
     { fn: "sunday", desc: "Dawn… dusk" }, { fn: "sunrise", desc: "t, place" }, { fn: "sunset", desc: "t, place" }, { fn: "noon", desc: "t, place" }, { fn: "sun", desc: "Alt, az" },
     { fn: "moonrise", desc: "t, place" }, { fn: "moonset", desc: "t, place" }, { fn: "moonphases", label: "phases", desc: "Next four" }, { fn: "phase", desc: "Lit, age" }, { fn: "moon", desc: "Alt, az" },
-    { fn: "seasons", desc: "Year" }, { fn: "lst", desc: "Sidereal time" }, { fn: "lunareclipse", label: "lunar ecl.", desc: "t, place" }, { fn: "solareclipse", label: "solar ecl.", desc: "t, place" }, { fn: "dip", desc: "Sea horizon" },
+    { fn: "seasons", desc: "Year" }, { fn: "conjunction", label: "conjunct.", desc: "Two bodies" }, { fn: "occultation", label: "occult.", desc: "By Moon" }, { fn: "lunareclipse", label: "lunar ecl.", desc: "t, place" }, { fn: "solareclipse", label: "solar ecl.", desc: "t, place" },
   ]],
   ["Planets", 5, 3, [
     { fn: "altaz", desc: "Alt, az" }, { fn: "radec", desc: "Ra, dec" }, { fn: "dist", desc: "Distance" }, { fn: "mag", desc: "Magnitude" }, { fn: "transit", desc: "Meridian" },
     { fn: "rising", desc: "After t" }, { fn: "setting", desc: "After t" }, { fn: "illum", desc: "Lit, phase" }, { fn: "elong", desc: "From Sun" }, { fn: "diam", desc: "Diameter" },
     { fn: "ecl", desc: "Lon, lat" }, { fn: "moons", desc: "Sketch" }, { fn: "moonpos", desc: "Moon, t" }, { fn: "moonevents", label: "events", desc: "Moon, t, kind" }, { fn: "passes", desc: "Satellite" },
   ]],
-  ["Coords", 4, 3, [
+  ["Coords", 4, 4, [
     { fn: "eq2hor", desc: "→ alt, az" }, { fn: "hor2eq", desc: "→ ra, dec" }, { fn: "eq2ecl", desc: "→ ecliptic" }, { fn: "ecl2eq", desc: "→ ra, dec" },
     { fn: "eq2gal", desc: "→ galactic" }, { fn: "gal2eq", desc: "→ ra, dec" }, { fn: "precess", desc: "p, from, to" }, { fn: "refract", desc: "Altitude" },
     { fn: "sep", desc: "Distance" }, { fn: "pa", desc: "Position angle" }, { key: "u:hourangle", label: "hourangle", desc: "15°" }, { fn: "place", desc: "Name → place" },
+    { fn: "lst", desc: "Sidereal time" }, { fn: "dip", desc: "Sea horizon" }, { key: "u:arcmin", label: "arcmin", desc: "1/60°" }, { key: "u:arcsec", label: "arcsec", desc: "1/3600°" },
   ]],
   ["Sensors", 4, 3, [
     { key: "sensor:here", label: "here", desc: "Lat, lon, h" }, { key: "sensor:lat", label: "lat", desc: "Latitude" }, { key: "sensor:lon", label: "lon", desc: "Longitude" }, { key: "sensor:alt", label: "alt", desc: "Altitude" },
@@ -6091,6 +6120,7 @@ const ARG_KINDS = {
   sun: ["date", "place?"], moon: ["date", "place?"], sunrise: ["date", "place?", "horizon?"], sunset: ["date", "place?", "horizon?"],
   moonrise: ["date", "place?"], moonset: ["date", "place?"], noon: ["date", "place?"], sunday: ["date", "place?"], lst: ["date", "place?"],
   moonphases: ["date"], phase: ["date"], seasons: ["#"], lunareclipse: ["date", "place?"], solareclipse: ["date", "place?"],
+  conjunction: ["body:nosat", "body:nosat", "date", "place?"], occultation: ["body:nosat", "body:front", "date", "place?"],
   eq2hor: ["point", "date", "place?"], hor2eq: ["#", "date", "place?"], eq2ecl: ["point", "date?"], ecl2eq: ["#", "date?"],
   eq2gal: ["point"], gal2eq: ["#"], precess: ["point", "epoch", "epoch"], sep: ["point", "point"], pa: ["point", "point"],
   dip: ["#"], refract: ["#"], date: ["#", "#", "#", "#?", "#?"], ymd: ["date"], easter: ["#"], easter_orthodox: ["#"], japanese: ["era", "#", "#", "#"],
@@ -6104,10 +6134,12 @@ const ARG_KINDS = {
 // "only" is enabled for those kinds alone
 const B = (name, desc, only) => ({ a: `"${name}"`, label: name, desc, only });
 const SOLAR = ["body", "body:nosat", "body:solar", "body:lit"];
+// the bodies that occult others: the Moon and the planets
+const FRONT = [...SOLAR, "body:front"];
 const ARG_PAGES = {
   body: [5, [
-    B("Sun", "☉", SOLAR), B("Moon", "☾", SOLAR), B("Mercury", "☿", SOLAR), B("Venus", "♀", SOLAR), B("Mars", "♂", SOLAR),
-    B("Jupiter", "♃", SOLAR), B("Saturn", "♄", SOLAR), B("Uranus", "♅", SOLAR), B("Neptune", "♆", SOLAR), B("Pluto", "Dwarf planet", ["body", "body:nosat", "body:lit"]),
+    B("Sun", "☉", SOLAR), B("Moon", "☾", FRONT), B("Mercury", "☿", FRONT), B("Venus", "♀", FRONT), B("Mars", "♂", FRONT),
+    B("Jupiter", "♃", FRONT), B("Saturn", "♄", FRONT), B("Uranus", "♅", FRONT), B("Neptune", "♆", FRONT), B("Pluto", "Dwarf planet", ["body", "body:nosat", "body:lit"]),
     { key: "pick:star", label: "star…", desc: "Pick one", only: ["body", "body:nosat"] }, { key: "pick:deep", label: "deep sky…", desc: "Messier…", only: ["body", "body:nosat"] },
     { key: "pick:minor", label: "asteroid…", desc: "Minor planet", only: ["body", "body:nosat", "body:lit"] }, { key: "pick:comet", label: "comet…", desc: "Pick one", only: ["body", "body:nosat", "body:lit"] },
     { key: "pick:satellite", label: "satellite…", desc: "Pick one", only: ["body"] },
@@ -6196,7 +6228,7 @@ function doneArgs() {
 
 // what an argument is, for the line under the keys of its page
 const ARG_TEXT = {
-  body: "a body", "body:nosat": "a body (not a satellite)", "body:solar": "the Sun, the Moon or a planet", "body:lit": "a body of the solar system",
+  body: "a body", "body:nosat": "a body (not a satellite)", "body:solar": "the Sun, the Moon or a planet", "body:lit": "a body of the solar system", "body:front": "the body in front: the Moon, or a planet",
   satellite: "a satellite", planetmoons: "a planet with moons", moon: "a moon", kind: "the kind of event", date: "the date", place: "the place",
   horizon: "the altitude of the horizon", point: "a point of the sky", epoch: "the epoch", era: "the era",
 };
@@ -7696,16 +7728,16 @@ const HELP = [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
     ["ymd(today)", "year, month, day"], ["ymd(today).1", "the year"], ["ymd(today, \"hebrew\")", ""], ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
-  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), (latitude, longitude, height) or a name, as \"Milan\", or from the location set in Settings (its elevation, 0 if left out): sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″; see Accuracy of the sky); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100; tap the drawing to zoom and to see the moons move, faster or backward, and a moon, there or in the table, for its events. moonpos(“Io”, t) gives one moon's offsets, moonevents(“Io”, t) its next transit, shadow, eclipse and occultation (within 30 days), and moonevents(“Io”, t, “eclipse”) the beginning and end of the next eclipse. lunareclipse(t) gives the next lunar eclipse, its contacts and magnitudes; solareclipse(t) the next solar eclipse, its kind, greatest phase, gamma and magnitude, and solareclipse(t, place) the next one seen from a place, with its contacts to a few seconds and the sunrise or sunset during it; its map shows the path, the hours (UTC) when the partial eclipse begins and ends, and where the maximum is at sunrise or sunset; tap it to zoom, and to see it on OpenStreetMap, a topographic, dark or satellite map (online), or to follow the Moon's shadow across the Earth: the penumbra, darker where more of the Sun is covered, the umbra (or the antumbra of an annular eclipse) and the night at each moment, with the contacts on the Earth (P1, U1… P4) and at the place (C1… C4), and the phase there. The globe and the maps keep the same view when you switch between them; tap a place on any of them for the eclipse seen from there (its kind, magnitude, contacts and the Sun's altitude), and Calculate here for the whole calculation there. lunareclipse(t, place) gives the next lunar eclipse seen from a place; its drawing shows the Moon's path through the Earth's penumbra and umbra, with the times (UTC) of the contacts (P1, U1… P4), dashed where the Moon is down; tap it to follow the Moon through the shadow, with the phase and the magnitude at each moment, and the Moon as it looks then (its near side, north up, from NASA's LRO maps).  Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). The height of a place moves the Moon by its parallax (0.5″ a kilometre) and makes the refraction at the horizon smaller, with the pressure of the standard atmosphere (34′ at sea level, 24′ at 3000 m): rising and setting a minute or so later; a sea horizon seen from above is lower by dip(h), as in sunrise(t, place, −50′ − dip(h)). The stars named by the IAU and the Messier and other named deep-sky objects are bodies too, by name: altaz(“Vega”, t, place), rising(“Sirius”, t, place), transit(“M31”, t, place), radec(“Vega”, t), apparent (proper motion, precession, nutation, aberration and parallax, to about 0.3″), radec(“Vega”) the catalog position (ICRS, J2000), mag(“Vega”) and dist(“Sirius”) from the parallax. place(“Milan”) gives (latitude, longitude, height); the large cities are built in. Other names, of objects (“NGC 7000”, “HD 12345”, “alf Cen”) or places (“Mount Etna”, an address), are looked up online when you press =: objects in SIMBAD, places in OpenStreetMap with their elevation from a terrain map; they are kept on the device, so the history computes offline. Minor planets and comets are bodies too: about 175 brighter minor planets, the dwarf planets and some visited ones are built in, with their orbits of each year from 2016 to 2040 (good to some arcseconds; further from those years, and near the Earth, the error grows, as shown); others, by name, number or designation (“2004 MN4”), and comets (“12P”, “C/2023 A3”, “Halley”), come from the Minor Planet Center. Artificial satellites in near-Earth orbits (“ISS”, “Hubble”, “Tiangong”, others by name or as “NORAD 25544”) come from CelesTrak, updated when a day old: altaz(“ISS”, now, here), rising and setting, and passes(“ISS”, today, here), the passes of a day (or up to 10), with directions and whether it can be seen. The here key gives (latitude, longitude, altitude) when the device reports the altitude. sunday(t, place) gives the day of the Sun as a table (civil dawn, sunrise, noon, sunset, civil dusk, day length), moonphases(t) the next four phases of the Moon, seasons(year) the equinoxes and solstices; a row of a table by its name: moonphases(today).“full moon”, seasons(2027).“June solstice”, moonevents(“Io”, today).“eclipse begins” (also item(table, “full moon”)); tapping the name of a row in a result types it, as ans₃.“sunset”. On the ƒ(x) page, the Sky, Planets and Coords keys hold the functions; their arguments come as they are needed: after altaz( the bodies, then the dates, then the places (here, place… for a city, or Settings for your location), each typed with the comma that follows, the last with the closing parenthesis; numbers show the 123 keys; a section tapped brings its keys back.", [
+  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), (latitude, longitude, height) or a name, as \"Milan\", or from the location set in Settings (its elevation, 0 if left out): sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″; see Accuracy of the sky); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100; tap the drawing to zoom and to see the moons move, faster or backward, and a moon, there or in the table, for its events. moonpos(“Io”, t) gives one moon's offsets, moonevents(“Io”, t) its next transit, shadow, eclipse and occultation (within 30 days), and moonevents(“Io”, t, “eclipse”) the beginning and end of the next eclipse. lunareclipse(t) gives the next lunar eclipse, its contacts and magnitudes; solareclipse(t) the next solar eclipse, its kind, greatest phase, gamma and magnitude, and solareclipse(t, place) the next one seen from a place, with its contacts to a few seconds and the sunrise or sunset during it; its map shows the path, the hours (UTC) when the partial eclipse begins and ends, and where the maximum is at sunrise or sunset; tap it to zoom, and to see it on OpenStreetMap, a topographic, dark or satellite map (online), or to follow the Moon's shadow across the Earth: the penumbra, darker where more of the Sun is covered, the umbra (or the antumbra of an annular eclipse) and the night at each moment, with the contacts on the Earth (P1, U1… P4) and at the place (C1… C4), and the phase there. The globe and the maps keep the same view when you switch between them; tap a place on any of them for the eclipse seen from there (its kind, magnitude, contacts and the Sun's altitude), and Calculate here for the whole calculation there. lunareclipse(t, place) gives the next lunar eclipse seen from a place; its drawing shows the Moon's path through the Earth's penumbra and umbra, with the times (UTC) of the contacts (P1, U1… P4), dashed where the Moon is down; tap it to follow the Moon through the shadow, with the phase and the magnitude at each moment, and the Moon as it looks then (its near side, north up, from NASA's LRO maps). conjunction(“Venus”, “Jupiter”, t) gives the next conjunction of two bodies in right ascension, their separation then (the second north of the first, south when negative), the closest approach and the least separation, and their angle from the Sun; with a place, seen from it (this matters for the Moon, shifted by its parallax up to 1°). occultation(“Regulus”, t, place) gives the next occultation of a star, a planet or a minor planet by the Moon seen from a place, with the body above the horizon: when it disappears and reappears (for a planet, its first and last contacts and when it is wholly covered, its disk flattened as it is seen; for Saturn, also those of its rings, to the outer edge of the A ring, which may be covered without the globe), on the dark or bright limb of the Moon, the position angles on the limb (from the north through the east), the altitudes and the lit part of the Moon; the times are good to a few seconds, from the positions and the Moon's mountains and valleys, which are not modeled (grazes, where the star skims the limb, need them). Its map shows where on the Earth it is seen: its limits (to a few km: the Moon's mountains and valleys move them as much), the central line with its times, the lines of the hours (UTC) when it begins and ends, where it does at the body's rising or setting, and the night; for a planet, where it is wholly covered; tap the map to zoom, and a place for the occultation there (and Calculate here). occultation(“Jupiter”, “Venus”, t, place) looks for a planet in front: these are rare (Venus in front of Jupiter on 2065.11.22, the first since 1818), but the planets' positions, to about 1″, decide them.  Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). The height of a place moves the Moon by its parallax (0.5″ a kilometre) and makes the refraction at the horizon smaller, with the pressure of the standard atmosphere (34′ at sea level, 24′ at 3000 m): rising and setting a minute or so later; a sea horizon seen from above is lower by dip(h), as in sunrise(t, place, −50′ − dip(h)). The stars named by the IAU and the Messier and other named deep-sky objects are bodies too, by name: altaz(“Vega”, t, place), rising(“Sirius”, t, place), transit(“M31”, t, place), radec(“Vega”, t), apparent (proper motion, precession, nutation, aberration and parallax, to about 0.3″), radec(“Vega”) the catalog position (ICRS, J2000), mag(“Vega”) and dist(“Sirius”) from the parallax. place(“Milan”) gives (latitude, longitude, height); the large cities are built in. Other names, of objects (“NGC 7000”, “HD 12345”, “alf Cen”) or places (“Mount Etna”, an address), are looked up online when you press =: objects in SIMBAD, places in OpenStreetMap with their elevation from a terrain map; they are kept on the device, so the history computes offline. Minor planets and comets are bodies too: about 175 brighter minor planets, the dwarf planets and some visited ones are built in, with their orbits of each year from 2016 to 2040 (good to some arcseconds; further from those years, and near the Earth, the error grows, as shown); others, by name, number or designation (“2004 MN4”), and comets (“12P”, “C/2023 A3”, “Halley”), come from the Minor Planet Center. Artificial satellites in near-Earth orbits (“ISS”, “Hubble”, “Tiangong”, others by name or as “NORAD 25544”) come from CelesTrak, updated when a day old: altaz(“ISS”, now, here), rising and setting, and passes(“ISS”, today, here), the passes of a day (or up to 10), with directions and whether it can be seen. The here key gives (latitude, longitude, altitude) when the device reports the altitude. sunday(t, place) gives the day of the Sun as a table (civil dawn, sunrise, noon, sunset, civil dusk, day length), moonphases(t) the next four phases of the Moon, seasons(year) the equinoxes and solstices; a row of a table by its name: moonphases(today).“full moon”, seasons(2027).“June solstice”, moonevents(“Io”, today).“eclipse begins” (also item(table, “full moon”)); tapping the name of a row in a result types it, as ans₃.“sunset”. On the ƒ(x) page, the Sky, Planets and Coords keys hold the functions; their arguments come as they are needed: after altaz( the bodies, then the dates, then the places (here, place… for a city, or Settings for your location), each typed with the comma that follows, the last with the closing parenthesis; numbers show the 123 keys; a section tapped brings its keys back.", [
     ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
     ["fullmoon(today)", ""], ["equinox(2027)", "(March, September)"], ["sunset(today, here) - sunrise(today, here) @ hms", "day length"], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
     ["rising(\"Sirius\", today, \"Rome\")", ""], ["transit(\"M31\", today, \"Milan\")", "Andromeda galaxy"], ["altaz(\"Betelgeuse\", now, here)", ""], ["place(\"Denver\")", "with its elevation"], ["sunrise(today, (-16.5[deg], -68.15[deg], 3640[m]))", "La Paz"], ["dip(100[m])", "sea horizon"], ["sunday(today, \"Rome\")", ""], ["moonphases(today).\"full moon\"", ""], ["seasons(2027)", ""], ["mag(\"Vesta\", now)", ""], ["rising(\"Ceres\", today, \"Rome\")", ""], ["passes(\"ISS\", today, \"Rome\")", "online"],
-    ["altaz(\"Jupiter\", now, here)", "(altitude, azimuth)"], ["radec(\"Mars\", now)", ""], ["dist(\"Mars\", now) / c @ min", "light time"], ["dist(\"Moon\", now)", ""], ["mag(\"Saturn\", now)", "with its rings"], ["illum(\"Venus\", now)", "(lit fraction, phase angle)"], ["elong(\"Mercury\", now)", "+ evening, − morning"], ["diam(\"Jupiter\", now)", ""], ["rising(\"Jupiter\", today, here)", ""], ["transit(\"Mars\", today, here)", ""], ["moons(\"Jupiter\", now)", "Galilean moons"], ["moons(\"Saturn\", now)", ""], ["lunareclipse(today)", ""], ["solareclipse(today)", ""], ["solareclipse(today, here)", "seen from here"],
+    ["altaz(\"Jupiter\", now, here)", "(altitude, azimuth)"], ["radec(\"Mars\", now)", ""], ["dist(\"Mars\", now) / c @ min", "light time"], ["dist(\"Moon\", now)", ""], ["mag(\"Saturn\", now)", "with its rings"], ["illum(\"Venus\", now)", "(lit fraction, phase angle)"], ["elong(\"Mercury\", now)", "+ evening, − morning"], ["diam(\"Jupiter\", now)", ""], ["rising(\"Jupiter\", today, here)", ""], ["transit(\"Mars\", today, here)", ""], ["moons(\"Jupiter\", now)", "Galilean moons"], ["moons(\"Saturn\", now)", ""], ["lunareclipse(today)", ""], ["solareclipse(today)", ""], ["conjunction(\"Venus\", \"Jupiter\", today)", ""], ["occultation(\"Regulus\", today, here)", "by the Moon"], ["solareclipse(today, here)", "seen from here"],
     ["sep(radec(\"Moon\", now), radec(\"Jupiter\", now))", "Moon to Jupiter"], ["eq2hor((5h 35m 17s, -5.39[deg]), now, here)", "Orion nebula"], ["eq2gal((5h 35m 17s, -5.39[deg]))", ""], ["precess((5h 35m 17s, -5.39[deg]), 2000, today)", ""], ["refract(5[deg]) @ arcmin", ""],
   ]],
   ["Accuracy of the sky", "Results of the Sky and Planets functions carry their typical errors (68 %), which propagate. Positions, against JPL's ephemerides (DE441), apparent and geocentric, from 1600 to 2400: the Sun to 0.3″, Mercury, Venus and Jupiter 1″, Mars and Saturn 1.5″, Uranus 4″, Neptune 6″, the Moon 1″ from 1700 to 2300 and 2–4″ near 1600 and 2400 (its distance to a few km). Further away the series drift: from 1000 to 3000 the Sun and the inner planets stay near 1″, but Mars reaches 10″, Neptune 15″ and the Moon 10–15″; in the year 0 the Moon is off by 1′, in −1000 by 2′. Stars, about 0.3″ (their catalog positions and motions); the moons of the planets, about 0.1″ from 1900 to 2100 (Hyperion up to 1.5″); minor planets and comets, 5″ at 1 au near the years of their orbits, more further from them and close to the Earth; satellites, 1 km at the epoch of their elements, then 2 km a day and more.\n\n"
     + "Dates are in UT, which follows the Earth's rotation, while the orbits run in uniform time (TT): the difference, ΔT, is measured since 1900 (to 0.1 s; UTC stays within 0.9 s of UT), and before comes from historical eclipses and occultations: 1 s in 1800, 5 s in 1700, 20 s in 1500 and 1600, 1 min in 1000, 4 min in the year 0, 10 min in −1000. Ahead it is a forecast, as the Earth's rotation wanders: about 10 s in 2050, 1 min in 2100, 10 min in 2400. A second of ΔT moves the Moon by 0.55″ and the sky seen from a place by 15″, so far from the present ΔT is the largest error, included in positions, altitudes and azimuths, the sidereal time and the equinoxes and solstices.\n\n"
-    + "Times: rising and setting to about a minute at middle latitudes (the refraction at the horizon changes with the weather, by about 0.15°), longer toward the poles; solar noon to 2 s; the phases of the Moon and the equinoxes and solstices to a minute; lunar eclipses, the maximum to 10 s, the umbral contacts to 30 s and the penumbral ones, hard to see, to a minute, the magnitudes to 0.003; solar eclipses, the greatest eclipse to 10 s, the contacts at a place to 5 s, the magnitude and the part of the Sun covered to 0.001; events of the planets' moons, from the error of their position over their speed, and 20 s more. The times of eclipses and phases hold near the present: far from it, add the error of ΔT. Magnitudes: 0.01 to 0.03 for the Sun and most planets, 0.05 for Mercury, 0.1 for the Moon, 0.15 for Mars (its dust and the face it shows).", [
+    + "Times: rising and setting to about a minute at middle latitudes (the refraction at the horizon changes with the weather, by about 0.15°), longer toward the poles; solar noon to 2 s; the phases of the Moon and the equinoxes and solstices to a minute; lunar eclipses, the maximum to 10 s, the umbral contacts to 30 s and the penumbral ones, hard to see, to a minute, the magnitudes to 0.003; solar eclipses, the greatest eclipse to 10 s, the contacts at a place to 5 s, the magnitude and the part of the Sun covered to 0.001; occultations by the Moon to a few seconds (its position, and 1.5″ for its mountains and valleys, over its speed of about 0.5″ a second: longer where the star skims the limb); conjunctions from the positions over the speed of the bodies, seconds for the Moon, minutes for the planets; events of the planets' moons, from the error of their position over their speed, and 20 s more. The times of eclipses and phases hold near the present: far from it, add the error of ΔT. Magnitudes: 0.01 to 0.03 for the Sun and most planets, 0.05 for Mercury, 0.1 for the Moon, 0.15 for Mars (its dust and the face it shows).", [
     ["err(radec(\"Moon\", now)) @ arcsec", ""], ["err(radec(\"Neptune\", now)) @ arcsec", ""], ["err(altaz(\"Moon\", 1800.01.01 0:00 Z, \"Milan\")) @ arcsec", "ΔT to 1 s"],
     ["err(altaz(\"Moon\", 2100.01.01 0:00 Z, \"Milan\")) @ arcmin", "ΔT forecast"], ["err(altaz(\"Moon\", 1000.01.01 0:00 Z, \"Milan\")) @ arcmin", "from eclipses"], ["equinox(1000)", ""], ["mag(\"Mars\", now)", ""],
   ]],

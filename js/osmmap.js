@@ -2,6 +2,8 @@
 // services), with Leaflet, loaded the first time from cdnjs: online only.
 // The same lines as eclipsemap.js, from eclipseTrack() in astro.js.
 
+import { hm, hourText } from "./eclipsemap.js";
+
 const LEAFLET = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/";
 
 // the services, free without a key: tiles, credit, and whether the map is
@@ -122,8 +124,7 @@ async function osmMap(el, m, key, { sim = false, view = null, place = m.place, p
   for (const [kind, color] of sim ? [] : [["begin", C.begin], ["end", C.end]]) {
     for (const [h, ls] of m[kind] || []) {
       line(ls, { color, weight: 1.5 });
-      const hh = `${String(((h % 24) + 24) % 24).padStart(2, "0")}h`;
-      for (const l of ls) if (l.length > 8) label(unwrap(l)[Math.floor(l.length / 2)], hh, color);
+      for (const l of ls) if (l.length > 8) label(unwrap(l)[Math.floor(l.length / 2)], hourText(m, h), color);
     }
   }
   if (m.rise && !sim) {
@@ -132,17 +133,17 @@ async function osmMap(el, m, key, { sim = false, view = null, place = m.place, p
   }
   for (const b of m.band || []) if (Array.isArray(b?.[0])) L.polygon(unwrap(b), { color: C.band, weight: 1, fillColor: C.band, fillOpacity: sim ? 0.2 : 0.45, interactive: false }).addTo(map);
   line(m.center, { color: C.center, weight: sim ? 1 : 1.5 });
-  // the times on the central line, every half hour
+  // the times on the central line, every half hour (or tick)
+  const tick = m.tick || 0.5;
   for (const seg of sim ? [] : m.center) {
     const u = unwrap(seg);
     for (let i = 1; i < seg.length; i++) {
-      if (seg[i].length < 3 || Math.floor(seg[i - 1][2] * 2) === Math.floor(seg[i][2] * 2)) continue;
-      const h = Math.floor(seg[i][2] * 2) / 2;
+      if (seg[i].length < 3 || Math.floor(seg[i - 1][2] / tick) === Math.floor(seg[i][2] / tick)) continue;
       L.circleMarker(u[i], { radius: 2.5, color: C.center, fillOpacity: 1, interactive: false }).addTo(map);
-      label(u[i], `${String(((Math.floor(h) % 24) + 24) % 24).padStart(2, "0")}:${h % 1 ? "30" : "00"}`, C.center);
+      label(u[i], hm(Math.floor(seg[i][2] / tick) * tick), C.center);
     }
   }
-  if (m.greatest) L.circleMarker(m.greatest, { radius: 5, color: dark ? "#0b0f1a" : "#ffffff", weight: 1.5, fillColor: C.band, fillOpacity: 1 }).bindTooltip("Greatest eclipse").addTo(map);
+  if (m.greatest) L.circleMarker(m.greatest, { radius: 5, color: dark ? "#0b0f1a" : "#ffffff", weight: 1.5, fillColor: C.band, fillOpacity: 1 }).bindTooltip(m.occ ? "Greatest occultation" : "Greatest eclipse").addTo(map);
   // the place, above the shadow
   map.createPane("place").style.zIndex = 650;
   let marker = null;

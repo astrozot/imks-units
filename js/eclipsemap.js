@@ -147,6 +147,15 @@ function nightPath(sun, view, W, H, P) {
   return path + "z";
 }
 
+// A time in hours (UTC, from 0h of the day) as HH:MM; as HHh for the lines
+// of whole hours
+const p2 = (n) => String(n).padStart(2, "0");
+function hm(h) {
+  const m = ((Math.round(h * 60) % 1440) + 1440) % 1440;
+  return `${p2(Math.floor(m / 60))}:${p2(m % 60)}`;
+}
+const hourText = (m, h) => (m.step && m.step < 1 ? hm(h) : `${p2(((Math.round(h) % 24) + 24) % 24)}h`);
+
 // The map in an SVG of W × H for the view (centered on lat0, lon0, s pixels
 // per Earth radius); place: [latitude, longitude] or null; at: the shadow
 // at a moment (shadowMap() in astro.js), drawn with the night then instead
@@ -194,7 +203,6 @@ function mapSVG(m, W, H, view, place = null, at = null) {
   }
   // the hours (UTC) when the partial eclipse begins and ends, labeled at
   // the visible middle of each line; the maximum at sunrise or sunset
-  const hh = (h) => `${String(((Math.round(h) % 24) + 24) % 24).padStart(2, "0")}h`;
   const label = (line, text, cls) => {
     const vis = line.map(P).filter((p) => p[2] && p[0] > 12 && p[0] < W - 12 && p[1] > 10 && p[1] < H - 6);
     if (!vis.length) return "";
@@ -204,7 +212,7 @@ function mapSVG(m, W, H, view, place = null, at = null) {
   for (const [kind, cls] of [["begin", "map-begin"], ["end", "map-end"]]) {
     for (const [h, lines] of m[kind] || []) {
       svg += `<path class="${cls}" d="${linesPath(lines, P, true)}"/>`;
-      for (const line of lines) if (line.length > 8) svg += label(line, hh(h), cls);
+      for (const line of lines) if (line.length > 8) svg += label(line, hourText(m, h), cls);
     }
   }
   // where it begins, is greatest and ends at sunrise or sunset
@@ -212,14 +220,15 @@ function mapSVG(m, W, H, view, place = null, at = null) {
     svg += `<path class="map-horizon faint" d="${linesPath([...m.rise.begin, ...m.rise.end], P, true)}"/>`;
     svg += `<path class="map-horizon" d="${linesPath(m.rise.max, P, true)}"/>`;
   } else if (m.horizon) svg += `<path class="map-horizon" d="${linesPath(m.horizon, P)}"/>`;
-  // the times on the central line, every half hour
+  // the times on the central line, every half hour (or tick)
+  const tick = m.tick || 0.5;
   for (const seg of m.center) {
     for (let i = 1; i < seg.length; i++) {
       const [a, b] = [seg[i - 1], seg[i]];
-      if (a.length < 3 || Math.floor(a[2] * 2) === Math.floor(b[2] * 2)) continue;
+      if (a.length < 3 || Math.floor(a[2] / tick) === Math.floor(b[2] / tick)) continue;
       const [x, y, v] = P(b);
       if (!v) continue;
-      const h = Math.floor(b[2] * 2) / 2, text = `${String(((Math.floor(h) % 24) + 24) % 24).padStart(2, "0")}:${h % 1 ? "30" : "00"}`;
+      const text = hm(Math.floor(b[2] / tick) * tick);
       svg += `<circle class="map-tick" cx="${f1(x)}" cy="${f1(y)}" r="1.8"/><text class="map-label map-time" x="${f1(x + 5)}" y="${f1(y - 4)}">${text}</text>`;
     }
   }
@@ -234,4 +243,4 @@ function mapView(m, W, H) {
   return { lat0, lon0, s: Math.min(W, H) / 2 - 8 };
 }
 
-export { mapSVG, mapView, unproject };
+export { mapSVG, mapView, unproject, hm, hourText };
