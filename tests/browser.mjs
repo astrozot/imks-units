@@ -110,6 +110,35 @@ try {
   expect(await line(), 'moonevents("Io", today, "eclipse")', "a moon, a date and a kind from their pages");
   check(Boolean(await page.$('#fn-grid [data-key="f:moonevents("]')), "back to Planets after the call");
   await clear();
+  // the place closes passes( (its days are seldom given)
+  await page.click('#fn-grid [data-key="f:passes("]');
+  await page.waitForTimeout(150);
+  await page.click('#fn-grid [data-arg=\'"ISS"\']');
+  await page.click('#fn-grid [data-arg="today"]');
+  await page.waitForTimeout(150);
+  await page.click('#fn-grid [data-key="pick:city"]');
+  await page.fill(".pick-search", "Rome");
+  await page.waitForTimeout(150);
+  await page.click('[data-pick-insert=\'"Rome"\']');
+  await page.waitForTimeout(150);
+  expect(await line(), 'passes("ISS", today, "Rome")', "the place closes passes");
+  await clear();
+  // an argument deleted brings its page back
+  await page.click('#fn-grid [data-key="f:setting("]');
+  await page.waitForTimeout(150);
+  await page.click('#fn-grid [data-arg=\'"Jupiter"\']');
+  await page.waitForTimeout(150);
+  while ((await line()) !== "setting(") await page.keyboard.press("Backspace");
+  await page.waitForTimeout(150);
+  check(Boolean(await page.$('#fn-grid [data-arg=\'"Mars"\']')), "the page of bodies again after the body is deleted");
+  await clear();
+  // a row of a table by its name, from its label
+  await run("moonphases(2026.11.03)");
+  await (await (await page.$$(".entry")).at(-1).$$("td.lbl"))[2].click();
+  await page.waitForTimeout(150);
+  expect(await line(), /^ans.*\."full moon"$/, "a row label types its reference");
+  expect(await run(""), /^2026\.11\.24 15:54/, "the row by its name");
+  await clear();
   // a section tapped wins over the page of arguments; a number shows 123
   await page.click('#fn-grid [data-key="f:diam("]');
   await page.waitForTimeout(150);
