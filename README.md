@@ -52,6 +52,11 @@ fetches them from the JPL Small-Body Database and Horizons into `<dir>`
 Planet Center, artificial satellites from CelesTrak, followed with SGP4
 (`js/sgp4.js`, near-Earth orbits only), checked against python-sgp4.
 
+`img/moon.webp`, the near side of the Moon for the lunar eclipses, comes
+from NASA's LRO colour map (Scientific Visualization Studio, CGI Moon Kit,
+public domain): `python3 tools/moondisk.py lroc_color_poles_1k.jpg` writes
+it (numpy and Pillow).
+
 `node tests/browser.mjs` checks the app in Chromium at phone size, with
 simulated sensors (position, motion, compass, microphone). It needs
 Playwright (`npm install playwright-core`, then `CHROME=/path/to/chrome`;

@@ -123,6 +123,19 @@ try {
   await page.waitForTimeout(150);
   expect(await line(), 'passes("ISS", today, "Rome")', "the place closes passes");
   await clear();
+  // a place typed from the (lat, lon, h) template: , and ) step over the
+  // units, and the call closes
+  await page.click('#fn-grid [data-key="f:altaz("]');
+  await page.waitForTimeout(150);
+  await page.click('#fn-grid [data-arg=\'"Mars"\']');
+  await page.click('#fn-grid [data-arg="now"]');
+  await page.waitForTimeout(150);
+  await page.click('#fn-grid [data-argtpl="(|[deg], [deg], [m])"]');
+  expect(await page.$eval('[data-tab][aria-selected="true"]', (b) => b.dataset.tab), "num", "the template shows the 123 keys");
+  await page.keyboard.type("45.46,9.19,120)");
+  expect(await line(), 'altaz("Mars", now, (45.46[°], 9.19[°], 120[m]))', "the (lat, lon, h) template");
+  await clear();
+  await fn("Planets");
   // an argument deleted brings its page back
   await page.click('#fn-grid [data-key="f:setting("]');
   await page.waitForTimeout(150);
@@ -185,6 +198,17 @@ try {
   // the drawing of a lunar eclipse: the Moon at its seven contacts
   await run("lunareclipse(2026.01.01)");
   check(await (await lastEntry()).$$eval(".lunar-svg .lunar-moon", (x) => x.length) === 7, "lunareclipse: the drawing");
+  await clear();
+
+  // the zoom view of the lunar eclipse: the Moon at a contact, the phase
+  await (await (await lastEntry()).$(".lunar-svg")).click();
+  await page.waitForTimeout(300);
+  check(await page.$$eval("[data-lunar-t]", (c) => c.length) === 7, "lunar eclipse: the seven contacts");
+  await page.click('[data-lunar-t]:nth-child(4)');
+  await page.waitForTimeout(150);
+  expect(await page.$eval(".lunar-when", (x) => x.textContent), /: total, umbral magnitude 1\.1\d\d/, "lunar eclipse: the phase at the maximum");
+  check(Boolean(await page.$(".lunar-full .lunar-umbra-on")), "lunar eclipse: the Moon in the umbra");
+  await page.keyboard.press("Escape");
   await clear();
 
   // the map of a solar eclipse, and its zoom view

@@ -68,7 +68,20 @@ function posError(body, t, dist) {
   }
   return Math.min(Math.hypot(e, (body === "moon" ? 0.55 : 0.04) * utError(t)) / 3600, 180);
 }
+// in horizontal coordinates, also the error of the Earth's rotation (UT)
 const skyError = (body, t, dist) => Math.min(Math.hypot(posError(body, t, dist), 15 * utError(t) / 3600), 180);
+// in right ascension and declination seen from a place, the rotation only
+// moves the place (by R cos φ times its error), seen at the distance dist
+// (km): 0.2″ for the Moon, nothing for the planets; so does the error of
+// the place itself (place.err: here, from the GPS), and in altitude and
+// azimuth it also tilts the horizon (tilt)
+function placeShift(place, dist, tilt = false) {
+  const [sl, so, sh] = place.err || [0, 0, 0];
+  const km = Math.hypot(sl * RAD * 6378.137, so * RAD * 6378.137 * Math.cos(place[0] * RAD), sh / 1000);
+  return Math.hypot(km / dist / RAD, tilt ? Math.hypot(sl, so * Math.cos(place[0] * RAD)) : 0);
+}
+const placeError = (body, t, place, dist) => Math.min(Math.hypot(posError(body, t, dist),
+  6378.137 * Math.cos(place[0] * RAD) * (15 * utError(t) / 3600 * RAD) / dist / RAD, placeShift(place, dist)), 180);
 
 // what a moon is doing
 const doing = (o) => ["transit", "occulted", "eclipsed", "shadow"].filter((k) => o[k]);
@@ -165,13 +178,20 @@ function skyBuiltins(env, b) {
       const c = findPlace(env, p.trim());
       return [c.lat, c.lon, c.h];
     }
+    // the errors of a place given with them (here, from the GPS):
+    // place.err, [latitude, longitude (degrees), height (m)]
+    const std = (q) => q.x.std || 0;
     const usage = `${name}: the place is (latitude, longitude), (latitude, longitude, height) or a name, as "Milan"`;
     if (!Array.isArray(p) || p.length < 2 || p.length > 3 || !p.every((q) => q instanceof Q)) throw new UnitError(usage);
     const [lat, lon] = [p[0], p[1]].map((q) => env.checkPure(q, name).n / RAD);
     if (!(Math.abs(lat) <= 90)) throw new UnitError(usage);
-    if (p.length === 2) return [lat, lon, 0];
-    if (!dimEq(p[2].d, env.unitValue("m").d)) throw new UnitError(`${name}: the height is a length, as in (45.46[deg], 9.19[deg], 120[m])`);
-    return [lat, lon, p[2].x.n];
+    const err = [std(p[0]) / RAD, std(p[1]) / RAD, 0];
+    const out = p.length === 2 ? [lat, lon, 0] : null;
+    if (!out && !dimEq(p[2].d, env.unitValue("m").d)) throw new UnitError(`${name}: the height is a length, as in (45.46[deg], 9.19[deg], 120[m])`);
+    const place = out || [lat, lon, p[2].x.n];
+    if (!out) err[2] = std(p[2]);
+    if (err.some((e) => e > 0)) place.err = err;
+    return place;
   };
   const deg = (x, err) => env.convert(new Q(UNum.uncertain(x * RAD, err * RAD)), ["deg"]);
   const days = (x) => env.convert(env.mul(new Q(x), env.unitValue("day")), ["day"]);
@@ -200,7 +220,7 @@ function skyBuiltins(env, b) {
   const altaz = (body, x, p) => {
     const h = horizontal(body, x, p);
     if (body.sgp4) held(body, h.alt);
-    const err = skyError(body, x, h.dist);
+    const err = Math.min(Math.hypot(skyError(body, x, h.dist), placeShift(p, h.dist, true)), 180);
     return [deg(h.alt, err), deg(h.az, err)];
   };
   // apparent places, geocentric, or seen from a place: the place is
@@ -218,7 +238,7 @@ function skyBuiltins(env, b) {
     const u = when("radec", t, pre);
     const e = seen("radec", body, u, p);
     if (body.sgp4) held(body, e.dist);
-    const err = p === undefined ? posError(body, u, e.dist) : skyError(body, u, e.dist);
+    const err = p === undefined ? posError(body, u, e.dist) : placeError(body, u, where("radec", p, pre), e.dist);
     return [deg(e.ra, Math.min(err / Math.cos(e.dec * RAD), 180)), deg(e.dec, err)];
   };
   b.ecl = (x, t) => {

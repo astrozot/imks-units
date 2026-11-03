@@ -803,7 +803,7 @@ function lunarDiagram(e, place = null) {
     return p;
   };
   const g = lunarAt(e.max), path = [];
-  for (let t = e.P1 - 1800; t <= e.P4 + 1800; t += 300) path.push(at(t));
+  for (let t = e.P1 - 1800; t <= e.P4 + 1800; t += 300) path.push({ t, ...at(t) });
   const marks = [["P1", e.P1], ["U1", e.U1], ["U2", e.U2], ["max", e.max], ["U3", e.U3], ["U4", e.U4], ["P4", e.P4]]
     .filter(([, t]) => t !== null).map(([name, t]) => ({ name, t, ...at(t) }));
   return { umbra: g.umbra, penumbra: g.penumbra, moon: g.moon, path, marks };

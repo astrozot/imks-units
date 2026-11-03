@@ -371,6 +371,21 @@ for (const [name, t, ra, dec] of [
   }
 }
 
+// the Moon from Rome (41.892°, 12.511°, 20 m) on 2026.11.03 20:00 UT,
+// against Horizons (apparent topocentric), to 1.5″; and its error from a
+// place is that of its position (the Earth's rotation moves the place by
+// some metres, 0.2″), not the 14″ of the rotation seen in alt and az
+{
+  const p = A.topocentric("moon", Date.UTC(2026, 10, 3, 20) / 1000, [41.892, 12.511, 20]), r = Math.PI / 180;
+  const ra = 158.136484094, dec = 7.628099764;
+  const c = Math.sin(dec * r) * Math.sin(p.dec * r) + Math.cos(dec * r) * Math.cos(p.dec * r) * Math.cos((ra - p.ra) * r);
+  const sep = Math.acos(Math.min(1, c)) / r * 3600;
+  if (!(sep <= 1.5)) fail(`the Moon from Rome: ${sep.toFixed(2)}″ from Horizons`);
+  const q = calc.run('radec("Moon", 2026.11.03 20:00 Z, "Rome")');
+  const e = q.kind === "value" ? q.q[1].x.std / r * 3600 : NaN;
+  if (!(e < 2)) fail(`radec of the Moon from a place: an error of ${e.toFixed(1)}″, not under 2″`);
+}
+
 // the height of a place: the Moon from Milan at 3000 m against sea level,
 // 2026.11.01 12:00 UT, 1.6611″ lower (astropy)
 {
