@@ -28,19 +28,61 @@ const mod360 = (x) => x - 360 * Math.floor(x / 360);
 
 const jdOf = (t) => t / 86400 + 2440587.5;
 
-// TT − UT in seconds: measured values to 2026, then the parabola of
-// Morrison and Stephenson, joined to them
-const DELTA_T = [[1900, -2.8], [1910, 10.4], [1920, 21.2], [1930, 24.0], [1940, 24.3], [1950, 29.1], [1960, 33.2],
-  [1970, 40.2], [1980, 50.5], [1990, 56.9], [2000, 63.8], [2010, 66.1], [2020, 69.4], [2026, 69.2], [2050, 75]];
+// TT − UT in seconds: the polynomials of Espenak and Meeus (2006) from −500
+// to 2005, fitted to ancient eclipses, then to occultations and to
+// measurements; measured values to 2026; after them the parabola of
+// Morrison and Stephenson (2004), the mean slowing by the tides (which
+// also holds before −500), from the last value, its rate going from the
+// present one to that of the parabola in some fifty years
 const parabola = (y) => -20 + 32 * ((y - 1820) / 100) ** 2;
+// [first year, origin, years per unit, coefficients]
+const DELTA_T_POLY = [
+  [-500, 0, 100, [10583.6, -1014.41, 33.78311, -5.952053, -0.1798452, 0.022174192, 0.0090316521]],
+  [500, 1000, 100, [1574.2, -556.01, 71.23472, 0.319781, -0.8503463, -0.005050998, 0.0083572073]],
+  [1600, 1600, 1, [120, -0.9808, -0.01532, 1 / 7129]],
+  [1700, 1700, 1, [8.83, 0.1603, -0.0059285, 0.00013336, -1 / 1174000]],
+  [1800, 1800, 1, [13.72, -0.332447, 0.0068612, 0.0041116, -0.00037436, 0.0000121272, -0.0000001699, 0.000000000875]],
+  [1860, 1860, 1, [7.62, 0.5737, -0.251754, 0.01680668, -0.0004473624, 1 / 233174]],
+  [1900, 1900, 1, [-2.79, 1.494119, -0.0598939, 0.0061966, -0.000197]],
+  [1920, 1920, 1, [21.2, 0.84493, -0.0761, 0.0020936]],
+  [1941, 1950, 1, [29.07, 0.407, -1 / 233, 1 / 2547]],
+  [1961, 1975, 1, [45.45, 1.067, -1 / 260, -1 / 718]],
+  [1986, 2000, 1, [63.86, 0.3345, -0.060374, 0.0017275, 0.000651814, 0.00002373599]],
+];
+const DELTA_T = [[2005, 64.69], [2010, 66.07], [2015, 67.64], [2020, 69.36], [2026, 69.2]];
 
 function deltaT(y) {
-  const first = DELTA_T[0], last = DELTA_T.at(-1);
-  if (y < first[0]) return parabola(y) - parabola(first[0]) + first[1];
-  if (y >= last[0]) return parabola(y) - parabola(last[0]) + last[1];
+  const last = DELTA_T.at(-1);
+  if (y < DELTA_T_POLY[0][0]) return parabola(y);
+  if (y < DELTA_T[0][0]) {
+    const [, y0, unit, c] = DELTA_T_POLY.findLast(([from]) => from <= y), u = (y - y0) / unit;
+    return c.reduceRight((s, a) => s * u + a, 0);
+  }
+  if (y >= last[0]) {
+    // the rate of the last ten years, against that of the parabola
+    const [y0, d0] = last, tau = 50;
+    const dr = (d0 - deltaT(y0 - 10)) / 10 - 64 * (y0 - 1820) / 1e4;
+    return d0 + parabola(y) - parabola(y0) + dr * tau * (1 - Math.exp(-(y - y0) / tau));
+  }
   const i = DELTA_T.findIndex(([x]) => x > y);
   const [x0, d0] = DELTA_T[i - 1], [x1, d1] = DELTA_T[i];
   return d0 + (d1 - d0) * (y - x0) / (x1 - x0);
+}
+
+// The uncertainty of ΔT (s): before the telescope 0.8 s a century² from
+// 1820 (Morrison and Stephenson), 20 s in 1600, 5 s in 1700, 1 s in 1800;
+// after the last measurement the rate of the Earth's rotation wanders,
+// some tenths of a second a year from decade to decade: about 10 s in 25
+// years, growing as the years^1.5
+const DELTA_T_ERR = [[1600, 20], [1700, 5], [1800, 1], [1900, 0.1]];
+function deltaTError(y) {
+  const n = y - DELTA_T.at(-1)[0];
+  if (n > 0) return Math.hypot(0.1, 0.08 * n ** 1.5);
+  if (y < DELTA_T_ERR[0][0]) return Math.max(20, 0.8 * ((y - 1820) / 100) ** 2);
+  const i = DELTA_T_ERR.findIndex(([x]) => x > y);
+  if (i < 0) return 0.1;
+  const [x0, e0] = DELTA_T_ERR[i - 1], [x1, e1] = DELTA_T_ERR[i];
+  return e0 + (e1 - e0) * (y - x0) / (x1 - x0);
 }
 
 // Julian centuries of TT since J2000.0
@@ -1448,4 +1490,4 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
-export { orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };
+export { orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };

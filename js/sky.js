@@ -8,7 +8,7 @@ import { Q, UnitError, dimEq } from "./units.js";
 import { UNum, ufuncs, atan2 } from "./unum.js";
 import { isDate, dateQ, yearArg } from "./dates.js";
 import { findObject, findPlace } from "./lookup.js";
-import { orbitAge, satellitePasses, horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season } from "./astro.js";
+import { orbitAge, satellitePasses, horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season, deltaTError } from "./astro.js";
 
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
@@ -33,10 +33,10 @@ const DIST_ERR = { moon: 1e-5 };
 // Mars its seasons and the face it shows (not modeled)
 const MAG_ERR = { sun: 0.01, moon: 0.1, mercury: 0.05, venus: 0.02, mars: 0.15, jupiter: 0.02, saturn: 0.03, uranus: 0.03, neptune: 0.02 };
 
-// The error of UT (s): UT1 − UTC, up to 0.9 s, and the unknown ΔT far
-// from the present (roughly). The Earth turns 15″ in a second, and the
-// Moon moves 0.55″ (the planets less than 0.04″).
-const utError = (t) => Math.hypot(0.9, 0.8 * ((t / 31557600 - 30) / 100) ** 2);
+// The error of UT (s): UT1 − UTC, up to 0.9 s, and the uncertainty of ΔT
+// (astro.js). The Earth turns 15″ in a second, and the Moon moves 0.55″
+// (the planets less than 0.04″).
+const utError = (t) => Math.hypot(0.9, deltaTError(1970 + t / 31557600));
 // Stars and other objects: their catalog positions, to about 0.2″, and the
 // reduction to the date, 0.2″. Minor planets and comets on a fixed orbit:
 // 5″, and 60″ (years from its epoch)², at 1 au (roughly, from Ceres, Vesta
@@ -597,7 +597,7 @@ function skyBuiltins(env, b) {
     const rows = ["March equinox", "June solstice", "September equinox", "December solstice"].map((l, k) => {
       const t = season(year, k);
       if (t === null) throw new UnitError("seasons: the years from −1000 to 3000");
-      return [l, at(t, Math.hypot(60, 0.8 * ((year - 2000) / 100) ** 2))];
+      return [l, at(t, Math.hypot(60, deltaTError(year)))];
     });
     return named(String(year), rows);
   };
@@ -616,9 +616,8 @@ function skyBuiltins(env, b) {
       return ks.map((k) => {
         const t = season(year, k);
         if (t === null) throw new UnitError(`${name}: the years from −1000 to 3000`);
-        // a minute from the formula, and the uncertainty of ΔT, which grows
-        // far from the present (roughly)
-        return dateQ(env, UNum.uncertain(t, Math.hypot(60, 0.8 * ((year - 2000) / 100) ** 2)));
+        // a minute from the formula, and the uncertainty of ΔT
+        return dateQ(env, UNum.uncertain(t, Math.hypot(60, deltaTError(year))));
       });
     };
   }
