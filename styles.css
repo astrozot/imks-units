@@ -191,6 +191,8 @@ button:focus-visible, .expr:focus-visible { outline: 2px solid var(--accent); ou
 
 .pad-pane { flex: none; }
 .side-pane { display: none; }
+/* keypad hidden by a downward swipe on the editor */
+.app.pad-hidden :is(.pad-pane, .suggest) { display: none; }
 
 /* Top bar */
 .topbar {

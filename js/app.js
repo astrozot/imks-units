@@ -6418,33 +6418,60 @@ exprEl.addEventListener("contextmenu", (ev) => {
   clearTimeout(edTimer);
   if (!edLong) editorMenu(ev.clientX, ev.clientY);
 });
-// Horizontal swipes on the input area change the keypad page
+// Horizontal swipes on the input area change the keypad page; vertical
+// ones hide the keypad (down) and bring it back (up)
 const editorEl = $(".editor");
 let swipe = null, swiped = false;
 editorEl.addEventListener("pointerdown", (ev) => {
-  swipe = { x: ev.clientX, y: ev.clientY, t: Date.now() };
+  swipe = { x: ev.clientX, y: ev.clientY, t: Date.now(), top: exprEl.scrollTop };
   swiped = false;
 });
-editorEl.addEventListener("pointerup", (ev) => {
+function endSwipe(x, y, target) {
   if (!swipe) return;
-  const dx = ev.clientX - swipe.x, dy = ev.clientY - swipe.y;
-  const fast = Date.now() - swipe.t < 700;
+  const dx = x - swipe.x, dy = y - swipe.y;
+  const fast = Date.now() - swipe.t < 700, top = swipe.top;
   swipe = null;
-  if (!fast || Math.abs(dx) < 45 || Math.abs(dx) < 2 * Math.abs(dy)) return;
+  if (!fast) return;
+  if (Math.abs(dy) >= 45 && Math.abs(dy) >= 2 * Math.abs(dx)) {
+    // let a long expression scroll instead
+    const room = dy > 0 ? top > 0 : top < exprEl.scrollHeight - exprEl.clientHeight - 1;
+    if (exprEl.contains(target) && room) return;
+    swiped = true;
+    clearTimeout(edTimer);
+    setPadHidden(dy > 0);
+    return;
+  }
+  if (Math.abs(dx) < 45 || Math.abs(dx) < 2 * Math.abs(dy)) return;
   // let a wide formula scroll instead
   const m = $("#math2d");
-  if (!m.hidden && m.contains(ev.target) && m.scrollWidth > m.clientWidth + 2) return;
+  if (!m.hidden && m.contains(target) && m.scrollWidth > m.clientWidth + 2) return;
   const i = TABS.findIndex(([id]) => id === state.tab);
   const j = Math.max(0, Math.min(TABS.length - 1, i + (dx < 0 ? 1 : -1)));
   swiped = true;
   clearTimeout(edTimer);
   if (j !== i) selectTab(TABS[j][0]);
+}
+editorEl.addEventListener("pointerup", (ev) => endSwipe(ev.clientX, ev.clientY, ev.target));
+// a vertical drag is a pan for the browser, which cancels the pointer:
+// its end then comes only as a touch event
+editorEl.addEventListener("touchend", (ev) => {
+  const t = ev.changedTouches[0];
+  if (t) endSwipe(t.clientX, t.clientY, ev.target);
 });
-editorEl.addEventListener("pointercancel", () => { swipe = null; });
+
+function setPadHidden(hide) {
+  const app = $("#app");
+  if (app.classList.contains("pad-hidden") === hide) return;
+  // keep the latest results in view when the history shrinks
+  const atEnd = historyEl.scrollTop + historyEl.clientHeight >= historyEl.scrollHeight - 4;
+  app.classList.toggle("pad-hidden", hide);
+  if (atEnd) historyEl.scrollTop = historyEl.scrollHeight;
+}
 
 exprEl.addEventListener("click", (ev) => {
   if (swiped) { swiped = false; return; }
   if (edLong) { edLong = false; return; }
+  setPadHidden(false);
   setCaret(caretIndexAt(ev.clientX, ev.clientY));
 });
 
@@ -7445,7 +7472,7 @@ function renderHelp(root) {
     ${HELP.map(([title, text, ex]) => `<h3>${esc(title)}</h3><p>${esc(text)}</p>
       <div class="ex">${ex.map(([x, note]) => `<button data-ex="${esc(x)}"><span class="x">${exprHTML(x)}</span><span>${esc(note)}</span></button>`).join("")}</div>`).join("")}
     <h3>Keypad tips</h3>
-    <p>Tap a result to insert it as ans_n (the n-th result; the last one is also ans), tap an expression to edit it, and long-press an entry for more options, such as inserting the value itself. Clearing the results numbers them again from ans_1. Tap inside the expression to move the cursor; long-press it to paste. Swipe left or right on it to change keypad page.</p>
+    <p>Tap a result to insert it as ans_n (the n-th result; the last one is also ans), tap an expression to edit it, and long-press an entry for more options, such as inserting the value itself. Clearing the results numbers them again from ans_1. Tap inside the expression to move the cursor; long-press it to paste. Swipe left or right on it to change keypad page, down to hide the keypad and up to bring it back (tapping it also brings it back).</p>
     <p>On the <b>123</b> page, long-press a key for what is written in grey: its inverse (sin⁻¹ is asin, eˣ for log, the square for √), or more, such as n! on xʸ, ×10⁻ˣ on ×10ˣ, ° on π, mod (the remainder, 7 mod 3 = 1) on ÷, ± on +, x on ×, ~ (absolute ↔ relative, for temperatures) on −, the comma on the point, AC (clear) on ⌫, sgn on |x|, and = (assignment) on ⏎; hold ◀ or ▶ to jump to the start or the end, or slide on them to move. <b>2nd</b> adds what is written in orange: sinh, log₁₀, ∛, x^(1/y), ⌊x⌋, e (and x⁻¹ on a long press of π), for one key; long-press it to keep it on. Settings can also put constants on a long press of the digits (c on 7, G on 8…), and more after 2nd (σ_SB on 7, ε₀ on 8…).</p>
     <p>The bar above the keypad adapts to the cursor: units after a number (angles inside sin, cos, tan), your recent names and common constants after an operator or an opening parenthesis, exponents after ^, and conversions after a value with units.</p>
     <p>On the <b>Units</b> page, tap a prefix and then a unit: <b>k</b> then <b>m</b> gives km. Long-press a unit, prefix or constant to see what it is. With the cursor next to a unit bracket, as in 5[m]|, the Units page puts it inside the bracket, and takes it out again when you leave. After <b>@</b>, the units of the current quantity open automatically and compatible units appear above the keypad.</p>
