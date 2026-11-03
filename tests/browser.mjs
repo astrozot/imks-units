@@ -48,6 +48,11 @@ const context = await browser.newContext({
   geolocation: { latitude: 45.4642, longitude: 9.19, accuracy: 10 }, permissions: ["geolocation", "accelerometer", "gyroscope", "magnetometer"],
 });
 const page = await context.newPage();
+// the share menu: what is given to it, kept
+await page.addInitScript(() => {
+  navigator.canShare = () => true;
+  navigator.share = async ({ files }) => { window.shared = files.map((f) => ({ name: f.name, type: f.type, size: f.size })); };
+});
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
@@ -208,6 +213,16 @@ try {
   await page.waitForTimeout(150);
   expect(await page.$eval(".lunar-when", (x) => x.textContent), /: total, umbral magnitude 1\.1\d\d/, "lunar eclipse: the phase at the maximum");
   check(Boolean(await page.$(".lunar-full .lunar-umbra-on")), "lunar eclipse: the Moon in the umbra");
+  // the switch to the diagram of the history, and back
+  await page.click('[data-lunar-view="diagram"]');
+  check(await page.$$eval(".lunar-diagram .lunar-moon", (x) => x.length) === 7 && await page.isVisible(".lunar-diagram") && !(await page.isVisible(".lunar-sim")), "lunar eclipse: the diagram");
+  await page.click('[data-lunar-view="sim"]');
+  check(await page.isVisible(".lunar-sim") && !(await page.isVisible(".lunar-diagram")), "lunar eclipse: back to the simulation");
+  // the share button: a picture of the simulation to the share menu
+  await page.click("#sheet-share");
+  await page.waitForFunction(() => window.shared, null, { timeout: 10000 }).catch(() => {});
+  const shared = await page.evaluate(() => window.shared?.[0]);
+  check(shared?.name === "lunar-eclipse.png" && shared.type === "image/png" && shared.size > 20000, `lunar eclipse: the picture shared (${JSON.stringify(shared)})`);
   await page.keyboard.press("Escape");
   await clear();
 

@@ -13,6 +13,7 @@ import { skySVG, overlaySVG, drawPlanet, fitView } from "./skyview.js";
 import { skyView } from "./sky.js";
 import { mapSVG, mapView } from "./eclipsemap.js";
 import { osmMap, TILES } from "./osmmap.js";
+import { snapshot } from "./snapshot.js";
 import { MOONS } from "./moons.js";
 import { findPlace, fetchObject, fetchPlace, fetchElevation } from "./lookup.js";
 import { STARS, DEEP, CITIES } from "./catalog.js";
@@ -3880,52 +3881,75 @@ function lunarAtTime(d, t) {
   return { x: a.x + (b.x - a.x) * w, y: a.y + (b.y - a.y) * w, up: (w < 0.5 ? a : b).up, from: ts[0], to: ts.at(-1) };
 }
 
-// The zoom view of a lunar eclipse of history entry e: the Moon at a time
-// chosen (slider, play, the contacts), dimmed in the penumbra and red in
-// the umbra, with the phase and the umbral magnitude then
+// The zoom view of a lunar eclipse of history entry e: the diagram of the
+// history, larger, or the simulation: the Moon at a time chosen (slider,
+// play, the contacts), dimmed in the penumbra and red in the umbra, with the
+// phase and the umbral magnitude then
 function openLunar(e) {
   const d = e.lunar, W = 360, { H, k, X, Y, f1, svg: base } = lunarFrame(d, W);
   const span = lunarAtTime(d, 0);
   const local = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const views = [["diagram", "Diagram"], ["sim", "Simulation"]];
   openSheet("Lunar eclipse", (root) => {
     root.innerHTML = `<p class="plot-in">${exprHTML(e.input)}</p>
+      <div class="seg lunar-views" role="tablist">${views.map(([v, n]) => `<button data-lunar-view="${v}" role="tab">${n}</button>`).join("")}</div>
+      <div class="lunar-diagram">${lunarHTML(d).replace('class="lunar-svg"', 'class="lunar-svg lunar-full"')}
+      <p class="sky-hint">The Moon at the contacts, with their times (UTC): P penumbral, U umbral</p></div>
+      <div class="lunar-sim">
       <svg class="lunar-svg lunar-full" viewBox="0 0 ${W} ${H}" role="img" aria-label="The lunar eclipse"></svg>
       <div class="lunar-play"><button class="chip" data-lunar="play" aria-label="Play">▶</button><input type="range" class="lunar-time" min="${span.from}" max="${span.to}" step="30" value="${d.marks.find((m) => m.name === "max")?.t ?? span.from}" aria-label="Time"></div>
       <div class="sky-time lunar-chips">${d.marks.map((m) => `<button class="chip" data-lunar-t="${m.t}">${m.name}</button>`).join("")}</div>
       <div class="lunar-view"><svg class="lunar-close" viewBox="0 0 140 140" role="img" aria-label="The Moon"></svg><p class="lunar-when"></p></div>
-      <p class="sky-hint">Drag the slider or tap a contact: P penumbral, U umbral; times as the eclipse is seen anywhere the Moon is up</p>`;
-  });
-  const root = sheetBody, svg = root.querySelector(".lunar-full"), close = root.querySelector(".lunar-close"), slider = root.querySelector(".lunar-time"), when = root.querySelector(".lunar-when");
+      <p class="sky-hint">Drag the slider or tap a contact: P penumbral, U umbral; times as the eclipse is seen anywhere the Moon is up</p></div>`;
+  }, () => sheetBody.querySelector(".lunar-diagram").hidden
+    ? { root: sheetBody.querySelector(".lunar-sim"), hide: ".lunar-play, .lunar-chips, .sky-hint", text: ".lunar-when", caption: [e.input], name: "lunar-eclipse" }
+    : { root: sheetBody.querySelector(".lunar-diagram"), hide: ".sky-hint", caption: [e.input], name: "lunar-eclipse" });
+  const root = sheetBody, svg = root.querySelector(".lunar-sim .lunar-full"), close = root.querySelector(".lunar-close"), slider = root.querySelector(".lunar-time"), when = root.querySelector(".lunar-when");
   const r = d.moon * k, cx0 = f1(X(0)), cy0 = f1(Y(0));
-  // the penumbra darkens toward the umbra
-  const defs = `<defs><clipPath id="lunar-disk"><circle class="lunar-clip" r="${f1(r)}"/></clipPath>
+  // Both drawings are built once and only moved on each frame: an <image>
+  // made anew every frame would not be decoded in time, and the play would
+  // show the plain disk under it
+  // the penumbra darkens toward the umbra; the near side (img/moon.webp,
+  // over a plain disk if it is missing), dimmed by the penumbra, and copper
+  // in the umbra (multiplied, so that the maria show)
+  svg.innerHTML = `<defs><clipPath id="lunar-disk"><circle class="lunar-clip" r="${f1(r)}"/></clipPath>
     <radialGradient id="lunar-pg" gradientUnits="userSpaceOnUse" cx="${cx0}" cy="${cy0}" r="${f1(d.penumbra * k)}">
-      <stop offset="${(d.umbra / d.penumbra).toFixed(3)}" stop-color="#000" stop-opacity="0.5"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient></defs>`;
+      <stop offset="${(d.umbra / d.penumbra).toFixed(3)}" stop-color="#000" stop-opacity="0.5"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient></defs>` + base +
+    `<g class="lunar-body"><circle r="${f1(r)}" class="lunar-disk"/><image href="img/moon.webp" width="${f1(2 * r)}" height="${f1(2 * r)}"/>` +
+    `<g clip-path="url(#lunar-disk)" class="lunar-shade"><circle cx="${cx0}" cy="${cy0}" r="${f1(d.penumbra * k)}" fill="url(#lunar-pg)"/><circle cx="${cx0}" cy="${cy0}" r="${f1(d.umbra * k)}" class="lunar-umbra-on"/></g></g>` +
+    `<text class="sky-label" x="${W - 8}" y="14" text-anchor="end">N ↑ E ←</text>`;
+  // the Moon close, as it looks: the shadow across the near side, its
+  // edges soft, the umbra darker inside
+  const s = 62 / d.moon;
+  close.innerHTML = `<defs><clipPath id="lunar-c"><circle cx="70" cy="70" r="62"/></clipPath>
+    <filter id="lunar-bright"><feComponentTransfer><feFuncR type="linear"/><feFuncG type="linear"/><feFuncB type="linear"/></feComponentTransfer></filter>
+    <radialGradient id="lunar-cp" gradientUnits="userSpaceOnUse" r="${(d.penumbra * s).toFixed(1)}"><stop offset="${(d.umbra / d.penumbra).toFixed(3)}" stop-color="#000"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    <radialGradient id="lunar-cu" gradientUnits="userSpaceOnUse" r="${(d.umbra * s).toFixed(1)}"><stop offset="0"/><stop offset="0.85"/><stop offset="0.95"/><stop offset="1" stop-opacity="0"/></radialGradient></defs>
+    <g class="lunar-body"><circle cx="70" cy="70" r="62" class="lunar-disk"/><image href="img/moon.webp" x="8" y="8" width="124" height="124" filter="url(#lunar-bright)"/>
+    <g clip-path="url(#lunar-c)" class="lunar-shade"><circle r="${(d.penumbra * s).toFixed(1)}" fill="url(#lunar-cp)"/><circle r="${(d.umbra * s).toFixed(1)}" fill="url(#lunar-cu)"/></g></g>`;
+  const set = (el, a) => { for (const n in a) el.setAttribute(n, a[n]); };
+  const big = { clip: svg.querySelector(".lunar-clip"), body: svg.querySelector(".lunar-body"), disk: svg.querySelector(".lunar-disk"), img: svg.querySelector("image") };
+  const near = { body: close.querySelector(".lunar-body"), funcs: close.querySelectorAll("feComponentTransfer > *"), cp: close.querySelector("#lunar-cp"), cu: close.querySelector("#lunar-cu"), shade: close.querySelectorAll(".lunar-shade circle") };
   const draw = (t) => {
     const m = lunarAtTime(d, t), cx = f1(X(m.x)), cy = f1(Y(m.y)), dist = Math.hypot(m.x, m.y);
-    svg.innerHTML = defs.replace('class="lunar-clip"', `cx="${cx}" cy="${cy}"`) + base +
-      // the near side (img/moon.webp, over a plain disk if it is missing),
-      // dimmed by the penumbra, and copper in the umbra (multiplied, so that
-      // the maria show)
-      `<g class="lunar-body${m.up === false ? " down" : ""}"><circle cx="${cx}" cy="${cy}" r="${f1(r)}" class="lunar-disk"/>` +
-      `<image href="img/moon.webp" x="${f1(X(m.x) - r)}" y="${f1(Y(m.y) - r)}" width="${f1(2 * r)}" height="${f1(2 * r)}"/>` +
-      `<g clip-path="url(#lunar-disk)" class="lunar-shade"><circle cx="${cx0}" cy="${cy0}" r="${f1(d.penumbra * k)}" fill="url(#lunar-pg)"/><circle cx="${cx0}" cy="${cy0}" r="${f1(d.umbra * k)}" class="lunar-umbra-on"/></g></g>` +
-      `<text class="sky-label" x="${W - 8}" y="14" text-anchor="end">N ↑ E ←</text>`;
-    // the Moon close, as it looks: the shadow across the near side, its
-    // edges soft, the umbra darker inside
+    set(big.clip, { cx, cy });
+    set(big.disk, { cx, cy });
+    set(big.img, { x: f1(X(m.x) - r), y: f1(Y(m.y) - r) });
+    big.body.classList.toggle("down", m.up === false);
     // in the partial phases the sunlit part brighter and the umbra a little
     // darker: the contrast of an HDR photograph (the eye sees thousands of
     // times more light, and the copper would vanish); the penumbra then
     // dims it less
-    const s = 62 / d.moon, sx = (70 + m.x * s).toFixed(1), sy = (70 + m.y * s).toFixed(1), pr = (d.penumbra * s).toFixed(1), ur = (d.umbra * s).toFixed(1);
+    const sx = (70 + m.x * s).toFixed(1), sy = (70 + m.y * s).toFixed(1);
     const part = (d.umbra + d.moon - dist) / (2 * d.moon), partial = part > 0 && part < 1, gain = partial ? 1.6 : 1;
     const dim = (hex) => "#" + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) / (partial ? 1.2 : 1)).toString(16).padStart(2, "0")).join("");
-    close.innerHTML = `<defs><clipPath id="lunar-c"><circle cx="70" cy="70" r="62"/></clipPath>
-      <filter id="lunar-bright"><feComponentTransfer><feFuncR type="linear" slope="${gain}"/><feFuncG type="linear" slope="${gain}"/><feFuncB type="linear" slope="${gain}"/></feComponentTransfer></filter>
-      <radialGradient id="lunar-cp" gradientUnits="userSpaceOnUse" cx="${sx}" cy="${sy}" r="${pr}"><stop offset="${(d.umbra / d.penumbra).toFixed(3)}" stop-color="#000" stop-opacity="${partial ? 0.3 : 0.55}"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
-      <radialGradient id="lunar-cu" gradientUnits="userSpaceOnUse" cx="${sx}" cy="${sy}" r="${ur}"><stop offset="0" stop-color="${dim("#4a140c")}"/><stop offset="0.85" stop-color="${dim("#93361f")}"/><stop offset="0.95" stop-color="${dim("#b5462a")}"/><stop offset="1" stop-color="${dim("#b5462a")}" stop-opacity="0"/></radialGradient></defs>
-      <g class="lunar-body${m.up === false ? " down" : ""}"><circle cx="70" cy="70" r="62" class="lunar-disk"/><image href="img/moon.webp" x="8" y="8" width="124" height="124"${partial ? ' filter="url(#lunar-bright)"' : ""}/>
-      <g clip-path="url(#lunar-c)" class="lunar-shade"><circle cx="${sx}" cy="${sy}" r="${pr}" fill="url(#lunar-cp)"/><circle cx="${sx}" cy="${sy}" r="${ur}" fill="url(#lunar-cu)"/></g></g>`;
+    near.funcs.forEach((f) => f.setAttribute("slope", gain));
+    set(near.cp, { cx: sx, cy: sy });
+    near.cp.firstElementChild.setAttribute("stop-opacity", partial ? 0.3 : 0.55);
+    set(near.cu, { cx: sx, cy: sy });
+    ["#4a140c", "#93361f", "#b5462a", "#b5462a"].forEach((c, i) => near.cu.children[i].setAttribute("stop-color", dim(c)));
+    near.shade.forEach((c) => set(c, { cx: sx, cy: sy }));
+    near.body.classList.toggle("down", m.up === false);
     const umbral = (d.umbra + d.moon - dist) / (2 * d.moon), penumbral = (d.penumbra + d.moon - dist) / (2 * d.moon);
     const phase = umbral >= 1 ? "total" : umbral > 0 ? "partial" : penumbral > 0 ? "penumbral" : "no eclipse";
     const mag = umbral > 0 ? `, umbral magnitude ${umbral.toFixed(3)}` : penumbral > 0 ? `, penumbral magnitude ${penumbral.toFixed(3)}` : "";
@@ -3944,7 +3968,18 @@ function openLunar(e) {
     draw(t);
     if (raf) raf = requestAnimationFrame(step);
   };
+  // the diagram or the simulation, as last chosen
+  const show = (view) => {
+    if (view !== "diagram") view = "sim";
+    store.set("lunarView", view);
+    root.querySelectorAll("[data-lunar-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.lunarView === view)));
+    root.querySelector(".lunar-diagram").hidden = view !== "diagram";
+    root.querySelector(".lunar-sim").hidden = view === "diagram";
+    if (view === "diagram" && raf) stop();
+  };
   root.addEventListener("click", (ev) => {
+    const v = ev.target.closest("[data-lunar-view]");
+    if (v) return show(v.dataset.lunarView);
     const b = ev.target.closest("[data-lunar], [data-lunar-t]");
     if (!b) return;
     if (b.dataset.lunarT) { stop(); slider.value = b.dataset.lunarT; draw(Number(b.dataset.lunarT)); return; }
@@ -3956,6 +3991,7 @@ function openLunar(e) {
   });
   slider.addEventListener("input", () => { stop(); draw(Number(slider.value)); });
   draw(Number(slider.value));
+  show(store.get("lunarView", "sim"));
 }
 
 // The map of a solar eclipse in the history (tap for openMap)
@@ -3974,7 +4010,9 @@ function openMap(e) {
       <label class="map-views">Map <select class="map-select" aria-label="Map">${views.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
       <svg class="map-svg map-full" role="img" aria-label="Map of the eclipse"></svg><div class="osm-map" hidden></div>
       <p class="sky-hint map-hint">Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back</p>`;
-  });
+  }, () => sheetBody.querySelector(".osm-map").hidden
+    ? { root: sheetBody.querySelector(".map-svg"), caption: [e.input], name: "solar-eclipse" }
+    : { root: sheetBody.querySelector(".osm-map"), hide: ".leaflet-control-zoom", text: ".osm-label span, .leaflet-control-attribution", caption: [e.input], name: "solar-eclipse" });
   const m = e.map, svg = sheetBody.querySelector(".map-svg"), osm = sheetBody.querySelector(".osm-map"), hint = sheetBody.querySelector(".map-hint");
   // the globe (drawn here, offline too) or a map of tiles (osmmap.js, online)
   let removeOsm = null;
@@ -4083,7 +4121,7 @@ function openSky(e) {
       <div class="sky-time"><button class="chip" data-sky="slower" aria-label="Slower or backward">◀◀</button><button class="chip" data-sky="play" aria-label="Play">▶</button><button class="chip" data-sky="faster" aria-label="Faster">▶▶</button><button class="chip" data-sky="reset">Reset</button></div>
       <p class="sky-hint"><span class="sky-when"></span> · <span class="sky-speed"></span></p>
       <p class="sky-hint">Drag to move, pinch or scroll to zoom, double-tap to fit; tap a moon for its events</p>`;
-  });
+  }, () => ({ root: sheetBody.querySelector(".sky-stage"), caption: [e.input, sheetBody.querySelector(".sky-when").textContent], name: `moons-${e.sky.planet.toLowerCase()}` }));
   const root = sheetBody, svg = root.querySelector(".sky-svg"), canvas = root.querySelector(".sky-canvas"), stage = root.querySelector(".sky-stage");
   let sky = e.sky, t = sky.t, W = 320, H = 400, v = null, drawn = null, raf = 0, idle = 0;
   let speed = 6, playing = false, last = 0, planetAt = 0;
@@ -6785,8 +6823,13 @@ function toast(msg, ms = 2200, action = null) {
 const sheet = $("#sheet");
 let sheetBody = $("#sheet-body");
 
-function openSheet(title, render) {
+// share: for a sheet with a diagram, what to picture when the share button
+// is tapped (see shareSheet)
+function openSheet(title, render, share = null) {
   $("#sheet-title").textContent = title;
+  sheetShare = share;
+  sharePending = null;
+  $("#sheet-share").hidden = !share;
   // a fresh element, so that listeners added by earlier sheets go away
   const fresh = sheetBody.cloneNode(false);
   fresh._tab = sheetBody._tab;
@@ -6804,7 +6847,45 @@ function closeSheet() {
 
 sheet.addEventListener("click", (ev) => {
   if (ev.target.closest("[data-close]")) closeSheet();
+  else if (ev.target.closest("#sheet-share")) shareSheet();
 });
+// a picture kept for a second tap is of the sheet as it was
+sheet.addEventListener("pointerdown", (ev) => { if (!ev.target.closest("#sheet-share")) sharePending = null; });
+
+// The share button of a sheet: a picture of its diagram (snapshot.js), as
+// sheetShare() says: { root, hide, text, caption, name }, to the share menu
+// of the system, or saved where there is none
+let sheetShare = null, sharePending = null;
+async function shareSheet() {
+  if (sharePending) {
+    const f = sharePending;
+    sharePending = null;
+    return shareFile(f, true);
+  }
+  const s = sheetShare?.();
+  if (!s) return;
+  let blob;
+  try { blob = await snapshot(s.root, s); } catch { toast("The picture could not be made"); return; }
+  shareFile(new File([blob], `${s.name}.png`, { type: "image/png" }));
+}
+function shareFile(file, again = false) {
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file] }).catch((err) => {
+      // Safari opens the menu only right after the tap, and the picture
+      // took a while: it is ready for the next one
+      if (err.name === "NotAllowedError" && !again) {
+        sharePending = file;
+        toast("The picture is ready: tap Share again");
+      }
+    });
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(file);
+  a.download = file.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape" && !sheet.hidden) closeSheet();
 });
