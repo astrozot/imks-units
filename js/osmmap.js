@@ -96,12 +96,17 @@ function ring(line) {
 }
 
 // The map of m (eclipseTrack) in the element el, on the service of key;
-// returns { remove, shade }: shade(at) draws the shadow at a moment
-// (shadowMap() in astro.js) instead of the night and the hours
-async function osmMap(el, m, key, sim = false) {
+// options: sim, the shadow instead of the night and the hours; view, {
+// center, zoom } to start with (else the whole eclipse); place, the place
+// marked; pick(p), called with the [lat, lon] tapped. Returns { remove,
+// shade, setPlace, view, moved }: shade(at) draws the shadow at a moment
+// (shadowMap() in astro.js), setPlace(p) moves the place, view() gives {
+// center, zoom }, moved() whether it was dragged or zoomed
+async function osmMap(el, m, key, { sim = false, view = null, place = m.place, pick = null } = {}) {
   const L = await loadLeaflet();
   const tiles = TILES[key] || TILES.osm, dark = Boolean(tiles.dark);
-  const map = L.map(el, { worldCopyJump: true, zoomControl: true, attributionControl: true });
+  // any zoom, to match the globe's
+  const map = L.map(el, { worldCopyJump: true, zoomControl: true, attributionControl: true, zoomSnap: 0, zoomDelta: 1 });
   L.tileLayer(tiles.url, { maxZoom: tiles.max, attribution: tiles.credit }).addTo(map);
   // colors that show on light maps and on dark ones
   const C = dark
@@ -138,13 +143,30 @@ async function osmMap(el, m, key, sim = false) {
     }
   }
   if (m.greatest) L.circleMarker(m.greatest, { radius: 5, color: dark ? "#0b0f1a" : "#ffffff", weight: 1.5, fillColor: C.band, fillOpacity: 1 }).bindTooltip("Greatest eclipse").addTo(map);
-  if (m.place) L.circleMarker(m.place, { radius: 6, color: C.place, weight: 3, fillColor: "#ffffff", fillOpacity: 1 }).bindTooltip("Place").addTo(map);
-  // the whole eclipse in view
+  // the place, above the shadow
+  map.createPane("place").style.zIndex = 650;
+  let marker = null;
+  const setPlace = (p) => {
+    if (!p) return;
+    if (marker) marker.setLatLng(p.slice(0, 2));
+    else marker = L.circleMarker(p.slice(0, 2), { pane: "place", radius: 6, color: C.place, weight: 3, fillColor: "#ffffff", fillOpacity: 1, interactive: false }).addTo(map);
+  };
+  setPlace(place);
+  // the view given, or the whole eclipse
   // (within 80° of latitude: the map has no tiles near the poles)
   const all = [...(m.penN || []), ...(m.penS || []), ...(m.band || []).filter((b) => Array.isArray(b?.[0])), ...(m.outline || [])].flatMap(unwrap)
     .map(([lat, lon]) => [Math.max(-80, Math.min(80, lat)), lon]);
-  if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [10, 10] });
+  if (view) map.setView(view.center, Math.max(0, Math.min(tiles.max, view.zoom)), { animate: false });
+  else if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [10, 10] });
   else map.setView(m.greatest || [0, 0], 2);
+  let moved = false;
+  map.on("dragstart zoomstart", () => { moved = true; });
+  // a tap picks a place; not the two of a double tap (which zooms)
+  let tap = 0;
+  if (pick) {
+    map.on("click", (ev) => { clearTimeout(tap); tap = setTimeout(() => { const p = ev.latlng.wrap(); pick([p.lat, p.lng]); }, 300); });
+    map.on("dblclick", () => clearTimeout(tap));
+  }
   // the shadow: the penumbra darker where more of the Sun is covered, the
   // umbra (or antumbra) with a ring around it; on the copies of the world
   // on either side too
@@ -169,7 +191,10 @@ async function osmMap(el, m, key, sim = false) {
       if (at.umbra.center) L.circleMarker(at.umbra.center, { radius: 7, color: dark ? "#ffffff" : C.band, weight: 1.5, fill: false, interactive: false }).addTo(shadow);
     }
   };
-  return { remove: () => map.remove(), shade };
+  return {
+    remove: () => { clearTimeout(tap); map.remove(); }, shade, setPlace, moved: () => moved,
+    view: () => { const c = map.getCenter().wrap(); return { center: [c.lat, c.lng], zoom: map.getZoom() }; },
+  };
 }
 
 export { osmMap, TILES };

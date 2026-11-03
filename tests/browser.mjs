@@ -246,6 +246,17 @@ try {
   expect(await page.$eval(".map-when", (x) => x.textContent), /at the place: total, magnitude 1\.0\d\d, 100% of the Sun covered/, "solar eclipse: totality at the place");
   await page.click('[data-map-mode="map"]');
   check(!(await page.$(".map-full .map-shade")) && !(await page.isVisible(".map-sim")), "solar eclipse: back to the map");
+  // a place tapped on the globe (its center, the greatest eclipse): the
+  // eclipse there, and its whole calculation
+  const gb = await (await page.$(".map-full")).boundingBox();
+  await page.mouse.click(gb.x + gb.width / 2, gb.y + gb.height / 2);
+  await page.waitForTimeout(500);
+  expect(await page.$eval(".map-local p", (x) => x.textContent), /^2[45]\.\d° N, 10[34]\.\d° W: total eclipse, magnitude 1\.0\d\d, 100% of the Sun covered/, "solar eclipse: a place tapped");
+  check(await page.$$eval(".map-contacts tr", (r) => r.length) === 6, "solar eclipse: the contacts at the place tapped");
+  await page.click('[data-map="calc"]');
+  await page.waitForTimeout(1500);
+  expect(await (await lastEntry()).$eval(".in", (x) => x.textContent), /^solareclipse\W*2024\.04\.07 UTC,\W*2[45]\.\d+,\W10[34]\.\d+\)/, "solar eclipse: the calculation at the place tapped");
+  expect(await (await lastEntry()).textContent(), /total solar eclipse/, "solar eclipse: total at the place tapped");
   await page.keyboard.press("Escape");
   await clear();
 

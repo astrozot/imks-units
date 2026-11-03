@@ -39,6 +39,16 @@ function projector({ lat0, lon0, s }, W, H) {
   };
 }
 
+// The point [lat, lon] at (x, y) of a view (as in projector), or null off
+// the Earth
+function unproject({ lat0, lon0, s }, W, H, x, y) {
+  const X = (x - W / 2) / s, Y = (H / 2 - y) / s, q = X * X + Y * Y;
+  if (q > 1) return null;
+  const Z = Math.sqrt(1 - q), c0 = Math.cos(lat0 * RAD), s0 = Math.sin(lat0 * RAD);
+  const lon = lon0 + Math.atan2(X, c0 * Z - s0 * Y) / RAD;
+  return [Math.asin(c0 * Y + s0 * Z) / RAD, ((lon % 360) + 540) % 360 - 180];
+}
+
 // The control points of the Bézier from b to c of a centripetal
 // Catmull–Rom curve through a, b, c, e: no loops nor overshoots where the
 // points are unevenly spaced, and the same at any zoom
@@ -224,4 +234,4 @@ function mapView(m, W, H) {
   return { lat0, lon0, s: Math.min(W, H) / 2 - 8 };
 }
 
-export { mapSVG, mapView };
+export { mapSVG, mapView, unproject };
