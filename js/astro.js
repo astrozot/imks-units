@@ -865,6 +865,106 @@ function shadowGeometry(t) {
   return { d, e1, e2, x0: dot(m, e1), y0: dot(m, e2), zm: dot(m, d), rm, f1: (rs + rm) / len, f2: (rs - rm) / len, gast: siderealTime(t, 0) };
 }
 
+// A point (x, y) of the plane of a shadow g (shadowGeometry), on the sunlit
+// side of the Earth, to [lat, lon] (geodetic, degrees), or null
+function shadowGeo(g, x, y) {
+  const q = x * x + y * y;
+  if (q > 1) return null;
+  const z = -Math.sqrt(1 - q), P = [0, 1, 2].map((i) => x * g.e1[i] + y * g.e2[i] + z * g.d[i]);
+  const lon = mod360(Math.atan2(P[1], P[0]) / RAD - g.gast + 180) - 180;
+  return [Math.atan2(P[2] / (1 / 0.99664719), 0.99330562 * Math.hypot(P[0], P[1])) / RAD, lon];
+}
+
+// The Moon's shadow on the Earth at the time t: the point with the Sun
+// overhead (sun), the outlines (lines of [lat, lon], closed) of where the
+// eclipse is partial with a magnitude above each of levels (the penumbra
+// at 0), and of the umbra (total) or antumbra (annular) with its kind and
+// its center (or null when it misses the Earth)
+function shadowMap(t, levels = [0]) {
+  const g = shadowGeometry(t), S = equatorial("sun", t);
+  // the radius of the penumbra (L1) and the signed one of the umbra (L2,
+  // negative past its tip) at the height z
+  const L1 = (z) => g.rm + (z - g.zm) * g.f1, L2 = (z) => g.rm - (z - g.zm) * g.f2;
+  // the outline of the disk of radius rad(z) around the axis on the sunlit
+  // side: its edge where it is on that side, then the terminator back to
+  // where the edge comes in again
+  const outline = (rad) => {
+    const at = (th) => {
+      let z = -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0)), x, y;
+      for (let i = 0; i < 3; i++) {
+        const r = rad(z);
+        x = g.x0 + r * Math.cos(th);
+        y = g.y0 + r * Math.sin(th);
+        z = -Math.sqrt(Math.max(0, 1 - x * x - y * y));
+      }
+      return [x, y];
+    };
+    const ins = (p) => p[0] * p[0] + p[1] * p[1] < 1, d0 = Math.hypot(g.x0, g.y0), r0 = rad(0);
+    if (r0 <= 0) return null;
+    const N = 120, ths = Array.from({ length: N }, (_, j) => (2 * Math.PI * j) / N), pts = ths.map(at), inside = pts.map(ins);
+    const circle = (a, b, n) => Array.from({ length: n + 1 }, (_, j) => { const u = a + ((b - a) * j) / n; return [Math.cos(u), Math.sin(u)]; });
+    let plane;
+    if (inside.every(Boolean)) plane = pts;
+    else if (!inside.some(Boolean)) {
+      // all of the sunlit side, or none of it
+      if (d0 + 1 > r0) return null;
+      plane = circle(0, 2 * Math.PI, 120).slice(1);
+    } else {
+      // from where the edge comes in, around to where it goes out
+      const i0 = inside.findIndex((v, i) => v && !inside[(i + N - 1) % N]);
+      const cross = (a, b) => {
+        let lo = a, hi = b;
+        for (let m = 0; m < 30; m++) { const mid = (lo + hi) / 2; if (ins(at(mid))) lo = mid; else hi = mid; }
+        return at(lo);
+      };
+      const enter = cross(ths[i0], ths[i0] - (2 * Math.PI) / N);
+      plane = [enter];
+      let j = i0;
+      for (; inside[j % N]; j++) plane.push(pts[j % N]);
+      const leave = cross(ths[(j - 1) % N] + (j - 1 >= N ? 2 * Math.PI : 0), ths[j % N] + (j >= N ? 2 * Math.PI : 0));
+      plane.push(leave);
+      // the terminator from leave to enter, the way inside the disk
+      const a = Math.atan2(leave[1], leave[0]);
+      let b = Math.atan2(enter[1], enter[0]);
+      while (b < a) b += 2 * Math.PI;
+      const mid = (a + b) / 2;
+      if (Math.hypot(Math.cos(mid) - g.x0, Math.sin(mid) - g.y0) > r0) b -= 2 * Math.PI;
+      const n = Math.max(2, Math.ceil(Math.abs(b - a) / (3 * RAD)));
+      plane.push(...circle(a, b, n).slice(1, -1));
+    }
+    return plane.map(([x, y]) => shadowGeo(g, x * 0.999999, y * 0.999999)).filter(Boolean)
+      .map((p) => p.map((v) => Math.round(v * 1000) / 1000));
+  };
+  // a magnitude m at the distance from the axis L1 − m (L1 + L2)
+  const partial = levels.map((m) => ({ m, line: outline((z) => L1(z) - m * (L1(z) + L2(z))) })).filter((p) => p.line);
+  const z0 = -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0)), axis = g.x0 * g.x0 + g.y0 * g.y0 < 1 ? shadowGeo(g, g.x0, g.y0) : null;
+  const line = outline((z) => Math.abs(L2(z)));
+  const umbra = line && { kind: L2(z0) > 0 ? "total" : "annular", line, center: axis };
+  return { sun: [S.dec, mod360(S.ra - g.gast + 180) - 180], partial, umbra };
+}
+
+// The contacts of a solar eclipse with its greatest phase at tmax with the
+// Earth (made a sphere as in shadowGeometry): P1 and P4, the penumbra
+// first and last on the Earth, U1 and U4, the umbra (or antumbra; null
+// when it misses)
+function solarContacts(tmax) {
+  const off = (sign) => (t) => {
+    const g = shadowGeometry(t), z = sign > 0 ? 0 : -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0));
+    return Math.hypot(g.x0, g.y0) - 1 - Math.abs(g.rm + sign * (z - g.zm) * (sign > 0 ? g.f1 : g.f2));
+  };
+  const c = (sign, side) => (side < 0 ? zero(off(sign), tmax - 5 * 3600, tmax) : zero(off(sign), tmax, tmax + 5 * 3600));
+  return { P1: c(1, -1), U1: c(-1, -1), max: tmax, U4: c(-1, 1), P4: c(1, 1) };
+}
+
+// A solar eclipse seen from a place at the time t: its phase (none,
+// partial, total, annular), magnitude, the part of the Sun covered, and
+// the Sun's altitude
+function solarPhase(t, place) {
+  const a = solarLocalAt(t, place), mag = Math.max(0, (a.sun + a.moon - a.d) / (2 * a.sun));
+  const phase = a.d >= a.sun + a.moon ? "none" : a.d < Math.abs(a.sun - a.moon) ? (a.moon > a.sun ? "total" : "annular") : "partial";
+  return { phase, magnitude: mag, obscuration: obscuration(a.sun, a.moon, a.d), alt: horizontal("sun", t, place).alt };
+}
+
 // The track of a solar eclipse on the Earth around its greatest phase at
 // tmax, from the Moon's shadow every 30 s (on the Earth made a sphere, as in
 // shadowGeometry), all as lines of [latitude, longitude] (geodetic,
@@ -1257,7 +1357,7 @@ function eclipseTrack(tmax) {
     center: lines(runs(center)), band: lines(band.map((b) => [...b.n, ...b.s.reverse()])), penN: lines(runs(penN)), penS: lines(runs(penS)),
     begin: hours.begin.map(([h, ls]) => [h, lines(ls)]), end: hours.end.map(([h, ls]) => [h, lines(ls)]),
     rise: joinEnds(lines(chain(riseB)), lines(chain(riseE)), lines(chain(riseM))),
-    greatest, sun: [S.dec, mod360(S.ra - siderealTime(tmax, 0) + 180) - 180],
+    greatest, sun: [S.dec, mod360(S.ra - siderealTime(tmax, 0) + 180) - 180], t: tmax,
   };
 }
 
@@ -1348,4 +1448,4 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
-export { orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };
+export { orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT };

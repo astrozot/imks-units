@@ -69,9 +69,36 @@ function night([dec, lon0]) {
   return [[pole, -540], ...pts, [pole, 540]];
 }
 
+// a line with points at most 2° of longitude apart, along great circles
+// (straight on the map, long steps near the poles would cut across)
+function dense(line) {
+  const RAD = Math.PI / 180, unit = ([lat, lon]) => [Math.cos(lat * RAD) * Math.cos(lon * RAD), Math.cos(lat * RAD) * Math.sin(lon * RAD), Math.sin(lat * RAD)];
+  const out = [line[0]];
+  for (let i = 1; i < line.length; i++) {
+    const p = line[i - 1], q = line[i], n = Math.ceil(Math.abs(((q[1] - p[1] + 540) % 360) - 180) / 2);
+    const a = unit(p), b = unit(q), w = Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])));
+    for (let j = 1; j < n && w > 1e-9; j++) {
+      const f = j / n, ka = Math.sin((1 - f) * w) / Math.sin(w), kb = Math.sin(f * w) / Math.sin(w), v = a.map((x, k) => ka * x + kb * b[k]);
+      out.push([Math.asin(v[2]) / RAD, Math.atan2(v[1], v[0]) / RAD]);
+    }
+    out.push(q);
+  }
+  return out;
+}
+
+// a closed outline unwrapped, its edge and the area: one around a pole
+// (its longitudes going all the way round) closed through that pole
+function ring(line) {
+  const u = unwrap(dense([...line, line[0]])), turn = u[u.length - 1][1] - u[0][1];
+  if (Math.abs(turn) < 180) return { edge: u, area: u };
+  const pole = u.reduce((s, p) => s + p[0], 0) > 0 ? 85 : -85;
+  return { edge: u, area: [...u, [pole, u[u.length - 1][1]], [pole, u[0][1]]] };
+}
+
 // The map of m (eclipseTrack) in the element el, on the service of key;
-// returns a function that removes it
-async function osmMap(el, m, key) {
+// returns { remove, shade }: shade(at) draws the shadow at a moment
+// (shadowMap() in astro.js) instead of the night and the hours
+async function osmMap(el, m, key, sim = false) {
   const L = await loadLeaflet();
   const tiles = TILES[key] || TILES.osm, dark = Boolean(tiles.dark);
   const map = L.map(el, { worldCopyJump: true, zoomControl: true, attributionControl: true });
@@ -85,23 +112,23 @@ async function osmMap(el, m, key) {
     interactive: false,
     icon: L.divIcon({ className: "osm-label", html: `<span style="color:${color}">${text}</span>`, iconSize: null }),
   }).addTo(map);
-  L.polygon(night(m.sun), { stroke: false, fillColor: "#000", fillOpacity: dark ? 0.35 : 0.18, interactive: false }).addTo(map);
-  line(m.outline || [...m.penN, ...m.penS], { color: C.partial, weight: 2, dashArray: "6 4" });
-  for (const [kind, color] of [["begin", C.begin], ["end", C.end]]) {
+  const nightLayer = L.polygon(night(m.sun), { stroke: false, fillColor: "#000", fillOpacity: dark ? 0.35 : 0.18, interactive: false }).addTo(map);
+  line(m.outline || [...m.penN, ...m.penS], { color: C.partial, weight: sim ? 1 : 2, dashArray: "6 4", opacity: sim ? 0.6 : 1 });
+  for (const [kind, color] of sim ? [] : [["begin", C.begin], ["end", C.end]]) {
     for (const [h, ls] of m[kind] || []) {
       line(ls, { color, weight: 1.5 });
       const hh = `${String(((h % 24) + 24) % 24).padStart(2, "0")}h`;
       for (const l of ls) if (l.length > 8) label(unwrap(l)[Math.floor(l.length / 2)], hh, color);
     }
   }
-  if (m.rise) {
+  if (m.rise && !sim) {
     line([...m.rise.begin, ...m.rise.end], { color: C.rise, weight: 1, opacity: 0.6, dashArray: "1 4" });
     line(m.rise.max, { color: C.rise, weight: 1.5, dashArray: "2 4" });
   }
-  for (const b of m.band || []) if (Array.isArray(b?.[0])) L.polygon(unwrap(b), { color: C.band, weight: 1, fillColor: C.band, fillOpacity: 0.45, interactive: false }).addTo(map);
-  line(m.center, { color: C.center, weight: 1.5 });
+  for (const b of m.band || []) if (Array.isArray(b?.[0])) L.polygon(unwrap(b), { color: C.band, weight: 1, fillColor: C.band, fillOpacity: sim ? 0.2 : 0.45, interactive: false }).addTo(map);
+  line(m.center, { color: C.center, weight: sim ? 1 : 1.5 });
   // the times on the central line, every half hour
-  for (const seg of m.center) {
+  for (const seg of sim ? [] : m.center) {
     const u = unwrap(seg);
     for (let i = 1; i < seg.length; i++) {
       if (seg[i].length < 3 || Math.floor(seg[i - 1][2] * 2) === Math.floor(seg[i][2] * 2)) continue;
@@ -118,7 +145,31 @@ async function osmMap(el, m, key) {
     .map(([lat, lon]) => [Math.max(-80, Math.min(80, lat)), lon]);
   if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [10, 10] });
   else map.setView(m.greatest || [0, 0], 2);
-  return () => map.remove();
+  // the shadow: the penumbra darker where more of the Sun is covered, the
+  // umbra (or antumbra) with a ring around it; on the copies of the world
+  // on either side too
+  let shadow = null;
+  const shade = (at) => {
+    if (shadow) shadow.remove();
+    shadow = L.layerGroup().addTo(map);
+    nightLayer.setLatLngs(night(at.sun));
+    const poly = (l, fill, edge = null) => {
+      const r = ring(l);
+      for (const k of [-360, 0, 360]) {
+        const off = (pts) => pts.map(([a, b]) => [a, b + k]);
+        L.polygon(off(r.area), { interactive: false, stroke: false, fillOpacity: 0.85, ...fill }).addTo(shadow);
+        if (edge) L.polyline(off(r.edge), { interactive: false, weight: 1, ...edge }).addTo(shadow);
+      }
+    };
+    const shadeFill = { fillColor: "#000", fillOpacity: dark ? 0.24 : 0.1 };
+    for (const p of at.partial) poly(p.line, shadeFill, p.m ? null : { color: C.partial, weight: 1.5 });
+    if (at.umbra) {
+      const u = at.umbra.kind === "total" ? { color: "#000", fill: "#000" } : { color: C.band, fill: "#3a1a00" };
+      poly(at.umbra.line, { fillColor: u.fill }, { color: u.color });
+      if (at.umbra.center) L.circleMarker(at.umbra.center, { radius: 7, color: dark ? "#ffffff" : C.band, weight: 1.5, fill: false, interactive: false }).addTo(shadow);
+    }
+  };
+  return { remove: () => map.remove(), shade };
 }
 
 export { osmMap, TILES };

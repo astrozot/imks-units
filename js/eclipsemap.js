@@ -138,8 +138,10 @@ function nightPath(sun, view, W, H, P) {
 }
 
 // The map in an SVG of W × H for the view (centered on lat0, lon0, s pixels
-// per Earth radius); place: [latitude, longitude] or null
-function mapSVG(m, W, H, view, place = null) {
+// per Earth radius); place: [latitude, longitude] or null; at: the shadow
+// at a moment (shadowMap() in astro.js), drawn with the night then instead
+// of the hours
+function mapSVG(m, W, H, view, place = null, at = null) {
   const P = projector(view, W, H), R = view.s, cx = W / 2, cy = H / 2;
   const f1 = (x) => x.toFixed(1);
   let svg = `<rect class="map-bg" width="${W}" height="${H}" rx="10"/><circle class="map-sea" cx="${f1(cx)}" cy="${f1(cy)}" r="${f1(R)}"/>`;
@@ -147,22 +149,39 @@ function mapSVG(m, W, H, view, place = null) {
   for (let lat = -60; lat <= 60; lat += 30) grid.push(Array.from({ length: 73 }, (_, i) => [lat, -180 + 5 * i]));
   for (let lon = -180; lon < 180; lon += 30) grid.push(Array.from({ length: 37 }, (_, i) => [-90 + 5 * i, lon]));
   svg += `<path class="map-grid" d="${linesPath(grid, P)}"/>`;
-  svg += `<path class="map-night" d="${nightPath(m.sun, view, W, H, P)}"/>`;
-  svg += `<path class="map-coast" d="${linesPath(coast(), P)}"/>`;
-  // the limits of the partial eclipse (older results: the outline of where
-  // it is seen)
-  svg += `<path class="map-partial" d="${linesPath(m.outline || [...m.penN, ...m.penS], P, true)}"/>`;
-  // the band of the central phase: smooth closed outlines, the points
-  // behind the Earth brought to its edge
+  svg += `<path class="map-night" d="${nightPath(at ? at.sun : m.sun, view, W, H, P)}"/>`;
+  // the points behind the Earth brought to its edge
   const edgeP = (p) => {
     const [x, y, v] = P(p);
     if (v) return [x, y];
     const r = Math.hypot(x - cx, y - cy) || 1;
     return [cx + ((x - cx) * R) / r, cy + ((y - cy) * R) / r];
   };
+  const ring = (l) => (l.some((p) => P(p)[2]) ? `M${distinct(l.map(edgeP)).map(([x, y]) => `${fx(x)} ${fx(y)}`).join("L")}z` : "");
+  // the penumbra darker where more of the Sun is covered, one shade over
+  // the other
+  if (at) for (const p of at.partial) svg += `<path class="map-shade${p.m ? "" : " edge"}" d="${ring(p.line)}"/>`;
+  svg += `<path class="map-coast" d="${linesPath(coast(), P)}"/>`;
+  // the limits of the partial eclipse (older results: the outline of where
+  // it is seen)
+  svg += `<path class="map-partial${at ? " faint" : ""}" d="${linesPath(m.outline || [...m.penN, ...m.penS], P, true)}"/>`;
+  // the band of the central phase: smooth closed outlines
   const bands = (m.band || []).filter((b) => Array.isArray(b?.[0]) && b.some((p) => P(p)[2]));
-  if (bands.length) svg += `<path class="map-path" d="${bands.map((b) => closedPath(b.map(edgeP))).join("")}"/>`;
+  if (bands.length) svg += `<path class="map-path${at ? " faint" : ""}" d="${bands.map((b) => closedPath(b.map(edgeP))).join("")}"/>`;
   svg += `<path class="map-center" d="${linesPath(m.center, P, true)}"/>`;
+  const mark = (p, cls, r = 4) => {
+    const [x, y, v] = P(p);
+    return v ? `<circle class="${cls}" cx="${fx(x)}" cy="${fx(y)}" r="${r}"/>` : "";
+  };
+  if (at) {
+    // the umbra (or antumbra), and a ring around it to see it when small
+    if (at.umbra) {
+      svg += `<path class="map-umbra ${at.umbra.kind}" d="${ring(at.umbra.line)}"/>`;
+      if (at.umbra.center) svg += mark(at.umbra.center, `map-umbra-ring ${at.umbra.kind}`, 7);
+    }
+    if (place) svg += mark(place, "map-place");
+    return svg;
+  }
   // the hours (UTC) when the partial eclipse begins and ends, labeled at
   // the visible middle of each line; the maximum at sunrise or sunset
   const hh = (h) => `${String(((Math.round(h) % 24) + 24) % 24).padStart(2, "0")}h`;
@@ -194,10 +213,6 @@ function mapSVG(m, W, H, view, place = null) {
       svg += `<circle class="map-tick" cx="${f1(x)}" cy="${f1(y)}" r="1.8"/><text class="map-label map-time" x="${f1(x + 5)}" y="${f1(y - 4)}">${text}</text>`;
     }
   }
-  const mark = (p, cls) => {
-    const [x, y, v] = P(p);
-    return v ? `<circle class="${cls}" cx="${f1(x)}" cy="${f1(y)}" r="4"/>` : "";
-  };
   if (m.greatest) svg += mark(m.greatest, "map-greatest");
   if (place) svg += mark(place, "map-place");
   return svg;
