@@ -157,7 +157,7 @@ const STARTUP = String.raw`
 %let hbar=h/(2*pi)                                # "Planck constant over 2 pi"
 %let k=const["Boltzmann constant"]                # "Boltzmann constant"
 %let alpha=const["fine-structure constant"]       # "Fine-structure constant"
-%let Nav=const["Avogadro constant"]               # "Avogadro constant"
+%let N_A=const["Avogadro constant"]               # "Avogadro constant"
 
 %let m_e=const["electron mass"]   # "Electron mass"
 %let m_p=const["proton mass"]     # "Proton mass"
@@ -169,30 +169,28 @@ const STARTUP = String.raw`
 %let e=const["elementary charge"] # "Elementary charge"
 %newunit eV=1[V]*e                # "Electron Volt"
 %newunit E_h=const["Hartree energy"] # "Hartree energy"
-%let Gfermi=const["Fermi coupling constant"] # "Fermi coupling constant"
-%let me=const["electron mass"]    # "Electron mass"
-%let mp=const["proton mass"]      # "Proton mass"
-%let muBohr=e*hbar/(2*me)         # "Bohr magneton"
-%let faraday=e*Nav                # "Faraday constant"
+%let G_F=const["Fermi coupling constant"] # "Fermi coupling constant"
+%let mu_B=e*hbar/(2*m_e)         # "Bohr magneton"
+%let faraday=e*N_A                # "Faraday constant"
 
 %let g=const["standard acceleration of gravity"] # "Standard acceleration of gravity"
 %let atmosphere=const["standard atmosphere"]     # "Standard atmosphere"
 
-%let mu0=4*pi*1e-7[H/m]           # "Permeability of vacuum"
-%let epsilon0=1/(mu0*c^2)         # "Permittivity of vacuum"
-%let ke=1/(4*pi*epsilon0)         # "Coulomb constant"
+%let mu_0=4*pi*1e-7[H/m]           # "Permeability of vacuum"
+%let epsilon_0=1/(mu_0*c^2)         # "Permittivity of vacuum"
+%let k_e=1/(4*pi*epsilon_0)         # "Coulomb constant"
 
-%let sigma=2*pi^5*k^4/(15*h^3*c^2) # "Stefan-Boltzmann constant"
-%let R=Nav*k                       # "Molar gas constant"
+%let sigma_SB=2*pi^5*k^4/(15*h^3*c^2) # "Stefan-Boltzmann constant"
+%let R=N_A*k                       # "Molar gas constant"
 
 %newsystem easy=[m|s|kg|K|A|lx|mol|EUR|N|J|W|Pa|C|V|ohm|F|H|T|lx] # "Easy system: SI with derived units"
 %newsystem Easy=[*|easy] # "Easy system with prefixes"
 
 # Natural units
-%newsystem planck=["c"|"hbar"|"G"|"ke"|"k"]  # "Planck unit system"
-%newsystem stoney=["c"|"G"|"ke"|"e"|"k"]     # "Stoney unit system"
-%newsystem atomic=["e"|"me"|"hbar"|"ke"|"k"] # "Hartree atomic unit"
-%newsystem qcdunits=["c"|"mp"|"hbar"|"k"]    # "Quantum chromodynamics (QCD) unit system"
+%newsystem planck=["c"|"hbar"|"G"|"k_e"|"k"]  # "Planck unit system"
+%newsystem stoney=["c"|"G"|"k_e"|"e"|"k"]     # "Stoney unit system"
+%newsystem atomic=["e"|"m_e"|"hbar"|"k_e"|"k"] # "Hartree atomic unit"
+%newsystem qcdunits=["c"|"m_p"|"hbar"|"k"]    # "Quantum chromodynamics (QCD) unit system"
 
 ######################################################################
 ##                    iMKS library file: Astro                      ##
@@ -206,11 +204,12 @@ const STARTUP = String.raw`
 %let siderealyear=365.25636[day]        # "Sidereal year"
 %let siderealday=86164.09054[s]         # "Sidereal day"
 
-%let Msun=1.98889e30[kg]                # "Mass of the Sun"
-%let Rsun=6.961e8[m]                    # "Radius of the Sun"
-%let Lsun=3.847e26[W]                   # "Luminosity of the Sun"
-%newunit Msun=Msun                      # "Mass of the Sun"
-%newunit Lsun=Lsun                      # "Luminosity of the Sun"
+%let M_Sun=1.98889e30[kg]                # "Mass of the Sun"
+%let R_Sun=6.961e8[m]                    # "Radius of the Sun"
+%let L_Sun=3.847e26[W]                   # "Luminosity of the Sun"
+%newunit M_Sun=M_Sun                      # "Mass of the Sun"
+%newunit R_Sun=R_Sun # "Radius of the Sun"
+%newunit L_Sun=L_Sun                      # "Luminosity of the Sun"
 
 # CMB related quantities
 %let T_CMB = 2.725[K]                   # "CMB temperature"
@@ -220,16 +219,16 @@ const STARTUP = String.raw`
 %let T_nu = (4.0/11.0)^(1/3) * T_CMB    # "Neutrino temperature"
 
 # Cosmological quantities
-%let H0 = 70[km s^-1 Mpc^-1]            # "Hubble's constant"
-%lazy rho_c = 3*H0^2/(8*pi*G)           # "Critical density"
-%let OmegaM = 0.3                       # "Mass density parameter"
-%let OmegaL = 0.7                       # "Cosmological constant parameter"
-%lazy OmegaCMB = rho_CMB / rho_c        # "CMB density parameter"
-%lazy OmegaK = 1 - OmegaM - OmegaL      # "Curvature parameter"
-%lazy dH = c / H0 @ Mpc                 # "Hubble's distance"
-%lazy tH = 1 / H0 @ Gyr                 # "Hubble's time"
+%let H_0 = 70[km s^-1 Mpc^-1]           # "Hubble's constant"
+%lazy rho_c = 3*H_0^2/(8*pi*G)          # "Critical density"
+%let Omega_M = 0.3                       # "Mass density parameter"
+%let Omega_L = 0.7                       # "Cosmological constant parameter"
+%lazy Omega_CMB = rho_CMB / rho_c        # "CMB density parameter"
+%lazy Omega_K = 1 - Omega_M - Omega_L      # "Curvature parameter"
+%lazy d_H = c / H_0 @ Mpc                # "Hubble's distance"
+%lazy t_H = 1 / H_0 @ Gyr                # "Hubble's time"
 
-%newsystem astro=[pc|km/s|Msun|K|A|cd|mol|EUR] # "Astronomical system"
+%newsystem astro=[pc|km/s|M_Sun|K|A|cd|mol|EUR] # "Astronomical system"
 
 %defaultsystem si
 `;

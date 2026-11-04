@@ -73,6 +73,209 @@ try {
   await page.goto(url);
   await page.waitForTimeout(1500);
 
+  // Long help uses a bounded modal; releasing the held key must not type it.
+  const holdHelp = async (selector) => {
+    await page.locator(selector).dispatchEvent("pointerdown", { pointerId: 1, clientX: 100, clientY: 400 });
+    await page.waitForTimeout(550);
+    await page.locator(selector).dispatchEvent("pointerup", { pointerId: 1 });
+    await page.locator(selector).dispatchEvent("click");
+    await page.waitForTimeout(250);
+  };
+  await clear();
+  await page.waitForTimeout(80);
+  const emptyInput = await line();
+  await holdHelp('#suggest [data-const="pi"]');
+  check(await page.locator(".quantity-card").count() === 1, "suggested constants open quantity help");
+  expect(await line(), emptyInput, "holding a suggestion does not insert it");
+  await page.keyboard.press("Escape");
+  check(await page.locator('#suggest [data-const="pi"]').evaluate((el) => document.activeElement === el && getComputedStyle(el).outlineStyle === "none"), "Escape restores suggestion focus without a blue outline");
+  await page.click('#suggest [data-const="pi"]');
+  expect(await line(), "π", "a normal suggestion tap still inserts");
+  await clear();
+  await page.waitForTimeout(80);
+  await holdHelp('#suggest [data-fn="sqrt("]');
+  expect(await page.locator(".function-signatures > div").first().textContent(), "sqrt(x)", "suggested functions open function help");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.keyboard.type("sqr");
+  await page.waitForTimeout(80);
+  const completion = '#suggest [data-help-kind="function"][data-help-name="sqrt"]';
+  await holdHelp(completion);
+  expect(await line(), "sqr", "holding a completion preserves the partial word");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.click(completion);
+  expect(await line(), "√(", "tapping a completion still replaces the partial word");
+  await clear();
+  await page.keyboard.type("3 m");
+  await page.waitForTimeout(80);
+  await holdHelp('#suggest [data-convert="ft"]');
+  check((await page.locator(".unit-definition").textContent()).includes("0.3048"), "conversion suggestions open unit help");
+  expect(await line(), "3 m", "holding a conversion suggestion does not convert");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await clear();
+  await page.keyboard.type("today ");
+  await page.waitForTimeout(80);
+  await holdHelp('#suggest [data-convert="date"]');
+  expect(await page.locator(".quantity-kind").textContent(), "Output format", "date suggestions open format help");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await clear();
+  await page.waitForTimeout(80);
+  const swipeChip = page.locator('#suggest [data-const="pi"]');
+  await swipeChip.dispatchEvent("pointerdown", { pointerId: 1, clientX: 200, clientY: 100 });
+  await swipeChip.dispatchEvent("pointermove", { pointerId: 1, clientX: 150, clientY: 100 });
+  await page.waitForTimeout(550);
+  await swipeChip.dispatchEvent("pointerup", { pointerId: 1 });
+  check(await page.isHidden("#sheet"), "swiping suggestions cancels help");
+
+  await fn("Sky");
+  const occultationKey = '#fn-grid [data-key="f:occultation("]';
+  const beforeHelp = await line();
+  await holdHelp(occultationKey);
+  expect(await line(), beforeHelp, "long-press help does not insert a function");
+  check(await page.isVisible(".key-help-modal"), "long-press opens a help modal");
+  check(await page.locator('.key-help-modal .sheet-head [data-close]').evaluate((el) => getComputedStyle(el).outlineStyle === "none"), "long-press focus does not show a blue outline");
+  check(await page.locator('.key-help').evaluate((el) => getComputedStyle(el).userSelect === "none"), "held touch cannot select help text");
+  expect(await page.locator(".function-signatures > div").first().textContent(), "occultation(front, target, t[, place])", "function help begins with a calling signature");
+  check((await page.locator(".function-signatures > div").count()) === 1, "occultation has one explicit calling form");
+  check(!(await page.locator(".key-help > p").first().textContent()).startsWith("occultation:"), "the description omits the redundant function label");
+  expect((await page.locator(".key-help h3").allTextContents()).join(", "), "Arguments, Returns, Examples, Notes", "function help has documentation sections");
+  check(await page.locator(".key-help code .syntax-string").count() > 0, "help highlights quoted arguments");
+  check(await page.locator(".key-help code .syntax-function").count() > 0, "help highlights function names");
+  const fitsHelp = () => page.$eval(".key-help-modal .sheet-panel", (el) => {
+    const r = el.getBoundingClientRect(), body = el.querySelector(".sheet-body");
+    return { top: r.top, bottom: r.bottom, height: innerHeight, width: body.clientWidth, scrollWidth: body.scrollWidth };
+  });
+  const helpFits = (r) => r.top >= 0 && r.bottom <= r.height && r.scrollWidth <= r.width;
+  const portraitHelp = await fitsHelp();
+  check(helpFits(portraitHelp), `long help fits a phone without horizontal overflow (${JSON.stringify(portraitHelp)})`);
+  await page.waitForTimeout(4200);
+  check(await page.isVisible(".key-help-modal"), "help stays open until explicitly dismissed");
+  await page.setViewportSize({ width: 740, height: 360 });
+  await page.waitForTimeout(250);
+  const landscapeHelp = await fitsHelp();
+  check(helpFits(landscapeHelp), `help fits landscape phones (${JSON.stringify(landscapeHelp)})`);
+  check(await page.$eval(".key-help", (el) => el.scrollHeight > el.clientHeight), "long help scrolls in a short viewport");
+  await page.locator(".key-help").evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  check(await page.isHidden("#sheet"), "help closes after scrolling to the end");
+  check(await page.locator(occultationKey).evaluate((el) => document.activeElement === el), "closing help restores focus to its key");
+  await page.setViewportSize({ width: 360, height: 740 });
+  await holdHelp(occultationKey);
+  await page.keyboard.press("Tab");
+  check(await page.locator(".key-help").evaluate((el) => document.activeElement === el), "keyboard users can focus and scroll help");
+  check(await page.locator(".key-help").evaluate((el) => getComputedStyle(el).outlineStyle !== "none"), "keyboard navigation retains its focus indicator");
+  await page.keyboard.press("Escape");
+  check(await page.isHidden("#sheet"), "Escape closes help");
+  check(await page.locator(occultationKey).evaluate((el) => document.activeElement === el && getComputedStyle(el).outlineStyle === "none"), "Escape restores keypad focus without a blue outline");
+  await holdHelp(occultationKey);
+  await page.locator(".sheet-backdrop").click({ position: { x: 2, y: 2 } });
+  check(await page.isHidden("#sheet"), "tapping outside closes help");
+
+  await holdHelp('#fn-grid [data-key="f:sunrise("]');
+  const sunriseIntro = page.locator('.key-help > p:not(.signature-hint)').first();
+  expect(await sunriseIntro.textContent(), "The next sunrise after t.", "sunrise introduction has no redundant calling example");
+  expect(await sunriseIntro.locator("code").textContent(), "t", "argument references in prose use grey code styling");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  for (const [section, name, signature] of [["Math", "sqrt", "sqrt(x)"], ["Calculus", "solve", "solve(f(x) = y, x, guess)"], ["Distributions", "Gamma", "Γ(x)"], ["Cosmology", "D_A", "DA(z)"], ["Cosmology", "age", "age(z)"]]) {
+    await fn(section);
+    await holdHelp(`#fn-grid [data-key="f:${name}("]`);
+    expect(await page.locator(".function-signatures > div").first().textContent(), signature, `${name} calling syntax`);
+    check(await page.locator(".function-arguments dt").count() > 0, `${name} explains its arguments`);
+    if (name === "D_A" || name === "age") {
+      check(await page.locator(".key-help code").evaluateAll((els) => els.some((el) => el.textContent === "ΩM" && el.querySelector("sub")?.textContent === "M")), `${name} help formats Omega_M using the editor notation`);
+      check(await page.locator(".key-help code").evaluateAll((els) => els.some((el) => el.textContent === "H0" && el.querySelector("sub")?.textContent === "0")), `${name} help formats H_0 with a subscript`);
+    }
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+  }
+
+  // Unit help distinguishes definitions, scale factors and zero points.
+  await page.click('[data-tab="units"]');
+  await page.click('[data-cat="Length"]');
+  await holdHelp('#unit-grid [data-unit="ft"]');
+  check((await page.locator(".unit-definition").textContent()).includes("0.3048"), "foot help shows its conversion to metres");
+  check(await page.locator(".unit-definition").evaluate((el) => el.scrollWidth <= el.clientWidth), "unit definition fits a phone");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await holdHelp('#unit-grid [data-unit="m"]');
+  expect(await page.locator(".quantity-kind").textContent(), "Base unit", "base unit is identified");
+  check((await page.locator(".unit-definition").textContent()).includes("length"), "base unit describes its role");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.click('[data-cat="Temp."]');
+  await holdHelp('#unit-grid [data-unit="°C"]');
+  check((await page.locator(".unit-definition").textContent()).includes("273.15"), "Celsius help accounts for its zero point");
+  check((await page.locator(".unit-definition").textContent()).includes("373.15"), "Celsius help shows a second reference temperature");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await holdHelp('[data-prefix="k"]');
+  expect(await page.locator(".quantity-kind").textContent(), "Prefix", "prefix has its own help layout");
+  expect(await page.locator(".quantity-card sup").textContent(), "3", "prefix multiplier comes from its definition");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await holdHelp('[data-prefix="*"]');
+  check((await page.locator(".key-help").textContent()).includes("powers of 1000"), "automatic prefixes explain engineering scaling");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.click('[data-cat="Systems"]');
+  await holdHelp('#unit-grid [data-sys="si"]');
+  expect(await page.locator(".quantity-kind").textContent(), "Unit system", "unit system is identified");
+  check((await page.locator(".unit-targets code").allTextContents()).includes("kg"), "system help lists actual conversion targets");
+  expect(await page.locator(".unit-definition code").textContent(), "value @ si", "system help shows conversion syntax");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await holdHelp('#unit-grid [data-sys="planck"]');
+  check((await page.locator(".key-help").textContent()).includes("natural-unit scales"), "natural systems explain quoted variables");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await holdHelp('#unit-grid [data-sys="hms"]');
+  expect(await page.locator(".quantity-kind").textContent(), "Output format", "formats are distinguished from systems");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.click('[data-cat="Dates"]');
+  await holdHelp('#unit-grid [data-sys="JD"]');
+  check(!(await page.locator(".key-help").textContent()).includes("temperature"), "date offsets are not described as temperature offsets");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  // Constants and variables: values, units and uncertainty are separate.
+  await page.click('[data-tab="const"]');
+  await page.click('[data-constcat="Physics"]');
+  await holdHelp('#const-grid [data-const="G"]');
+  check((await page.locator(".quantity-description").textContent()).includes("gravit"), "constant has a full description");
+  check((await page.locator(".quantity-value").textContent()).includes("6.674"), "constant has a prominent value");
+  check((await page.locator(".quantity-details").textContent()).includes("Relative uncertainty"), "constant shows uncertainty separately");
+  check((await page.locator(".key-help").textContent()).includes("NIST CODATA"), "constant retains its available source");
+  const quantityFits = await page.locator(".quantity-value").evaluate((el) => el.scrollWidth <= el.clientWidth);
+  check(quantityFits, "constant values fit a phone");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await holdHelp('#const-grid [data-const="c"]');
+  check((await page.locator(".quantity-details").textContent()).includes("Exact by definition"), "defined constant distinguishes exact values from unspecified errors");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.click('[data-constcat="Cosmology"]');
+  await holdHelp('#const-grid [data-const="H_0"]');
+  expect(await page.locator(".quantity-kind").textContent(), "Model parameter", "cosmology values identify model parameters");
+  expect(await page.locator("#sheet-title sub").textContent(), "0", "help titles format symbolic subscripts");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await holdHelp('#const-grid [data-const="rho_c"]');
+  expect(await page.locator(".quantity-kind").textContent(), "Derived quantity", "derived value has its own kind");
+  check(await page.locator(".function-definition").count() === 1, "derived value shows its definition");
+  expect(await page.locator(".function-definition sup").textContent(), "2", "constant definition typesets powers like the input");
+  check(!(await page.locator(".function-definition").textContent()).includes("^"), "constant definition hides the exponent caret");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  const savedDistance = await run('help_distance = (12.5 +/- 0.2) m # "Measured distance"');
+  check(savedDistance?.includes("12.5"), `test variable assignment succeeds (${savedDistance})`);
+  await page.click('[data-constcat="Yours"]');
+  await holdHelp('#const-grid [data-const="help_distance"]');
+  expect(await page.locator(".quantity-kind").textContent(), "Variable", "user variable is identified");
+  expect(await page.locator(".quantity-description").textContent(), "Measured distance", "variable retains its documentation");
+  check((await page.locator(".quantity-value").textContent()).includes("12.5"), "variable shows its current value");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await run('help_list = (1, 2, 3) m');
+  await page.click('[data-constcat="Yours"]');
+  await holdHelp('#const-grid [data-const="help_list"]');
+  check((await page.locator(".quantity-details").textContent()).includes("3 elements"), "list variable shows its size");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  // Canonical names work throughout the app; old spellings have no hidden aliases.
+  expect(await run("H_0 / H_0 + Omega_M / Omega_M + M_Sun / M_Sun + mu_B / mu_B"), "4", "canonical constants evaluate");
+  expect(await run("Ω_M / Omega_M + Γ(5) / Gamma(5)"), "2", "equivalent symbol input still resolves");
+  for (const old of ["H0", "OmegaM", "Msun", "vesc_Mars", "gamma(5)", "chi2_p(12.3, 5)", "1[Mearth]"]) {
+    await run(old);
+    check(await page.locator("#preview").evaluate((el) => el.classList.contains("error")), `${old} is no longer a legacy alias`);
+    await clear();
+  }
+
   // dates, and the Dates targets after @
   expect(await run("2026.10.30 18:42 @ hebrew"), "19 Heshvan 5787, 18:42", "a date in the Hebrew calendar");
   await page.keyboard.type("today");
@@ -89,6 +292,36 @@ try {
   await page.click('#fn-grid [data-key="n:today"]');
   expect(await line(), "now − today", "the now and today keys");
   expect(await run(" @ h"), /^\d+(\.\d+)?\s*h$/, "now - today");
+  await clear();
+
+  // Date argument pages include user absolute times, with their variable
+  // names inserted; durations and automatic history values stay out.
+  await run('observingdate = 2026.11.01 20:00');
+  await run('observingduration = 2 h');
+  await run('observinglist = (today, today + 1[day])');
+  await clear();
+  await fn("Sky");
+  await page.click('#fn-grid [data-key="f:moonphases("]');
+  await page.locator('#fn-grid [data-arg="today"]').waitFor();
+  check(await page.locator('#fn-grid [data-arg="observingdate"]').count() === 1, "absolute time variable suggested");
+  check(await page.locator('#fn-grid [data-arg="observingduration"]').count() === 0, "duration not suggested as a date");
+  check(await page.locator('#fn-grid [data-arg="observinglist"]').count() === 0, "date list not suggested as a scalar date");
+  check(await page.locator('#fn-grid [data-arg="ans"], #fn-grid [data-arg^="ans_"]').count() === 0, "history dates not suggested");
+  await page.click('#fn-grid [data-arg="observingdate"]');
+  expect(await line(), 'moonphases(observingdate)', "date variable closes final argument");
+  await clear();
+  await fn("Planets");
+  await page.click('#fn-grid [data-key="f:altaz("]');
+  await page.click('#fn-grid [data-arg=\'"Moon"\']');
+  await page.click('#fn-grid [data-arg="observingdate"]');
+  expect(await line(), 'altaz("Moon", observingdate, ', "date variable advances to place argument");
+  await clear();
+  await run('observingdate = 2 h');
+  await clear();
+  await fn("Sky");
+  await page.click('#fn-grid [data-key="f:moonphases("]');
+  await page.locator('#fn-grid [data-arg="today"]').waitFor();
+  check(await page.locator('#fn-grid [data-arg="observingdate"]').count() === 0, "date suggestions reflect reassignments");
   await clear();
 
   // a function from the Planets keys, then its arguments from their pages:
@@ -115,17 +348,70 @@ try {
   expect(await line(), 'moonevents("Io", today, "eclipse")', "a moon, a date and a kind from their pages");
   check(Boolean(await page.$('#fn-grid [data-key="f:moonevents("]')), "back to Planets after the call");
   await clear();
-  // two bodies: the second, in front, the Moon or a planet (not the Sun)
+  // Both longitude events require two bodies, then permit closing without
+  // Settings or choosing a place. The geocentric choice is enabled either way.
+  for (const name of ["conjunction", "opposition"]) {
+    await fn("Sky");
+    check(!await page.$('#fn-grid [data-key="f:sun("]'), "Sky omits sun shortcut");
+    check(!await page.$('#fn-grid [data-key="f:moon("]'), "Sky omits moon shortcut");
+    await page.click(`#fn-grid [data-key="f:${name}("]`);
+    await page.click('#fn-grid [data-arg=\'"Mars"\']');
+    await page.click('#fn-grid [data-arg=\'"Sun"\']');
+    await page.click('#fn-grid [data-arg="today"]');
+    expect(await line(), `${name}("Mars", "Sun", today, `, `${name}: optional place offered`);
+    const done = page.locator('#fn-grid [data-argdone]');
+    check(await done.isEnabled(), `${name}: geocentric enabled without saved location`);
+    expect(await done.locator('b').textContent(), "Geocentric )", `${name}: clear close label`);
+    await done.click();
+    expect(await line(), `${name}("Mars", "Sun", today)`, `${name}: no trailing comma`);
+    await clear();
+    await fn("Sky");
+    await page.click(`#fn-grid [data-key="f:${name}("]`);
+    await page.click('#fn-grid [data-arg=\'"Moon"\']');
+    await page.click('#fn-grid [data-arg=\'"Sun"\']');
+    await page.click('#fn-grid [data-arg="today"]');
+    await page.click('#fn-grid [data-key="pick:city"]');
+    await page.fill('.pick-search', "Rome");
+    await page.click('[data-pick-insert=\'"Rome"\']');
+    expect(await line(), `${name}("Moon", "Sun", today, "Rome")`, `${name}: explicit local place`);
+    await clear();
+  }
+  // Foreground first: only the Moon and planets. Background catalog
+  // pickers then retain candidates near its path, including Regulus.
   await fn("Sky");
   await page.click('#fn-grid [data-key="f:occultation("]');
-  await page.waitForTimeout(150);
-  await page.click('#fn-grid [data-arg=\'"Saturn"\']');
-  await page.waitForTimeout(150);
-  check(await page.$eval('#fn-grid [data-arg=\'"Sun"\']', (b) => b.disabled), "the Sun is not in front");
+  await page.locator('#fn-grid [data-arg=\'"Moon"\']').waitFor();
+  check(await page.$eval('#fn-grid [data-arg=\'"Sun"\']', (b) => b.disabled), "the Sun is not an occultation foreground");
+  check(await page.$eval('#fn-grid [data-key="pick:star"]', (b) => b.disabled), "foreground cannot be a star");
   await page.click('#fn-grid [data-arg=\'"Moon"\']');
+  await page.locator('#fn-grid [data-key="pick:star"]:enabled').waitFor();
+  check(await page.$eval('#fn-grid [data-arg=\'"Moon"\']', (b) => b.disabled), "Moon cannot be its own background");
+  await page.click('#fn-grid [data-key="pick:star"]');
+  await page.locator(".pick-search").waitFor();
+  check(await page.locator('[data-pick-insert=\'"Polaris"\']').count() === 0, "Polaris excluded for the Moon");
+  check(await page.locator('[data-pick-insert=\'"Regulus"\']').count() === 1, "Regulus remains a lunar candidate");
+  await page.fill('.pick-search', 'Polaris');
+  check(await page.locator('[data-pick-insert=\'"Polaris"\']').count() === 0, "search preserves occultation filtering");
+  await page.click("#sheet .sheet-head [data-close]");
+  await page.click('#fn-grid [data-key="pick:deep"]');
+  await page.locator('.pick-search').waitFor();
+  check(await page.locator('[data-pick-insert=\'"M31"\']').count() === 0, "Andromeda excluded from lunar targets");
+  check(await page.locator('[data-pick-insert=\'"M45"\']').count() === 1, "Pleiades remain lunar candidates");
+  await page.click("#sheet .sheet-head [data-close]");
+  await page.click('#fn-grid [data-key="pick:star"]');
+  await page.fill('.pick-search', 'Regulus');
+  await page.click('[data-pick-insert=\'"Regulus"\']');
   await page.click('#fn-grid [data-arg="today"]');
-  await page.waitForTimeout(150);
-  expect(await line(), 'occultation("Saturn", "Moon", today, ', "a body, the one in front and a date from their pages");
+  expect(await line(), 'occultation("Moon", "Regulus", today, ', "foreground then background then date");
+  await clear();
+  // The filter is scoped to occultation: ordinary star pickers keep Polaris.
+  await fn("Planets");
+  await page.click('#fn-grid [data-key="f:altaz("]');
+  await page.locator('#fn-grid [data-key="pick:star"]:enabled').waitFor();
+  await page.click('#fn-grid [data-key="pick:star"]');
+  await page.fill('.pick-search', 'Polaris');
+  await page.locator('[data-pick-insert=\'"Polaris"\']').waitFor();
+  await page.click('[data-pick-insert=\'"Polaris"\']');
   await clear();
   await fn("Planets");
   // the place closes passes( (its days are seldom given)
@@ -222,6 +508,33 @@ try {
   await (await (await lastEntry()).$(".lunar-svg")).click();
   await page.waitForTimeout(300);
   check(await page.$$eval("[data-lunar-t]", (c) => c.length) === 7, "lunar eclipse: the seven contacts");
+  // The penumbral part must keep dimming as the limb crosses into/out of
+  // the umbra. Sample the same maria at the disk center, still outside
+  // the umbra on both sides of U1/U4, using the rendered picture.
+  const penumbralLight = await page.evaluate(async () => {
+    const { snapshot } = await import("./js/snapshot.js");
+    const slider = document.querySelector(".lunar-time"), moon = document.querySelector(".lunar-close");
+    const light = async (t) => {
+      slider.value = t;
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+      const img = await createImageBitmap(await snapshot(moon));
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      img.close();
+      const pixels = ctx.getImageData(Math.floor(canvas.width / 2) - 2, Math.floor(canvas.height / 2) - 2, 5, 5).data;
+      return pixels.reduce((sum, v, i) => sum + (i % 4 < 3 ? v : 0), 0) / 75;
+    };
+    const out = [];
+    for (const name of ["U1", "U4"]) {
+      const t = Number([...document.querySelectorAll("[data-lunar-t]")].find((c) => c.textContent === name).dataset.lunarT);
+      out.push([await light(t - 60), await light(t + 60)]);
+    }
+    return out;
+  });
+  check(penumbralLight.every(([before, after]) => before > 10 && after > 10 && Math.abs(after - before) < 5),
+    `lunar eclipse: continuous penumbral dimming at umbral contacts (${JSON.stringify(penumbralLight)})`);
   await page.click('[data-lunar-t]:nth-child(4)');
   await page.waitForTimeout(150);
   expect(await page.$eval(".lunar-when", (x) => x.textContent), /: total, umbral magnitude 1\.1\d\d/, "lunar eclipse: the phase at the maximum");
@@ -240,7 +553,7 @@ try {
   await clear();
 
   // the map of an occultation: its limits and the star's rising or setting
-  await run('occultation("Regulus", 2026.01.01, "Milan")');
+  await run('occultation("Moon", "Regulus", 2026.01.01, "Milan")');
   await page.waitForTimeout(2500);
   const occMap = await lastEntry();
   check(Boolean(await occMap.$(".map-svg .map-partial")), "occultation: the map with its limits");
@@ -385,6 +698,49 @@ try {
 
   // the year, month and day of a date
   expect(await run("ymd(2026.10.30)"), "(2026, 10, 30)", "ymd");
+
+  // Enter in Settings resolves cities outside the built-in catalog.
+  let placeRequests = 0, elevationRequests = 0;
+  const geocode = async (route) => {
+    placeRequests++;
+    const name = new URL(route.request().url()).searchParams.get("q");
+    await new Promise((r) => setTimeout(r, 150));
+    await route.fulfill({ json: name === "Pisa" ? [{ display_name: "Pisa, Toscana, Italia", lat: "43.7159", lon: "10.4019" }] : [] });
+  };
+  const elevation = (route) => { elevationRequests++; return route.fulfill({ json: { elevation: [4] } }); };
+  await page.route("https://nominatim.openstreetmap.org/search?**", geocode);
+  await page.route("https://api.open-meteo.com/v1/elevation?**", elevation);
+  await page.click("#btn-settings");
+  await page.fill("#set-place", "Pisa");
+  await page.press("#set-place", "Enter");
+  expect(await page.textContent("#loc-found"), "Looking it up…", "Enter starts the online place lookup");
+  await page.press("#set-place", "Enter");
+  await page.locator("#set-place").blur();
+  await page.waitForFunction(() => document.querySelector("#loc-found").textContent === "Pisa, Toscana, Italia");
+  expect(await page.inputValue("#set-lat"), "43.7159", "online city latitude");
+  expect(await page.inputValue("#set-lon"), "10.4019", "online city longitude");
+  expect(await page.inputValue("#set-h"), "4", "online city elevation");
+  expect(await page.inputValue("#set-place"), "", "successful place lookup clears the query");
+  check(placeRequests === 1 && elevationRequests === 1, "Enter and blur share one pending lookup");
+  await page.fill("#set-place", "Unknown test city");
+  await page.press("#set-place", "Enter");
+  await page.waitForFunction(() => document.querySelector("#loc-found").textContent.includes("not known to OpenStreetMap"));
+  expect(await page.inputValue("#set-lat"), "43.7159", "failed lookup preserves the saved location");
+  await page.fill("#set-place", "Pisa");
+  await page.press("#set-place", "Enter");
+  expect(await page.textContent("#loc-found"), "Pisa, Toscana, Italia", "cached cities resolve after a failed search");
+  check(placeRequests === 2, "cached city needs no further online request");
+  await page.fill("#set-place", "Milan");
+  await page.locator("#set-place").blur();
+  expect(await page.textContent("#loc-found"), "Milan, IT", "built-in cities still resolve on blur");
+  check(placeRequests === 2, "built-in cities need no online request");
+  for (const id of ["#set-lat", "#set-lon", "#set-h"]) {
+    await page.fill(id, "");
+    await page.locator(id).dispatchEvent("change");
+  }
+  await page.click("#sheet .sheet-head [data-close]");
+  await page.unroute("https://nominatim.openstreetmap.org/search?**", geocode);
+  await page.unroute("https://api.open-meteo.com/v1/elevation?**", elevation);
 
   // keep vertical: a page held sideways is turned, and keys still work
   await page.click("#btn-settings");

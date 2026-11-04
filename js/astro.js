@@ -1499,7 +1499,7 @@ function positionAngle(p, q) {
 // declination of a, and b north of a by sep (degrees, south when
 // negative); their closest approach (closest) and least separation; or
 // null
-function conjunction(a, b, t, place = null, years = 200) {
+function conjunctionRA(a, b, t, place = null, years = 200) {
   const f = (x) => mod360(seenFrom(a, x, place).ra - seenFrom(b, x, place).ra + 180) - 180;
   const v = (raSpeed(a) + raSpeed(b)) / 86400, end = t + years * 31557600;
   let x = t, fx = f(x), c = null;
@@ -1518,6 +1518,53 @@ function conjunction(a, b, t, place = null, years = 200) {
   let h = Math.max(0.5, 2 / (v * 86400)) * 86400, closest = least(d, c, h);
   while (Math.abs(closest - c) > 0.9 * h && h < 365 * 86400) closest = least(d, c, h *= 2);
   return { t: c, rate: Math.abs(f(c + 30) - f(c - 30)) / 60, dec: A.dec, sep: B.dec - A.dec, closest, least: d(closest) };
+}
+
+// Apparent ecliptic coordinates of date, geocentric or topocentric.
+function seenEcliptic(body, t, place) {
+  if (!place) return ecliptic(body, centuries(t));
+  const p = topocentric(body, t, place), eps = nutation(centuries(t)).eps;
+  const x = cos(p.dec) * cos(p.ra);
+  const y = cos(p.dec) * sin(p.ra) * cos(eps) + sin(p.dec) * sin(eps);
+  const z = sin(p.dec) * cos(eps) - cos(p.dec) * sin(p.ra) * sin(eps);
+  return { lon: mod360(Math.atan2(y, x) / RAD), lat: Math.atan2(z, Math.hypot(x, y)) / RAD };
+}
+
+// The next equality (or 180° difference) of apparent ecliptic longitudes.
+// Conjunction also gives the closest approach; opposition the greatest
+// separation nearby. The signed conjunction separation is in latitude.
+function longitudeEvent(a, b, t, place, years, opposed) {
+  const f = (x) => mod360(seenEcliptic(a, x, place).lon - seenEcliptic(b, x, place).lon + (opposed ? 0 : 180)) - 180;
+  const v = (raSpeed(a) + raSpeed(b)) / 86400, end = t + years * 31557600;
+  let x = t, fx = f(x), c = null;
+  while (x < end && c === null) {
+    const y = Math.min(end, x + Math.max(Math.abs(fx), 0.01) / v), fy = f(y);
+    if ((fx < 0) !== (fy < 0) && Math.abs(fx - fy) < 180) c = zero(f, x, y);
+    x = y;
+    fx = fy;
+  }
+  if (c === null) return null;
+  const A = seenEcliptic(a, c, place), B = seenEcliptic(b, c, place);
+  const d = (u) => sep(vec(seenFrom(a, u, place)), vec(seenFrom(b, u, place)));
+  const objective = (u) => opposed ? -d(u) : d(u);
+  let h = Math.max(0.5, 2 / (v * 86400)) * 86400, closest = least(objective, c, h);
+  while (Math.abs(closest - c) > 0.9 * h && h < 365 * 86400) closest = least(objective, c, h *= 2);
+  return { t: c, rate: Math.abs(mod360(f(c + 30) - f(c - 30) + 180) - 180) / 60,
+    lat: A.lat, lat2: B.lat, sep: opposed ? d(c) : B.lat - A.lat, closest, least: d(closest) };
+}
+const conjunction = (a, b, t, place = null, years = 200) => longitudeEvent(a, b, t, place, years, false);
+const opposition = (a, b, t, place = null, years = 200) => longitudeEvent(a, b, t, place, years, true);
+
+// A broad catalog prefilter, using J2000 positions, for modern observing
+// dates. The lunar belt allows for inclination, parallax and the disk;
+// the planetary belt is deliberately generous. This only trims pickers:
+// manually entered names still use the full moving-position calculation.
+function occultationCandidate(front, ra, dec) {
+  const band = front === "moon" ? 8 : ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"].includes(front) ? 15 : null;
+  if (band === null || !Number.isFinite(ra) || !Number.isFinite(dec)) return true;
+  const eps = 23.4392911;
+  const lat = Math.asin(sin(dec) * cos(eps) - cos(dec) * sin(eps) * sin(ra)) / RAD;
+  return Math.abs(lat) <= band;
 }
 
 // The radii (km) of the bodies in front: the Moon's mean limb, k = 0.2725076
@@ -1631,7 +1678,7 @@ function occultationLocal(target, front, t, place) {
 function occultation(target, front, t, place, years) {
   const end = t + years * 31557600;
   for (let u = t; u < end;) {
-    const c = conjunction(front, target, u, null, (end - u) / 31557600);
+    const c = conjunctionRA(front, target, u, null, (end - u) / 31557600);
     if (c === null) return null;
     const g = (x) => sep(vec(equatorial(front, x)), vec(equatorial(target, x)));
     const tg = least(g, c.t, (front === "moon" ? 0.3 : 2) * 86400);
@@ -1706,4 +1753,4 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
-export { conjunction, occultation, occultationLocal, occultationTrack, orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };
+export { conjunction, opposition, occultationCandidate, occultation, occultationLocal, occultationTrack, orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };

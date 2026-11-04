@@ -8,17 +8,17 @@ import { Q, UnitError, dimEq } from "./units.js";
 import { UNum, ufuncs, atan2 } from "./unum.js";
 import { isDate, dateQ, yearArg } from "./dates.js";
 import { findObject, findPlace } from "./lookup.js";
-import { conjunction, occultation, occultationTrack, orbitAge, satellitePasses, horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season, deltaTError } from "./astro.js";
+import { conjunction, opposition, occultation, occultationTrack, orbitAge, satellitePasses, horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season, deltaTError } from "./astro.js";
 
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
 // are not taken elementwise
-const SKY_FNS = ["place", "passes", "sunday", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse", "conjunction", "occultation"];
+const SKY_FNS = ["place", "passes", "sunday", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse", "conjunction", "opposition", "occultation"];
 // the coordinate functions, whose points are lists (lon, lat)
 const COORD_FNS = ["eq2hor", "hor2eq", "eq2ecl", "ecl2eq", "eq2gal", "gal2eq", "precess", "sep", "pa"];
 // the functions whose first argument is the name of a body (a star or
 // another object too, for most)
-const BODY_FNS = ["passes", "altaz", "radec", "ecl", "dist", "mag", "illum", "elong", "diam", "rising", "setting", "transit", "moons", "moonpos", "moonevents", "conjunction", "occultation"];
+const BODY_FNS = ["passes", "altaz", "radec", "ecl", "dist", "mag", "illum", "elong", "diam", "rising", "setting", "transit", "moons", "moonpos", "moonevents", "conjunction", "opposition", "occultation"];
 const BODIES = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
 // the planets with moons in moons.js
 const MOON_PLANETS = ["mars", "jupiter", "saturn", "uranus", "neptune"];
@@ -482,58 +482,45 @@ function skyBuiltins(env, b) {
     throw new UnitError("solareclipse: none seen here in the next 20 years");
   };
 
-  // The next conjunction of two bodies in right ascension after t, seen
-  // from the center of the Earth or from a place (the place is optional,
-  // the location of the settings is not used): its time and the second
-  // body north of the first by the separation (south when negative), the
-  // closest approach and the least separation; their angle from the Sun,
-  // and with a place the altitude of the first
+  // Two explicit bodies; omit the place for a geocentric calculation.
   const PAIR = '"Venus", "Jupiter", ';
-  b.conjunction = (x, y, t, p) => {
-    const a = bodyOf("conjunction", x, ["star", "orbit"], "first", `${PAIR}today`);
-    const c = bodyOf("conjunction", y, ["star", "orbit"], "second", `${PAIR}today`);
-    if (Name(a) === Name(c)) throw new UnitError("conjunction: two different bodies, as in conjunction(" + PAIR + "today)");
-    if (typeof a === "object" && typeof c === "object" && !a.orbits && !c.orbits) throw new UnitError("conjunction: the stars do not move; one of the bodies is in the solar system");
-    const u = when("conjunction", t, PAIR), place = p === undefined ? null : where("conjunction", p, PAIR);
-    const e = conjunction(a, c, u, place);
-    const seenAt = (body, x) => (place ? topocentric(body, x, place) : equatorial(body, x));
-    if (!e) throw new UnitError(`conjunction: none of ${Name(a)} and ${Name(c)} in the next 200 years`);
-    // the errors of both positions, in right ascension over its rate
-    const err = (x) => {
-      const pa = seenAt(a, x), pc = seenAt(c, x);
-      return Math.hypot(place ? placeError(a, x, place, pa.dist) : posError(a, x, pa.dist), place ? placeError(c, x, place, pc.dist) : posError(c, x, pc.dist));
+  for (const [name, solve] of [["conjunction", conjunction], ["opposition", opposition]]) {
+    b[name] = (x, y, t, p) => {
+      const a = bodyOf(name, x, ["star", "orbit"], "first", `${PAIR}today`);
+      const c = bodyOf(name, y, ["star", "orbit"], "second", `${PAIR}today`);
+      if (Name(a) === Name(c)) throw new UnitError(`${name}: two different bodies, as in ${name}(${PAIR}today)`);
+      if (typeof a === "object" && typeof c === "object" && !a.orbits && !c.orbits) throw new UnitError(`${name}: one of the bodies must be in the solar system`);
+      const u = when(name, t, PAIR), place = p === undefined ? null : where(name, p, PAIR);
+      const e = solve(a, c, u, place);
+      const seenAt = (body, x) => (place ? topocentric(body, x, place) : equatorial(body, x));
+      if (!e) throw new UnitError(`${name}: none of ${Name(a)} and ${Name(c)} in the next 200 years`);
+      // Position errors projected into ecliptic longitude over its rate
+      const err = (x) => {
+        const pa = seenAt(a, x), pc = seenAt(c, x);
+        return Math.hypot(place ? placeError(a, x, place, pa.dist) : posError(a, x, pa.dist), place ? placeError(c, x, place, pc.dist) : posError(c, x, pc.dist));
+      };
+      // a minute for the closest approach: the separation is flat there
+      const rows = [[name, at(e.t, Math.min(err(e.t) / Math.min(Math.abs(Math.cos(e.lat * RAD)), Math.abs(Math.cos(e.lat2 * RAD))) / e.rate, 86400))], ["separation", deg(e.sep, err(e.t))],
+        [name === "opposition" ? "greatest separation at" : "closest approach", at(e.closest, 60)], [name === "opposition" ? "greatest separation" : "least separation", deg(e.least, err(e.closest))]];
+      if (a !== "sun" && c !== "sun") {
+        const s = typeof a === "object" && !a.orbits ? c : a;
+        rows.push(["elongation", deg(aspect(s, e.t).elong, posError(s, e.t))]);
+      }
+      if (place) rows.push([`${Name(a)}'s altitude`, deg(horizontal(a, e.closest, place).alt, 0.01)]);
+      return named(`${Name(a)} and ${Name(c)}`, rows);
     };
-    // a minute for the closest approach: the separation is flat there
-    const rows = [["conjunction", at(e.t, Math.min(err(e.t) / Math.cos(e.dec * RAD) / e.rate, 86400))], ["separation", deg(e.sep, err(e.t))],
-      ["closest approach", at(e.closest, 60)], ["least separation", deg(e.least, err(e.closest))]];
-    if (a !== "sun" && c !== "sun") {
-      const s = typeof a === "object" && !a.orbits ? c : a;
-      rows.push(["elongation", deg(aspect(s, e.t).elong, posError(s, e.t))]);
-    }
-    if (place) rows.push([`${Name(a)}'s altitude`, deg(horizontal(a, e.closest, place).alt, 0.01)]);
-    return named(`${Name(a)} and ${Name(c)}`, rows);
-  };
+  }
 
-  // The next occultation of a body (a star, a planet, a minor planet) by
-  // the Moon after t seen from a place, with the body above the horizon
-  // during some of it, or by another body in front (the Moon or a planet:
-  // occultation("Jupiter", "Venus", t, place)): when it goes in and out
-  // (for a disk, its first and last contacts and when it is wholly
-  // covered; for Saturn, also of its rings), where on the limb, from the
-  // north through the east, and for the Moon whether that limb is dark or
-  // lit; the altitudes and the lit part of the Moon. Times to a few seconds: the positions, 1.5″ more for
-  // the valleys and mountains of the Moon's limb, over the speed
+  // Explicit foreground first, followed by the body it covers.
   const FRONTS = ["moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
   b.occultation = (x, y, t, p) => {
-    // the Moon in front, unless a body is given
-    if (typeof y !== "string") [y, t, p] = ["moon", y, t];
-    const pre = '"Regulus", "Moon", ';
-    const target = bodyOf("occultation", x, ["star", "orbit"], "first", `${pre}today`);
-    const front = bodyOf("occultation", y, [], "second", `${pre}today`);
-    if (!FRONTS.includes(front)) throw new UnitError('occultation: the body in front is the Moon or a planet, Mercury… Neptune, as in occultation("Jupiter", "Venus", today)');
+    const pre = '\"Moon\", \"Regulus\", ';
+    const front = bodyOf("occultation", x, [], "first", `${pre}today`);
+    const target = bodyOf("occultation", y, ["star", "orbit"], "second", `${pre}today`);
+    if (!FRONTS.includes(front)) throw new UnitError('occultation: the first body is the Moon or a planet, Mercury… Neptune, as in occultation("Moon", "Regulus", today)');
+    if (target === front) throw new UnitError('occultation: two different bodies, as in occultation("Moon", "Regulus", today)');
     if (target === "sun") throw new UnitError("occultation: the Sun covered by the Moon is a solar eclipse, solareclipse(t, place)");
-    if (target === "moon") throw new UnitError("occultation: the Moon is the nearest body; it passes in front of the others");
-    if (target === front) throw new UnitError("occultation: two different bodies, as in occultation(\"Jupiter\", \"Venus\", today)");
+    if (target === "moon") throw new UnitError("occultation: the Moon is the nearest body; specify it first");
     const u = when("occultation", t, pre), place = where("occultation", p, pre);
     const years = front === "moon" ? 20 : 100;
     const up = (x) => horizontal(target, x, place).alt > -0.5;
@@ -567,7 +554,7 @@ function skyBuiltins(env, b) {
         const v = named(`${TN} occulted by ${front === "moon" ? "the Moon" : FN}`, [...times, ...sky]);
         // the map of where it is seen (eclipsemap.js), kept with the
         // history; with the bodies, for the places tapped on it
-        v.eclipse = { ...occultationTrack(target, front, e.max), place, occ: { target, front, names: [x.trim(), FN], covers: e.covers } };
+        v.eclipse = { ...occultationTrack(target, front, e.max), place, occ: { target, front, names: [y.trim(), FN], covers: e.covers } };
         return v;
       }
       v = e.max + 3600;

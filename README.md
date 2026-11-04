@@ -11,12 +11,19 @@ Open `index.html` from any web server. Served over HTTPS (for example
 GitHub Pages) it can be installed with **Add to Home Screen** and then
 works offline. Exchange rates are refreshed daily when online.
 
+Constants and functions use one spelling, such as `H_0`, `Omega_M`,
+`M_Sun`, and `Gamma`. Older names such as `H0`, `OmegaM`, `Msun`, and
+`gamma` are no longer aliases. Equivalent symbols such as `Ω_M` and `Γ`
+remain accepted.
+
 The scripts are ES modules, so the page does not work when opened as a
 local file. To try it locally, run `python3 -m http.server 8000` in this
 folder and open `http://localhost:8000/` (use Shift-reload after editing,
 as the service worker serves the cached copy first).
 
 ## Checks
+
+`node tests/functionhelp.mjs` checks function-help coverage and calling forms.
 
 `node tests/run.mjs` checks dates and time zones, the calendars (against
 the calendars of `Intl` where it has them), the holidays, and the Sun, the
@@ -62,6 +69,9 @@ simulated sensors (position, motion, compass, microphone). It needs
 Playwright (`npm install playwright-core`, then `CHROME=/path/to/chrome`;
 `PLAYWRIGHT=/path/to/playwright-core` if it is installed elsewhere), and
 skips without it.
+
+`node tests/places.mjs` checks online search, selection and offline reuse in
+the Places modal, using the same Playwright and Chromium options.
 
 ## Publishing on GitHub Pages
 

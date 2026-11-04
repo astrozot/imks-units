@@ -490,7 +490,7 @@ function parse(src, env) {
 // The interpreter
 
 const pureFuncs = ["exp", "log", "log10", "log2", "sin", "cos", "tan", "asin", "acos",
-  "atan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "gamma", "factorial"];
+  "atan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "factorial"];
 
 const functionDocs = {
   sqrt: "Square root", cbrt: "Cubic root", exp: "Exponential", log: "Natural logarithm; log(b, x) in base b",
@@ -502,7 +502,7 @@ const functionDocs = {
   abs: "Absolute value", gcd: "Greatest common divisor of integers", lcm: "Least common multiple of integers", sgn: "Sign: −1, 0 or 1", sign: "Sign: −1, 0 or 1", floor: "Round down (in base units)", ceil: "Round up (in base units)",
   round: "Round (in base units)", trunc: "Truncate (in base units)",
   min: "Minimum of the arguments", max: "Maximum of the arguments",
-  hypot: "Square root of the sum of squares", gamma: "Gamma function",
+  hypot: "Square root of the sum of squares", Gamma: "Gamma function",
   factorial: "Factorial", fraction: "fraction(a, b) = a/b",
   nominal: "Nominal value, without uncertainty", err: "Standard deviation (uncertainty)",
   date: "A date: date(year, month, day, hour, minute, second, UTC offset); also written 2026.10.30 18:42",
@@ -550,8 +550,9 @@ const functionDocs = {
   moonevents: "The next transit, shadow on the planet, eclipse and occultation of a moon from t on, within 30 days, a table of their beginnings and ends: moonevents(\"Io\", t); moonevents(\"Io\", t, \"eclipse\") gives (begin, end) of the next one (also \"occultation\", \"transit\", \"shadow\"); times of the moon's center",
   lunareclipse: "The next lunar eclipse after t: lunareclipse(t), a table of its contacts (penumbral, partial, total), maximum and umbral and penumbral magnitudes; lunareclipse(t, (latitude, longitude)) the next one seen from a place, with the contacts under the horizon marked, moonrise or moonset during it and the Moon's altitude",
   solareclipse: "The next solar eclipse after t: solareclipse(t), its greatest phase, gamma and magnitude; solareclipse(t, (latitude, longitude)) the next one seen from a place, its contacts, maximum, sunrise or sunset during it, magnitude, the part of the Sun covered and the Sun's altitude; with a map of its path, the lines of the hours (UTC) when it begins and ends, and where its maximum is at sunrise or sunset",
-  conjunction: "The next conjunction in right ascension of two bodies after t: conjunction(\"Venus\", \"Jupiter\", t), a table of its time and separation (the second body north of the first, south when negative), the closest approach and the least separation, and the angle from the Sun (elongation); conjunction(\"Moon\", \"Mars\", t, (latitude, longitude)) seen from a place, with the altitude of the first body. The Sun, the Moon, the planets, stars, minor planets and comets",
-  occultation: "The next occultation of a star, a planet or a minor planet by the Moon after t seen from a place, the body above the horizon during some of it: occultation(\"Regulus\", t, (latitude, longitude)), a table of when it disappears and reappears (a planet: its first and last contacts, and when it is wholly covered), on the dark or bright limb of the Moon, the position angles on the limb where it goes in and out, the altitudes and the lit part of the Moon; occultation(\"Jupiter\", \"Venus\", t, place) by a planet (rare: the next in 2065). Times to a few seconds (the Moon's mountains and valleys are not modeled, so not for grazes); the disks of the planets flattened as they are seen; for Saturn, also the contacts of its rings (the outer edge of the A ring) and when they are wholly covered. With a map of where it is seen: its limits, the lines of the hours when it begins and ends, where it does at the body's rising or setting, and the night",
+  opposition: "The next opposition in ecliptic longitude of two explicit bodies after t: opposition(\"Mars\", \"Sun\", t), a table of its time, angular separation and greatest separation nearby; add a fourth argument for an observing place, or omit it for a geocentric calculation",
+  conjunction: "The next conjunction in ecliptic longitude of two bodies after t: conjunction(\"Venus\", \"Jupiter\", t), a table of its time and separation (the second body toward ecliptic north from the first, south when negative), the closest approach and the least separation, and the angle from the Sun (elongation); conjunction(\"Moon\", \"Mars\", t, (latitude, longitude)) seen from a place, with the altitude of the first body. The Sun, the Moon, the planets, stars, minor planets and comets",
+  occultation: "The next occultation after t seen from a place, with two explicit bodies: the foreground Moon or planet first, the background star, planet or minor planet second, the body above the horizon during some of it: occultation(\"Moon\", \"Regulus\", t, (latitude, longitude)), a table of when it disappears and reappears (a planet: its first and last contacts, and when it is wholly covered), on the dark or bright limb of the Moon, the position angles on the limb where it goes in and out, the altitudes and the lit part of the Moon; occultation(\"Venus\", \"Jupiter\", t, place) by a planet (rare: the next in 2065). Times to a few seconds (the Moon's mountains and valleys are not modeled, so not for grazes); the disks of the planets flattened as they are seen; for Saturn, also the contacts of its rings (the outer edge of the A ring) and when they are wholly covered. With a map of where it is seen: its limits, the lines of the hours when it begins and ends, where it does at the body's rising or setting, and the night",
   eq2hor: "From equatorial to horizontal coordinates, (ra, dec) to (alt, az): eq2hor((ra, dec), t, (latitude, longitude)); ra also as a time, 5h 34m 32s",
   hor2eq: "From horizontal to equatorial coordinates, (alt, az) to (ra, dec): hor2eq((alt, az), t, (latitude, longitude))",
   eq2ecl: "From equatorial to ecliptic coordinates, (ra, dec) to (lon, lat): eq2ecl((ra, dec), t) with the true obliquity of the date t, eq2ecl((ra, dec)) with the mean one of J2000",
@@ -709,6 +710,7 @@ class Interpreter {
     for (const f of pureFuncs) {
       b[f] = (a) => new Q(ufuncs[f](env.checkPure(a, f)));
     }
+    b.Gamma = (a) => new Q(ufuncs.gamma(env.checkPure(a, "Gamma")));
     b.ln = b.log;
     // log(b, x): logarithm in base b, the inverse of b^x
     b.log = (a, x) => (x === undefined ? b.ln(a)

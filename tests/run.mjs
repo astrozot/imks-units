@@ -46,6 +46,41 @@ if (process.argv[2] === "--zone") {
   process.exit(0);
 }
 
+// One Hubble constant drives all derived cosmological definitions.
+{
+  const { calc: model } = createCalculator({ constants: window.IMKS_DATA.constants });
+  const names = {
+    Nav: "N_A", Gfermi: "G_F", me: "m_e", mp: "m_p", muBohr: "mu_B", mu0: "mu_0", epsilon0: "epsilon_0",
+    ke: "k_e", sigma: "sigma_SB", Msun: "M_Sun", Rsun: "R_Sun", Lsun: "L_Sun", H0: "H_0",
+    OmegaM: "Omega_M", OmegaL: "Omega_L", OmegaCMB: "Omega_CMB", OmegaK: "Omega_K", dH: "d_H", tH: "t_H",
+  };
+  for (const [old, name] of Object.entries(names)) {
+    if (model.env.vars.has(old)) fail(`Legacy constant ${old} must not exist`);
+    if (model.run(name).kind !== "value") fail(`Canonical constant ${name} must evaluate`);
+  }
+  const oldName = new RegExp(`\\b(${Object.keys(names).join("|")})\\b`);
+  for (const [name, value] of model.env.vars) {
+    if (value.src && oldName.test(value.src)) fail(`${name} definition uses a legacy name`);
+  }
+  for (const system of model.env.systems.values()) {
+    if (system.args.some((arg) => oldName.test(arg))) fail("Unit system uses a legacy constant");
+  }
+  for (const old of ["Msun", "Lsun", "Mearth", "Rearth", "Mjup", "Rjup"]) {
+    if (model.env.units.has(old)) fail(`Legacy unit ${old} must not exist`);
+  }
+  const gamma = model.run("Gamma(5)");
+  if (gamma.kind !== "value" || Math.abs(gamma.q.x.n - 24) > 1e-12) fail("Canonical Gamma function must evaluate");
+  if (model.builtins.gamma) fail("Legacy gamma function must not exist");
+  if (!model.env.vars.has("H_0") || model.env.vars.has("H0")) fail("Hubble constant must be defined only as H_0");
+  const before = ["rho_c", "d_H", "t_H"].map((name) => model.run(name).q.x.n);
+  model.run("H_0 = 140[km s^-1 Mpc^-1]");
+  for (const [i, name] of ["rho_c", "d_H", "t_H"].entries()) {
+    if (!model.env.vars.get(name).src.includes("H_0")) fail(`${name} definition must use H_0`);
+    const ratio = model.run(name).q.x.n / before[i];
+    if (Math.abs(ratio - (i === 0 ? 4 : 0.5)) > 1e-12) fail(`${name} must follow changes to H_0`);
+  }
+}
+
 const script = fileURLToPath(import.meta.url);
 for (const [zone, mode] of [["Europe/Rome"], ["America/New_York"], ["Asia/Kolkata"], ["Australia/Lord_Howe"], ["Pacific/Chatham"], ["America/New_York", "utc"]]) {
   const out = execFileSync(process.execPath, [script, "--zone", mode || ""], { env: { ...process.env, TZ: zone } }).toString().trim();
@@ -521,20 +556,64 @@ for (const [jd, i, k] of [[2461345.61, 1, "occulted"], [2461345.75694, 0, "trans
 }
 
 // conjunctions and occultations: the great conjunction of 2020 (JPL
-// Horizons: in right ascension at 13:32:13 UT, 0.10420° apart); Regulus
+// ecliptic conjunction around 18:20 UT, 0.10174° apart); Regulus
 // behind the Moon at Milan (Horizons: the Moon's limb within 0.3″ of the
 // star at the times found, in 2036); Venus in front of Jupiter in 2065
 {
   const c = calc.run("conjunction(\"Jupiter\", \"Saturn\", 2020.06.01)");
-  if (c.kind !== "value" || Math.abs(c.q[0][0].relative().x.n - Date.UTC(2020, 11, 21, 13, 32, 13) / 1000) > 120
-    || Math.abs(c.q[0][1].x.n * 180 / Math.PI - 0.1042) > 0.0002) fail(`conjunction: ${c.message || c.q[0].map((q) => calc.env.format(q))}`);
-  const o = calc.run("occultation(\"Regulus\", 2036.05.01, (45.46, 9.19, 120[m])[deg])");
+  if (c.kind !== "value" || Math.abs(c.q[0][0].relative().x.n - Date.UTC(2020, 11, 21, 18, 20) / 1000) > 120
+    || Math.abs(c.q[0][1].x.n * 180 / Math.PI - 0.10174) > 0.0002) fail(`conjunction: ${c.message || c.q[0].map((q) => calc.env.format(q))}`);
+  const o = calc.run("occultation(\"Moon\", \"Regulus\", 2036.05.01, (45.46, 9.19, 120[m])[deg])");
   const rows = o.q?.rows || [];
   if (o.kind !== "value" || rows[0] !== "disappears (dark limb)" || rows[1] !== "reappears (bright limb)"
     || Math.abs(o.q[0][0].relative().x.n - Date.UTC(2036, 4, 31, 15, 0, 48) / 1000) > 3
     || Math.abs(o.q[0][1].relative().x.n - Date.UTC(2036, 4, 31, 16, 17, 11) / 1000) > 3) fail(`occultation of Regulus: ${o.message || rows}`);
-  const v = calc.run("occultation(\"Jupiter\", \"Venus\", 2026.01.01, (30, 0)[deg])");
+  const v = calc.run("occultation(\"Venus\", \"Jupiter\", 2026.01.01, (30, 0)[deg])");
   if (v.kind !== "value" || Math.abs(v.q[0][0].relative().x.n - Date.UTC(2065, 10, 22, 12, 40) / 1000) > 120) fail(`Venus in front of Jupiter: ${v.message || v.q.rows}`);
+}
+// The foreground must be explicit and first. Catalog filtering is broad,
+// but excludes polar stars while retaining known lunar occultation targets.
+{
+  for (const expr of ['occultation("Regulus", 2036.05.01, "Milan")', 'occultation("Regulus", "Moon", 2036.05.01, "Milan")', 'occultation("Moon", "Moon", 2036.05.01, "Milan")']) {
+    if (calc.run(expr).kind === "value") fail(`occultation accepts invalid foreground: ${expr}`);
+  }
+  if (A.occultationCandidate("moon", 37.95456, 89.26411)) fail("Polaris offered for lunar occultation");
+  if (!A.occultationCandidate("moon", 152.09296, 11.96721)) fail("Regulus excluded from lunar targets");
+  if (!A.occultationCandidate("moon", 68.98016, 16.50930)) fail("Aldebaran excluded from lunar targets");
+  if (A.occultationCandidate("venus", 37.95456, 89.26411)) fail("Polaris offered for planetary occultation");
+  // The event engine already rejects a body that lies behind its target.
+  if (A.occultationLocal("moon", "saturn", Date.UTC(2036, 11, 9) / 1000, [45.46, 9.19, 120])) fail("background body treated as foreground");
+}
+// Longitude events: lunar conjunction/opposition agree with the independent
+// phase search, body order is symmetric, and a place changes lunar events.
+{
+  const t = Date.UTC(2026, 10, 1) / 1000, place = [45.46, 9.19, 120];
+  for (const [name, phase] of [["conjunction", 0], ["opposition", 180]]) {
+    const e = A[name]("moon", "sun", t);
+    if (Math.abs(e.t - A.nextPhase(t, phase)) > 1) fail(`${name}: lunar phase mismatch`);
+    const reversed = A[name]("sun", "moon", t);
+    if (Math.abs(e.t - reversed.t) > 0.3) fail(`${name}: body order changes time`);
+    const local = A[name]("moon", "sun", t, place);
+    if (Math.abs(local.t - e.t) < 30) fail(`${name}: observing place ignored`);
+    const lon = (body) => {
+      const { ra, dec } = A.topocentric(body, local.t, place), R = Math.PI / 180;
+      const eps = A.nutation(A.centuries(local.t)).eps * R;
+      return Math.atan2(Math.sin(ra * R) * Math.cos(eps) + Math.tan(dec * R) * Math.sin(eps), Math.cos(ra * R)) / R;
+    };
+    const delta = ((lon("moon") - lon("sun") - phase) % 360 + 540) % 360 - 180;
+    if (Math.abs(delta) > 0.0001) fail(`${name}: local longitude residual ${delta}`);
+    for (const suffix of ["", ", (45.46, 9.19, 120[m])[deg]"]) {
+      const q = calc.run(`${name}("Moon", "Sun", 2026.11.01${suffix})`);
+      const expected = suffix ? local : e;
+      if (q.kind !== "value" || Math.abs(q.q[0][0].relative().x.n - expected.t) > 0.3) fail(`${name}: interpreter ${q.message}`);
+      if (suffix && !q.q.rows.includes("Moon's altitude")) fail(`${name}: missing local altitude`);
+    }
+    if (calc.run(`${name}("Mars", 2026.11.01)`).kind === "value") fail(`${name}: second body must be explicit`);
+  }
+  // Reject the 0° branch when searching for a 180° event.
+  const t0 = A.nextPhase(t, 0) - 60;
+  const full = A.opposition("moon", "sun", t0);
+  if (Math.abs(full.t - A.nextPhase(t0, 180)) > 1) fail("opposition: confused with conjunction");
 }
 // Saturn's rings behind the Moon at Milan (2036.12.09): their contacts
 // around the globe's, and at each the Moon's limb on the edge of the A ring

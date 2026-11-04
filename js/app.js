@@ -13,8 +13,9 @@ import { skySVG, overlaySVG, drawPlanet, fitView } from "./skyview.js";
 import { skyView } from "./sky.js";
 import { mapSVG, mapView, unproject } from "./eclipsemap.js";
 import { osmMap, TILES } from "./osmmap.js";
-import { shadowMap, solarContacts, solarLocal, solarPhase, occultationLocal, horizontal } from "./astro.js";
+import { shadowMap, solarContacts, solarLocal, solarPhase, occultationCandidate, occultationLocal, horizontal } from "./astro.js";
 import { snapshot } from "./snapshot.js";
+import { functionHelp } from "./functionhelp.js";
 import { MOONS } from "./moons.js";
 import { findPlace, fetchObject, fetchPlace, fetchElevation } from "./lookup.js";
 import { STARS, DEEP, CITIES } from "./catalog.js";
@@ -181,7 +182,7 @@ const SI_SUGGEST = ["m", "kg", "s", "A", "K", "mol", "cd", "N", "J", "W", "Pa", 
 const UNIT_LABELS = { deg: "°", arcmin: "′", arcsec: "″", M_Sun: "M☉", L_Sun: "L☉", R_Sun: "R☉", M_Earth: "M⊕", R_Earth: "R⊕", E_h: "Eₕ" };
 
 // ---------------------------------------------------------------------
-// Typeset names: hbar -> ħ, Msun -> M☉ (subscript), m_e -> mₑ, epsilon0 -> ε₀.
+// Typeset names: hbar -> ħ, M_Sun -> M☉ (subscript), m_e -> mₑ, epsilon_0 -> ε₀.
 // Only the display changes; the text keeps the names that can be typed.
 
 const GREEK = {
@@ -254,7 +255,7 @@ function prettyName(w, { fn = false, unit = null } = {}) {
   return prettyParts(w);
 }
 
-// A unit specification like "m/s^2" or "Msun", for keys and chips
+// A unit specification like "m/s^2" or "M_Sun", for keys and chips
 function unitLabelHTML(u) {
   return u.split(/([/ ])/).map((part) => {
     const m = /^([^^]+)(?:\^(-?\d+))?$/.exec(part);
@@ -1042,7 +1043,7 @@ const EXAMPLES = [
   // lists, vectors and statistics
   "linspace(0 m, 10 m, 6)", "logspace(1, 1000, 4)", "mean((9.79, 9.82, 9.81) m/s^2)", "norm((3, 4, 0) N)",
   "dot((3, 4, 0) N, (2, 0, 1) m)", "cross((1, 0, 0) m, (0, 2, 0) N)", "angle((1, 1, 0), (1, 0, 0)) @ deg",
-  "e cross((1e6, 0, 0) m/s, (0, 0, 1) T)", "pvalue(5)", "nsigma(0.05)", "conf(2)", "chi2_p(12.3, 5)",
+  "e cross((1e6, 0, 0) m/s, (0, 0, 1) T)", "pvalue(5)", "nsigma(0.05)", "conf(2)", "p_chi2(12.3, 5)",
   "2.3 nm fwhm", "N(1, 0.1)",
   // plots
   "plot(sin(x), x, 0, 2 pi)", "plot(tan(x), x, -pi, pi)", "plot(x^3/(exp(x) - 1), x, 0, 12)",
@@ -1768,7 +1769,7 @@ function caretIndexAt(x, y) {
 let previewTimer = null;
 
 // the functions too slow to compute at every key: on ⏎ only
-const SLOW_FNS = /\b(solareclipse|lunareclipse|moonevents|conjunction|occultation)\s*\(/;
+const SLOW_FNS = /\b(solareclipse|lunareclipse|moonevents|conjunction|opposition|occultation)\s*\(/;
 
 // The value of src (for an assignment, of its right side) without running it
 function evalPreview(src, calc = state.calc, { lists = false } = {}) {
@@ -1992,37 +1993,10 @@ function evaluate(refresh = true) {
 //
 // Subscripts come only from "_" (Omega_M, m_e, L_Sun). Within a namespace
 // (variables and functions; units; prefixes) names that are displayed the
-// same are the same object: π = pi, Ω_M = Omega_M, ε_0 = epsilon_0. Old
-// names (OmegaM, Msun, me…) stay accepted as hidden legacy aliases.
+// same are the same object: π = pi, Ω_M = Omega_M, ε_0 = epsilon_0.
 
-const LEGACY_VARS = {
-  // iMKS library
-  Nav: "N_A", Gfermi: "G_F", me: "m_e", mp: "m_p", muBohr: "mu_B", mu0: "mu_0", epsilon0: "epsilon_0",
-  ke: "k_e", sigma: "sigma_SB", Msun: "M_Sun", Rsun: "R_Sun", Lsun: "L_Sun", H0: "H_0",
-  OmegaM: "Omega_M", OmegaL: "Omega_L", OmegaCMB: "Omega_CMB", OmegaK: "Omega_K", OmegaR: "Omega_R",
-  dH: "d_H", tH: "t_H",
-  // names used by earlier versions of this app
-  GMsun_N: "GM_Sun_N", Rsun_N: "R_Sun_N", Lsun_N: "L_Sun_N", Teff_sun: "T_eff_Sun", Mbol_sun: "M_bol_Sun",
-  S_sun: "S_Sun", J2_Earth: "J_2_Earth", Phi0: "Phi_0", G0: "G_0", zeta3: "zeta_3", gammaE: "gamma_E",
-  sin2thetaW: "sin2theta_W", cp_water: "c_p_water", Lvap_water: "L_vap_water", Lfus_water: "L_fus_water",
-  cp_air: "c_p_air", muN: "mu_N",
-};
-// symbols typed for names that are not stored variables
+// Symbols typed for names that are not stored variables.
 const SYMBOL_VARS = { "π": "pi", "τ": "tau", "∞": "inf" };
-
-const LEGACY_FNS = {
-  Ez: "E", Hubble: "H", thetaE: "theta_E", thetaSIS: "theta_E_SIS", Phiinv: "Phi_inv", erfinv: "erf_inv",
-  chi2_p: "p_chi2", t_p: "p_t", gamma: "Gamma", beta: "B",
-};
-
-// units kept for old expressions but not offered anywhere
-const LEGACY_UNITS = new Set(["Msun", "Lsun", "Mearth", "Rearth", "Mjup", "Rjup"]);
-
-// prefixed legacy families from earlier versions (vesc_Mars -> v_esc_Mars)
-const LEGACY_PATTERNS = [
-  [/^vesc_(.+)$/, "v_esc_$1"], [/^Prot_(.+)$/, "P_rot_$1"], [/^T12_(.+)$/, "T_half_$1"],
-  [/^kth_(.+)$/, "k_th_$1"], [/^rhoe_(.+)$/, "rho_e_$1"],
-];
 
 // look-alike characters and typed subscript digits
 function fixChars(name) {
@@ -2041,23 +2015,18 @@ function displayKey(name, fn = false) {
     .replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
 
-// Variables: a Map whose keys are resolved through legacy and display aliases
+// Variables: a Map whose keys are resolved by their displayed notation
 class AliasMap extends Map {
   constructor(entries) {
     super();
-    this.legacy = new Map(Object.entries({ ...LEGACY_VARS, ...SYMBOL_VARS }));
     this.index = new Map();
     if (entries) for (const [k, v] of entries) this.set(k, v);
   }
   resolve(k) {
     if (typeof k !== "string" || super.has(k)) return k;
-    if (this.legacy.has(k)) return this.legacy.get(k);
-    for (const [re, to] of LEGACY_PATTERNS) if (re.test(k)) {
-      const n = k.replace(re, to);
-      if (super.has(n)) return n;
-    }
+    if (Object.hasOwn(SYMBOL_VARS, k)) return SYMBOL_VARS[k];
     const f = fixChars(k);
-    if (f !== k && (super.has(f) || this.legacy.has(f))) return super.has(f) ? f : this.legacy.get(f);
+    if (f !== k && super.has(f)) return f;
     const hit = this.index.get(displayKey(k));
     return hit && super.has(hit) ? hit : k;
   }
@@ -2071,65 +2040,20 @@ class AliasMap extends Map {
     if (!this.index.has(key) || !super.has(this.index.get(key))) this.index.set(key, r);
     return this;
   }
-  // move a stored entry to its new name, keeping the old one as an alias
-  rename(from, to) {
-    if (!super.has(from) || super.has(to)) return;
-    const v = super.get(from);
-    super.delete(from);
-    this.set(to, v);
-    this.legacy.set(from, to);
-  }
-}
-
-// Units: legacy names stay usable but are hidden from every listing
-class HidingMap extends Map {
-  *entries() { for (const e of super.entries()) if (!LEGACY_UNITS.has(e[0])) yield e; }
-  *keys() { for (const [k] of this.entries()) yield k; }
-  *values() { for (const [, v] of this.entries()) yield v; }
-  [Symbol.iterator]() { return this.entries(); }
-  forEach(f, t) { for (const [k, v] of this.entries()) f.call(t, v, k, this); }
 }
 
 function installAliases(calc) {
   const env = calc.env;
-  const vars = new AliasMap();
-  for (const [k, v] of Map.prototype.entries.call(env.vars)) Map.prototype.set.call(vars, k, v);
-  for (const k of Map.prototype.keys.call(vars)) vars.index.set(displayKey(k), k);
-  env.vars = vars;
-  for (const [from, to] of Object.entries(LEGACY_VARS)) {
-    if (to === "m_e" || to === "m_p") {
-      Map.prototype.delete.call(vars, from);
-      continue;
-    }
-    vars.rename(from, to);
-  }
-  if (calc.systemNames) {
-    calc.systemNames = new Set([...calc.systemNames].map((n) => vars.resolve(n)));
-  }
-  const units = new HidingMap();
-  for (const [k, v] of Map.prototype.entries.call(env.units)) Map.prototype.set.call(units, k, v);
-  env.units = units;
-  // units in the new notation, with the same values
-  calc.run('%newunit M_Sun=M_Sun # "Mass of the Sun"');
-  calc.run('%newunit L_Sun=L_Sun # "Luminosity of the Sun"');
-  calc.run('%newunit R_Sun=R_Sun # "Radius of the Sun"');
+  env.vars = new AliasMap(env.vars);
 }
 
-// Functions: builtins looked up through legacy and display aliases
+// Functions: builtins looked up by their displayed notation
 function installFunctionAliases(calc) {
   const target = calc.builtins;
-  for (const [from, to] of Object.entries(LEGACY_FNS)) {
-    if (target[from] && !target[to]) {
-      target[to] = target[from];
-      delete target[from];
-    }
-    if (functionDocs[from] && !functionDocs[to]) functionDocs[to] = functionDocs[from];
-  }
   const index = new Map(Object.keys(target).map((k) => [displayKey(k, true), k]));
   calc.builtins = new Proxy(target, {
     get(t, p) {
       if (typeof p !== "string" || p in t) return t[p];
-      if (LEGACY_FNS[p]) return t[LEGACY_FNS[p]];
       const hit = index.get(displayKey(p, true));
       return hit ? t[hit] : undefined;
     },
@@ -2140,8 +2064,8 @@ function installFunctionAliases(calc) {
 // Cosmology and lensing functions
 //
 // Distances follow Hogg (1999, astro-ph/9905116) for a ΛCDM model with
-// the current values of H0, OmegaM, OmegaL and (if defined) OmegaR;
-// curvature is OmegaK = 1 − OmegaM − OmegaL − OmegaR. Uncertainties of
+// the current values of H_0, Omega_M, Omega_L and (if defined) Omega_R;
+// curvature is Omega_K = 1 − Omega_M − Omega_L − Omega_R. Uncertainties of
 // redshifts and parameters are propagated linearly (numerical derivatives).
 
 const SCIENCE_DOCS = {
@@ -2241,7 +2165,7 @@ function addScience(calc) {
     const a = 1 + z, ok = 1 - om - ol - or;
     return Math.sqrt(or * a ** 4 + om * a ** 3 + ok * a * a + ol);
   };
-  // comoving distance in units of c/H0, with x = ln(1+z)
+  // comoving distance in units of c/H_0, with x = ln(1+z)
   const dc = (z1, z2, om, ol, or) =>
     simpson((x) => Math.exp(x) / E(Math.exp(x) - 1, om, ol, or), Math.log1p(z1), Math.log1p(z2));
   const sk = (chi, ok) => {
@@ -2250,7 +2174,7 @@ function addScience(calc) {
     return chi;
   };
   const dm = (z1, z2, om, ol, or) => sk(dc(z1, z2, om, ol, or), 1 - om - ol - or);
-  // age in units of 1/H0, integrating over s with a = s²
+  // age in units of 1/H_0, integrating over s with a = s²
   const ageH = (z, om, ol, or) => {
     const ok = 1 - om - ol - or;
     const smax = Math.sqrt(1 / (1 + z));
@@ -2446,11 +2370,6 @@ function planetDefs() {
   L.push('%newunit R_Earth=R_Earth # "Earth mean radius"');
   L.push('%newunit M_Jupiter=M_Jupiter # "Jupiter mass"');
   L.push('%newunit R_Jupiter=R_Jupiter # "Jupiter mean radius"');
-  // earlier names, hidden
-  L.push('%newunit Mearth=5.9722e24[kg] # "Earth mass"');
-  L.push('%newunit Rearth=6378.1[km] # "Earth radius (IAU nominal equatorial)"');
-  L.push('%newunit Mjup=1.89813e27[kg] # "Jupiter mass"');
-  L.push('%newunit Rjup=71492[km] # "Jupiter radius (IAU nominal equatorial)"');
   return L;
 }
 
@@ -3495,7 +3414,7 @@ function gammaVariate(k, r) {
 function addDistributions(calc) {
   const env = calc.env;
   const b = calc.builtins;
-  const origGamma = b.Gamma || b.gamma;
+  const origGamma = b.Gamma;
   const origTrunc = b.trunc;
   const N = () => MC.N;
 
@@ -3939,14 +3858,13 @@ function openLunar(e) {
   // edges soft, the umbra darker inside
   const s = 62 / d.moon;
   close.innerHTML = `<defs><clipPath id="lunar-c"><circle cx="70" cy="70" r="62"/></clipPath>
-    <filter id="lunar-bright"><feComponentTransfer><feFuncR type="linear"/><feFuncG type="linear"/><feFuncB type="linear"/></feComponentTransfer></filter>
-    <radialGradient id="lunar-cp" gradientUnits="userSpaceOnUse" r="${(d.penumbra * s).toFixed(1)}"><stop offset="${(d.umbra / d.penumbra).toFixed(3)}" stop-color="#000"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    <radialGradient id="lunar-cp" gradientUnits="userSpaceOnUse" r="${(d.penumbra * s).toFixed(1)}"><stop offset="${(d.umbra / d.penumbra).toFixed(3)}" stop-color="#000" stop-opacity="0.55"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
     <radialGradient id="lunar-cu" gradientUnits="userSpaceOnUse" r="${(d.umbra * s).toFixed(1)}"><stop offset="0"/><stop offset="0.85"/><stop offset="0.95"/><stop offset="1" stop-opacity="0"/></radialGradient></defs>
-    <g class="lunar-body"><circle cx="70" cy="70" r="62" class="lunar-disk"/><image href="img/moon.webp" x="8" y="8" width="124" height="124" filter="url(#lunar-bright)"/>
+    <g class="lunar-body"><circle cx="70" cy="70" r="62" class="lunar-disk"/><image href="img/moon.webp" x="8" y="8" width="124" height="124"/>
     <g clip-path="url(#lunar-c)" class="lunar-shade"><circle r="${(d.penumbra * s).toFixed(1)}" fill="url(#lunar-cp)"/><circle r="${(d.umbra * s).toFixed(1)}" fill="url(#lunar-cu)"/></g></g>`;
   const set = (el, a) => { for (const n in a) el.setAttribute(n, a[n]); };
   const big = { clip: svg.querySelector(".lunar-clip"), body: svg.querySelector(".lunar-body"), disk: svg.querySelector(".lunar-disk"), img: svg.querySelector("image") };
-  const near = { body: close.querySelector(".lunar-body"), funcs: close.querySelectorAll("feComponentTransfer > *"), cp: close.querySelector("#lunar-cp"), cu: close.querySelector("#lunar-cu"), shade: close.querySelectorAll(".lunar-shade circle") };
+  const near = { body: close.querySelector(".lunar-body"), cp: close.querySelector("#lunar-cp"), cu: close.querySelector("#lunar-cu"), shade: close.querySelectorAll(".lunar-shade circle") };
   // the time shown (the slider rounds it to its steps: the play keeps its own)
   let cur = 0;
   const draw = (t) => {
@@ -3956,16 +3874,13 @@ function openLunar(e) {
     set(big.disk, { cx, cy });
     set(big.img, { x: f1(X(m.x) - r), y: f1(Y(m.y) - r) });
     big.body.classList.toggle("down", m.up === false);
-    // in the partial phases the sunlit part brighter and the umbra a little
-    // darker: the contrast of an HDR photograph (the eye sees thousands of
-    // times more light, and the copper would vanish); the penumbra then
-    // dims it less
+    // Keep the penumbral dimming continuous across the umbral contacts;
+    // brightening the whole image in partial phases would cancel it out.
+    // The umbra is a little darker in partial phases for contrast.
     const sx = (70 + m.x * s).toFixed(1), sy = (70 + m.y * s).toFixed(1);
-    const part = (d.umbra + d.moon - dist) / (2 * d.moon), partial = part > 0 && part < 1, gain = partial ? 1.6 : 1;
+    const part = (d.umbra + d.moon - dist) / (2 * d.moon), partial = part > 0 && part < 1;
     const dim = (hex) => "#" + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) / (partial ? 1.2 : 1)).toString(16).padStart(2, "0")).join("");
-    near.funcs.forEach((f) => f.setAttribute("slope", gain));
     set(near.cp, { cx: sx, cy: sy });
-    near.cp.firstElementChild.setAttribute("stop-opacity", partial ? 0.3 : 0.55);
     set(near.cu, { cx: sx, cy: sy });
     ["#4a140c", "#93361f", "#b5462a", "#b5462a"].forEach((c, i) => near.cu.children[i].setAttribute("stop-color", dim(c)));
     near.shade.forEach((c) => set(c, { cx: sx, cy: sy }));
@@ -4199,7 +4114,7 @@ function openMap(e) {
     const d = new Date((m.t - 86400) * 1000), p2 = (n) => String(n).padStart(2, "0");
     const date = `${d.getUTCFullYear()}.${p2(d.getUTCMonth() + 1)}.${p2(d.getUTCDate())} 00:00:00 Z`, at = `(${place[0]}, ${place[1]})[deg]`;
     closeSheet();
-    setInput(occ ? `occultation(${JSON.stringify(occ.names[0])}, ${JSON.stringify(occ.names[1])}, ${date}, ${at})` : `solareclipse(${date}, ${at})`);
+    setInput(occ ? `occultation(${JSON.stringify(occ.names[1])}, ${JSON.stringify(occ.names[0])}, ${date}, ${at})` : `solareclipse(${date}, ${at})`);
     evaluate();
   };
   let play = 0, last = 0;
@@ -4760,7 +4675,7 @@ function computeSuggestions() {
   const known = word && (env().isunit(word) || env().vars.has(word) || state.calc.builtins[word]);
   const completeChips = (items) => items
     .filter((it) => it.label !== word)
-    .map((it) => chipHTML(it.label, `data-complete="${esc(it.insertText)}" data-len="${word.length}"`, "chip", it.kind === "unit" ? "" : it.kind[0]))
+    .map((it) => chipHTML(it.label, `data-complete="${esc(it.insertText)}" data-len="${word.length}" data-help-kind="${it.kind}" data-help-name="${esc(it.name)}"`, "chip", it.kind === "unit" ? "" : it.kind[0]))
     .join("");
   const unitChip = (u) => chipHTML(supHTML(u), `data-unit="${esc(u)}"`, "chip unit", "", true);
   const ctx = unitContext(b);
@@ -4814,7 +4729,7 @@ function recentNames(cls, n) {
       if (sg.cls !== cls) continue;
       let name = t.slice(sg.s, sg.e);
       if (cls === "u") {
-        if (!isBareUnit(name) || LEGACY_UNITS.has(name)) continue;
+        if (!isBareUnit(name)) continue;
       } else if (cls === "v") {
         name = e.vars.resolve(name);
         if (!e.vars.has(name) || name === "ans") continue;
@@ -4908,7 +4823,46 @@ function afterValueChips(text) {
   return "";
 }
 
+// Suggestions have their own hold state so a completed hold cannot insert
+// the chip, and horizontal scrolling remains an ordinary swipe.
+let suggestionHold = null, suggestionStart = null, suggestionHeld = false;
+const cancelSuggestionHold = () => { clearTimeout(suggestionHold); suggestionHold = null; suggestionStart = null; };
+function suggestionHelpData(button) {
+  const d = button.dataset;
+  const target = (name) => env().systems.has(name.replace(/^\*/, "")) || env().formats.has(name) ? { sys: name } : { unit: name };
+  if (d.helpKind) {
+    if (d.helpKind === "function") return { key: `f:${d.helpName}(` };
+    if (["system", "format"].includes(d.helpKind)) return { sys: d.helpName };
+    if (d.helpKind === "unit") return { unit: d.helpName };
+    return d.helpName === "const" ? { key: "nist" } : { const: d.helpName };
+  }
+  if (d.fn) return { key: `f:${d.fn}` };
+  if (d.const) return { const: d.const };
+  if (d.unit || d.convert) return target(d.unit || d.convert);
+  if (d.complete !== undefined) return { const: d.complete };
+  return null;
+}
+suggestEl.addEventListener("pointerdown", (ev) => {
+  cancelSuggestionHold();
+  suggestionHeld = false;
+  const button = ev.target.closest("button");
+  if (!button || ev.button > 0) return;
+  const data = suggestionHelpData(button);
+  if (!data) return;
+  suggestionStart = { x: ev.clientX, y: ev.clientY };
+  suggestionHold = setTimeout(() => {
+    if (!button.isConnected) return;
+    suggestionHeld = true;
+    openKeyHelp(button, explain({ dataset: data }) || "Help", data);
+  }, 480);
+});
+suggestEl.addEventListener("pointermove", (ev) => {
+  if (suggestionStart && Math.hypot(ev.clientX - suggestionStart.x, ev.clientY - suggestionStart.y) > 10) cancelSuggestionHold();
+});
+for (const event of ["pointerup", "pointercancel", "pointerleave", "scroll"]) suggestEl.addEventListener(event, cancelSuggestionHold);
+suggestEl.addEventListener("contextmenu", (ev) => ev.preventDefault());
 suggestEl.addEventListener("click", (ev) => {
+  if (suggestionHeld) { suggestionHeld = false; ev.preventDefault(); return; }
   const b = ev.target.closest("button");
   if (!b) return;
   if (b.dataset.complete !== undefined) insert(b.dataset.complete, { replaceBefore: Number(b.dataset.len) });
@@ -5034,9 +4988,9 @@ const FN_SECTIONS = [
   // the arguments (bodies, dates, places…) come from the pages of
   // arguments (ARG_PAGES), shown as they are needed
   ["Sky", 5, 3, [
-    { fn: "sunday", desc: "Dawn… dusk" }, { fn: "sunrise", desc: "t, place" }, { fn: "sunset", desc: "t, place" }, { fn: "noon", desc: "t, place" }, { fn: "sun", desc: "Alt, az" },
-    { fn: "moonrise", desc: "t, place" }, { fn: "moonset", desc: "t, place" }, { fn: "moonphases", label: "phases", desc: "Next four" }, { fn: "phase", desc: "Lit, age" }, { fn: "moon", desc: "Alt, az" },
-    { fn: "seasons", desc: "Year" }, { fn: "conjunction", label: "conjunct.", desc: "Two bodies" }, { fn: "occultation", label: "occult.", desc: "By Moon" }, { fn: "lunareclipse", label: "lunar ecl.", desc: "t, place" }, { fn: "solareclipse", label: "solar ecl.", desc: "t, place" },
+    { fn: "sunday", desc: "Dawn… dusk" }, { fn: "sunrise", desc: "t, place" }, { fn: "sunset", desc: "t, place" }, { fn: "noon", desc: "t, place" },
+    { fn: "moonrise", desc: "t, place" }, { fn: "moonset", desc: "t, place" }, { fn: "moonphases", label: "phases", desc: "Next four" }, { fn: "phase", desc: "Lit, age" },
+    { fn: "seasons", desc: "Year" }, { fn: "conjunction", label: "conjunct.", desc: "Two bodies" }, { fn: "opposition", label: "opposit.", desc: "Two bodies" }, { fn: "occultation", label: "occult.", desc: "By Moon" }, { fn: "lunareclipse", label: "lunar ecl.", desc: "t, place" }, { fn: "solareclipse", label: "solar ecl.", desc: "t, place" },
   ]],
   ["Planets", 5, 3, [
     { fn: "altaz", desc: "Alt, az" }, { fn: "radec", desc: "Ra, dec" }, { fn: "dist", desc: "Distance" }, { fn: "mag", desc: "Magnitude" }, { fn: "transit", desc: "Meridian" },
@@ -5113,6 +5067,7 @@ const USAGE = {
 };
 
 const KEY_HELP = {
+  nist: 'NIST CODATA constants are available by name through const["name"]. The NIST browser lists the available constants and their values.',
   "fncat:Calendar": "Dates of the other calendars: hebrew(5787, 1, 15), islamic, chinese, japanese… and the Julian day",
   "fncat:Calendars": "Back to the Calendars keys",
   "fncat:Sky": "Back to the Sky keys",
@@ -6052,9 +6007,9 @@ const PICK_LISTS = {
   city: () => {
     const cities = CITIES.trim().split("\n").map((l) => l.split("|"));
     return {
-      title: "Places", note: 'Tap a place to type its name, as in sunrise(today, "Rome"). Any other place or address is looked up online.',
+      title: "Places", note: 'Tap a place to type its name, as in sunrise(today, "Rome"). To find another place or address online, enter its name and press Enter or Search.',
       groups: [
-        ["Found online", Object.values(lookups().places).map((p) => [JSON.stringify(p.name.split(",")[0]), p.name, `${Math.round(p.h)} m`])],
+        ["Found online", Object.entries(lookups().places).map(([query, p]) => [JSON.stringify(query), p.name, `${Math.round(p.h)} m`])],
         ["Cities, largest first", cities.map(([n, , cc, , , h]) => [`"${n}"`, `${n}, ${cc}`, `${h} m`])],
       ],
       search: true,
@@ -6120,7 +6075,7 @@ const ARG_KINDS = {
   sun: ["date", "place?"], moon: ["date", "place?"], sunrise: ["date", "place?", "horizon?"], sunset: ["date", "place?", "horizon?"],
   moonrise: ["date", "place?"], moonset: ["date", "place?"], noon: ["date", "place?"], sunday: ["date", "place?"], lst: ["date", "place?"],
   moonphases: ["date"], phase: ["date"], seasons: ["#"], lunareclipse: ["date", "place?"], solareclipse: ["date", "place?"],
-  conjunction: ["body:nosat", "body:nosat", "date", "place?"], occultation: ["body:nosat", "body:front", "date", "place?"],
+  conjunction: ["body:nosat", "body:nosat", "date", "place?"], opposition: ["body:nosat", "body:nosat", "date", "place?"], occultation: ["body:front", "body:target", "date", "place?"],
   eq2hor: ["point", "date", "place?"], hor2eq: ["#", "date", "place?"], eq2ecl: ["point", "date?"], ecl2eq: ["#", "date?"],
   eq2gal: ["point"], gal2eq: ["#"], precess: ["point", "epoch", "epoch"], sep: ["point", "point"], pa: ["point", "point"],
   dip: ["#"], refract: ["#"], date: ["#", "#", "#", "#?", "#?"], ymd: ["date"], easter: ["#"], easter_orthodox: ["#"], japanese: ["era", "#", "#", "#"],
@@ -6133,15 +6088,15 @@ const ARG_KINDS = {
 // closes the call, others act as the keys of the sections. A key with
 // "only" is enabled for those kinds alone
 const B = (name, desc, only) => ({ a: `"${name}"`, label: name, desc, only });
-const SOLAR = ["body", "body:nosat", "body:solar", "body:lit"];
+const SOLAR = ["body", "body:nosat", "body:solar", "body:lit", "body:target"];
 // the bodies that occult others: the Moon and the planets
 const FRONT = [...SOLAR, "body:front"];
 const ARG_PAGES = {
   body: [5, [
-    B("Sun", "☉", SOLAR), B("Moon", "☾", FRONT), B("Mercury", "☿", FRONT), B("Venus", "♀", FRONT), B("Mars", "♂", FRONT),
-    B("Jupiter", "♃", FRONT), B("Saturn", "♄", FRONT), B("Uranus", "♅", FRONT), B("Neptune", "♆", FRONT), B("Pluto", "Dwarf planet", ["body", "body:nosat", "body:lit"]),
-    { key: "pick:star", label: "star…", desc: "Pick one", only: ["body", "body:nosat"] }, { key: "pick:deep", label: "deep sky…", desc: "Messier…", only: ["body", "body:nosat"] },
-    { key: "pick:minor", label: "asteroid…", desc: "Minor planet", only: ["body", "body:nosat", "body:lit"] }, { key: "pick:comet", label: "comet…", desc: "Pick one", only: ["body", "body:nosat", "body:lit"] },
+    B("Sun", "☉", SOLAR.filter((k) => k !== "body:target")), B("Moon", "☾", FRONT.filter((k) => k !== "body:target")), B("Mercury", "☿", FRONT), B("Venus", "♀", FRONT), B("Mars", "♂", FRONT),
+    B("Jupiter", "♃", FRONT), B("Saturn", "♄", FRONT), B("Uranus", "♅", FRONT), B("Neptune", "♆", FRONT), B("Pluto", "Dwarf planet", ["body", "body:nosat", "body:lit", "body:target"]),
+    { key: "pick:star", label: "star…", desc: "Pick one", only: ["body", "body:nosat", "body:target"] }, { key: "pick:deep", label: "deep sky…", desc: "Messier…", only: ["body", "body:nosat", "body:target"] },
+    { key: "pick:minor", label: "asteroid…", desc: "Minor planet", only: ["body", "body:nosat", "body:lit", "body:target"] }, { key: "pick:comet", label: "comet…", desc: "Pick one", only: ["body", "body:nosat", "body:lit", "body:target"] },
     { key: "pick:satellite", label: "satellite…", desc: "Pick one", only: ["body"] },
   ]],
   satellite: [4, [B("ISS", "Space station"), B("Tiangong", "Space station"), B("Hubble", "Telescope"), { key: "pick:satellite", label: "satellite…", desc: "Others" }]],
@@ -6156,7 +6111,7 @@ const ARG_PAGES = {
     { a: "today + 1[day]", label: "tomorrow", desc: "Midnight" }, { key: "f:date(", label: "date", desc: "y, m, d, h, min" }]],
   place: [5, [{ key: "sensor:here", label: "here", desc: "GPS" }, { key: "pick:city", label: "place…", desc: "By name" },
     { tpl: "(|)[deg]", label: "(lat, lon)", desc: "Degrees" }, { tpl: "(|[deg], [deg], [m])", label: "(lat, lon, h)", desc: "Deg, deg, m" },
-    { done: true, label: "Settings )", desc: "Your location", needsLocation: true }]],
+    { done: true, label: "Use location )", desc: "From Settings", needsLocation: true }]],
   horizon: [5, [{ a: "-6[deg]", label: "civil", desc: "−6°" }, { a: "-12[deg]", label: "nautical", desc: "−12°" }, { a: "-18[deg]", label: "astro", desc: "−18°" },
     { a: "-50[arcmin] - dip(", label: "sea", desc: "− dip(h)", open: true }, { done: true, label: "done )", desc: "Rim −34′" }]],
   point: [4, [{ tpl: "(|)", label: "(ra, dec)", desc: "5h 35m, −5°" }, { key: "f:radec(", label: "radec", desc: "Of a body" },
@@ -6180,6 +6135,14 @@ function argContext(b) {
   const top = stack.at(-1);
   if (!top || !top.fn) return null;
   return { fn: top.fn, index: top.index, start: top.start, text: b.slice(top.start).trim() };
+}
+// A literal foreground chosen on the first argument page. For other
+// expressions leave the target lists unfiltered rather than guessing.
+function occultationForeground() {
+  const ctx = argContext(before());
+  if (ctx?.fn !== "occultation" || ctx.index !== 1) return null;
+  const match = /occultation\(\s*"([^"]+)"\s*,\s*$/.exec(before().slice(0, ctx.start));
+  return match ? match[1].trim().toLowerCase() : null;
 }
 const argKind = (ctx) => (ctx && ARG_KINDS[ctx.fn] ? ARG_KINDS[ctx.fn][ctx.index] ?? null : null);
 
@@ -6228,16 +6191,29 @@ function doneArgs() {
 
 // what an argument is, for the line under the keys of its page
 const ARG_TEXT = {
-  body: "a body", "body:nosat": "a body (not a satellite)", "body:solar": "the Sun, the Moon or a planet", "body:lit": "a body of the solar system", "body:front": "the body in front: the Moon, or a planet",
+  body: "a body", "body:nosat": "a body (not a satellite)", "body:solar": "the Sun, the Moon or a planet", "body:lit": "a body of the solar system", "body:front": "the body in front: the Moon, or a planet", "body:target": "the body being covered",
   satellite: "a satellite", planetmoons: "a planet with moons", moon: "a moon", kind: "the kind of event", date: "the date", place: "the place",
   horizon: "the altitude of the horizon", point: "a point of the sky", epoch: "the epoch", era: "the era",
 };
 function argPageHTML() {
   const { page, kind, optional, fn } = state.argPage;
-  const [cols, keys] = ARG_PAGES[page];
+  const [cols, defaults] = ARG_PAGES[page];
+  // Suggest named absolute times, excluding durations, built-ins and history.
+  const dates = page === "date" && state.calc ? [...state.calc.env.vars]
+    .filter(([name, value]) => name !== "ans" && !state.calc.systemNames.has(name) && isDate(state.calc.env, value))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, value]) => ({ a: name, label: name, desc: state.calc.env.format(value), it: true })) : [];
+  const keys = [...defaults, ...dates];
   const located = Boolean(state.calc?.env.location);
-  const html = keys.map((k) => {
-    const off = (k.only && !k.only.includes(kind)) || (k.done && !optional) || (k.needsLocation && !located);
+  const geocentric = page === "place" && ["radec", "dist", "diam", "conjunction", "opposition"].includes(fn);
+  const globalEvent = page === "place" && ["solareclipse", "lunareclipse"].includes(fn);
+  const foreground = kind === "body:target" ? occultationForeground() : null;
+  const html = keys.map((original) => {
+    const k = original.done && (geocentric || globalEvent)
+      ? { ...original, label: geocentric ? "Geocentric )" : "Global )", desc: geocentric ? "Earth’s center" : "Anywhere on Earth", needsLocation: false }
+      : original;
+    const sameBody = foreground && k.a?.toLowerCase() === JSON.stringify(foreground);
+    const off = sameBody || (k.only && !k.only.includes(kind)) || (k.done && !optional) || (k.needsLocation && !located);
     const act = k.a !== undefined ? `data-arg="${esc(k.a)}"${k.open ? ' data-open="1"' : ""}` : k.done ? 'data-argdone="1"' : k.tpl !== undefined ? `data-argtpl="${esc(k.tpl)}"` : `data-key="${esc(k.key)}"`;
     const label = k.it ? symHTML(k.label) : esc(k.label);
     return `<button class="key const${k.label.length > 8 ? " long" : ""}" ${act}${off ? " disabled" : ""}><b>${label}</b><small>${esc(k.desc)}</small></button>`;
@@ -6265,19 +6241,72 @@ function argKey(b) {
 
 function openPick(name) {
   const list = PICK_LISTS[name]();
+  const front = occultationForeground();
+  if (front && (name === "star" || name === "deep")) {
+    const candidates = new Set();
+    for (const [label, ra, dec] of STARS) if (occultationCandidate(front, ra, dec)) candidates.add(JSON.stringify(label));
+    for (const [labels, ra, dec] of DEEP) if (occultationCandidate(front, ra, dec)) candidates.add(JSON.stringify(labels[0]));
+    for (const o of found((o) => o.ra !== undefined)) {
+      if (occultationCandidate(front, o.ra, o.dec)) candidates.add(JSON.stringify(o.name.replace(/ \(.*$/, "")));
+    }
+    list.groups = list.groups.map(([group, items]) => [group, items.filter(([text]) => candidates.has(text))]);
+    list.note = `Targets near ${front === "moon" ? "the Moon" : front[0].toUpperCase() + front.slice(1)}’s path. Selecting a target does not guarantee an occultation. Other names can be typed directly.`;
+  }
   // long lists: a search field, which shows the first matches only
   const groupsHTML = (q = "") => {
     const k = q.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-    const match = ([, label, desc]) => !k || `${label} ${desc}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(k);
+    const match = ([ins, label, desc]) => !k || `${ins} ${label} ${desc}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(k);
     // the names that begin with the search first
     const starts = ([, label]) => (k && !label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().startsWith(k) ? 1 : 0);
     return list.groups.map(([g, items]) => [g, items.filter(match).sort((a, b) => starts(a) - starts(b)).slice(0, list.search ? 120 : Infinity)]).filter(([, items]) => items.length)
       .map(([g, items]) => `<h3>${esc(g)}</h3><div class="ex names">${items.map(([ins, label, desc]) => `<button data-pick-insert="${esc(ins)}">${esc(label)}${desc ? `<span>${esc(desc)}</span>` : ""}</button>`).join("")}</div>`).join("")
-      || '<p class="muted">None here; the name can be typed and looked up online.</p>';
+      || (name === "city" ? '<p class="muted">No saved matches. Press Enter or Search to look online.</p>' : '<p class="muted">None here; the name can be typed and looked up online.</p>');
   };
   openSheet(list.title, (root) => {
     root.innerHTML = `<div class="help"><p>${esc(list.note)}</p>${list.search ? '<input type="search" class="search pick-search" placeholder="Search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">' : ""}<div class="pick-groups">${groupsHTML()}</div></div>`;
-    $(".pick-search", root)?.addEventListener("input", (ev) => { $(".pick-groups", root).innerHTML = groupsHTML(ev.target.value); });
+    if (name === "city") {
+      const search = $(".pick-search", root);
+      search.setAttribute("aria-label", "Search places");
+      search.setAttribute("enterkeyhint", "search");
+      const form = document.createElement("form");
+      form.className = "pick-place-search";
+      search.before(form);
+      form.append(search);
+      form.insertAdjacentHTML("beforeend", '<button type="submit" class="act">Search</button>');
+      form.insertAdjacentHTML("afterend", '<p class="muted pick-status" role="status" aria-live="polite"></p>');
+      const status = $(".pick-status", root), button = $("button", form);
+      let finding = false;
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const query = search.value.trim();
+        if (!query || finding) return;
+        finding = true;
+        button.disabled = true;
+        search.readOnly = true;
+        status.textContent = "Looking it up…";
+        try {
+          try { findPlace(state.calc.env, query); } catch (e) {
+            if (!e.lookup) throw e;
+            const [key, place] = await fetchPlace(query);
+            lookups().places[key] = place;
+            store.set("lookups", lookups());
+          }
+          list.groups = PICK_LISTS.city().groups;
+          $(".pick-groups", root).innerHTML = groupsHTML(query);
+          status.textContent = "Tap a place to use it.";
+        } catch (e) { status.textContent = e.message; }
+        finally {
+          finding = false;
+          button.disabled = false;
+          search.readOnly = false;
+        }
+      });
+    }
+    $(".pick-search", root)?.addEventListener("input", (ev) => {
+      $(".pick-groups", root).innerHTML = groupsHTML(ev.target.value);
+      const status = $(".pick-status", root);
+      if (status) status.textContent = "";
+    });
     root.addEventListener("click", (ev) => {
       const b = ev.target.closest("[data-pick-insert]");
       if (!b) return;
@@ -6414,7 +6443,7 @@ function explain(b) {
     const k = b.dataset.key;
     if (/^f:.*\($/.test(k)) return usageOf(k.slice(2, -1));
     if (k.startsWith("u:")) return explain({ dataset: { unit: k.slice(2) } });
-    return KEY_HELP[k] || "";
+    return KEY_HELP[k] || (k.startsWith("n:") ? k.slice(2) : "");
   }
   if (b.dataset.const) {
     const x = b.dataset.const;
@@ -6549,7 +6578,7 @@ keypadEl.addEventListener("pointerdown", (ev) => {
     clearTimeout(holdTimer);
     holdTimer = setTimeout(() => {
       const msg = explain(b);
-      if (msg) { held = true; toast(msg, Math.max(4000, msg.length * 55)); }
+      if (msg) { held = true; openKeyHelp(b, msg); }
     }, 480);
   }
 });
@@ -7026,16 +7055,252 @@ function toast(msg, ms = 2200, action = null) {
 
 const sheet = $("#sheet");
 let sheetBody = $("#sheet-body");
+let helpFocus = null;
+
+// Reuse the editor's identifier notation, preserving literal strings.
+function helpSymbols(text) {
+  let html = "", end = 0;
+  for (const m of text.matchAll(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[\p{L}_][\p{L}\p{N}_]*/gu)) {
+    html += esc(text.slice(end, m.index)) + (/^["']/.test(m[0]) ? esc(m[0]) : prettyName(m[0]) || esc(m[0]));
+    end = m.index + m[0].length;
+  }
+  return html + esc(text.slice(end));
+}
+
+// Highlight complete calls, including nested calls and quoted parentheses,
+// without treating the surrounding documentation as calculator source.
+function helpMarkup(text, arguments_ = []) {
+  const argumentNames = new Set(arguments_);
+  const prose = (s) => {
+    let out = "", end = 0;
+    for (const m of s.matchAll(/"(?:\\.|[^"\\])*"|[\p{L}_][\p{L}\p{N}_]*/gu)) {
+      // Avoid styling the indefinite article as the endpoint named a.
+      const article = m[0] === "a" && /^\s+(?!(?:to|and|or)\b)[\p{L}]/u.test(s.slice(m.index + 1));
+      const symbol = !m[0].startsWith('"') && (m[0].includes("_") || Object.hasOwn(NAME_HTML, m[0]) || ["pi", "tau"].includes(m[0]));
+      out += esc(s.slice(end, m.index)) + ((argumentNames.has(m[0]) && !article) || symbol ? `<code>${helpSymbols(m[0])}</code>` : esc(m[0]));
+      end = m.index + m[0].length;
+    }
+    return out + esc(s.slice(end));
+  };
+  const code = (s) => `<code>${s.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b|[\p{L}_][\p{L}\p{N}_]*|[^\p{L}\p{N}_\s]/gu, (token, offset) => {
+    const cls = /^["']/.test(token) ? "string" : /^\d/.test(token) ? "number" : /^[\p{L}_]/u.test(token) ? (s[offset + token.length] === "(" ? "function" : "argument") : "punctuation";
+    return `<span class="syntax-${cls}">${helpSymbols(token)}</span>`;
+  })}</code>`;
+  let html = "", end = 0;
+  const calls = /[\p{L}_][\p{L}\p{N}_]*\(/gu;
+  for (let m; (m = calls.exec(text));) {
+    let depth = 1, quote = "", i = calls.lastIndex;
+    for (; i < text.length && depth; i++) {
+      const c = text[i];
+      if (quote) {
+        if (c === "\\") i++;
+        else if (c === quote) quote = "";
+      } else if (c === '"' || c === "'") quote = c;
+      else if (c === "(") depth++;
+      else if (c === ")") depth--;
+    }
+    if (depth) continue;
+    html += prose(text.slice(end, m.index)) + code(text.slice(m.index, i));
+    end = calls.lastIndex = i;
+  }
+  return html + prose(text.slice(end));
+}
+
+function openKeyHelp(button, text, data = button.dataset) {
+  // A held touch must not carry a native selection or pointer focus ring
+  // into the dialog. Keyboard interaction restores visible focus below.
+  getSelection()?.removeAllRanges();
+  document.documentElement.classList.add("help-pointer-focus");
+  const name = data.key === "nist" ? "NIST constants" : (data.key || data.const || "").replace(/^[fn]:/, "").replace(/\($/, "");
+  const isFunction = /^f:.*\($/.test(data.key || "") || /\($/.test(data.const || "");
+  const quantity = data.const || (data.key?.startsWith("n:") ? data.key.slice(2) : data.key === "now" ? "now" : null);
+  const unit = data.unit || (data.key?.startsWith("u:") ? data.key.slice(2) : null);
+  const prefix = data.prefix;
+  const system = data.sys;
+  const title = unit || prefix || system || (/^const\[/.test(quantity || "") ? CONSTS.find((c) => c[1] === quantity)?.[2] || "Constant" : name);
+  openSheet(title ? `Help · ${title}` : "Key help", (root) => {
+    root.classList.add("key-help");
+    if (isFunction) renderFunctionHelp(root, name);
+    else if (unit || prefix || system) renderUnitHelp(root, prefix || button.classList.contains("alone") ? "prefix" : unit ? "unit" : "system", unit || prefix || system);
+    else if (quantity) renderQuantityHelp(root, quantity, button);
+    else root.innerHTML = text.split(/\n\s*\n/).map((p) => `<p>${helpMarkup(p)}</p>`).join("");
+  });
+  $("#sheet-title").innerHTML = title ? `Help · ${helpSymbols(title)}` : "Key help";
+  helpFocus = button;
+  sheet.classList.add("key-help-modal");
+  $(".sheet-head [data-close]", sheet).textContent = "Close";
+  sheetBody.tabIndex = 0;
+  $(".sheet-head [data-close]", sheet).focus({ preventScroll: true });
+}
+
+function renderUnitHelp(root, kind, spec) {
+  const e = env();
+  const paragraphs = (items) => items.map((p) => `<p>${helpMarkup(p)}</p>`).join("");
+  const code = (s) => `<code>${helpSymbols(s)}</code>`;
+  const card = (caption, body) => `<div class="quantity-card"><div class="quantity-caption">${caption}</div><div class="unit-definition">${body}</div></div>`;
+  const heading = (label, symbol) => `<div class="quantity-heading"><span class="quantity-kind">${label}</span><div class="quantity-symbol">${symbol}</div></div>`;
+  const notes = (items) => items.length ? `<h3>Notes</h3>${paragraphs(items)}` : "";
+  const number = (n) => {
+    const text = n instanceof UNum ? formatUNum(n, 12, true) : formatNumber(n, 12), match = /^(.*)e([+-]?\d+)$/.exec(text);
+    return match ? `${esc(match[1])} × 10<sup>${Number(match[2])}</sup>` : esc(text).replace(/^-/, "−");
+  };
+  // A prefix-only key is shown alongside units when a conversion is open.
+  if (kind === "unit" && (spec === "*" || e.prefixes.has(spec) && !e.units.has(spec))) kind = "prefix";
+  if (kind === "prefix") {
+    if (spec === "*") {
+      root.innerHTML = heading("Automatic prefixes", "*") + paragraphs(["Choose a suitable engineering prefix automatically when converting a result. Engineering prefixes use powers of 1000."]) +
+        card("Conversion syntax", code("value @ *unit")) +
+        `<h3>Examples</h3><div class="function-examples">${code("1200 m @ *m")}${code("value @ *si")}</div>` +
+        notes(["Put * before a target unit or system. Used alone after @, it applies prefixes to the default unit system."]);
+      return;
+    }
+    const p = e.prefixes.get(spec);
+    const exponent = p ? Math.log10(p.x.n) : NaN;
+    const power = p && !p.x.std && Number.isFinite(exponent) && Math.abs(exponent - Math.round(exponent)) < 1e-10;
+    const example = prefixed(spec, "m");
+    root.innerHTML = heading("Prefix", esc(spec)) + paragraphs([p?.doc || "Unit prefix."]) +
+      card("Multiplier", power ? `10<sup>${Math.round(exponent)}</sup>` : p ? number(p.x) : "Unavailable") +
+      paragraphs(["Attach the prefix directly to a unit symbol. Symbols are case-sensitive."]) +
+      (example && p ? `<h3>Example</h3><div class="unit-definition">1 ${unitLabelHTML(example)} = ${number(p.x.n)} ${unitLabelHTML("m")}</div>` : "") +
+      notes([`Use @ ${spec}* to request this prefix for the result without specifying a target unit.`]);
+    return;
+  }
+  if (kind === "system") {
+    const name = spec.replace(/^\*/, "");
+    const system = e.systems.get(name), format = e.formats.get(name);
+    if (!system && !format && e.units.has(name)) return renderUnitHelp(root, "unit", name);
+    const doc = (system?.doc || format?.doc || "Conversion target.").split(/\n\s*\n/);
+    const extra = doc.slice(1);
+    const auto = spec.startsWith("*") || system?.args.includes("*");
+    if (auto) extra.push("The result can use suitable engineering prefixes (powers of 1000).");
+    if (system?.args.some((a) => a.startsWith('"'))) extra.push("Double-quoted variables set natural-unit scales and are removed from the displayed result.");
+    root.innerHTML = heading(system ? "Unit system" : "Output format", helpSymbols(spec)) + paragraphs([doc[0]]) +
+      card("Conversion syntax", code(`value @ ${spec}`)) +
+      (system ? `<h3>Conversion targets</h3><div class="unit-targets">${system.args.filter((a) => a !== "*").map(code).join("")}</div>` : "") +
+      notes(extra);
+    return;
+  }
+  const wildcard = spec.startsWith("*");
+  const name = wildcard ? spec.slice(1) : spec;
+  const pair = e.isunit(name);
+  const entry = pair?.[1] ? e.units.get(pair[1]) : null;
+  const base = e.baseunits.includes(name);
+  const label = entry?.currency || name === e.basecurrency ? "Currency" : base ? "Base unit" : pair?.[0] ? "Prefixed unit" : pair ? "Unit" : "Compound unit";
+  const doc = (entry?.doc || "Compound unit.").split(/\n\s*\n/);
+  const description = pair?.[0] ? `${e.prefixes.get(pair[0])?.doc || pair[0]}${doc[0].toLowerCase()}` : doc[0];
+  const extra = base ? [] : doc.slice(1);
+  let definition = "";
+  try {
+    const q = e.unit(name);
+    const tree = q.d.map((power, i) => [e.baseunits[i], power]).filter(([, power]) => Math.abs(power) > 1e-12);
+    const angular = ["rad", "deg", "arcmin", "arcsec"].includes(pair?.[1]);
+    const units = treeHTML(tree) || (angular ? unitLabelHTML("rad") : pair?.[1] === "sr" ? unitLabelHTML("sr") : "");
+    const temperature = dimEq(q.d, e.unit("K").d);
+    const equivalent = (n) => `${number(n)}${units ? ` <span class="u">${units}</span>` : ""}`;
+    if (base) {
+      const dimensions = { m: "length", kg: "mass", s: "time", K: "thermodynamic temperature", A: "electric current", cd: "luminous intensity", mol: "amount of substance" };
+      definition = card("Role", name === e.basecurrency ? "Base currency for exchange-rate conversions." : dimensions[name] ? `Base unit of ${dimensions[name]}.` : "Base unit in the calculator’s dimensional system.");
+    } else if (name === "rad" || name === "sr") {
+      definition = card("Role", name === "rad" ? "Unit of plane angle. One radian subtends an arc whose length equals the circle’s radius." : "Unit of solid angle.");
+    } else if (q.zero !== false) {
+      definition = card(temperature ? "Temperature conversion" : "Zero-point conversion", `<div>0 ${unitLabelHTML(name)} = ${equivalent(q.zero)}</div><div>100 ${unitLabelHTML(name)} = ${equivalent(q.zero + 100 * q.x.n)}</div>`);
+    } else definition = card(angular ? "Equivalent in radians" : "Equivalent in base units", `1 ${unitLabelHTML(name)} = ${equivalent(q.x)}`);
+    if (q.zero !== false) extra.push(temperature ? "Absolute temperature values include a zero-point offset. The ~ operator switches between absolute temperatures and relative temperature differences." : "This unit includes a zero-point offset as well as a scale factor.");
+    if (pair?.[0]) extra.push(`The prefix ${pair[0]} multiplies ${pair[1]} by ${formatNumber(e.prefixes.get(pair[0]).x.n)}.`);
+    if (wildcard) extra.push("The * selects a suitable engineering prefix automatically when this unit is used after @.");
+  } catch (err) { extra.push(`The unit definition could not be evaluated: ${err.message}`); }
+  root.innerHTML = heading(label, unitLabelHTML(spec)) + paragraphs([description]) + definition + notes(extra);
+}
+
+function renderQuantityHelp(root, expression, button) {
+  const e = env();
+  const stored = e.vars.get(expression);
+  const known = CONSTS.find((c) => c[1] === expression);
+  const cosmo = COSMO_KEYS.find(([name]) => name === expression);
+  const user = e.vars.has(expression) && !state.calc.systemNames?.has(expression);
+  const modelParameter = ["H_0", "Omega_M", "Omega_b", "Omega_L", "Omega_K", "Omega_R"].includes(expression);
+  const kind = user ? "Variable" : modelParameter ? "Model parameter" : stored?.lazy ? "Derived quantity" : e.vars.has(expression) || known || ["pi", "tau", "inf"].includes(expression) ? "Constant" : "Value";
+  const descriptions = {
+    pi: "The ratio of a circle’s circumference to its diameter.", tau: "A full turn in radians, equal to 2π.",
+    inf: "Positive infinity.", now: "The current date and time, evaluated again in each calculation.",
+    today: "Midnight at the start of today, using the local or UTC setting.", ans: "The most recent calculation result.",
+  };
+  let value = null, error = "";
+  try {
+    value = e.vars.has(expression) ? state.calc.lookup(expression) : evalPreview(expression, state.calc, { lists: true });
+    if (value?.lazy) value = value.lazy();
+  } catch (err) { error = err.message; }
+  const caption = button.dataset.helpKind ? "" : $("small", button)?.textContent || "";
+  const doc = stored?.doc || value?.doc || descriptions[expression] || known?.[2] || cosmo?.[2] || (caption.toLowerCase() === "variable" ? "" : caption);
+  const parts = doc.split(/\n\s*\n/).filter(Boolean);
+  const description = parts.shift() || (value === null ? "This variable has not been assigned a value." : user ? "A value stored under this name for use in calculations." : "The current value of this expression.");
+  const symbol = known ? constLabel(known[0], expression) : /^[\p{L}_][\p{L}\p{N}_]*$/u.test(expression) ? symHTML(expression) : helpSymbols(expression);
+  let display = "", details = "", source = "";
+  const field = (title, html) => `<dt>${title}</dt><dd>${html}</dd>`;
+  const number = (n, digits = 12) => {
+    const text = formatNumber(n, digits), match = /^(.*)e([+-]?\d+)$/.exec(text);
+    return match ? `${esc(match[1])} × 10<sup>${Number(match[2])}</sup>` : esc(text).replace(/^-/, "−").replace(/^inf$/, "∞");
+  };
+  if (value instanceof Q) {
+    let q = value;
+    if (cosmo?.[1]) { try { q = e.convert(q, [cosmo[1]]); } catch { /* use current units */ } }
+    const r = e.display(q);
+    display = r.format ? esc(r.text) : `${number(r.num.n)}${r.tree.length ? `<span class="u">${treeHTML(r.tree)}</span>` : ""}`;
+    if (!r.format) {
+      // A zero error is not enough to claim that a stored value is exact.
+      const constant = [...state.calc.const.cache].find(([, q]) => q.x === value.x && dimEq(q.d, value.d));
+      const exact = constant && state.calc.const.data[constant[0]][1] === "(exact)";
+      const uncertainty = r.num.std;
+      details += field("Standard uncertainty", uncertainty > 0 ? `${number(uncertainty, 3)}${r.tree.length ? `<span class="u">${treeHTML(r.tree)}</span>` : ""}` : exact ? "Exact by definition" : "No uncertainty specified");
+      const absolute = value.relative().x;
+      if (uncertainty > 0 && absolute.n !== 0 && Number.isFinite(absolute.n)) details += field("Relative uncertainty", `${number(Math.abs(absolute.std / absolute.n) * 100, 3)} %`);
+      if (constant) source = `NIST CODATA · ${constant[0]}`;
+    }
+  } else if (Array.isArray(value)) {
+    const brief = (v, depth = 0) => Array.isArray(v) ? depth > 4 ? "…" : `(${v.slice(0, 8).map((x) => brief(x, depth + 1)).join(", ")}${v.length > 8 ? ", …" : ""})` : v instanceof Q ? qShort(v) : String(v);
+    display = esc(brief(value));
+    details += field("Contents", `${value.length} ${value.some(Array.isArray) ? "columns" : "elements"}`);
+  } else if (value !== null && value !== undefined) display = esc(String(value));
+  else display = "No value available";
+  root.innerHTML = `<div class="quantity-heading"><span class="quantity-kind">${kind}</span><div class="quantity-symbol">${symbol}</div></div>
+    <p class="quantity-description">${helpMarkup(description)}</p>
+    <div class="quantity-card"><div class="quantity-caption">Current value</div><div class="quantity-value">${display}</div></div>
+    ${details ? `<dl class="quantity-details">${details}</dl>` : ""}
+    ${stored?.src ? `<h3>Definition</h3><pre class="function-definition"><code>${exprHTML(stored.src)}</code></pre>` : ""}
+    ${source ? `<h3>Source</h3><p>${esc(source)}</p>` : ""}
+    ${parts.some((p) => !source || !p.startsWith("NIST CODATA:")) ? `<h3>Details</h3>${parts.filter((p) => !source || !p.startsWith("NIST CODATA:")).map((p) => `<p>${helpMarkup(p)}</p>`).join("")}` : ""}
+    ${error ? `<h3>Value unavailable</h3><p>${esc(error)}</p>` : ""}`;
+}
+
+function renderFunctionHelp(root, name) {
+  const doc = functionHelp(name, USAGE[name] || functionDocs[name] || "", env().vars.get(name));
+  const args = Object.keys(doc.args).flatMap((a) => a.match(/[\p{L}_][\p{L}\p{N}_]*/gu) || []);
+  const prose = (text) => helpMarkup(text, args);
+  const paragraphs = (items) => items.map((p) => `<p>${prose(p)}</p>`).join("");
+  root.innerHTML = `<div class="function-signatures" aria-label="Calling syntax">${doc.signatures.map((s) => `<div>${helpMarkup(s)}</div>`).join("")}</div>
+    ${doc.signatures.some((s) => s.includes("[")) ? '<p class="signature-hint">Arguments in […] are optional.</p>' : ""}
+    ${paragraphs([doc.description])}
+    ${Object.keys(doc.args).length ? `<h3>Arguments</h3><dl class="function-arguments">${Object.entries(doc.args).map(([arg, description]) => `<dt><code>${helpSymbols(arg)}</code></dt><dd>${prose(description)}</dd>`).join("")}</dl>` : ""}
+    ${doc.returns ? `<h3>Returns</h3>${paragraphs([doc.returns])}` : ""}
+    ${doc.definition ? `<h3>Definition</h3><pre class="function-definition"><code>${exprHTML(doc.definition)}</code></pre>` : ""}
+    ${doc.examples.length ? `<h3>Examples</h3><div class="function-examples">${doc.examples.map((ex) => `<div>${helpMarkup(ex)}</div>`).join("")}</div>` : ""}
+    ${doc.notes?.length ? `<h3>Notes</h3>${paragraphs(doc.notes)}` : ""}`;
+}
 
 // share: for a sheet with a diagram, what to picture when the share button
 // is tapped (see shareSheet)
 function openSheet(title, render, share = null) {
+  sheet.classList.remove("key-help-modal");
+  helpFocus = null;
+  $(".sheet-head [data-close]", sheet).textContent = "Done";
   $("#sheet-title").textContent = title;
   sheetShare = share;
   sharePending = null;
   $("#sheet-share").hidden = !share;
   // a fresh element, so that listeners added by earlier sheets go away
   const fresh = sheetBody.cloneNode(false);
+  fresh.classList.remove("key-help");
+  fresh.removeAttribute("tabindex");
   fresh._tab = sheetBody._tab;
   sheetBody.replaceWith(fresh);
   sheetBody = fresh;
@@ -7044,9 +7309,17 @@ function openSheet(title, render, share = null) {
 }
 
 function closeSheet() {
+  const focus = helpFocus;
+  helpFocus = null;
   sheet.hidden = true;
   sheetBody.innerHTML = "";
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  if (focus?.isConnected) {
+    // Escape is keyboard input, but the restored focus still belongs to
+    // the button that was held. Suppress its ring until the next keypress.
+    document.documentElement.classList.add("help-pointer-focus");
+    focus.focus({ preventScroll: true });
+  }
 }
 
 sheet.addEventListener("click", (ev) => {
@@ -7091,7 +7364,14 @@ function shareFile(file, again = false) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 document.addEventListener("keydown", (ev) => {
+  document.documentElement.classList.remove("help-pointer-focus");
+  suggestionHeld = false;
   if (ev.key === "Escape" && !sheet.hidden) closeSheet();
+  if (ev.key === "Tab" && !sheet.hidden && sheet.classList.contains("key-help-modal")) {
+    const close = $(".sheet-head [data-close]", sheet);
+    ev.preventDefault();
+    (document.activeElement === close ? sheetBody : close).focus({ preventScroll: true });
+  }
 });
 
 // ---------------------------------------------------------------------
@@ -7276,7 +7556,7 @@ function renderSettings(root) {
       <div class="row"><div class="lbl">Latitude<small>Degrees, north positive; for sunrise(today)…</small></div><input type="text" inputmode="decimal" class="num" id="set-lat" value="${s.location ? esc(String(s.location.lat)) : ""}" placeholder="45.46"></div>
       <div class="row"><div class="lbl">Longitude<small>Degrees, east positive</small></div><input type="text" inputmode="decimal" class="num" id="set-lon" value="${s.location ? esc(String(s.location.lon)) : ""}" placeholder="9.19"></div>
       <div class="row"><div class="lbl">Elevation<small>Metres above sea level; 0 if empty</small></div><input type="text" inputmode="decimal" class="num" id="set-h" value="${s.location && Number.isFinite(s.location.h) ? esc(String(s.location.h)) : ""}" placeholder="0"></div>
-      <div class="row"><div class="lbl">Place<small id="loc-found">${s.location?.name ? esc(s.location.name) : "A city or an address; online if not one of the large cities"}</small></div><input type="text" id="set-place" placeholder="Milan" enterkeyhint="search"></div>
+      <div class="row"><div class="lbl">Place<small id="loc-found">${s.location?.name ? esc(s.location.name) : "A city or an address; online if not one of the large cities"}</small></div><input type="text" id="set-place" enterkeyhint="search"></div>
       <div class="row"><div class="lbl">Current position<small id="loc-status">From the GPS, once; it is not tracked; the elevation from a terrain map (online)</small></div><button class="act" id="set-locate">Locate</button></div>
     </div>
 
@@ -7353,9 +7633,11 @@ function renderSettings(root) {
   };
   for (const id of ["#set-lat", "#set-lon", "#set-h"]) $(id, root).addEventListener("change", () => setLocation());
   // a place by name: a built-in city, one found before, or online
-  $("#set-place", root).addEventListener("change", async (ev) => {
+  let findingPlace = false;
+  const resolvePlace = async (ev) => {
     const name = ev.target.value.trim(), found = $("#loc-found", root);
-    if (!name) return;
+    if (!name || findingPlace) return;
+    findingPlace = true;
     try {
       let v;
       try { v = findPlace(state.calc.env, name); } catch (e) {
@@ -7370,6 +7652,13 @@ function renderSettings(root) {
       setLocation(v.name);
       ev.target.value = "";
     } catch (e) { found.textContent = e.message; }
+    finally { findingPlace = false; }
+  };
+  $("#set-place", root).addEventListener("change", resolvePlace);
+  $("#set-place", root).addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" || ev.isComposing) return;
+    ev.preventDefault();
+    resolvePlace(ev);
   });
   $("#set-locate", root).addEventListener("click", () => {
     const status = $("#loc-status", root);
@@ -7719,7 +8008,7 @@ const HELP = [
     ["g_Mars / g_Earth", ""], ["rho_Saturn @ g/cm^3", ""], ["M_Jupiter @ M_Earth", ""], ["a_Io", "around Jupiter"], ["P_Neptune @ yr", ""], ["sqrt(G M_Earth / a_Moon) @ km/s", "orbital speed"],
   ]],
   ["Statistics", "Gaussian and other distributions on the ƒ(x) Stats keys; uncertainties propagate.", [
-    ["pvalue(5)", "5σ, one-sided"], ["nsigma(0.05)", ""], ["conf(2)", "inside ±2σ"], ["chi2_p(12.3, 5)", "χ² tail"], ["t_p(2.1, 9)", "two-sided"], ["Phiinv(0.975)", ""], ["2.3 fwhm", "σ → FWHM"],
+    ["pvalue(5)", "5σ, one-sided"], ["nsigma(0.05)", ""], ["conf(2)", "inside ±2σ"], ["p_chi2(12.3, 5)", "χ² tail"], ["p_t(2.1, 9)", "two-sided"], ["Phi_inv(0.975)", ""], ["2.3 fwhm", "σ → FWHM"],
   ]],
   ["More data", "The Const keys have sections for mathematics, particles (PDG masses), astronomy (IAU nominal values), Earth (WGS 84), chemistry, elements and molecules (molar masses M_Fe, M_H2O; ionization energies E_ion_Fe; for elements also T_m_Fe, T_b_Fe, rho_Fe and the electronegativity chi_Fe; for molecules T_m, T_b, H_fus, H_vap, C_p, rho, T_c, p_c, as in T_b_H2O), engineering (ISA), materials (typical values), nuclides (T_half_C14, lambda_C14, m_C14) and information units (bit, B, KiB…).", [
     ["18 g / M_H2O @ mol", ""], ["E_ion_H N_A @ kJ/mol", "ionization energy"], ["H_vap_H2O / M_H2O @ MJ/kg", "latent heat"], ["T_b_C2H5OH @ °C", ""], ["T_m_W @ °C", ""], ["chi_O - chi_H", "bond polarity"], ["T_half_C14 log2(1 / 0.3)", "age when 30 % is left"], ["1 GiB / (100[Mbit/s]) @ s", ""], ["E_steel * 1e-3 @ GPa", ""], ["GM_Earth / a_WGS84^2", ""], ["m_Z c^2 @ GeV", ""], ["L_Edd(10 M_Sun)", ""],
@@ -7728,11 +8017,11 @@ const HELP = [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
     ["ymd(today)", "year, month, day"], ["ymd(today).1", "the year"], ["ymd(today, \"hebrew\")", ""], ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
-  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), (latitude, longitude, height) or a name, as \"Milan\", or from the location set in Settings (its elevation, 0 if left out): sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″; see Accuracy of the sky); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100; tap the drawing to zoom and to see the moons move, faster or backward, and a moon, there or in the table, for its events. moonpos(“Io”, t) gives one moon's offsets, moonevents(“Io”, t) its next transit, shadow, eclipse and occultation (within 30 days), and moonevents(“Io”, t, “eclipse”) the beginning and end of the next eclipse. lunareclipse(t) gives the next lunar eclipse, its contacts and magnitudes; solareclipse(t) the next solar eclipse, its kind, greatest phase, gamma and magnitude, and solareclipse(t, place) the next one seen from a place, with its contacts to a few seconds and the sunrise or sunset during it; its map shows the path, the hours (UTC) when the partial eclipse begins and ends, and where the maximum is at sunrise or sunset; tap it to zoom, and to see it on OpenStreetMap, a topographic, dark or satellite map (online), or to follow the Moon's shadow across the Earth: the penumbra, darker where more of the Sun is covered, the umbra (or the antumbra of an annular eclipse) and the night at each moment, with the contacts on the Earth (P1, U1… P4) and at the place (C1… C4), and the phase there. The globe and the maps keep the same view when you switch between them; tap a place on any of them for the eclipse seen from there (its kind, magnitude, contacts and the Sun's altitude), and Calculate here for the whole calculation there. lunareclipse(t, place) gives the next lunar eclipse seen from a place; its drawing shows the Moon's path through the Earth's penumbra and umbra, with the times (UTC) of the contacts (P1, U1… P4), dashed where the Moon is down; tap it to follow the Moon through the shadow, with the phase and the magnitude at each moment, and the Moon as it looks then (its near side, north up, from NASA's LRO maps). conjunction(“Venus”, “Jupiter”, t) gives the next conjunction of two bodies in right ascension, their separation then (the second north of the first, south when negative), the closest approach and the least separation, and their angle from the Sun; with a place, seen from it (this matters for the Moon, shifted by its parallax up to 1°). occultation(“Regulus”, t, place) gives the next occultation of a star, a planet or a minor planet by the Moon seen from a place, with the body above the horizon: when it disappears and reappears (for a planet, its first and last contacts and when it is wholly covered, its disk flattened as it is seen; for Saturn, also those of its rings, to the outer edge of the A ring, which may be covered without the globe), on the dark or bright limb of the Moon, the position angles on the limb (from the north through the east), the altitudes and the lit part of the Moon; the times are good to a few seconds, from the positions and the Moon's mountains and valleys, which are not modeled (grazes, where the star skims the limb, need them). Its map shows where on the Earth it is seen: its limits (to a few km: the Moon's mountains and valleys move them as much), the central line with its times, the lines of the hours (UTC) when it begins and ends, where it does at the body's rising or setting, and the night; for a planet, where it is wholly covered; tap the map to zoom, and a place for the occultation there (and Calculate here). occultation(“Jupiter”, “Venus”, t, place) looks for a planet in front: these are rare (Venus in front of Jupiter on 2065.11.22, the first since 1818), but the planets' positions, to about 1″, decide them.  Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). The height of a place moves the Moon by its parallax (0.5″ a kilometre) and makes the refraction at the horizon smaller, with the pressure of the standard atmosphere (34′ at sea level, 24′ at 3000 m): rising and setting a minute or so later; a sea horizon seen from above is lower by dip(h), as in sunrise(t, place, −50′ − dip(h)). The stars named by the IAU and the Messier and other named deep-sky objects are bodies too, by name: altaz(“Vega”, t, place), rising(“Sirius”, t, place), transit(“M31”, t, place), radec(“Vega”, t), apparent (proper motion, precession, nutation, aberration and parallax, to about 0.3″), radec(“Vega”) the catalog position (ICRS, J2000), mag(“Vega”) and dist(“Sirius”) from the parallax. place(“Milan”) gives (latitude, longitude, height); the large cities are built in. Other names, of objects (“NGC 7000”, “HD 12345”, “alf Cen”) or places (“Mount Etna”, an address), are looked up online when you press =: objects in SIMBAD, places in OpenStreetMap with their elevation from a terrain map; they are kept on the device, so the history computes offline. Minor planets and comets are bodies too: about 175 brighter minor planets, the dwarf planets and some visited ones are built in, with their orbits of each year from 2016 to 2040 (good to some arcseconds; further from those years, and near the Earth, the error grows, as shown); others, by name, number or designation (“2004 MN4”), and comets (“12P”, “C/2023 A3”, “Halley”), come from the Minor Planet Center. Artificial satellites in near-Earth orbits (“ISS”, “Hubble”, “Tiangong”, others by name or as “NORAD 25544”) come from CelesTrak, updated when a day old: altaz(“ISS”, now, here), rising and setting, and passes(“ISS”, today, here), the passes of a day (or up to 10), with directions and whether it can be seen. The here key gives (latitude, longitude, altitude) when the device reports the altitude. sunday(t, place) gives the day of the Sun as a table (civil dawn, sunrise, noon, sunset, civil dusk, day length), moonphases(t) the next four phases of the Moon, seasons(year) the equinoxes and solstices; a row of a table by its name: moonphases(today).“full moon”, seasons(2027).“June solstice”, moonevents(“Io”, today).“eclipse begins” (also item(table, “full moon”)); tapping the name of a row in a result types it, as ans₃.“sunset”. On the ƒ(x) page, the Sky, Planets and Coords keys hold the functions; their arguments come as they are needed: after altaz( the bodies, then the dates, then the places (here, place… for a city, or Settings for your location), each typed with the comma that follows, the last with the closing parenthesis; numbers show the 123 keys; a section tapped brings its keys back.", [
+  ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), (latitude, longitude, height) or a name, as \"Milan\", or from the location set in Settings (its elevation, 0 if left out): sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″; see Accuracy of the sky); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100; tap the drawing to zoom and to see the moons move, faster or backward, and a moon, there or in the table, for its events. moonpos(“Io”, t) gives one moon's offsets, moonevents(“Io”, t) its next transit, shadow, eclipse and occultation (within 30 days), and moonevents(“Io”, t, “eclipse”) the beginning and end of the next eclipse. lunareclipse(t) gives the next lunar eclipse, its contacts and magnitudes; solareclipse(t) the next solar eclipse, its kind, greatest phase, gamma and magnitude, and solareclipse(t, place) the next one seen from a place, with its contacts to a few seconds and the sunrise or sunset during it; its map shows the path, the hours (UTC) when the partial eclipse begins and ends, and where the maximum is at sunrise or sunset; tap it to zoom, and to see it on OpenStreetMap, a topographic, dark or satellite map (online), or to follow the Moon's shadow across the Earth: the penumbra, darker where more of the Sun is covered, the umbra (or the antumbra of an annular eclipse) and the night at each moment, with the contacts on the Earth (P1, U1… P4) and at the place (C1… C4), and the phase there. The globe and the maps keep the same view when you switch between them; tap a place on any of them for the eclipse seen from there (its kind, magnitude, contacts and the Sun's altitude), and Calculate here for the whole calculation there. lunareclipse(t, place) gives the next lunar eclipse seen from a place; its drawing shows the Moon's path through the Earth's penumbra and umbra, with the times (UTC) of the contacts (P1, U1… P4), dashed where the Moon is down; tap it to follow the Moon through the shadow, with the phase and the magnitude at each moment, and the Moon as it looks then (its near side, north up, from NASA's LRO maps). conjunction(“Venus”, “Jupiter”, t) gives the next conjunction of two bodies in ecliptic longitude, their separation then (the second toward ecliptic north from the first, south when negative), the closest approach and the least separation, and their angle from the Sun; with a place, seen from it (this matters for the Moon, shifted by its parallax up to 1°). opposition(“Mars”, “Sun”, t) gives the next difference of 180° in ecliptic longitude, with the separation and the greatest separation nearby; both functions require two bodies and accept a place for a local calculation. occultation(“Moon”, “Regulus”, t, place) gives the next occultation of a star, a planet or a minor planet by the Moon seen from a place, with the body above the horizon: when it disappears and reappears (for a planet, its first and last contacts and when it is wholly covered, its disk flattened as it is seen; for Saturn, also those of its rings, to the outer edge of the A ring, which may be covered without the globe), on the dark or bright limb of the Moon, the position angles on the limb (from the north through the east), the altitudes and the lit part of the Moon; the times are good to a few seconds, from the positions and the Moon's mountains and valleys, which are not modeled (grazes, where the star skims the limb, need them). Its map shows where on the Earth it is seen: its limits (to a few km: the Moon's mountains and valleys move them as much), the central line with its times, the lines of the hours (UTC) when it begins and ends, where it does at the body's rising or setting, and the night; for a planet, where it is wholly covered; tap the map to zoom, and a place for the occultation there (and Calculate here). occultation(“Venus”, “Jupiter”, t, place) looks for a planet in front: these are rare (Venus in front of Jupiter on 2065.11.22, the first since 1818), but the planets' positions, to about 1″, decide them.  Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). The height of a place moves the Moon by its parallax (0.5″ a kilometre) and makes the refraction at the horizon smaller, with the pressure of the standard atmosphere (34′ at sea level, 24′ at 3000 m): rising and setting a minute or so later; a sea horizon seen from above is lower by dip(h), as in sunrise(t, place, −50′ − dip(h)). The stars named by the IAU and the Messier and other named deep-sky objects are bodies too, by name: altaz(“Vega”, t, place), rising(“Sirius”, t, place), transit(“M31”, t, place), radec(“Vega”, t), apparent (proper motion, precession, nutation, aberration and parallax, to about 0.3″), radec(“Vega”) the catalog position (ICRS, J2000), mag(“Vega”) and dist(“Sirius”) from the parallax. place(“Milan”) gives (latitude, longitude, height); the large cities are built in. Other names, of objects (“NGC 7000”, “HD 12345”, “alf Cen”) or places (“Mount Etna”, an address), are looked up online when you press =: objects in SIMBAD, places in OpenStreetMap with their elevation from a terrain map; they are kept on the device, so the history computes offline. Minor planets and comets are bodies too: about 175 brighter minor planets, the dwarf planets and some visited ones are built in, with their orbits of each year from 2016 to 2040 (good to some arcseconds; further from those years, and near the Earth, the error grows, as shown); others, by name, number or designation (“2004 MN4”), and comets (“12P”, “C/2023 A3”, “Halley”), come from the Minor Planet Center. Artificial satellites in near-Earth orbits (“ISS”, “Hubble”, “Tiangong”, others by name or as “NORAD 25544”) come from CelesTrak, updated when a day old: altaz(“ISS”, now, here), rising and setting, and passes(“ISS”, today, here), the passes of a day (or up to 10), with directions and whether it can be seen. The here key gives (latitude, longitude, altitude) when the device reports the altitude. sunday(t, place) gives the day of the Sun as a table (civil dawn, sunrise, noon, sunset, civil dusk, day length), moonphases(t) the next four phases of the Moon, seasons(year) the equinoxes and solstices; a row of a table by its name: moonphases(today).“full moon”, seasons(2027).“June solstice”, moonevents(“Io”, today).“eclipse begins” (also item(table, “full moon”)); tapping the name of a row in a result types it, as ans₃.“sunset”. On the ƒ(x) page, the Sky, Planets and Coords keys hold the functions; their arguments come as they are needed: after altaz( the bodies, then the dates, then the places (here, place… for a city, Use location for your saved location, or Geocentric to omit the place where supported), each typed with the comma that follows, the last with the closing parenthesis; numbers show the 123 keys; a section tapped brings its keys back.", [
     ["sunrise(today, (45.46, 9.19)[deg])", "Milan"], ["sunset(2026.12.21, (51.48, 0)[deg])", "Greenwich"], ["sunset(today, (45.46, 9.19)[deg], -6[deg])", "end of civil twilight"],
     ["fullmoon(today)", ""], ["equinox(2027)", "(March, September)"], ["sunset(today, here) - sunrise(today, here) @ hms", "day length"], ["phase(now)", "lit fraction, age"], ["lst(now, 9.19[deg]) @ hms", ""],
     ["rising(\"Sirius\", today, \"Rome\")", ""], ["transit(\"M31\", today, \"Milan\")", "Andromeda galaxy"], ["altaz(\"Betelgeuse\", now, here)", ""], ["place(\"Denver\")", "with its elevation"], ["sunrise(today, (-16.5[deg], -68.15[deg], 3640[m]))", "La Paz"], ["dip(100[m])", "sea horizon"], ["sunday(today, \"Rome\")", ""], ["moonphases(today).\"full moon\"", ""], ["seasons(2027)", ""], ["mag(\"Vesta\", now)", ""], ["rising(\"Ceres\", today, \"Rome\")", ""], ["passes(\"ISS\", today, \"Rome\")", "online"],
-    ["altaz(\"Jupiter\", now, here)", "(altitude, azimuth)"], ["radec(\"Mars\", now)", ""], ["dist(\"Mars\", now) / c @ min", "light time"], ["dist(\"Moon\", now)", ""], ["mag(\"Saturn\", now)", "with its rings"], ["illum(\"Venus\", now)", "(lit fraction, phase angle)"], ["elong(\"Mercury\", now)", "+ evening, − morning"], ["diam(\"Jupiter\", now)", ""], ["rising(\"Jupiter\", today, here)", ""], ["transit(\"Mars\", today, here)", ""], ["moons(\"Jupiter\", now)", "Galilean moons"], ["moons(\"Saturn\", now)", ""], ["lunareclipse(today)", ""], ["solareclipse(today)", ""], ["conjunction(\"Venus\", \"Jupiter\", today)", ""], ["occultation(\"Regulus\", today, here)", "by the Moon"], ["solareclipse(today, here)", "seen from here"],
+    ["altaz(\"Jupiter\", now, here)", "(altitude, azimuth)"], ["radec(\"Mars\", now)", ""], ["dist(\"Mars\", now) / c @ min", "light time"], ["dist(\"Moon\", now)", ""], ["mag(\"Saturn\", now)", "with its rings"], ["illum(\"Venus\", now)", "(lit fraction, phase angle)"], ["elong(\"Mercury\", now)", "+ evening, − morning"], ["diam(\"Jupiter\", now)", ""], ["rising(\"Jupiter\", today, here)", ""], ["transit(\"Mars\", today, here)", ""], ["moons(\"Jupiter\", now)", "Galilean moons"], ["moons(\"Saturn\", now)", ""], ["lunareclipse(today)", ""], ["solareclipse(today)", ""], ["conjunction(\"Venus\", \"Jupiter\", today)", ""], ["occultation(\"Moon\", \"Regulus\", today, here)", "by the Moon"], ["solareclipse(today, here)", "seen from here"],
     ["sep(radec(\"Moon\", now), radec(\"Jupiter\", now))", "Moon to Jupiter"], ["eq2hor((5h 35m 17s, -5.39[deg]), now, here)", "Orion nebula"], ["eq2gal((5h 35m 17s, -5.39[deg]))", ""], ["precess((5h 35m 17s, -5.39[deg]), 2000, today)", ""], ["refract(5[deg]) @ arcmin", ""],
   ]],
   ["Accuracy of the sky", "Results of the Sky and Planets functions carry their typical errors (68 %), which propagate. Positions, against JPL's ephemerides (DE441), apparent and geocentric, from 1600 to 2400: the Sun to 0.3″, Mercury, Venus and Jupiter 1″, Mars and Saturn 1.5″, Uranus 4″, Neptune 6″, the Moon 1″ from 1700 to 2300 and 2–4″ near 1600 and 2400 (its distance to a few km). Further away the series drift: from 1000 to 3000 the Sun and the inner planets stay near 1″, but Mars reaches 10″, Neptune 15″ and the Moon 10–15″; in the year 0 the Moon is off by 1′, in −1000 by 2′. Stars, about 0.3″ (their catalog positions and motions); the moons of the planets, about 0.1″ from 1900 to 2100 (Hyperion up to 1.5″); minor planets and comets, 5″ at 1 au near the years of their orbits, more further from them and close to the Earth; satellites, 1 km at the epoch of their elements, then 2 km a day and more.\n\n"

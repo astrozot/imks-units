@@ -1191,6 +1191,83 @@ math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
   -webkit-overflow-scrolling: touch;
 }
 
+/* Long-press help stays open until dismissed; only its body scrolls. */
+.sheet.key-help-modal {
+  align-items: center;
+  padding: calc(var(--sat) + 12px) 12px calc(var(--sab) + 12px);
+}
+.key-help-modal .sheet-panel {
+  height: auto;
+  max-height: 100%;
+  min-height: 0;
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.25);
+}
+.key-help-modal .sheet-head {
+  flex-shrink: 0;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.key-help-modal .sheet-head h2 { min-width: 0; overflow-wrap: anywhere; }
+.key-help-modal .text-btn { min-height: 44px; padding: 8px; }
+.key-help-modal .sheet-body { flex: 0 1 auto; padding: 4px 20px 20px; overscroll-behavior: contain; }
+.key-help p { font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.key-help { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.key-help:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+/* Programmatic focus after a held touch is not keyboard navigation. */
+.help-pointer-focus .key-help-modal button:focus-visible,
+.help-pointer-focus .key-help:focus-visible,
+.help-pointer-focus #suggest button:focus-visible,
+.help-pointer-focus #keypad button:focus-visible { outline: none; }
+.key-help code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--surface-2);
+  padding: 2px 4px;
+  border-radius: 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.key-help .syntax-function { color: var(--accent-ink); font-weight: 650; }
+.key-help .syntax-argument { color: var(--text); }
+.key-help .syntax-string { color: var(--unit); }
+.key-help .syntax-number { color: var(--second-ink); }
+.key-help .syntax-punctuation { color: var(--muted); }
+.function-signatures {
+  margin: 16px 0 10px;
+  padding: 12px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  line-height: 1.7;
+}
+.function-signatures > div + div { margin-top: 8px; }
+.function-signatures code { background: none; padding: 0; }
+.key-help .signature-hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+.key-help h3 { font-size: 14px; margin: 24px 0 10px; color: var(--accent-ink); }
+.function-arguments { margin: 0; font-size: 14px; line-height: 1.6; }
+.function-arguments dt { margin-top: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.function-arguments dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.function-examples { display: grid; gap: 10px; font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
+.function-definition { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.quantity-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0 12px; }
+.quantity-kind { color: var(--muted); font-size: 13px; font-weight: 600; }
+.quantity-symbol { font-size: 16px; overflow-wrap: anywhere; min-width: 0; }
+.quantity-card { margin: 20px 0; padding: 16px; background: var(--surface-2); border-radius: 12px; }
+.quantity-caption { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.quantity-value { font-family: var(--mono); font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
+.quantity-value .u { font-family: var(--font); }
+.quantity-details { margin: 0; font-size: 15px; line-height: 1.65; }
+.quantity-details dt { color: var(--muted); font-size: 13px; margin-top: 14px; }
+.quantity-details dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+.unit-definition { font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
+.unit-definition > div + div { margin-top: 8px; }
+.unit-targets { display: flex; flex-wrap: wrap; gap: 8px; font-size: 15px; }
+
 /* Reference */
 .search {
   width: 100%;
@@ -1301,6 +1378,9 @@ math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
 .help-toc .chip { height: 30px; padding: 0 11px; font-size: 14px; }
 .help-top { color: var(--muted); font-size: 16px; font-weight: 400; padding: 2px 8px; }
 .help .pick-search { margin: 6px 0 2px; }
+.pick-place-search { display: flex; align-items: center; gap: 12px; }
+.pick-place-search .pick-search { flex: 1; min-width: 0; }
+.pick-place-search button { color: var(--accent-ink); font-weight: 600; }
 .fn-grid .arg-note { grid-column: 1 / -1; align-self: start; margin: 4px 2px 0; font-size: 13px; color: var(--muted); line-height: 1.35; }
 .fn-grid .arg-note b { color: var(--text); font-weight: 600; }
 .help p { font-size: 15px; line-height: 1.5; margin: 6px 0; }
