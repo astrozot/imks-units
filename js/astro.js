@@ -1674,7 +1674,10 @@ function occultationLocal(target, front, t, place) {
 // (degrees a second), the position angles on the limb where the target
 // goes in and out and whether the Sun lights the limb there; or
 // null. The conjunctions in right ascension, then their geocentric closest
-// approach within the parallax, then the place
+// approach within the parallax, then the place. Without a place, find
+// the greatest phase globally and verify contacts at a point under the
+// shadow (or nearest its axis when the axis misses the Earth), returning
+// only { max, covers }; contact times and limb angles depend on a place.
 function occultation(target, front, t, place, years) {
   const end = t + years * 31557600;
   for (let u = t; u < end;) {
@@ -1686,8 +1689,17 @@ function occultation(target, front, t, place, years) {
     const parallax = Math.asin(R_EARTH / o.dist) / RAD - Math.asin(Math.min(1, R_EARTH / p.dist)) / RAD;
     const reach = target === "saturn" ? Math.asin(RING_A / p.dist) / RAD : angularRadius(target, p.dist);
     if (g(tg) < parallax + angularRadius(front, o.dist) + reach + 0.01) {
-      const e = occultationLocal(target, front, tg, place);
-      if (e && e.first !== null && e.last !== null && e.last > t) return e;
+      if (!place) {
+        const occ = { target, front };
+        const max = least((x) => { const s = shadowGeometry(x, occ); return Math.hypot(s.x0, s.y0); }, tg, 3 * 3600);
+        const s = shadowGeometry(max, occ), scale = Math.max(1, Math.hypot(s.x0, s.y0) / 0.999999);
+        const point = shadowGeo(s, s.x0 / scale, s.y0 / scale);
+        const e = occultationLocal(target, front, max, point);
+        if (e && e.first !== null && e.last !== null && max > t) return { max, covers: e.covers };
+      } else {
+        const e = occultationLocal(target, front, tg, place);
+        if (e && e.first !== null && e.last !== null && e.last > t) return e;
+      }
     }
     u = c.t + 86400;
   }

@@ -521,12 +521,17 @@ function skyBuiltins(env, b) {
     if (target === front) throw new UnitError('occultation: two different bodies, as in occultation("Moon", "Regulus", today)');
     if (target === "sun") throw new UnitError("occultation: the Sun covered by the Moon is a solar eclipse, solareclipse(t, place)");
     if (target === "moon") throw new UnitError("occultation: the Moon is the nearest body; specify it first");
-    const u = when("occultation", t, pre), place = where("occultation", p, pre);
+    const u = when("occultation", t, pre), place = p === undefined ? null : where("occultation", p, pre);
     const years = front === "moon" ? 20 : 100;
     const up = (x) => horizontal(target, x, place).alt > -0.5;
     for (let v = u; ;) {
       const e = occultation(target, front, v, place, years - (v - u) / 31557600);
       if (!e) break;
+      if (!place) {
+        const value = named(`${Name(target)} occulted by ${front === "moon" ? "the Moon" : Name(front)}`, [["greatest occultation", at(e.max, 10)]]);
+        value.eclipse = { ...occultationTrack(target, front, e.max), occ: { target, front, names: [y.trim(), Name(front)], covers: e.covers } };
+        return value;
+      }
       const visible = [e.C1, e.max, e.C4].some(up);
       if (visible) {
         const limb = front === "moon" ? 1.5 / 3600 : 0;
@@ -559,7 +564,7 @@ function skyBuiltins(env, b) {
       }
       v = e.max + 3600;
     }
-    throw new UnitError(`occultation: none of ${Name(target)} by ${front === "moon" ? "the Moon" : Name(front)} seen here in the next ${years} years`);
+    throw new UnitError(`occultation: none of ${Name(target)} by ${front === "moon" ? "the Moon" : Name(front)} ${place ? "seen here " : ""}in the next ${years} years`);
   };
 
   // a place by name, as (latitude, longitude, height)

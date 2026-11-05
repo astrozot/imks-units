@@ -571,6 +571,29 @@ for (const [jd, i, k] of [[2461345.61, 1, "occulted"], [2461345.75694, 0, "trans
   const v = calc.run("occultation(\"Venus\", \"Jupiter\", 2026.01.01, (30, 0)[deg])");
   if (v.kind !== "value" || Math.abs(v.q[0][0].relative().x.n - Date.UTC(2065, 10, 22, 12, 40) / 1000) > 120) fail(`Venus in front of Jupiter: ${v.message || v.q.rows}`);
 }
+// Global searches ignore the saved location and include events that
+// require parallax, such as the center of M18 near the edge of the lunar belt.
+{
+  const saved = calc.env.location;
+  const expression = 'occultation("Moon", "Regulus", 2026.11.05)';
+  calc.env.location = null;
+  const a = calc.run(expression);
+  calc.env.location = [45.46, 9.19, 120];
+  const b = calc.run(expression);
+  calc.env.location = saved;
+  if (a.kind !== "value" || b.kind !== "value" || a.q.rows[0] !== "greatest occultation"
+      || a.q[0][0].relative().x.n !== b.q[0][0].relative().x.n) fail("global occultation depends on Settings location");
+  const m18 = calc.run('occultation("Moon", "M18", 2026.11.05)');
+  const map = m18.q?.eclipse;
+  if (m18.kind !== "value" || !map?.greatest) fail(`global M18 occultation: ${m18.message}`);
+  else {
+    const local = A.occultationLocal(map.occ.target, map.occ.front, map.t, map.greatest);
+    if (!local || local.C1 === null || local.C4 === null
+        || A.horizontal(map.occ.target, local.max, map.greatest).alt < -0.5) fail("global M18 event has no visible local contacts");
+    const again = A.occultation(map.occ.target, map.occ.front, map.t + 1, null, 2);
+    if (again && again.max <= map.t + 1) fail("global occultation repeats the previous event");
+  }
+}
 // The foreground must be explicit and first. Catalog filtering is broad,
 // but excludes polar stars while retaining known lunar occultation targets.
 {

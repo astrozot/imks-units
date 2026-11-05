@@ -410,6 +410,11 @@ try {
   await page.click('[data-pick-insert=\'"Regulus"\']');
   await page.click('#fn-grid [data-arg="today"]');
   expect(await line(), 'occultation("Moon", "Regulus", today, ', "foreground then background then date");
+  const globalOccultation = page.locator('#fn-grid [data-argdone]');
+  check(await globalOccultation.isEnabled(), "global occultation enabled without a saved location");
+  expect(await globalOccultation.locator('b').textContent(), "Global )", "occultation offers global search");
+  await globalOccultation.click();
+  expect(await line(), 'occultation("Moon", "Regulus", today)', "global occultation closes without a trailing comma");
   await clear();
   // The filter is scoped to occultation: ordinary star pickers keep Polaris.
   await fn("Planets");
