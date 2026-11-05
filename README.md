@@ -11,6 +11,12 @@ Open `index.html` from any web server. Served over HTTPS (for example
 GitHub Pages) it can be installed with **Add to Home Screen** and then
 works offline. Exchange rates are refreshed daily when online.
 
+The **History** button searches past expressions and results. Long-press a
+calculation (or right-click) to pin its expression; saved expressions are in
+History → **Pinned** and survive clearing the results. Pins are included in
+backups and reuse the current variables. **Clear…** in History clears results
+or starts a new session; Ctrl/⌘F opens History from a hardware keyboard.
+
 Constants and functions use one spelling, such as `H_0`, `Omega_M`,
 `M_Sun`, and `Gamma`. Older names such as `H0`, `OmegaM`, `Msun`, and
 `gamma` are no longer aliases. Equivalent symbols such as `Ω_M` and `Γ`
@@ -24,6 +30,8 @@ as the service worker serves the cached copy first).
 ## Checks
 
 `node tests/functionhelp.mjs` checks function-help coverage and calling forms.
+
+`node tests/diagnostics.mjs` checks error guidance and expression locations.
 
 `node tests/run.mjs` checks dates and time zones, the calendars (against
 the calendars of `Intl` where it has them), the holidays, and the Sun, the
@@ -72,6 +80,9 @@ skips without it.
 
 `node tests/places.mjs` checks online search, selection and offline reuse in
 the Places modal, using the same Playwright and Chromium options.
+
+`node tests/history.mjs` checks history search, pinning, persistence and backup
+compatibility, using the same Playwright and Chromium options.
 
 ## Publishing on GitHub Pages
 

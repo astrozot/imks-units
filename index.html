@@ -26,8 +26,8 @@
       <button class="icon-btn" id="btn-ref" aria-label="Reference">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10a2 2 0 0 1 2 2v14a1.6 1.6 0 0 0-1.6-1.6H5.5A1.5 1.5 0 0 1 4 16.9zM20 5.5A1.5 1.5 0 0 0 18.5 4H14a2 2 0 0 0-2 2v14a1.6 1.6 0 0 1 1.6-1.6h4.9a1.5 1.5 0 0 0 1.5-1.5z"/></svg>
       </button>
-      <button class="icon-btn" id="btn-clear" aria-label="New session">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9.5 7V4.8h5V7M6.5 7l.9 12.2a1.5 1.5 0 0 0 1.5 1.3h6.2a1.5 1.5 0 0 0 1.5-1.3L17.5 7M10 11v6M14 11v6"/></svg>
+      <button class="icon-btn" id="btn-history" aria-label="History" title="Search history and pinned calculations">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7M12 7v5l3 2"/></svg>
       </button>
       <button class="icon-btn" id="btn-help" aria-label="Help">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6M12 17.2v.1"/></svg>
@@ -38,9 +38,9 @@
     </header>
     <div class="history" id="history" aria-live="polite"></div>
     <div class="editor">
-      <div class="expr" id="expr" role="textbox" aria-readonly="true" aria-label="Expression" tabindex="0"></div>
+      <div class="expr" id="expr" role="textbox" aria-readonly="true" aria-label="Expression" aria-describedby="preview" tabindex="0"></div>
       <div class="math2d" id="math2d" hidden></div>
-      <div class="preview" id="preview"></div>
+      <div class="preview" id="preview" role="status" aria-live="polite" aria-atomic="true"></div>
     </div>
     <div class="suggest" id="suggest" role="listbox" aria-label="Suggestions"></div>
   </section>

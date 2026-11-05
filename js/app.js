@@ -16,6 +16,7 @@ import { osmMap, TILES } from "./osmmap.js";
 import { shadowMap, solarContacts, solarLocal, solarPhase, occultationCandidate, occultationLocal, horizontal } from "./astro.js";
 import { snapshot } from "./snapshot.js";
 import { functionHelp } from "./functionhelp.js";
+import { describeError } from "./diagnostics.js";
 import { MOONS } from "./moons.js";
 import { findPlace, fetchObject, fetchPlace, fetchElevation } from "./lookup.js";
 import { STARS, DEEP, CITIES } from "./catalog.js";
@@ -45,6 +46,7 @@ const store = {
     } catch { /* storage unavailable */ }
   },
 };
+const cleanPins = (pins) => Array.isArray(pins) ? [...new Set(pins.filter((x) => typeof x === "string" && x.trim()))] : [];
 
 const DEFAULT_SETTINGS = {
   system: "si",
@@ -97,6 +99,7 @@ const state = {
   constants: {},
   currencies: null,
   history: store.get("history", []),
+  pins: cleanPins(store.get("pins", [])),
   session: store.get("session", []),
   defs: store.get("defs", ""),
   settings: { ...DEFAULT_SETTINGS, ...store.get("settings", {}) },
@@ -954,10 +957,117 @@ function plotCSV(p) {
 // History
 
 const historyEl = $("#history");
+const PIN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 3 6 6-4 1-3 5-2 1-4-4 1-2 5-3zM10 14l-7 7"/></svg>';
+const isPinned = (input) => state.pins.includes(input);
+
+function togglePin(input) {
+  const i = state.pins.indexOf(input);
+  if (i < 0) state.pins.push(input);
+  else state.pins.splice(i, 1);
+  store.set("pins", state.pins);
+  // Update markers without rebuilding the history or disturbing its scroll.
+  historyEl.querySelectorAll(".entry").forEach((div) => {
+    const e = state.history[Number(div.dataset.i)];
+    if (e) markPinned(div, e.input);
+  });
+  toast(i < 0 ? "Calculation pinned" : "Calculation unpinned");
+}
+
+function markPinned(div, input) {
+  div.querySelector(".entry-pin")?.remove();
+  if (isPinned(input)) {
+    const pin = document.createElement("span");
+    pin.className = "entry-pin";
+    pin.setAttribute("role", "img");
+    pin.setAttribute("aria-label", "Pinned calculation");
+    pin.title = "Pinned calculation";
+    pin.innerHTML = PIN_SVG;
+    div.prepend(pin);
+  }
+}
+
+function openHistory() {
+  openSheet("History", renderHistorySearch);
+  helpFocus = $("#btn-history");
+  // Keep the list visible on phones until the user taps the search field.
+  if (matchMedia("(pointer: fine)").matches) $("#history-search", sheetBody).focus();
+}
+
+function renderHistorySearch(root) {
+  let tab = "all", shown = [];
+  root.innerHTML = `<div class="history-browser">
+    <input id="history-search" class="search" type="search" aria-label="Search history" placeholder="Search expressions and results…" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <div class="history-tools"><div class="seg" role="tablist" aria-label="History view">
+      <button role="tab" id="history-all" aria-controls="history-matches" data-history-tab="all" aria-selected="true">All history</button>
+      <button role="tab" id="history-pins" aria-controls="history-matches" data-history-tab="pins" aria-selected="false" tabindex="-1">Pinned</button>
+    </div><button class="text-btn" data-history-clear>Clear…</button></div>
+    <p class="note history-count" role="status" aria-live="polite"></p>
+    <div id="history-matches" role="tabpanel" aria-labelledby="history-all"></div>
+  </div>`;
+  const search = $("#history-search", root), list = $("#history-matches", root), count = $(".history-count", root);
+  const fold = (s) => String(s || "").normalize("NFKC").toLowerCase();
+  const draw = () => {
+    const terms = fold(search.value).trim().split(/\s+/).filter(Boolean);
+    const entries = tab === "pins" ? state.pins.map((input) => ({ input })) : state.history;
+    shown = entries.filter((e) => {
+      const text = fold([e.input, e.text, e.name, e.title, ...(e.items || []).map((it) => `${it.name} ${it.doc || ""}`)].join(" "));
+      return terms.every((term) => text.includes(term));
+    }).slice().reverse();
+    count.textContent = `${shown.length} calculation${shown.length === 1 ? "" : "s"}${terms.length ? " found" : ""}${tab === "pins" && shown.length ? " · Reuses current variables" : ""}`;
+    list.setAttribute("aria-labelledby", tab === "pins" ? "history-pins" : "history-all");
+    list.innerHTML = shown.length ? shown.map((e, i) => `<div class="history-match" data-history-row="${i}">
+      <button class="history-reuse" data-history-reuse="${i}" aria-label="${esc(`Reuse expression: ${e.input}`)}" title="${esc(e.input)}"><span class="history-expression">${exprHTML(e.input)}</span>${e.text ? `<small>${esc(e.text.slice(0, 240))}</small>` : ""}</button>
+      <button class="icon-btn history-pin" data-history-pin="${i}" aria-label="${isPinned(e.input) ? "Unpin calculation" : "Pin calculation"}" aria-pressed="${isPinned(e.input)}" title="${isPinned(e.input) ? "Unpin" : "Pin"}">${PIN_SVG}</button>
+    </div>`).join("") : `<p class="note history-no-matches">${terms.length ? "No matching calculations. Try a different expression, unit or result." : tab === "pins" ? "No pinned calculations yet. Long-press a calculation and choose Pin calculation, or use the pin beside it in All history." : "Your calculations will appear here."}</p>`;
+    $("[data-history-clear]", root).disabled = !state.history.length && !state.session.length;
+  };
+  search.addEventListener("input", draw);
+  root.addEventListener("click", (ev) => {
+    const selected = ev.target.closest("[data-history-tab]");
+    if (selected) {
+      tab = selected.dataset.historyTab;
+      root.querySelectorAll("[data-history-tab]").forEach((b) => { b.setAttribute("aria-selected", String(b === selected)); b.tabIndex = b === selected ? 0 : -1; });
+      search.placeholder = tab === "pins" ? "Search pinned expressions…" : "Search expressions and results…";
+      search.setAttribute("aria-label", tab === "pins" ? "Search pinned expressions" : "Search history");
+      draw();
+      return;
+    }
+    const pin = ev.target.closest("[data-history-pin]");
+    if (pin) {
+      const i = Number(pin.dataset.historyPin);
+      togglePin(shown[i].input);
+      draw();
+      (list.querySelector(`[data-history-pin="${Math.min(i, shown.length - 1)}"]`) || $("[data-history-tab][aria-selected=true]", root)).focus({ preventScroll: true });
+      return;
+    }
+    const reuse = ev.target.closest("[data-history-reuse]");
+    if (reuse) {
+      const input = shown[Number(reuse.dataset.historyReuse)].input;
+      closeSheet();
+      setInput(input);
+      setPadHidden(false);
+      return;
+    }
+    const clear = ev.target.closest("[data-history-clear]");
+    if (clear) { const r = clear.getBoundingClientRect(); clearMenu(r.left, r.bottom + 4, () => { closeSheet(); }); }
+  });
+  root.addEventListener("keydown", (ev) => {
+    const current = ev.target.closest("[data-history-tab]");
+    if (!current || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(ev.key)) return;
+    ev.preventDefault();
+    const tabs = [...root.querySelectorAll("[data-history-tab]")];
+    const next = tabs[ev.key === "Home" ? 0 : ev.key === "End" ? tabs.length - 1 : (tabs.indexOf(current) + (ev.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length];
+    next.click();
+    next.focus();
+  });
+  draw();
+}
 
 function saveHistory() {
-  if (state.history.length > 300) state.history = state.history.slice(-300);
+  const trimmed = state.history.length > 300;
+  if (trimmed) state.history = state.history.slice(-300);
   store.set("history", state.history);
+  return trimmed;
 }
 
 function renderEntry(e, i) {
@@ -986,6 +1096,7 @@ function renderEntry(e, i) {
   }
   const m2 = state.settings.typeset && state.calc ? mathML(e.input, { always: true }) : "";
   div.innerHTML = `<div class="in${m2 ? " in2d" : ""}" title="${esc(e.input)}">${m2 || exprHTML(e.input)}</div>${out}`;
+  markPinned(div, e.input);
   return div;
 }
 
@@ -1123,7 +1234,7 @@ function appendEntry(e) {
     return renderHistory();
   }
   state.history.push(e);
-  saveHistory();
+  if (saveHistory()) return renderHistory();
   historyEl.appendChild(renderEntry(e, state.history.length - 1));
   scrollHistory();
 }
@@ -1252,13 +1363,35 @@ function sameResult(q, v) {
 
 const exprEl = $("#expr");
 const previewEl = $("#preview");
+let editorDiagnostic = null;
 
-function setInput(text, caret = text.length) {
+// Editing history is local to this open app; calculator results and variables
+// are unaffected. Store the cursor too, so corrections in the middle undo well.
+const undoEdits = [], redoEdits = [];
+const editSnapshot = () => ({ text: state.text, caret: state.caret });
+
+function undoEdit(redo = false) {
+  const from = redo ? redoEdits : undoEdits;
+  const to = redo ? undoEdits : redoEdits;
+  if (!from.length) return toast(redo ? "Nothing to redo" : "Nothing to undo");
+  to.push(editSnapshot());
+  const saved = from.pop();
+  endRecall();
+  setInput(saved.text, saved.caret, false);
+  toast(redo ? "Redo" : "Undo");
+}
+
+function setInput(text, caret = text.length, record = true) {
   // "+/-" typed becomes "±"
   if (text.includes("+/-")) {
     const before = text.slice(0, caret).split("+/-").length - 1;
     text = text.replace(/\+\/-/g, "±");
     caret -= 2 * before;
+  }
+  if (record && text !== state.text) {
+    undoEdits.push(editSnapshot());
+    if (undoEdits.length > 100) undoEdits.shift();
+    redoEdits.length = 0;
   }
   state.text = text;
   state.caret = Math.max(0, Math.min(text.length, caret));
@@ -1640,7 +1773,7 @@ const SHOW_CHAR = { "*": "×", "-": "−" };
 const showText = (s) => esc(s.replace(/[*-]/g, (c) => SHOW_CHAR[c]));
 
 function segHTML(t, sg, s = sg.s, e = sg.e) {
-  const cls = (sg.cls ? "t-" + sg.cls : "") + (sg.atom ? " atom" : "") + (sg.sp ? (sg.sp0 ? " sp sp0" : " sp") : "") + (sg.rb ? " " + sg.rb : "") + (sg.br ? " " + sg.br : "");
+  const cls = (sg.cls ? "t-" + sg.cls : "") + (sg.atom ? " atom" : "") + (sg.sp ? (sg.sp0 ? " sp sp0" : " sp") : "") + (sg.rb ? " " + sg.rb : "") + (sg.br ? " " + sg.br : "") + (sg.error ? " error-token" : "");
   if (sg.atom) return `<span class="${cls}" data-s="${sg.s}" data-e="${sg.e}">${sg.html}</span>`;
   const span = (a, b, c) => (b > a ? `<span class="${c}" data-s="${a}">${sg.raw ? esc(t.slice(a, b)) : showText(t.slice(a, b))}</span>` : "");
   if (!sg.it) return span(s, e, cls);
@@ -1707,12 +1840,17 @@ function renderEditor() {
     return;
   }
   const segs = segments(t);
+  const errorRange = editorDiagnostic && editorDiagnostic.range;
+  const errorPoint = errorRange && errorRange.start === errorRange.end ? errorRange.start : -1;
+  const errorMarker = '<span class="error-point" aria-hidden="true"></span>';
+  if (errorRange) for (const sg of segs) sg.error = sg.s < errorRange.end && sg.e > errorRange.start;
   state.atoms = segs.filter((sg) => sg.atom).map((sg) => [sg.s, sg.e, sg.atom]);
   const brStyle = state.settings.bracketMatch || "underline";
   exprEl.dataset.br = brStyle;
   markBrackets(segs, t, c, { match: brStyle !== "none", rainbow: Boolean(state.settings.rainbow) });
   let html = "";
   for (const sg of segs) {
+    if (sg.s === errorPoint) html += errorMarker;
     if (sg.atom) {
       html += (c === sg.s ? caret : "") + segHTML(t, sg);
       if (c > sg.s && c < sg.e) html += caret;
@@ -1720,6 +1858,7 @@ function renderEditor() {
     else html += (c === sg.s ? caret : "") + segHTML(t, sg);
   }
   if (c === t.length) html += caret;
+  if (errorPoint === t.length) html += errorMarker;
   exprEl.innerHTML = html;
   exprEl.setAttribute("aria-label", "Expression: " + t);
   const ce = $(".caret", exprEl);
@@ -1808,6 +1947,11 @@ function updateMath2d() {
 }
 
 function updatePreview() {
+  if (editorDiagnostic) {
+    editorDiagnostic = null;
+    exprEl.removeAttribute("aria-invalid");
+    renderEditor();
+  }
   updateMath2d();
   clearTimeout(previewTimer);
   previewEl.classList.remove("error");
@@ -1821,13 +1965,14 @@ function updatePreview() {
   } catch (e) {
     previewEl.innerHTML = "";
     previewTimer = setTimeout(() => {
-      previewEl.classList.add("error");
-      previewEl.textContent = e.message;
+      if (state.text === src) presentError(e);
     }, 900);
   }
 }
 
 function onInput() {
+  editorDiagnostic = null;
+  exprEl.removeAttribute("aria-invalid");
   renderEditor();
   updatePreview();
   updateSuggestions();
@@ -1858,9 +2003,17 @@ function lookups() {
   return lookupCache;
 }
 
-function showError(message) {
+function presentError(error) {
+  editorDiagnostic = describeError(error, state.text, state.calc);
   previewEl.classList.add("error");
-  previewEl.textContent = message;
+  previewEl.innerHTML = `<span>${esc(editorDiagnostic.message)}</span>${editorDiagnostic.hint ? `<small class="error-hint">${esc(editorDiagnostic.hint)}</small>` : ""}`;
+  exprEl.setAttribute("aria-invalid", "true");
+  renderEditor();
+}
+
+function showError(error) {
+  clearTimeout(previewTimer);
+  presentError(error);
   const ed = $(".editor");
   ed.classList.remove("shake");
   void ed.offsetWidth;
@@ -1920,7 +2073,7 @@ function evaluate(refresh = true) {
   try { r = state.calc.run(src); } finally { state.calc.env.refresh = false; }
   if (r.kind === "error") {
     if (r.lookup) { lookUp(r.lookup, src); return; }
-    showError(r.message);
+    showError(r);
     return;
   }
   const entry = { input: src, kind: r.kind };
@@ -6689,7 +6842,7 @@ exprEl.addEventListener("contextmenu", (ev) => {
   clearTimeout(edTimer);
   if (!edLong) editorMenu(ev.clientX, ev.clientY);
 });
-// Horizontal swipes on the input area change the keypad page; vertical
+// Horizontal swipes undo (left) and redo (right) expression edits; vertical
 // ones hide the keypad (down) and bring it back (up)
 const editorEl = $(".editor");
 let swipe = null, swiped = false;
@@ -6716,11 +6869,9 @@ function endSwipe(x, y, target) {
   // let a wide formula scroll instead
   const m = $("#math2d");
   if (!m.hidden && m.contains(target) && m.scrollWidth > m.clientWidth + 2) return;
-  const i = TABS.findIndex(([id]) => id === state.tab);
-  const j = Math.max(0, Math.min(TABS.length - 1, i + (dx < 0 ? 1 : -1)));
   swiped = true;
   clearTimeout(edTimer);
-  if (j !== i) selectTab(TABS[j][0]);
+  undoEdit(dx > 0);
 }
 editorEl.addEventListener("pointerup", (ev) => endSwipe(ev.clientX, ev.clientY, ev.target));
 // a vertical drag is a pan for the browser, which cancels the pointer:
@@ -6807,6 +6958,19 @@ function endRecall() {
 document.addEventListener("keydown", (ev) => {
   if (!sheet.hidden || !menuEl.hidden) return;
   if (ev.target.closest && ev.target.closest("input, textarea, select")) return;
+  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === "f") {
+    ev.preventDefault();
+    openHistory();
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey) {
+    const key = ev.key.toLowerCase();
+    if (key === "z" || (ev.ctrlKey && key === "y")) {
+      ev.preventDefault();
+      undoEdit(key === "y" || ev.shiftKey);
+      return;
+    }
+  }
   if (ev.ctrlKey || ev.metaKey) return;   // let copy and paste through
   const k = ev.key;
   const handled = () => ev.preventDefault();
@@ -6923,6 +7087,7 @@ function entryMenu(x, y, ent) {
   if (e.kind === "plot") items.push(["Copy data (CSV)", () => copy(plotCSV(e.plot))]);
   items.push(["Edit expression", () => setInput(e.input)]);
   items.push(["Copy expression", () => copy(e.input)]);
+  items.push([isPinned(e.input) ? "Unpin calculation" : "Pin calculation", () => togglePin(e.input)]);
   items.push(["Delete", () => {
     state.history.splice(i, 1);
     saveHistory();
@@ -7601,7 +7766,7 @@ function renderSettings(root) {
 
     <div class="group-title">Backup</div>
     <div class="group">
-      <div class="row"><div class="lbl">Export everything<small>${ARTIFACT ? "Copies a backup to the clipboard, to paste into a .json file" : "History, variables, definitions and settings"}</small></div>
+      <div class="row"><div class="lbl">Export everything<small>${ARTIFACT ? "Copies a backup to the clipboard, to paste into a .json file" : "History, pinned calculations, variables, definitions and settings"}</small></div>
         <button class="act" id="export">Export</button></div>
       <div class="row"><div class="lbl">Import a backup</div>
         <button class="act" id="import">Import</button><input type="file" id="import-file" accept="application/json,.json" hidden></div>
@@ -7891,6 +8056,7 @@ function exportData(root) {
     version: 1,
     exported: new Date().toISOString(),
     history: state.history,
+    pins: state.pins,
     session: state.session,
     defs: state.defs,
     settings: { ...state.settings, oxrId: "" },
@@ -7931,6 +8097,11 @@ async function importData(file) {
     const data = JSON.parse(await file.text());
     if (data.app !== "imks-units") throw new Error("not a backup");
     state.history = Array.isArray(data.history) ? data.history : [];
+    // Older backups have no pins; retain the user's saved expressions.
+    if (Array.isArray(data.pins)) {
+      state.pins = cleanPins(data.pins);
+      store.set("pins", state.pins);
+    }
     state.session = Array.isArray(data.session) ? data.session : [];
     state.defs = typeof data.defs === "string" ? data.defs : "";
     state.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}), oxrId: state.settings.oxrId };
@@ -8055,7 +8226,8 @@ function renderHelp(root) {
     ${HELP.map(([title, text, ex], i) => `${helpHead(title, i)}${text.split("\n\n").map((x) => `<p>${esc(x)}</p>`).join("")}
       <div class="ex">${ex.map(([x, note]) => `<button data-ex="${esc(x)}"><span class="x">${exprHTML(x)}</span><span>${esc(note)}</span></button>`).join("")}</div>`).join("")}
     ${helpHead("Keypad tips", HELP.length)}
-    <p>Tap a result to insert it as ans_n (the n-th result; the last one is also ans), tap an expression to edit it, and long-press an entry for more options, such as inserting the value itself. Clearing the results numbers them again from ans_1. Tap inside the expression to move the cursor; long-press it to paste. Swipe left or right on it to change keypad page, down to hide the keypad and up to bring it back (tapping it also brings it back).</p>
+    <p>The History button (clock) opens search across expressions and results, with a Pinned tab for saved expressions. Long-press a calculation (or right-click) and choose Pin calculation. Pins survive clearing history and are included in backups; reusing one uses the current variables. Clear… in History clears the results or starts a new session. Ctrl/⌘F opens History on a hardware keyboard.</p>
+    <p>Tap a result to insert it as ans_n (the n-th result; the last one is also ans), tap an expression to edit it, and long-press an entry for more options, such as inserting the value itself. Clearing the results numbers them again from ans_1. Tap inside the expression to move the cursor; long-press it to paste. Swipe left on it to undo an expression edit, right to redo (also Ctrl/⌘Z and Ctrl/⌘Shift+Z on a hardware keyboard). This restores the expression and cursor; evaluated results and assigned variables stay as they are. Swipe down to hide the keypad and up to bring it back (tapping it also brings it back).</p>
     <p>On the <b>123</b> page, long-press a key for what is written in grey: its inverse (sin⁻¹ is asin, eˣ for log, the square for √), or more, such as n! on xʸ, ×10⁻ˣ on ×10ˣ, ° on π, mod (the remainder, 7 mod 3 = 1) on ÷, ± on +, x on ×, ~ (absolute ↔ relative, for temperatures) on −, the comma on the point, AC (clear) on ⌫, sgn on |x|, and = (assignment) on ⏎; hold ◀ or ▶ to jump to the start or the end, or slide on them to move. <b>2nd</b> adds what is written in orange: sinh, log₁₀, ∛, x^(1/y), ⌊x⌋, e (and x⁻¹ on a long press of π), for one key; long-press it to keep it on. Settings can also put constants on a long press of the digits (c on 7, G on 8…), and more after 2nd (σ_SB on 7, ε₀ on 8…).</p>
     <p>The bar above the keypad adapts to the cursor: units after a number (angles inside sin, cos, tan), your recent names and common constants after an operator or an opening parenthesis, exponents after ^, and conversions after a value with units.</p>
     <p>On the <b>Units</b> page, tap a prefix and then a unit: <b>k</b> then <b>m</b> gives km. Long-press a unit, prefix or constant to see what it is. With the cursor next to a unit bracket, as in 5[m]|, the Units page puts it inside the bracket, and takes it out again when you leave. After <b>@</b>, the units of the current quantity open automatically and compatible units appear above the keypad.</p>
@@ -8209,11 +8381,11 @@ function applyOrientation() {
 }
 
 // Clearing, with a way back
-function clearMenu(x, y) {
+function clearMenu(x, y, after = () => {}) {
   const nvars = state.session.filter((l) => /=/.test(l)).length;
   showMenu(x, y, [
-    [`Clear results (${state.history.length})`, () => resetSession(false)],
-    [`Start over: results and ${nvars} variable${nvars === 1 ? "" : "s"}`, () => resetSession(true), "danger"],
+    [`Clear results (${state.history.length})`, () => { resetSession(false); after(); }],
+    [`Start over: results and ${nvars} variable${nvars === 1 ? "" : "s"}`, () => { resetSession(true); after(); }, "danger"],
   ]);
 }
 
@@ -8283,10 +8455,7 @@ async function boot() {
   $("#btn-about").addEventListener("click", () => openAbout());
   $("#about").addEventListener("click", (ev) => { if (ev.target.closest("[data-about-close]")) closeAbout(); });
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("#about").hidden) closeAbout(); });
-  $("#btn-clear").addEventListener("click", (ev) => {
-    const r = ev.currentTarget.getBoundingClientRect();
-    clearMenu(r.left, r.bottom + 4);
-  });
+  $("#btn-history").addEventListener("click", openHistory);
   // lets :active styles work on iOS
   document.addEventListener("touchstart", () => {}, { passive: true });
 

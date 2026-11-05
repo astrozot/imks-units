@@ -73,6 +73,67 @@ try {
   await page.goto(url);
   await page.waitForTimeout(1500);
 
+  // Expression swipes undo/redo without changing keypad pages or moving the
+  // restored cursor on the synthetic click that follows a touch gesture.
+  const editSwipe = async (right = false, dy = 0) => {
+    const el = page.locator("#expr");
+    const x = right ? 100 : 220, end = right ? 220 : 100;
+    await el.dispatchEvent("pointerdown", { pointerId: 1, clientX: x, clientY: 200 });
+    await el.dispatchEvent("pointermove", { pointerId: 1, clientX: end, clientY: 200 + dy });
+    await el.dispatchEvent("pointerup", { pointerId: 1, clientX: end, clientY: 200 + dy });
+    await el.dispatchEvent("click", { clientX: end, clientY: 200 + dy });
+  };
+  await page.keyboard.type("12");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.type("3");
+  const editTab = await page.locator('[role="tab"][aria-selected="true"]').first().getAttribute("data-tab");
+  await editSwipe();
+  expect(await page.evaluate(() => window.imks.text), "12", "left swipe undoes insertion");
+  expect(await page.evaluate(() => window.imks.caret), 1, "undo restores cursor before middle insertion");
+  await editSwipe(true);
+  expect(await page.evaluate(() => window.imks.text), "132", "right swipe redoes insertion");
+  expect(await page.evaluate(() => window.imks.caret), 2, "redo restores cursor after middle insertion");
+  expect(await page.locator('[role="tab"][aria-selected="true"]').first().getAttribute("data-tab"), editTab, "swiping leaves keypad page unchanged");
+  await page.keyboard.press("Control+z");
+  expect(await page.evaluate(() => window.imks.text), "12", "Ctrl+Z undoes");
+  await page.keyboard.press("Control+Shift+z");
+  expect(await page.evaluate(() => window.imks.text), "132", "Ctrl+Shift+Z redoes");
+  await page.keyboard.press("Meta+z");
+  expect(await page.evaluate(() => window.imks.text), "12", "Command+Z undoes");
+  await page.keyboard.type("4");
+  await editSwipe(true);
+  expect(await page.evaluate(() => window.imks.text), "142", "new edit discards redo branch");
+  await clear();
+  await editSwipe();
+  expect(await page.evaluate(() => window.imks.text), "142", "clearing expression can be undone");
+  await clear();
+
+  // Error messages stay in the preview; underline the relevant expression
+  // token, and clear stale guidance as soon as the expression changes.
+  await page.keyboard.type("sni(30 deg)");
+  await page.keyboard.press("Enter");
+  expect(await page.locator(".error-hint").textContent(), /Did you mean “sin”/, "unknown function offers spelling guidance");
+  expect(await page.locator("#expr .error-token").allTextContents().then((xs) => xs.join("")), "sni", "unknown function is underlined");
+  expect(await page.locator("#expr").getAttribute("aria-invalid"), "true", "invalid expression is exposed to accessibility");
+  await page.keyboard.press("Backspace");
+  check(await page.locator("#expr .error-token").count() === 0, "editing clears stale error underline immediately");
+  check(await page.locator(".error-hint").count() === 0, "editing clears stale error hint immediately");
+  await clear();
+  await page.keyboard.type("1 m + 2 s");
+  await page.keyboard.press("Enter");
+  expect(await page.locator("#preview").textContent(), /Cannot add length and time/, "unit mismatch explains the dimensions");
+  expect(await page.locator("#expr .error-token").textContent(), "+", "unit mismatch marks the failing operation");
+  await clear();
+  await page.keyboard.type("(1 + 2");
+  await page.waitForTimeout(1100);
+  expect(await page.locator(".error-hint").textContent(), /closing parenthesis/, "delayed preview offers syntax guidance");
+  check(await page.locator("#expr .error-point").count() === 1, "missing closing parenthesis marks the insertion point");
+  await clear();
+  await page.keyboard.type("2 × (3 + )");
+  await page.keyboard.press("Enter");
+  expect(await page.locator("#expr .error-token").textContent(), ")", "normalized multiply preserves error location");
+  await clear();
+
   // Long help uses a bounded modal; releasing the held key must not type it.
   const holdHelp = async (selector) => {
     await page.locator(selector).dispatchEvent("pointerdown", { pointerId: 1, clientX: 100, clientY: 400 });

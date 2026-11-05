@@ -286,6 +286,23 @@ button:focus-visible, .expr:focus-visible { outline: 2px solid var(--accent); ou
 }
 
 .entry:last-child { border-bottom: 0; }
+.entry { position: relative; }
+.entry-pin { position: absolute; top: 8px; left: 0; color: var(--accent-ink); pointer-events: none; }
+.entry-pin svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.entry:has(.entry-pin) .in { padding-left: 22px; }
+
+.history-tools { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 10px; }
+.history-tools .seg { margin: 0; }
+.history-tools > .text-btn { flex: none; }
+.history-tools > .text-btn:disabled { opacity: 0.4; }
+.history-match { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+.history-match:last-child { border-bottom: 0; }
+.history-reuse { flex: 1; min-width: 0; text-align: left; padding: 14px 4px; border-radius: 8px; }
+.history-reuse:active { background: var(--surface-2); }
+.history-expression { display: block; font-family: var(--mono); font-size: 15px; overflow-wrap: anywhere; }
+.history-reuse small { display: block; color: var(--muted); font-size: 13px; margin-top: 5px; overflow-wrap: anywhere; }
+.history-pin[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent-soft); }
+.history-count, .history-no-matches { line-height: 1.5; }
 .entry.recalled { background: var(--tab-soft); box-shadow: inset 3px 0 0 var(--tab); border-radius: 0 10px 10px 0; padding-left: 10px; padding-right: 6px; border-bottom-color: transparent; }
 .entry.recalled .in { color: var(--tab-soft-text); }
 
@@ -579,6 +596,9 @@ sub { font-size: 0.62em; line-height: 0; vertical-align: -0.28em; }
 }
 
 .preview.error { color: var(--danger); font-size: 14px; opacity: 0.85; }
+.preview .error-hint { display: block; color: var(--muted); font-size: 12px; line-height: 1.4; margin-top: 3px; }
+.expr .error-token { text-decoration-line: underline; text-decoration-style: wavy; text-decoration-color: var(--danger); text-underline-offset: 4px; }
+.expr .error-point { display: inline-block; height: 1em; border-left: 2px dotted var(--danger); vertical-align: -0.1em; }
 .preview .eq { color: var(--faint); margin-right: 4px; }
 
 /* Suggestions */

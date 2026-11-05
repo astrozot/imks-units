@@ -7,9 +7,10 @@ import { dateLiterals, dateBuiltins, now, today } from "./dates.js";
 import { SKY_FNS, BODY_FNS, COORD_FNS, skyBuiltins } from "./sky.js";
 
 class CalcError extends Error {
-  constructor(msg) {
+  constructor(msg, details = {}) {
     super(msg);
     this.name = "CalcError";
+    Object.assign(this, details);
   }
 }
 
@@ -149,6 +150,7 @@ const numRe = /^(\d+\.?\d*)([eE][-+]?\d+)?/;
 
 function tokenize(src) {
   const toks = [];
+  const error = (message, start, end = start + 1) => new CalcError(message, { source: src, range: { start, end } });
   let i = 0;
   while (i < src.length) {
     const c = src[i];
@@ -182,7 +184,7 @@ function tokenize(src) {
       // whole number, so that t.2.1 is not t.(2.1)
       const prev = toks.at(-1);
       if (!prev || !["id", ")", "bracket"].includes(prev.t) && !prev.index) {
-        throw new CalcError("A number starts with a digit: 0.5, not .5");
+        throw error("A number starts with a digit: 0.5, not .5", i);
       }
       toks.push({ t: ".", pos: i });
       i++;
@@ -220,14 +222,14 @@ function tokenize(src) {
         else if (d === "[") depth++;
         else if (d === "]" && --depth === 0) break;
       }
-      if (j >= src.length) throw new CalcError("Missing ]");
+      if (j >= src.length) throw error("Missing ]", i);
       toks.push({ t: "bracket", raw: src.slice(i + 1, j), pos: i });
       i = j + 1;
       continue;
     }
     if (c === '"' || c === "'") {
       const j = src.indexOf(c, i + 1);
-      if (j < 0) throw new CalcError("Unterminated string");
+      if (j < 0) throw error("Unterminated string", i);
       toks.push({ t: "str", v: src.slice(i + 1, j), q: c, pos: i });
       i = j + 1;
       continue;
@@ -253,7 +255,11 @@ function tokenize(src) {
       i++;
       continue;
     }
-    throw new CalcError(`Unexpected character '${c}'`);
+    throw error(`Unexpected character '${c}'`, i);
+  }
+  for (let k = 0; k < toks.length; k++) {
+    const stop = k + 1 < toks.length ? toks[k + 1].pos : src.length;
+    toks[k].end = toks[k].pos + src.slice(toks[k].pos, stop).trimEnd().length;
   }
   return toks;
 }
@@ -267,9 +273,12 @@ function parse(src, env) {
   const peek = (k = 0) => toks[pos + k];
   const next = () => toks[pos++];
   const at = (t) => peek() && peek().t === t;
+  const location = (k) => ({ source: src, range: { start: k ? k.pos : src.length, end: k ? k.end : src.length } });
+  const syntax = (message, k, hint) => new CalcError(message, { ...location(k), hint });
+  const located = (node, k) => Object.assign(node, location(k));
   const expect = (t) => {
     const k = next();
-    if (!k || k.t !== t) throw new CalcError(k ? `Unexpected '${k.v || k.t}'` : `Missing '${t}'`);
+    if (!k || k.t !== t) throw syntax(k ? `Unexpected '${k.v || k.t}'` : `Missing '${t}'`, k, `Expected ${t === ")" ? "a closing parenthesis" : `“${t}”`}${k ? " here" : " at the end"}.`);
     return k;
   };
 
@@ -313,7 +322,7 @@ function parse(src, env) {
   // in an exponent, units belong to the base: c^2 R_Earth, 10^3 m
   const primary = (negate = false, inExp = false) => {
     const k = next();
-    if (!k) throw new CalcError("Incomplete expression");
+    if (!k) throw syntax("Incomplete expression", k, "Add a value after the last operator or opening parenthesis.");
     switch (k.t) {
       case "num": {
         const node = { t: "num", x: negate ? k.x.neg() : k.x };
@@ -321,7 +330,7 @@ function parse(src, env) {
         return spec ? { t: "unit", target: node, raw: spec } : node;
       }
       case "id":
-        return { t: "name", v: k.v };
+        return located({ t: "name", v: k.v }, k);
       case "str":
         return { t: "str", v: k.v, q: k.q };
       case "(": {
@@ -335,9 +344,9 @@ function parse(src, env) {
         return spec ? { t: "unit", target: node, raw: spec } : node;
       }
       case "bracket":
-        return { t: "unit", target: { t: "num", x: new UNum(1) }, raw: k.raw };
+        return located({ t: "unit", target: { t: "num", x: new UNum(1) }, raw: k.raw }, k);
       default:
-        throw new CalcError(`Unexpected '${k.v || k.t}'`);
+        throw syntax(`Unexpected '${k.v || k.t}'`, k, "A value is needed here; check for an extra operator or closing bracket.");
     }
   };
 
@@ -359,9 +368,10 @@ function parse(src, env) {
           while (at(",")) { next(); args.push(arg()); }
         }
         expect(")");
-        node = { t: "call", f: node.v, args };
+        node = { t: "call", f: node.v, args, source: node.source, range: node.range };
       } else if (at("bracket") && !inExp) {
-        node = { t: "unit", target: node, raw: next().raw };
+        const k = next();
+        node = located({ t: "unit", target: node, raw: k.raw }, k);
       } else if (at(".")) {
         // an element of a list: v.2, v.n, v.(n+1)
         next();
@@ -382,8 +392,8 @@ function parse(src, env) {
   const power = (negate = false, inExp = false) => {
     const base = postfix(negate, inExp);
     if (at("^")) {
-      next();
-      return { t: "bin", op: "^", a: base, b: unary(true) };
+      const k = next();
+      return located({ t: "bin", op: "^", a: base, b: unary(true) }, k);
     }
     return base;
   };
@@ -410,12 +420,12 @@ function parse(src, env) {
     let a = unary();
     for (;;) {
       if (at("*") || at("/")) {
-        const op = next().t;
-        a = { t: "bin", op, a, b: unary() };
+        const k = next();
+        a = located({ t: "bin", op: k.t, a, b: unary() }, k);
       } else if (at("id") && peek().v === "mod" && peek(1)) {
         // a mod b, the remainder, as tight as * and /
-        next();
-        a = { t: "bin", op: "mod", a, b: unary() };
+        const k = next();
+        a = located({ t: "bin", op: "mod", a, b: unary() }, k);
       } else if (at("id") || at("(") || at("bracket") || at("root") || (at("num") && a.t !== "num")) {
         // implicit multiplication: 2 pi, (a+b)(c+d), k 300 K (but not 2 3)
         a = { t: "bin", op: "*", a, b: unary() };
@@ -427,8 +437,8 @@ function parse(src, env) {
   const pm = () => {
     let a = product();
     while (at("±")) {
-      next();
-      a = { t: "bin", op: "±", a, b: product() };
+      const k = next();
+      a = located({ t: "bin", op: "±", a, b: product() }, k);
     }
     return a;
   };
@@ -436,15 +446,18 @@ function parse(src, env) {
   const sum = () => {
     let a = pm();
     while (at("+") || at("-")) {
-      const op = next().t;
-      a = { t: "bin", op, a, b: pm() };
+      const k = next();
+      a = located({ t: "bin", op: k.t, a, b: pm() }, k);
     }
     return a;
   };
 
   const expr = () => {
     let a = sum();
-    while (at("@")) a = { t: "convert", a, spec: next().spec };
+    while (at("@")) {
+      const k = next();
+      a = located({ t: "convert", a, spec: k.spec }, k);
+    }
     return a;
   };
 
@@ -481,7 +494,7 @@ function parse(src, env) {
   const node = statement();
   if (pos < toks.length) {
     const k = peek();
-    throw new CalcError(`Unexpected '${k.v || k.t}'`);
+    throw syntax(`Unexpected '${k.v || k.t}'`, k, k.t === "num" ? "Put an operator between separate numbers, such as + or ×." : "Remove the extra token or add the missing operator before it.");
   }
   return node;
 }
@@ -889,6 +902,20 @@ class Interpreter {
   }
 
   evalNode(node, scope = null) {
+    try {
+      return this.evalLocatedNode(node, scope);
+    } catch (e) {
+      // A stored function body has its own source: point to the call in the
+      // current expression rather than an unrelated position in its definition.
+      if ((e instanceof CalcError || e instanceof UnitError) && node.range && (!e.range || e.source !== node.source)) {
+        e.range = node.range;
+        e.source = node.source;
+      }
+      throw e;
+    }
+  }
+
+  evalLocatedNode(node, scope = null) {
     const env = this.env;
     const ev = (n) => this.evalNode(n, scope);
     const asQ = (v) => {
@@ -1100,7 +1127,7 @@ class Interpreter {
 
   wrapError(e) {
     // a name to look up online (lookup.js) comes with the error
-    if (e instanceof UnitError || e instanceof CalcError) return { kind: "error", message: e.message, ...(e.lookup && { lookup: e.lookup }) };
+    if (e instanceof UnitError || e instanceof CalcError) return { kind: "error", message: e.message, ...(e.lookup && { lookup: e.lookup }), ...(e.range && { range: e.range, source: e.source }), ...(e.hint && { hint: e.hint }) };
     if (e instanceof RangeError) return { kind: "error", message: "Recursion too deep" };
     throw e;
   }
