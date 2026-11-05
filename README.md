@@ -15,7 +15,14 @@ The **History** button searches past expressions and results. Long-press a
 calculation (or right-click) to pin its expression; saved expressions are in
 History → **Pinned** and survive clearing the results. Pins are included in
 backups and reuse the current variables. **Clear…** in History clears results
-or starts a new session; Ctrl/⌘F opens History from a hardware keyboard.
+or starts over in the current session; Ctrl/⌘F opens History from a hardware keyboard.
+
+Tap the session name at the top of History to switch, create, rename or
+duplicate sessions. Existing calculations become **Main session**. Each
+session keeps its own history, variables, functions, numbered results and
+unfinished expression (including cursor position). Settings, **My definitions**
+and pins are shared. Switching saves automatically; backups include all
+sessions and restore the active one. Older backups open as Main session.
 
 Constants and functions use one spelling, such as `H_0`, `Omega_M`,
 `M_Sun`, and `Gamma`. Older names such as `H0`, `OmegaM`, `Msun`, and
@@ -83,6 +90,9 @@ the Places modal, using the same Playwright and Chromium options.
 
 `node tests/history.mjs` checks history search, pinning, persistence and backup
 compatibility, using the same Playwright and Chromium options.
+
+`node tests/sessions.mjs` checks session migration, isolation, drafts, duplication
+and backup restoration, using the same Playwright and Chromium options.
 
 ## Publishing on GitHub Pages
 

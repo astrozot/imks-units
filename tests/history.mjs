@@ -92,7 +92,7 @@ try {
   await page.waitForFunction(() => window.imks?.calc);
   await page.keyboard.type("9+");
   await page.keyboard.press("Control+f");
-  assert.equal(await page.locator("#sheet-title").textContent(), "History");
+  assert.match(await page.locator("#sheet-title").textContent(), /Main session/);
   await pinned();
   assert.equal(await rows.count(), 1, "pins survive reload");
   await page.keyboard.press("Escape");
@@ -101,7 +101,12 @@ try {
 
   // Pins survive rolling history's cap, and visible rows keep their indices.
   await page.evaluate(() => {
-    localStorage.setItem("imks.history", JSON.stringify(Array.from({length: 300}, (_, i) => ({kind: "value", input: `${i} m`, text: `${i} m`, html: `${i} m`}))));
+    const history = Array.from({length: 300}, (_, i) => ({kind: "value", input: `${i} m`, text: `${i} m`, html: `${i} m`}));
+    window.imks.history = history;
+    localStorage.setItem("imks.history", JSON.stringify(history));
+    const workspaces = JSON.parse(localStorage.getItem("imks.workspaces"));
+    workspaces.items.find((w) => w.id === workspaces.activeId).history = history;
+    localStorage.setItem("imks.workspaces", JSON.stringify(workspaces));
   });
   await page.reload();
   await page.waitForFunction(() => window.imks?.calc);

@@ -303,6 +303,14 @@ button:focus-visible, .expr:focus-visible { outline: 2px solid var(--accent); ou
 .history-reuse small { display: block; color: var(--muted); font-size: 13px; margin-top: 5px; overflow-wrap: anywhere; }
 .history-pin[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent-soft); }
 .history-count, .history-no-matches { line-height: 1.5; }
+.session-title { display: flex; align-items: center; gap: 8px; max-width: 100%; font: inherit; text-align: left; }
+.session-title span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-title span:last-child { color: var(--muted); font-size: 14px; }
+.session-choice { display: block; width: 100%; padding: 14px 10px; text-align: left; border-bottom: 1px solid var(--line); border-radius: 10px; overflow-wrap: anywhere; }
+.session-choice[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
+.session-choice small { display: block; margin-top: 5px; color: var(--muted); font-size: 13px; }
+.session-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+.session-form label { display: block; margin-bottom: 10px; }
 .entry.recalled { background: var(--tab-soft); box-shadow: inset 3px 0 0 var(--tab); border-radius: 0 10px 10px 0; padding-left: 10px; padding-right: 6px; border-bottom-color: transparent; }
 .entry.recalled .in { color: var(--tab-soft-text); }
 
@@ -1199,7 +1207,7 @@ math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
   padding: 14px 16px 8px;
 }
 
-.sheet-head h2 { flex: 1; margin: 0; font-size: 18px; font-weight: 650; }
+.sheet-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 18px; font-weight: 650; }
 
 .text-btn { color: var(--accent-ink); font-weight: 600; font-size: 16px; padding: 6px 4px; }
 

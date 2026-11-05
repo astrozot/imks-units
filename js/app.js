@@ -44,6 +44,7 @@ const store = {
     try {
       localStorage.setItem("imks." + key, JSON.stringify(value));
     } catch { /* storage unavailable */ }
+    if (["history", "session", "rid"].includes(key)) queueWorkspaceSave();
   },
 };
 const cleanPins = (pins) => Array.isArray(pins) ? [...new Set(pins.filter((x) => typeof x === "string" && x.trim()))] : [];
@@ -94,13 +95,35 @@ const COSMO_PRESETS = {
 
 const COSMO_NAMES = ["H_0", "Omega_M", "Omega_L", "Omega_R"];
 
+function readWorkspaces(data) {
+  if (!data || !Array.isArray(data.items) || !data.items.length) return null;
+  const ids = new Set();
+  const items = [];
+  for (const w of data.items) {
+    if (!w || typeof w.id !== "string" || !w.id || ids.has(w.id) || typeof w.name !== "string" || !w.name.trim() || !Array.isArray(w.history) || !Array.isArray(w.session) || !w.session.every((line) => typeof line === "string")) return null;
+    ids.add(w.id);
+    const text = typeof w.text === "string" ? w.text : "";
+    items.push({ id: w.id, name: w.name.trim().slice(0, 80), history: w.history.slice(-300), session: w.session.slice(-500), rid: Number.isSafeInteger(w.rid) && w.rid >= 0 ? w.rid : 0, text, caret: Number.isInteger(w.caret) ? Math.max(0, Math.min(text.length, w.caret)) : text.length });
+  }
+  return { activeId: ids.has(data.activeId) ? data.activeId : items[0].id, items };
+}
+
+const savedWorkspaces = readWorkspaces(store.get("workspaces", null)) || {
+  activeId: "main",
+  items: [{ id: "main", name: "Main session", history: store.get("history", []), session: store.get("session", []), rid: store.get("rid", 0), text: "", caret: 0 }],
+};
+const initialWorkspace = savedWorkspaces.items.find((w) => w.id === savedWorkspaces.activeId);
+
 const state = {
   calc: null,
   constants: {},
   currencies: null,
-  history: store.get("history", []),
+  workspaces: savedWorkspaces.items,
+  activeSessionId: savedWorkspaces.activeId,
+  history: initialWorkspace.history,
+  rid: initialWorkspace.rid,
   pins: cleanPins(store.get("pins", [])),
-  session: store.get("session", []),
+  session: initialWorkspace.session,
   defs: store.get("defs", ""),
   settings: { ...DEFAULT_SETTINGS, ...store.get("settings", {}) },
   startupErrors: [],
@@ -115,10 +138,76 @@ const state = {
   shift: 0,          // abc keyboard: 0 lower, 1 one capital, 2 caps lock
   second: 0,         // 123 keypad: 0 off, 1 2nd for one key, 2 locked
   layer: "abc",      // abc keyboard layer: abc, sym, greek
-  text: "",
-  caret: 0,
+  text: initialWorkspace.text,
+  caret: initialWorkspace.caret,
   recall: -1,
 };
+
+let workspaceSaveTimer = null, workspaceEpoch = 0;
+const workspaceRuntimes = new Map();
+const activeWorkspace = () => state.workspaces.find((w) => w.id === state.activeSessionId);
+const workspaceConfiguration = () => JSON.stringify([state.settings, state.defs, state.currencies?.timestamp]);
+
+function queueWorkspaceSave() {
+  clearTimeout(workspaceSaveTimer);
+  workspaceSaveTimer = setTimeout(flushWorkspace, 200);
+}
+
+function flushWorkspace() {
+  clearTimeout(workspaceSaveTimer);
+  const w = activeWorkspace();
+  if (!w) return;
+  Object.assign(w, { history: state.history, session: state.session, rid: state.rid, text: state.text, caret: state.caret });
+  store.set("workspaces", { activeId: state.activeSessionId, items: state.workspaces });
+}
+
+addEventListener("pagehide", flushWorkspace);
+document.addEventListener("visibilitychange", () => { if (document.hidden) flushWorkspace(); });
+
+function switchWorkspace(id) {
+  const next = state.workspaces.find((w) => w.id === id);
+  if (!next || id === state.activeSessionId) return;
+  flushWorkspace();
+  workspaceRuntimes.set(state.activeSessionId, {
+    calc: state.calc, configuration: workspaceConfiguration(), results, restoredIds, restored: [...restored],
+    undo: [...undoEdits], redo: [...redoEdits],
+  });
+  workspaceEpoch++;
+  clearTimeout(previewTimer);
+  clearTimeout(toastTimer);
+  $("#toast").hidden = true;
+  state.activeSessionId = id;
+  state.history = next.history;
+  state.session = next.session;
+  state.rid = next.rid;
+  state.text = next.text;
+  state.caret = next.caret;
+  state.recall = -1;
+  state.draft = null;
+  state.argPage = null;
+  const runtime = workspaceRuntimes.get(id);
+  results = runtime?.results || new Map();
+  restoredIds = runtime?.restoredIds || new Map();
+  restored.clear();
+  runtime?.restored.forEach((rid) => restored.add(rid));
+  undoEdits.splice(0, undoEdits.length, ...(runtime?.undo || []));
+  redoEdits.splice(0, redoEdits.length, ...(runtime?.redo || []));
+  if (runtime && runtime.configuration === workspaceConfiguration()) {
+    state.calc = runtime.calc;
+    resultNames = state.history.filter((e) => e.kind === "value" && e.rid).map((e) => `ans_${e.rid}`);
+    categoryDims = null;
+    renderConstGrid();
+    renderFnGrid();
+  } else build();
+  // Keep the legacy keys as a mirror of the active session for older builds.
+  store.set("history", state.history);
+  store.set("session", state.session);
+  store.set("rid", state.rid);
+  renderHistory();
+  onInput();
+  flushWorkspace();
+  $("#btn-history").title = `History · ${next.name}`;
+}
 
 // ---------------------------------------------------------------------
 // Unit catalogs
@@ -988,9 +1077,66 @@ function markPinned(div, input) {
 
 function openHistory() {
   openSheet("History", renderHistorySearch);
+  $("#sheet-title").innerHTML = `<button class="session-title" aria-label="Choose session" title="Switch or manage sessions"><span>${esc(activeWorkspace().name)}</span><span aria-hidden="true">▾</span></button>`;
+  $(".session-title", sheet).addEventListener("click", openSessions);
   helpFocus = $("#btn-history");
   // Keep the list visible on phones until the user taps the search field.
   if (matchMedia("(pointer: fine)").matches) $("#history-search", sheetBody).focus();
+}
+
+function openSessions() {
+  flushWorkspace();
+  openSheet("Sessions", (root) => {
+    root.innerHTML = `<div class="session-list">${state.workspaces.map((w, i) => `<button class="session-choice" data-session-choice="${i}" aria-pressed="${w.id === state.activeSessionId}"><span>${esc(w.name)}</span><small>${w.history.length} calculation${w.history.length === 1 ? "" : "s"}${w.id === state.activeSessionId ? " · Current session" : ""}</small></button>`).join("")}</div>
+      <div class="session-actions"><button class="small-btn" data-session-action="new">New session</button><button class="small-btn" data-session-action="duplicate">Duplicate session</button><button class="small-btn" data-session-action="rename">Rename session</button></div>
+      <p class="note">Each session keeps its own history, variables and draft. Settings, My definitions and pins are shared.</p>`;
+    root.addEventListener("click", (ev) => {
+      const choice = ev.target.closest("[data-session-choice]");
+      if (choice) {
+        switchWorkspace(state.workspaces[Number(choice.dataset.sessionChoice)].id);
+        openHistory();
+        return;
+      }
+      const action = ev.target.closest("[data-session-action]");
+      if (action) nameWorkspace(action.dataset.sessionAction);
+    });
+  });
+  helpFocus = $("#btn-history");
+}
+
+function nameWorkspace(action) {
+  const original = activeWorkspace();
+  const title = { new: "New session", rename: "Rename session", duplicate: "Duplicate session" }[action];
+  openSheet(title, (root) => {
+    root.innerHTML = `<form class="session-form"><label for="session-name">Session name</label><input id="session-name" class="search" type="text" maxlength="80" autocomplete="off" value="${esc(action === "new" ? "" : action === "duplicate" ? `${original.name.slice(0, 75)} copy` : original.name)}" required><p class="note" id="session-name-error" role="status"></p><div class="session-actions"><button type="submit" class="small-btn">${action === "rename" ? "Save name" : "Create session"}</button><button type="button" class="text-btn" data-session-cancel>Cancel</button></div></form>`;
+    $("[data-session-cancel]", root).addEventListener("click", openSessions);
+    $("form", root).addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const name = $("#session-name", root).value.trim().slice(0, 80);
+      const error = $("#session-name-error", root);
+      if (!name) { error.textContent = "Enter a session name."; return; }
+      if (state.workspaces.some((w) => w.name.toLowerCase() === name.toLowerCase() && (action !== "rename" || w.id !== original.id))) {
+        error.textContent = "A session already has that name. Choose another name.";
+        return;
+      }
+      flushWorkspace();
+      if (action === "rename") original.name = name;
+      else {
+        const w = action === "duplicate" ? JSON.parse(JSON.stringify(original)) : { history: [], session: [], rid: 0, text: "", caret: 0 };
+        w.id = crypto.randomUUID?.() || `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        w.name = name;
+        state.workspaces.push(w);
+        switchWorkspace(w.id);
+      }
+      flushWorkspace();
+      $("#btn-history").title = `History · ${name}`;
+      openHistory();
+    });
+  });
+  helpFocus = $("#btn-history");
+  const input = $("#session-name", sheetBody);
+  input.focus();
+  input.select();
 }
 
 function renderHistorySearch(root) {
@@ -1280,7 +1426,8 @@ function unpackResult(v) {
 }
 
 function newRid() {
-  const rid = Math.max(store.get("rid", 0), ...state.history.map((e) => e.rid || 0)) + 1;
+  const rid = Math.max(state.rid, ...state.history.map((e) => e.rid || 0)) + 1;
+  state.rid = rid;
   store.set("rid", rid);
   return rid;
 }
@@ -1396,6 +1543,7 @@ function setInput(text, caret = text.length, record = true) {
   state.text = text;
   state.caret = Math.max(0, Math.min(text.length, caret));
   onInput();
+  queueWorkspaceSave();
 }
 
 function setCaret(c, dir = 0) {
@@ -1404,6 +1552,7 @@ function setCaret(c, dir = 0) {
     if (c > s && c < e) c = dir < 0 ? s : dir > 0 ? e : (c - s < e - c ? s : e);
   }
   state.caret = c;
+  queueWorkspaceSave();
   renderEditor();
   updateSuggestions();
 }
@@ -2024,6 +2173,7 @@ function showError(error) {
 // it, and evaluate the line again if it is still the same
 let lookingUp = null;
 async function lookUp({ kind, name, refresh }, src) {
+  const epoch = workspaceEpoch;
   if (lookingUp) { toast(`Still looking up “${lookingUp}”…`); return; }
   // old elements of a satellite: offline, the ones kept
   if (navigator.onLine === false) {
@@ -2049,9 +2199,11 @@ async function lookUp({ kind, name, refresh }, src) {
       l.places[k] = v;
     }
     store.set("lookups", l);
+    if (epoch !== workspaceEpoch) return;
     toast(kind === "place" ? `Found ${v.name}, ${Math.round(v.h)} m` : `${refresh ? "Updated" : "Found"} ${v.name}`, 4000);
     if (state.text.trim() === src) evaluate();
   } catch (e) {
+    if (epoch !== workspaceEpoch) return;
     if (refresh) {
       toast(`${e.message}; with the elements kept`);
       if (state.text.trim() === src) evaluate(false);
@@ -6477,6 +6629,7 @@ function openPick(name) {
 // error, e.g. (9.8061±0.0012)[m/s^2]. It must start within the tap: iOS
 // asks for permission only then.
 function readSensor(name) {
+  const epoch = workspaceEpoch;
   const key = () => document.querySelector(`[data-key="sensor:${name}"]`);
   if (key()?.classList.contains("busy")) return;
   const { hint, read } = SENSORS[name];
@@ -6485,6 +6638,7 @@ function readSensor(name) {
   key()?.classList.add("busy");
   toast(hint);
   p.then((r) => {
+    if (epoch !== workspaceEpoch) return;
     // the variables, which are typed in: g_local for g, and all of the
     // position for a fix
     const v = name === "g" ? "g_local" : name;
@@ -6494,7 +6648,7 @@ function readSensor(name) {
     // the place of a call, from its page of arguments
     if (name === "here" && argKind(argContext(before()))?.startsWith("place")) nextArg();
     navigator.vibrate?.(10);
-  }).catch((e) => toast(e.message || String(e)))
+  }).catch((e) => { if (epoch === workspaceEpoch) toast(e.message || String(e)); })
     .finally(() => key()?.classList.remove("busy"));
 }
 
@@ -7766,7 +7920,7 @@ function renderSettings(root) {
 
     <div class="group-title">Backup</div>
     <div class="group">
-      <div class="row"><div class="lbl">Export everything<small>${ARTIFACT ? "Copies a backup to the clipboard, to paste into a .json file" : "History, pinned calculations, variables, definitions and settings"}</small></div>
+      <div class="row"><div class="lbl">Export everything<small>${ARTIFACT ? "Copies a backup to the clipboard, to paste into a .json file" : "All sessions, pinned calculations, definitions and settings"}</small></div>
         <button class="act" id="export">Export</button></div>
       <div class="row"><div class="lbl">Import a backup</div>
         <button class="act" id="import">Import</button><input type="file" id="import-file" accept="application/json,.json" hidden></div>
@@ -7894,6 +8048,7 @@ function renderSettings(root) {
   confirmButton($("#clear-hist", root), () => {
     state.history = [];
     saveHistory();
+    state.rid = 0;
     store.set("rid", 0);
     installResults();
     renderHistory();
@@ -8051,13 +8206,16 @@ function renderDefs(root) {
 }
 
 function exportData(root) {
+  flushWorkspace();
   const data = {
     app: "imks-units",
-    version: 1,
+    version: 2,
     exported: new Date().toISOString(),
     history: state.history,
     pins: state.pins,
     session: state.session,
+    sessions: state.workspaces,
+    activeSessionId: state.activeSessionId,
     defs: state.defs,
     settings: { ...state.settings, oxrId: "" },
     lookups: lookups(),
@@ -8096,13 +8254,28 @@ async function importData(file) {
   try {
     const data = JSON.parse(await file.text());
     if (data.app !== "imks-units") throw new Error("not a backup");
-    state.history = Array.isArray(data.history) ? data.history : [];
+    const workspaces = data.sessions === undefined ? readWorkspaces({ activeId: "main", items: [{ id: "main", name: "Main session", history: Array.isArray(data.history) ? data.history : [], session: Array.isArray(data.session) ? data.session : [], rid: 0, text: "", caret: 0 }] })
+      : readWorkspaces({ activeId: data.activeSessionId, items: data.sessions });
+    if (!workspaces) throw new Error("invalid sessions in backup");
+    clearTimeout(workspaceSaveTimer);
+    workspaceEpoch++;
+    workspaceRuntimes.clear();
+    state.workspaces = workspaces.items;
+    state.activeSessionId = workspaces.activeId;
+    const current = activeWorkspace();
+    state.history = current.history;
+    state.session = current.session;
+    state.rid = current.rid;
+    state.text = current.text;
+    state.caret = current.caret;
+    state.recall = -1;
+    state.draft = null;
+    undoEdits.length = redoEdits.length = 0;
     // Older backups have no pins; retain the user's saved expressions.
     if (Array.isArray(data.pins)) {
       state.pins = cleanPins(data.pins);
       store.set("pins", state.pins);
     }
-    state.session = Array.isArray(data.session) ? data.session : [];
     state.defs = typeof data.defs === "string" ? data.defs : "";
     state.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}), oxrId: state.settings.oxrId };
     if (data.lookups) {
@@ -8112,7 +8285,7 @@ async function importData(file) {
     results = new Map();
     restoredIds = new Map();
     restored.clear();
-    store.set("rid", 0);
+    store.set("rid", state.rid);
     saveHistory();
     store.set("session", state.session);
     store.set("defs", state.defs);
@@ -8120,6 +8293,9 @@ async function importData(file) {
     build();
     applyTheme();
     renderHistory();
+    onInput();
+    flushWorkspace();
+    $("#btn-history").title = `History · ${current.name}`;
     closeSheet();
     toast("Backup imported");
   } catch (e) {
@@ -8226,7 +8402,7 @@ function renderHelp(root) {
     ${HELP.map(([title, text, ex], i) => `${helpHead(title, i)}${text.split("\n\n").map((x) => `<p>${esc(x)}</p>`).join("")}
       <div class="ex">${ex.map(([x, note]) => `<button data-ex="${esc(x)}"><span class="x">${exprHTML(x)}</span><span>${esc(note)}</span></button>`).join("")}</div>`).join("")}
     ${helpHead("Keypad tips", HELP.length)}
-    <p>The History button (clock) opens search across expressions and results, with a Pinned tab for saved expressions. Long-press a calculation (or right-click) and choose Pin calculation. Pins survive clearing history and are included in backups; reusing one uses the current variables. Clear… in History clears the results or starts a new session. Ctrl/⌘F opens History on a hardware keyboard.</p>
+    <p>The History button (clock) opens search across expressions and results, with a Pinned tab for saved expressions. Long-press a calculation (or right-click) and choose Pin calculation. Pins survive clearing history and are included in backups; reusing one uses the current variables. Clear… in History clears the results or starts a new session. Tap the session name at the top of History to switch, create, rename or duplicate sessions. Each keeps its own history, variables, results and draft; settings, My definitions and pins are shared. Ctrl/⌘F opens History on a hardware keyboard.</p>
     <p>Tap a result to insert it as ans_n (the n-th result; the last one is also ans), tap an expression to edit it, and long-press an entry for more options, such as inserting the value itself. Clearing the results numbers them again from ans_1. Tap inside the expression to move the cursor; long-press it to paste. Swipe left on it to undo an expression edit, right to redo (also Ctrl/⌘Z and Ctrl/⌘Shift+Z on a hardware keyboard). This restores the expression and cursor; evaluated results and assigned variables stay as they are. Swipe down to hide the keypad and up to bring it back (tapping it also brings it back).</p>
     <p>On the <b>123</b> page, long-press a key for what is written in grey: its inverse (sin⁻¹ is asin, eˣ for log, the square for √), or more, such as n! on xʸ, ×10⁻ˣ on ×10ˣ, ° on π, mod (the remainder, 7 mod 3 = 1) on ÷, ± on +, x on ×, ~ (absolute ↔ relative, for temperatures) on −, the comma on the point, AC (clear) on ⌫, sgn on |x|, and = (assignment) on ⏎; hold ◀ or ▶ to jump to the start or the end, or slide on them to move. <b>2nd</b> adds what is written in orange: sinh, log₁₀, ∛, x^(1/y), ⌊x⌋, e (and x⁻¹ on a long press of π), for one key; long-press it to keep it on. Settings can also put constants on a long press of the digits (c on 7, G on 8…), and more after 2nd (σ_SB on 7, ε₀ on 8…).</p>
     <p>The bar above the keypad adapts to the cursor: units after a number (angles inside sin, cos, tan), your recent names and common constants after an operator or an opening parenthesis, exponents after ^, and conversions after a value with units.</p>
@@ -8390,10 +8566,11 @@ function clearMenu(x, y, after = () => {}) {
 }
 
 function resetSession(vars) {
-  const saved = { history: state.history, session: state.session, text: state.text, results };
+  const saved = { history: state.history, session: state.session, text: state.text, caret: state.caret, rid: state.rid, workspaceId: state.activeSessionId, results };
   state.history = [];
   saveHistory();
   // results are numbered again from ans_1
+  state.rid = 0;
   store.set("rid", 0);
   if (vars) {
     state.session = [];
@@ -8404,7 +8581,10 @@ function resetSession(vars) {
   setInput("");
   renderHistory();
   toast(vars ? "Started over" : "Results cleared", 6000, ["Undo", () => {
+    if (saved.workspaceId !== state.activeSessionId) return;
     state.history = saved.history;
+    state.rid = saved.rid;
+    store.set("rid", state.rid);
     results = saved.results;
     saveHistory();
     if (vars) {
@@ -8413,7 +8593,7 @@ function resetSession(vars) {
       build();
     } else installResults();
     renderHistory();
-    setInput(saved.text);
+    setInput(saved.text, saved.caret);
   }]);
 }
 
@@ -8456,6 +8636,8 @@ async function boot() {
   $("#about").addEventListener("click", (ev) => { if (ev.target.closest("[data-about-close]")) closeAbout(); });
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("#about").hidden) closeAbout(); });
   $("#btn-history").addEventListener("click", openHistory);
+  $("#btn-history").title = `History · ${activeWorkspace().name}`;
+  flushWorkspace();
   // lets :active styles work on iOS
   document.addEventListener("touchstart", () => {}, { passive: true });
 
