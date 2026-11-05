@@ -172,7 +172,21 @@ try {
   assert.equal(await page.evaluate(() => window.imks.calc.run("mass").kind), "error", "start over clears active variables");
   await choose("Experiments");
   assert.equal(await value("mass"), 5000, "clearing another session leaves this one intact");
+  // A measurement started in one session must not type into another.
+  await page.evaluate(async () => {
+    const { SENSORS } = await import("./js/sensors.js");
+    const original = SENSORS.here.read;
+    SENSORS.here.read = () => new Promise((resolve) => {
+      window.releaseSessionSensor = () => { SENSORS.here.read = original; resolve({list:[[45,0.01],[9,0.01]],unit:"deg"}); };
+    });
+  });
+  await page.click('[data-tab="fn"]');
+  await page.click('[data-fncat="Sensors"]');
+  await page.click('[data-key="sensor:here"]');
   await choose("Main session");
+  const unchangedDraft = await page.evaluate(() => window.imks.text);
+  await page.evaluate(() => window.releaseSessionSensor());
+  assert.equal(await page.evaluate(() => window.imks.text), unchangedDraft, "late sensor result does not alter another draft");
   await manager();
   if (process.env.SESSION_SCREENSHOT) await page.screenshot({path:process.env.SESSION_SCREENSHOT});
   assert.equal(await page.locator(".session-list").evaluate((el)=>el.scrollWidth<=el.clientWidth), true, "session chooser fits a phone");
