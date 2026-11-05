@@ -269,7 +269,14 @@ try {
 
   // Canonical names work throughout the app; old spellings have no hidden aliases.
   expect(await run("H_0 / H_0 + Omega_M / Omega_M + M_Sun / M_Sun + mu_B / mu_B"), "4", "canonical constants evaluate");
-  expect(await run("Ω_M / Omega_M + Γ(5) / Gamma(5)"), "2", "equivalent symbol input still resolves");
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData("text/plain", "Ω_M / Omega_M + Γ(5) / Gamma(5)");
+    document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(250);
+  expect(await last(), "2", "equivalent symbol input still resolves");
   for (const old of ["H0", "OmegaM", "Msun", "vesc_Mars", "gamma(5)", "chi2_p(12.3, 5)", "1[Mearth]"]) {
     await run(old);
     check(await page.locator("#preview").evaluate((el) => el.classList.contains("error")), `${old} is no longer a legacy alias`);
@@ -674,6 +681,30 @@ try {
   check(await (await lastEntry()).$$eval(".out .u.tight", (u) => u.length) === 1, "a result in degrees has its unit next to the number");
   await run("25 °C");
   check(await (await lastEntry()).$$eval(".out .u.tight", (u) => u.length) === 0, "a result in °C keeps its space");
+
+  // Digits inherit variable italics, including quotes; subscripts and numbers stay upright.
+  for (const typed of ["m1", "m1_1", "m_1", "'m1'", '"m1"', "'m_1'", '"m_1"']) {
+    await page.keyboard.type(typed);
+    const subscript = typed.includes("_");
+    expect(await page.locator("#expr .it").allTextContents().then((xs) => xs.join("")),
+      typed.replace(/['"]/g, "").replace("_", ""), `${typed}: variable is wrapped in italics`);
+    if (subscript) {
+      expect(await page.locator("#expr sub").textContent(), "1", `${typed}: numeric subscript`);
+      expect(await page.locator("#expr sub").evaluate((el) => getComputedStyle(el).fontStyle), "normal", `${typed}: subscript is upright`);
+    }
+    await clear();
+  }
+  await page.keyboard.type("12 + m1^2");
+  expect(await page.locator("#expr .t-n").first().evaluate((el) => getComputedStyle(el).fontStyle), "normal", "standalone number is upright");
+  expect(await page.locator("#expr sup").evaluate((el) => getComputedStyle(el).fontStyle), "normal", "numeric power is upright");
+  await clear();
+  await run("m1 = 3");
+  for (const typed of ["m1^2", "'m1'^2", '"m1"^2']) {
+    await page.keyboard.type(typed);
+    expect(await page.locator("#math2d mi.it").textContent(), "1", `${typed}: digit is a typeset identifier`);
+    expect(await page.locator("#math2d mi.it").evaluate((el) => getComputedStyle(el).fontStyle), "italic", `${typed}: typeset digit is italic`);
+    await clear();
+  }
 
   // a unit system in quotes from the keys: no space, upright
   await page.keyboard.type("1 @ kg|");

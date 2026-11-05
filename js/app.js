@@ -204,8 +204,8 @@ const UNIT_HTML = { deg: "°", arcmin: "′", arcsec: "″", ohm: "Ω", Ang: "Å
 const BASE_HTML = { sin2theta: "sin²θ" };
 const SUB_WORDS = { Sun: "☉", Earth: "⊕", half: "½" };
 // As in physics (and LaTeX): symbols of constants and variables are
-// italic; digits, subscripts, units, capital Greek letters and these
-// symbols are not
+// italic, including digits in their names; subscripts, units, capital
+// Greek letters and these symbols are not
 const UPRIGHT_NAMES = new Set(["inf", "nan", "euler"]);
 const CHARGE = { 0: "⁰", plus: "⁺", minus: "⁻" };
 
@@ -272,11 +272,11 @@ function itHTML(h) {
 }
 
 // A constant or variable as a symbol, as in the formulas: italic, with
-// upright digits and subscripts; mathematical constants upright
+// upright subscripts; mathematical constants upright
 function symHTML(n) {
   const h = prettyName(n, { unit: false });
   if (UPRIGHT_NAMES.has(n)) return h || esc(n);
-  return itHTML(h || esc(n).replace(/\d+/g, '<span class="rm">$&</span>'));
+  return itHTML(h || esc(n));
 }
 
 // a key or chip for an expression: a name as a symbol, a constant from the
@@ -1644,8 +1644,8 @@ function segHTML(t, sg, s = sg.s, e = sg.e) {
   if (sg.atom) return `<span class="${cls}" data-s="${sg.s}" data-e="${sg.e}">${sg.html}</span>`;
   const span = (a, b, c) => (b > a ? `<span class="${c}" data-s="${a}">${sg.raw ? esc(t.slice(a, b)) : showText(t.slice(a, b))}</span>` : "");
   if (!sg.it) return span(s, e, cls);
-  // italic letters, upright digits, capital Greek (and quotes): one span for each run
-  const kind = (k) => (k >= sg.it[0] && k < sg.it[1] && !/\d/.test(t[k]) && !GREEK_CAPS.test(t[k]) ? " it" : "");
+  // Italic names, upright capital Greek and quotes: one span for each run.
+  const kind = (k) => (k >= sg.it[0] && k < sg.it[1] && !GREEK_CAPS.test(t[k]) ? " it" : "");
   let html = "", a = s;
   for (let k = s + 1; k <= e; k++) {
     if (k === e || kind(k) !== kind(a)) { html += span(a, k, cls + kind(a)); a = k; }
@@ -3083,10 +3083,10 @@ function nameMath(name, { unit = false, fn = false } = {}) {
   if (upright) m = `<mi mathvariant="normal">${xmlEsc(b)}</mi>`;
   else {
     // italic letter by letter (a single-character mi is italic, and MathML
-    // Core has no other italic), upright digits and capital Greek: v0 -> 𝑣0, mass -> 𝑚𝑎𝑠𝑠
+    // Core has no other italic). Digits need font italics; capital Greek stays upright.
     b = b.replace(/ħ/g, "ℏ");
     const runs = b.match(/\d+|\D/gu) || [""];
-    m = runs.map((r) => (/\d/.test(r) ? `<mn>${r}</mn>` : `<mi${GREEK_CAPS.test(r) ? ' mathvariant="normal"' : ""}>${xmlEsc(r)}</mi>`)).join("");
+    m = runs.map((r) => (/\d/.test(r) ? `<mi class="it" mathvariant="normal">${r}</mi>` : `<mi${GREEK_CAPS.test(r) ? ' mathvariant="normal"' : ""}>${xmlEsc(r)}</mi>`)).join("");
     if (runs.length > 1) m = `<mrow>${m}</mrow>`;
   }
   if (subTxt !== null) m = `<msub>${m}<mi mathvariant="normal">${xmlEsc(subTxt)}</mi></msub>`;
