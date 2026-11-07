@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createCalculator } from '../js/defs.js';
-import { skyFrame, createSkyAnimator, skyChart, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview } from '../js/coelum.js';
+import { skyFrame, createSkyAnimator, skyChart, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
 import { horizontal, siderealTime } from '../js/astro.js';
 import { STARS } from '../js/catalog.js';
 import { CHART_STARS, CONSTELLATIONS } from '../js/skydata.js';
@@ -59,7 +59,7 @@ const all = { constellations: true, horizontal: true, equatorial: true, deep: tr
 for (const t of [Date.UTC(1950, 0, 1), Date.UTC(2026, 10, 6), Date.UTC(2100, 0, 1)].map((t) => t / 1000)) {
   for (const place of [[41.892, 12.511, 20], [-33.9, 151.2, 50], [90, 0, 0], [-90, 0, 0]]) {
     const frame = skyFrame(t, place);
-    for (const b of frame.bodies) {
+    for (const b of frame.bodies.filter((o) => o.type !== 'minor planet' && o.type !== 'comet')) {
       const h = horizontal(b.body, t, place);
       assert.ok(Math.abs(h.alt - b.alt) < 1e-8, b.name);
       assert.ok(angleDiff(h.az, b.az) < 1e-8, b.name);
@@ -185,5 +185,23 @@ for (const phase of [0, 45, 90, 135, 180]) {
   // Zoomed in, a cluster's bright and faint members keep different sizes.
   assert.ok(starRadius(2.9, 8) / starRadius(6, 8) > 2 && starRadius(6, 8) > starRadius(8, 8) * 1.5, 'Sizes follow the magnitude when zoomed');
   assert.ok(Math.abs(starRadius(-1.4) - starRadius(-1.4, 1)) < 1e-12 && starRadius(0) > starRadius(3) * 2);
+}
+// Minor planets, planets' moons and the spectrum on a star's card.
+{
+  const f = skyFrame(Date.UTC(2026, 10, 6, 21) / 1000, [41.892, 12.511, 20]);
+  const ceres = f.bodies.find((o) => o.name === 'Ceres'), pluto = f.bodies.find((o) => o.name === 'Pluto');
+  assert.equal(ceres.type, 'minor planet');
+  assert.ok(ceres.mag > 6 && ceres.mag < 9.5 && pluto.mag > 13.5 && pluto.mag < 15.5, `${ceres.mag} ${pluto.mag}`);
+  assert.equal(searchSky(f, 'vesta')[0].name, 'Vesta');
+  const jupiter = f.bodies.find((o) => o.body === 'jupiter'), galilean = planetMoons(f, jupiter);
+  assert.deepEqual(galilean.map((m) => m.name), ['Io', 'Europa', 'Ganymede', 'Callisto']);
+  assert.ok(galilean.every((m) => m.separation < 0.2 && m.mag > 4 && m.mag < 6.5), JSON.stringify(galilean.map((m) => [m.separation, m.mag])));
+  assert.ok(galilean[0].separation < 0.05);
+  assert.equal(findObject(f, 'Titan').type, 'moon of Saturn');
+  assert.equal(searchSky(f, 'titan')[0].name, 'Titan');
+  assert.ok(Math.abs(starTemperature(0.65) - 5778) < 30);
+  const card = (bv) => objectDetails({ name: 'X', type: 'star', ra: 0, dec: 0, alt: 10, az: 0, mag: 1, bv });
+  assert.match(card(0), /type A/); assert.match(card(0.65), /type G/); assert.match(card(1.85), /type M/);
+  assert.ok(!objectDetails({ ...galilean[0], ra: 0, dec: 0 }).includes('coelum-spectrum'));
 }
 console.log('Coelum geometry, catalogs and calculator checks passed');

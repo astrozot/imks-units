@@ -69,6 +69,20 @@ function placeTable() {
   return places;
 }
 
+// Places whose names begin with (then contain) the query: the cities and
+// the places found online before (extra: {key: place})
+function searchPlaces(query, extra = {}, limit = 12) {
+  const q = placeKey(query);
+  if (!q) return [];
+  const seen = new Set(), out = [];
+  for (const [k, p] of [...Object.entries(extra), ...placeTable()]) {
+    if (seen.has(p) || !k.includes(q)) continue;
+    seen.add(p);
+    out.push({ ...p, rank: k.startsWith(q) ? 0 : 1 });
+  }
+  return out.sort((a, b) => a.rank - b.rank).slice(0, limit);
+}
+
 // the key of a satellite by its NORAD number: "NORAD 25544", or a common
 // name; null for other names
 function satelliteKey(name) {
@@ -318,4 +332,4 @@ async function fetchElevation(lat, lon) {
   }
 }
 
-export { LookupError, SATELLITES, findObject, findPlace, fetchObject, fetchPlace, fetchElevation };
+export { LookupError, SATELLITES, findObject, findPlace, searchPlaces, fetchObject, fetchPlace, fetchElevation };

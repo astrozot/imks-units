@@ -97,7 +97,18 @@ drags and flights are drawn there and settle as SVG over its sky and
 Milky Way, which stay on the canvas. The sky's colours, the Milky Way and
 the ground are drawn by a WebGL2 shader at up to two samples per pixel;
 without WebGL2 (or on a software renderer) the same model runs in
-JavaScript at lower resolution.
+JavaScript at lower resolution. Tapping the date opens a date and time
+panel with the day's sunrise, sunset, twilights, moonrise and moonset;
+tapping the place opens a place panel (cities, coordinates, a search
+online, the device's position). A Minor planets layer adds the built-in
+minor planets and dwarf planets (and those looked up in the calculator),
+which search also finds; zoomed in, the major moons of Mars, Jupiter,
+Saturn, Uranus and Neptune appear around their planets, and the planets
+become disks with their phases (Saturn with its rings). A star's card
+shows its B−V colour index, an estimated temperature and spectral type,
+and a black-body spectrum. On phones the orientation button makes the
+view follow where the phone points. Both views zoom to the same largest
+magnification.
 
 `js/skydata.js` bundles 5,044 stars from XHIP (Anderson & Francis, 2012),
 the 88 constellation figures, boundaries and Latin labels, and the Milky Way

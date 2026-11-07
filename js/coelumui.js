@@ -1,7 +1,9 @@
 // The coelum explorer: two views of the same sky (a map-like chart and a
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
-import { skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount } from './coelum.js';
+import { skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, setMinorBodies } from './coelum.js';
+import { riseSet } from './astro.js';
+import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
 import { storedHorizon, computeHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
 import { CHART_STARS } from './skydata.js';
@@ -89,15 +91,27 @@ function levelChart(r, side, axis = null, t0 = null) {
   const tilt = (m) => Math.atan2(side * m[2], side * m[5]), free = (m) => smooth(50, 80, Math.abs(Math.asin(Math.max(-1, Math.min(1, m[8])))) / R);
   t0 ??= tilt(r);
   const miss = (m) => tilt(m) - free(m) * t0;
-  let a = 0, fa = miss(r), b = -fa, best = r;
+  // About the finger, only small turns: a large one would swing the view
+  // away; then the view rolls about its center instead, from where it was.
+  const limit = axis ? 0.35 : Infinity;
+  let a = 0, fa = miss(r), b = Math.max(-limit, Math.min(limit, -fa)), best = r, bestMiss = Math.abs(fa);
   for (let k = 0; k < 8 && Math.abs(fa) > 1e-7; k++) {
     const m = turnAbout(r, axis || [0, 0, 1], b), fb = miss(m);
-    if (Math.abs(fb) < Math.abs(fa)) best = m;
+    if (Math.abs(fb) < bestMiss) { best = m; bestMiss = Math.abs(fb); }
     if (Math.abs(fb - fa) < 1e-12) break;
-    [a, fa, b] = [b, fb, b - fb * (b - a) / (fb - fa)];
+    [a, fa, b] = [b, fb, Math.max(-limit, Math.min(limit, b - fb * (b - a) / (fb - fa)))];
   }
-  return axis && Math.abs(miss(best)) > 1e-4 ? levelChart(best, side, null, t0) : best;
+  return axis && bestMiss > 1e-4 ? levelChart(r, side, null, t0) : best;
 }
+
+// Where the back of the phone points, as a horizontal unit vector [east,
+// north, up], from the orientation angles (degrees; alpha from north,
+// counterclockwise): the device's −z axis turned by Rz(α) Rx(β) Ry(γ).
+function backDirection(alpha, beta, gamma) {
+  const a = alpha * R, b = beta * R, g = gamma * R;
+  return [-Math.sin(g) * Math.cos(a) - Math.cos(g) * Math.sin(b) * Math.sin(a), -Math.sin(g) * Math.sin(a) + Math.cos(g) * Math.sin(b) * Math.cos(a), -Math.cos(b) * Math.cos(g)];
+}
+const orientationSupported = () => typeof window !== 'undefined' && 'DeviceOrientationEvent' in window && matchMedia('(any-pointer: coarse)').matches;
 
 const icon = (d, extra = '') => `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${d}${extra}</svg>`;
 const ICONS = {
@@ -118,19 +132,26 @@ const ICONS = {
   reverse: icon('<path d="M4 8h14l-3.5-3.5M20 16H6l3.5 3.5"/>'),
   reset: icon('<path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/>'),
   close: icon('<path d="M6 6l12 12M18 6 6 18"/>'),
+  orient: icon('<rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 18.5h3"/><path d="M12 6.5l2 4.5h-4z" fill="currentColor"/>'),
 };
 const LAYERS = [
   ['ground', 'Ground', 'chart sky'], ['atmosphere', 'Atmosphere', 'sky'], ['milkyway', 'Milky Way', 'chart sky'],
   ['constellations', 'Constellations', 'chart sky'], ['boundaries', 'Boundaries', 'chart sky'], ['ecliptic', 'Ecliptic', 'chart sky'],
-  ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['labels', 'Labels', 'chart sky'],
+  ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['labels', 'Labels', 'chart sky'],
 ];
 const MODES = { chart: 'Chart', sky: 'Sky' };
+// The largest zoom of the sky view (the chart's matches it): enough to
+// separate Jupiter's inner moons and show the planets' disks.
+const SKY_MAX = 400;
 const TYPE_ORDER = { star: 'Star', planet: 'Planet', moon: 'Moon', constellation: 'Constellation' };
 let explorers = 0;
 
 // Kept separate from calculator state: exploring never changes the saved
 // calculation. Timers end automatically when the sheet's root is removed.
-export function mountCoelum(root, model, formatTime) {
+// options (from the app): places() and rememberPlace(key, place), the
+// places found online; minorBodies(), the minor planets and comets looked
+// up.
+export function mountCoelum(root, model, formatTime, options = {}) {
   const id = `coelum-${++explorers}`;
   let mode = 'chart';
   try { if (localStorage.getItem('imks-coelum-mode') === 'sky') mode = 'sky'; } catch { /* private mode */ }
@@ -159,12 +180,28 @@ export function mountCoelum(root, model, formatTime) {
         <div class="coelum-downloads"><h3>Fainter stars</h3><p class="coelum-panel-note coelum-faint-note"></p>
           <div class="coelum-download-buttons">${Object.entries(STAR_FILES).map(([k, f]) => `<button type="button" class="coelum-chip" data-download="${k}">${f.label[0].toUpperCase() + f.label.slice(1)} · ${f.size}</button>`).join('')}<button type="button" class="coelum-chip" data-download="remove">Remove</button></div></div>
       </div>
+      <div class="coelum-panel coelum-timepanel" id="${id}-time" role="group" aria-label="Date and time" hidden>
+        <div class="coelum-panel-head"><h3>Date and time</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close date and time">${ICONS.close}</button></div>
+        <div class="coelum-time-row"><input type="datetime-local" step="60" data-time-input aria-label="Date and time on this device's clock"><button type="button" class="coelum-chip" data-set-time="now">Now</button></div>
+        <p class="coelum-panel-note coelum-zone-note"></p>
+        <h3 class="coelum-events-head">Events of the day</h3>
+        <div class="coelum-events"></div>
+        <div class="coelum-chips"><button type="button" class="coelum-chip" data-time-step="-86400">−1 day</button><button type="button" class="coelum-chip" data-time-step="86400">+1 day</button><button type="button" class="coelum-chip" data-set-time="original">Original time</button></div>
+      </div>
+      <div class="coelum-panel coelum-placepanel" id="${id}-place" role="group" aria-label="Place" hidden>
+        <div class="coelum-panel-head"><h3>Place</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close place">${ICONS.close}</button></div>
+        <form class="coelum-place-form"><input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="City, or latitude, longitude" aria-label="Search places"><button type="submit" class="coelum-chip">Search online</button></form>
+        <div class="coelum-place-results" role="list"></div>
+        <p class="coelum-panel-note coelum-place-status" role="status" aria-live="polite"></p>
+        <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button><button type="button" class="coelum-chip" data-place="original">Original place</button></div>
+      </div>
+      <p class="coelum-toast" role="status" aria-live="polite" hidden></p>
       <div class="coelum-panel coelum-legend" id="${id}-legend" role="group" aria-label="Legend" hidden>
         <button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="close-panel" aria-label="Close legend">${ICONS.close}</button>${chartLegend()}
       </div>
     </div>
     <div class="coelum-timebar coelum-hud">
-      <div class="coelum-clock"><p class="coelum-status" aria-live="polite"></p><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output></div>
+      <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button> · <button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"></button><span class="coelum-condition"></span></p><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output></div>
       <div class="coelum-controls" role="toolbar" aria-label="Time">
         <button type="button" class="coelum-btn coelum-btn-text" data-action="back" aria-label="One hour earlier" title="One hour earlier">−1 h</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="slower" aria-label="Halve playback speed" title="Halve playback speed">÷2</button>
@@ -172,25 +209,28 @@ export function mountCoelum(root, model, formatTime) {
         <button type="button" class="coelum-btn coelum-btn-text" data-action="faster" aria-label="Double playback speed" title="Double playback speed">×2</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="forward" aria-label="One hour later" title="One hour later">+1 h</button>
         <button type="button" class="coelum-btn" data-action="reverse" aria-pressed="false" aria-label="Reverse playback direction" title="Reverse playback direction">${ICONS.reverse}</button>
-        <button type="button" class="coelum-btn" data-action="reset" aria-label="Back to the original time and view" title="Back to the original time and view">${ICONS.reset}</button>
+        <button type="button" class="coelum-btn" data-action="reset" aria-label="Back to the original time, place and view" title="Back to the original time, place and view">${ICONS.reset}</button>
+        <button type="button" class="coelum-btn" data-action="orient" aria-pressed="false" aria-label="Follow the phone's orientation" title="Follow the phone's orientation"${orientationSupported() ? '' : ' hidden'}>${ICONS.orient}</button>
       </div>
     </div>
     <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><p>Tap an object or its label, or search for it, to see its characteristics.</p></div></section>
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
     <details class="coelum-credit"><summary>Chart data</summary><p>Stars: XHIP (Anderson &amp; Francis, 2012), via <a href="https://github.com/ofrohn/d3-celestial" target="_blank" rel="noopener">d3-celestial</a>; double and variable stars from the Hipparcos catalogue (ESA, 1997). Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars and deep-sky objects: the app’s IAU / HYG / OpenNGC catalogs. The Moon: NASA LRO. Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Background stars include precession and nutation; named stars include proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
-  const svg = $('.coelum-full'), status = $('.coelum-status'), detail = $('.coelum-detail-body'), viewport = $('.coelum-viewport');
+  const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('.coelum-detail-body'), viewport = $('.coelum-viewport');
   const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results');
   const layers = { chart: { ...DEFAULT_LAYERS }, sky: { ...SKY_LAYERS } };
   const views = { chart: { scale: 1, rotation: [...SKY_IDENTITY] }, sky: null };
   let size = 360, height = 360;
-  let t = model.t, frame = skyFrame(t, model.place), drawn, playing = false, last = 0, selected = null;
+  let place = [...model.place], placeLabel = model.label;
+  setMinorBodies(options.minorBodies?.() || []);
+  let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null;
   let animator = null, animation = 0, lastUI = -Infinity, frameNumber = 0, speed = 60, flight = 0, interacting = false, settleTimer = 0;
   // The horizon (shared by both views): the terrain's profile, if computed.
   let horizon = 'landscape', terrain = null;
   try { horizon = localStorage.getItem('imks-coelum-horizon') || 'landscape'; } catch { /* private mode */ }
   const setTerrain = (profile) => { terrain = profile ? horizonAt(profile) : null; };
-  setTerrain(storedHorizon(model.place));
+  setTerrain(storedHorizon(place));
   if (horizon === 'terrain' && !terrain) horizon = 'landscape';
   const applyHorizon = () => {
     layers.sky.horizon = horizon; layers.sky.terrain = terrain;
@@ -213,10 +253,10 @@ export function mountCoelum(root, model, formatTime) {
     lastUI = now;
     root.classList.toggle('coelum-has-selection', Boolean(selected));
     const sun = frame.bodies[0].alt, condition = sun >= 0 ? 'Daylight' : sun >= -6 ? 'Civil twilight' : sun >= -12 ? 'Nautical twilight' : sun >= -18 ? 'Astronomical twilight' : 'Night';
-    status.innerHTML = `<b>${esc(formatTime(t))}</b> · ${esc(model.label)} · ${condition} · Sun ${sun.toFixed(1)}°`;
+    statusTime.textContent = formatTime(t); statusPlace.textContent = placeLabel; statusCondition.textContent = ` · ${condition} · Sun ${sun.toFixed(1)}°`;
     if (selected) {
       const o = findObject(frame, selected);
-      if (o) detail.innerHTML = objectDetails(mode === 'sky' && layers.sky.atmosphere ? { ...o, apparentAlt: o.alt + refraction(o.alt, model.place[2] || 0) } : o);
+      if (o) detail.innerHTML = objectDetails(mode === 'sky' && layers.sky.atmosphere ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
     }
   };
   const currentView = () => (mode === 'sky' ? skyView() : views.chart);
@@ -230,12 +270,12 @@ export function mountCoelum(root, model, formatTime) {
   let pending = 0;
   const draw = (recompute = false) => {
     cancelAnimationFrame(pending); pending = 0;
-    if (recompute) { animator = null; frame = skyFrame(t, model.place); }
+    if (recompute) { animator = null; frame = skyFrame(t, place); }
     svg.setAttribute('viewBox', `0 0 ${size} ${height}`);
     const view = mark();
     svg.dataset.time = String(t);
     if (playing) {
-      if (!animator) animator = createSkyAnimator(t, model.place, layers[mode]);
+      if (!animator) animator = createSkyAnimator(t, place, layers[mode]);
       frame = animator(t);
     }
     // One canvas under the SVG. The chart moves on it (playback, drags,
@@ -290,7 +330,10 @@ export function mountCoelum(root, model, formatTime) {
   // A flight cut short (reset, another view) leaves nothing moving.
   const stopFlight = () => { if (flight) { cancelAnimationFrame(flight); flight = 0; interacting = false; clearTimeout(settleTimer); } };
   const settle = () => { clearTimeout(settleTimer); if (!interacting) return; interacting = false; if (root.isConnected) draw(); };
-  const scaleLimits = () => (mode === 'sky' ? [0.6, 80] : [1, 40]);
+  // The same largest magnification (pixels per degree at the center) in
+  // both views.
+  const chartMax = () => SKY_MAX * skyRadius(size, height, 1) * Math.PI / 4 / chartRadius(size, height, 1);
+  const scaleLimits = () => (mode === 'sky' ? [0.6, SKY_MAX] : [1, chartMax()]);
   const zoom = (factor, later = false) => {
     const v = currentView(), [lo, hi] = scaleLimits();
     v.auto = false; v.scale = Math.min(hi, Math.max(lo, v.scale * factor));
@@ -311,11 +354,11 @@ export function mountCoelum(root, model, formatTime) {
     let step;
     if (mode === 'sky') {
       const v = skyView(), from = { ...v }; v.auto = false;
-      const a = layers.sky.atmosphere ? refractVector(pointVector(o), model.place[2] || 0) : pointVector(o), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
-      const daz = ((oAz - v.az + 540) % 360) - 180, alt = Math.max(-30, Math.min(80, oAlt)), scale = Math.max(v.scale, 2.5);
+      const a = layers.sky.atmosphere ? refractVector(pointVector(o), place[2] || 0) : pointVector(o), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
+      const daz = ((oAz - v.az + 540) % 360) - 180, alt = Math.max(-30, Math.min(80, oAlt)), scale = Math.min(SKY_MAX, Math.max(v.scale, o.planet ? 80 / (o.separation * skyRadius(size, height, 1) / 2 * R) : 2.5));
       step = (e) => Object.assign(v, { az: (from.az + daz * e + 360) % 360, alt: from.alt + (alt - from.alt) * e, scale: from.scale + (scale - from.scale) * e });
     } else {
-      const v = views.chart, rotation = [...v.rotation], fromScale = v.scale, scale = Math.max(v.scale, 2.5);
+      const v = views.chart, rotation = [...v.rotation], fromScale = v.scale, scale = Math.min(chartMax(), Math.max(v.scale, o.planet ? 80 / (o.separation * chartRadius(size, height, 1) / 90) : 2.5));
       const w = pointVector(o), p = [0, 1, 2].map((i) => dot3(rotation.slice(i * 3, i * 3 + 3), w)), angle = Math.acos(Math.max(-1, Math.min(1, p[2])));
       const axis = unit3(p[0] || p[1] ? [p[0], p[1], 0] : [1, 0, 0]);
       const side = zenithSide(rotation) || zenithSide(rotateSky(rotation, p, [0, 0, 1])) || 1;
@@ -341,14 +384,17 @@ export function mountCoelum(root, model, formatTime) {
   };
 
   // Panels: one at a time; they keep the full-screen controls awake.
-  const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend') };
+  const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel') };
+  const panelOpen = () => Object.values(panels).some((panel) => !panel.hidden);
   const showPanel = (name) => {
     for (const [key, panel] of Object.entries(panels)) {
       const on = key === name && panel.hidden;
       panel.hidden = !on;
       $(`[data-action="${key}"]`).setAttribute('aria-expanded', String(on));
     }
-    root.classList.toggle('coelum-show-options', !panels.layers.hidden);
+    root.classList.toggle('coelum-show-options', panelOpen() && panels.legend.hidden);
+    if (name === 'time' && !panels.time.hidden) showTime();
+    if (name === 'place' && !panels.place.hidden) { placeInput.value = ''; showPlaces(''); }
     wake();
   };
   const syncLayers = () => {
@@ -369,14 +415,14 @@ export function mountCoelum(root, model, formatTime) {
   const terrainNote = $('.coelum-terrain-note');
   const showTerrain = (text) => {
     terrainNote.hidden = horizon !== 'terrain' && !text;
-    terrainNote.innerHTML = text || (terrain ? 'The terrain around this place, from elevation models out to 150 km (buildings and trees are not included). <button type="button" class="coelum-chip" data-terrain="refresh">Compute again</button> <button type="button" class="coelum-chip" data-terrain="forget">Forget</button>' : '');
+    terrainNote.innerHTML = text || (terrain ? 'The terrain around this place, from elevation models out to 150 km (buildings and trees are not included).<span class="coelum-chips"><button type="button" class="coelum-chip" data-terrain="refresh">Compute again</button><button type="button" class="coelum-chip" data-terrain="forget">Forget</button></span>' : '');
   };
   let terrainJob = null;
   const chooseHorizon = async (value, refresh = false) => {
     if (value === 'terrain' && (!terrain || refresh)) {
       if (terrainJob) return;
       showTerrain('Downloading the terrain around this place…');
-      terrainJob = computeHorizon(model.place, (f) => showTerrain(`Downloading the terrain around this place… ${Math.round(f * 100)}%`));
+      terrainJob = computeHorizon(place, (f) => showTerrain(`Downloading the terrain around this place… ${Math.round(f * 100)}%`));
       try { setTerrain(await terrainJob); }
       catch (e) { terrainJob = null; if (!terrain) { horizon = horizon === 'terrain' ? 'landscape' : horizon; syncLayers(); } showTerrain(`${esc(e.message)}. The local horizon needs a connection the first time.`); return; }
       terrainJob = null;
@@ -385,6 +431,135 @@ export function mountCoelum(root, model, formatTime) {
     try { localStorage.setItem('imks-coelum-horizon', value); } catch { /* private mode */ }
     applyHorizon(); syncLayers(); showTerrain(); draw();
   };
+  // Date and time: a field on the device's clock, and the day's events of
+  // the Sun (with twilights) and the Moon at the place.
+  const timeInput = $('[data-time-input]'), events = $('.coelum-events');
+  const pad = (n) => String(n).padStart(2, '0');
+  const localInput = (time) => { const d = new Date(time * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const clock = (time) => new Date(time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const EVENTS = [
+    ['Astronomical dawn', 'sun', true, -18], ['Nautical dawn', 'sun', true, -12], ['Civil dawn', 'sun', true, -6], ['Sunrise', 'sun', true, null],
+    ['Sunset', 'sun', false, null], ['Civil dusk', 'sun', false, -6], ['Nautical dusk', 'sun', false, -12], ['Astronomical dusk', 'sun', false, -18],
+    ['Moonrise', 'moon', true, null], ['Moonset', 'moon', false, null],
+  ];
+  let eventsDay = null;
+  const showTime = () => {
+    if (document.activeElement !== timeInput) timeInput.value = localInput(t);
+    const offset = -new Date(t * 1000).getTimezoneOffset(), zone = `UTC${offset < 0 ? '−' : '+'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
+    $('.coelum-zone-note').textContent = `On this device's clock (${zone}). The status line shows the calculator's time format.`;
+    const d = new Date(t * 1000), start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000, key = `${start},${place.join(',')}`;
+    if (key === eventsDay) return;
+    eventsDay = key;
+    const found = EVENTS.map(([label, body, rising, h0]) => {
+      const e = riseSet(body, start, place, rising, h0);
+      return e && e.t < start + 86400 ? { label, t: e.t } : { label, t: null };
+    });
+    events.innerHTML = found.filter((e) => e.t !== null).sort((a, b) => a.t - b.t).map((e) => `<button type="button" class="coelum-chip" data-time-event="${e.t}"><span>${esc(e.label)}</span> ${esc(clock(e.t))}</button>`).join('')
+      + (found.some((e) => e.t === null) ? `<p class="coelum-panel-note">Not on this day: ${found.filter((e) => e.t === null).map((e) => esc(e.label.toLowerCase())).join(', ')}.</p>` : '');
+  };
+  const setTime = (time) => {
+    t = limitTime(time);
+    if (playing) pause(); else draw(true);
+    if (!panels.time.hidden) showTime();
+  };
+  timeInput.addEventListener('change', () => { const ms = new Date(timeInput.value).getTime(); if (Number.isFinite(ms)) setTime(ms / 1000); });
+
+  // The place: the calculator's cities and places found before, typed
+  // coordinates, a search online (OpenStreetMap) or the device's position.
+  const placeInput = $('.coelum-place-form input'), placeResults = $('.coelum-place-results'), placeStatus = $('.coelum-place-status');
+  let placeMatches = [];
+  const coordinates = (text) => {
+    const m = /^\s*([+−-]?\d+(?:\.\d+)?)\s*°?\s*([NS])?\s*[,;\s]\s*([+−-]?\d+(?:\.\d+)?)\s*°?\s*([EW])?\s*$/i.exec(text);
+    if (!m) return null;
+    const lat = Number(m[1].replace('−', '-')) * (/s/i.test(m[2] || '') ? -1 : 1), lon = Number(m[3].replace('−', '-')) * (/w/i.test(m[4] || '') ? -1 : 1);
+    return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon, h: null, name: `${lat.toFixed(3)}°, ${lon.toFixed(3)}°` } : null;
+  };
+  const renderPlaces = () => {
+    placeResults.innerHTML = placeMatches.map((p, i) => `<button type="button" class="coelum-place" data-place-index="${i}" role="listitem"><span>${esc(p.name)}</span><small>${p.lat.toFixed(2)}°, ${p.lon.toFixed(2)}°${Number.isFinite(p.h) ? ` · ${Math.round(p.h)} m` : ''}</small></button>`).join('');
+  };
+  const showPlaces = (query) => {
+    const typed = coordinates(query);
+    placeMatches = typed ? [typed] : searchPlaces(query, options.places?.() || {});
+    renderPlaces();
+    placeStatus.textContent = query.trim() && !placeMatches.length ? 'No saved matches: search online.' : '';
+  };
+  const setPlace = async (p) => {
+    let h = p.h;
+    if (!Number.isFinite(h)) { placeStatus.textContent = 'Getting the elevation…'; try { h = await fetchElevation(p.lat, p.lon); } catch { h = 0; } }
+    place = [p.lat, p.lon, h]; placeLabel = p.name.split(',').slice(0, 2).join(',');
+    setTerrain(storedHorizon(place));
+    if (horizon === 'terrain' && !terrain) horizon = 'landscape';
+    applyHorizon(); syncLayers(); showTerrain();
+    if (views.sky?.auto) views.sky = null;
+    eventsDay = null; placeStatus.textContent = '';
+    showPanel(null);
+    if (playing) pause(); else draw(true);
+  };
+  placeInput.addEventListener('input', () => showPlaces(placeInput.value));
+  $('.coelum-place-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const query = placeInput.value.trim();
+    if (!query || coordinates(query)) return;
+    placeStatus.textContent = 'Looking it up…';
+    try {
+      const [key, found] = await fetchPlace(query);
+      options.rememberPlace?.(key, found);
+      placeMatches = [found, ...placeMatches.filter((p) => p.name !== found.name)];
+      renderPlaces();
+      placeStatus.textContent = 'Tap a place to use it.';
+    } catch (e) { placeStatus.textContent = e.message; }
+  });
+  const here = () => new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error('No location on this device')); return; }
+    navigator.geolocation.getCurrentPosition((pos) => resolve(pos.coords), (e) => reject(new Error(e.message || 'Location not available')), { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 });
+  });
+
+  // The phone's orientation: the view looks where the back of the phone
+  // points (the chart with its horizon level). A drag ends it.
+  const toast = $('.coelum-toast');
+  let toastTimer = 0;
+  const say = (text) => { toast.textContent = text; toast.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.hidden = true; }, 4000); };
+  let orient = null;
+  const stopOrientation = (message) => {
+    if (!orient) return;
+    removeEventListener(orient.event, orient.on); clearTimeout(orient.timer); orient = null;
+    $('[data-action="orient"]').setAttribute('aria-pressed', 'false');
+    if (message) say(message);
+    settle();
+  };
+  const startOrientation = async () => {
+    const E = window.DeviceOrientationEvent;
+    try { if (typeof E.requestPermission === 'function' && await E.requestPermission() !== 'granted') { say('Motion and orientation access was not allowed.'); return; } }
+    catch { say('Motion and orientation access is not available.'); return; }
+    const event = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation';
+    const state = { event, v: null, offset: null, relative: false };
+    state.on = (ev) => {
+      if (ev.alpha === null || ev.beta === null || ev.gamma === null) return;
+      let alpha = ev.alpha;
+      // iOS: alpha starts anywhere; the compass heading (of the phone's top,
+      // or of its back when upright) is 360° − alpha from north.
+      if (Number.isFinite(ev.webkitCompassHeading) && ev.webkitCompassHeading >= 0) {
+        const offset = 360 - ev.webkitCompassHeading - alpha;
+        state.offset = state.offset === null ? offset : state.offset + 0.08 * ((((offset - state.offset) % 360) + 540) % 360 - 180);
+        alpha += state.offset;
+      } else if (event === 'deviceorientation' && !ev.absolute) state.relative = true;
+      const d = backDirection(alpha, ev.beta, ev.gamma);
+      state.v = state.v ? unit3(state.v.map((x, i) => x + 0.35 * (d[i] - x))) : d;
+      const az = (Math.atan2(state.v[0], state.v[1]) / R + 360) % 360, alt = Math.asin(Math.max(-1, Math.min(1, state.v[2]))) / R;
+      if (!Number.isFinite(az) || !Number.isFinite(alt)) return;
+      clearTimeout(state.timer);
+      if (mode === 'sky') Object.assign(skyView(), { az, alt, auto: false });
+      else views.chart.rotation = lookAt(az, alt);
+      interact(500); requestDraw();
+    };
+    state.timer = setTimeout(() => { if (orient === state && !state.v) stopOrientation('No orientation data from this device.'); }, 2500);
+    addEventListener(event, state.on);
+    orient = state;
+    $('[data-action="orient"]').setAttribute('aria-pressed', 'true');
+    say('The view follows the phone; drag to stop.');
+    setTimeout(() => { if (orient === state && state.relative) say('No compass: directions are relative to where the phone first pointed.'); }, 1500);
+  };
+
   const setMode = (m) => {
     if (m === mode) return;
     // Keep the two views roughly in step: the same direction at the center
@@ -392,10 +567,10 @@ export function mountCoelum(root, model, formatTime) {
     const chart = views.chart, chartMoved = chart.scale !== 1 || chart.rotation.some((x, i) => Math.abs(x - SKY_IDENTITY[i]) > 1e-9);
     if (m === 'sky' && chartMoved) {
       const d = unprojectSky(0, 0, chart.rotation), v = skyView(), alt = Math.asin(Math.max(-1, Math.min(1, d[2]))) / R;
-      Object.assign(v, { az: alt > 89.5 ? v.az : (Math.atan2(d[0], d[1]) / R + 360) % 360, alt, scale: Math.max(0.6, Math.min(80, chartRadius(size, height, chart.scale) * 4 / Math.PI / skyRadius(size, height, 1))), auto: false });
+      Object.assign(v, { az: alt > 89.5 ? v.az : (Math.atan2(d[0], d[1]) / R + 360) % 360, alt, scale: Math.max(0.6, Math.min(SKY_MAX, chartRadius(size, height, chart.scale) * 4 / Math.PI / skyRadius(size, height, 1))), auto: false });
     } else if (m === 'chart' && views.sky && !views.sky.auto) {
       const v = views.sky;
-      views.chart = { rotation: lookAt(v.az, v.alt), scale: Math.max(1, Math.min(40, skyRadius(size, height, v.scale) * Math.PI / 4 / chartRadius(size, height, 1))) };
+      views.chart = { rotation: lookAt(v.az, v.alt), scale: Math.max(1, Math.min(chartMax(), skyRadius(size, height, v.scale) * Math.PI / 4 / chartRadius(size, height, 1))) };
     }
     mode = m; root.dataset.mode = m; animator = null;
     try { localStorage.setItem('imks-coelum-mode', m); } catch { /* private mode */ }
@@ -422,7 +597,7 @@ export function mountCoelum(root, model, formatTime) {
     root.classList.remove('coelum-idle');
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
-      const busy = hudHover || !panels.layers.hidden || !panels.legend.hidden || document.activeElement === input || !results.hidden;
+      const busy = hudHover || panelOpen() || document.activeElement === input || !results.hidden;
       if (immersive() && !busy && root.isConnected) root.classList.add('coelum-idle');
     }, 3500);
   };
@@ -463,7 +638,7 @@ export function mountCoelum(root, model, formatTime) {
 
   root.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
-    if (!panels.layers.hidden || !panels.legend.hidden) { ev.preventDefault(); ev.stopPropagation(); showPanel(null); }
+    if (panelOpen()) { ev.preventDefault(); ev.stopPropagation(); showPanel(null); }
     else if (immersive()) { ev.preventDefault(); ev.stopPropagation(); fullscreen(false); }
   });
   root.addEventListener('change', (ev) => {
@@ -487,15 +662,34 @@ export function mountCoelum(root, model, formatTime) {
       animator = null; draw(true);
       return;
     }
+    const timeEvent = ev.target.closest('[data-time-event]')?.dataset.timeEvent;
+    if (timeEvent) { setTime(Number(timeEvent)); return; }
+    const timeStep = ev.target.closest('[data-time-step]')?.dataset.timeStep;
+    if (timeStep) { setTime(t + Number(timeStep)); return; }
+    const timeChoice = ev.target.closest('[data-set-time]')?.dataset.setTime;
+    if (timeChoice) { setTime(timeChoice === 'now' ? Date.now() / 1000 : model.t); return; }
+    const placeIndex = ev.target.closest('[data-place-index]')?.dataset.placeIndex;
+    if (placeIndex !== undefined) { setPlace(placeMatches[Number(placeIndex)]); return; }
+    const placeChoice = ev.target.closest('[data-place]')?.dataset.place;
+    if (placeChoice === 'original') { setPlace({ lat: model.place[0], lon: model.place[1], h: model.place[2] || 0, name: model.label }); return; }
+    if (placeChoice === 'here') {
+      placeStatus.textContent = 'Finding your position…';
+      try {
+        const c = await here();
+        await setPlace({ lat: c.latitude, lon: c.longitude, h: null, name: `${c.latitude.toFixed(3)}°, ${c.longitude.toFixed(3)}°` });
+      } catch (e) { placeStatus.textContent = e.message; }
+      return;
+    }
     const terrainAction = ev.target.closest('[data-terrain]')?.dataset.terrain;
     if (terrainAction === 'refresh') { chooseHorizon('terrain', true); return; }
-    if (terrainAction === 'forget') { forgetHorizon(model.place); setTerrain(null); chooseHorizon('landscape'); return; }
+    if (terrainAction === 'forget') { forgetHorizon(place); setTerrain(null); chooseHorizon('landscape'); return; }
     const viewButton = ev.target.closest('[data-view]');
     if (viewButton) { setMode(viewButton.dataset.view); return; }
     const button = ev.target.closest('[data-action]'), action = button?.dataset.action;
     if (!action) return;
     if (action === 'fullscreen') fullscreen(!immersive());
-    else if (action === 'layers' || action === 'legend') showPanel(action);
+    else if (action === 'layers' || action === 'legend' || action === 'time' || action === 'place') showPanel(action);
+    else if (action === 'orient') { if (orient) stopOrientation(); else startOrientation(); }
     else if (action === 'close-panel') showPanel(null);
     else if (action === 'deselect') { select(null); draw(); }
     else if (action === 'in' || action === 'out') zoom(action === 'in' ? 1.5 : 1 / 1.5);
@@ -506,7 +700,11 @@ export function mountCoelum(root, model, formatTime) {
       if (playing) pause();
       else { playing = true; last = performance.now(); lastUI = -Infinity; setPlay(true); draw(); animation = requestAnimationFrame(tick); }
     } else {
-      if (action === 'reset') { t = model.t; setSpeed(60); pause(); fit(); }
+      if (action === 'reset') {
+        stopOrientation();
+        if (place.some((x, i) => x !== (model.place[i] ?? 0))) await setPlace({ lat: model.place[0], lon: model.place[1], h: model.place[2] || 0, name: model.label });
+        t = model.t; setSpeed(60); pause(); fit();
+      }
       else t = limitTime(t + (action === 'back' ? -3600 : 3600));
       draw(true);
     }
@@ -514,7 +712,6 @@ export function mountCoelum(root, model, formatTime) {
   // Wheels and trackpads: a pinch arrives as a wheel with Ctrl (smaller
   // steps), or in Safari as gesture events.
   svg.addEventListener('wheel', (ev) => { ev.preventDefault(); interact(200); zoom(Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.002)), true); }, { passive: false });
-  let pinchScale = 0;
   svg.addEventListener('gesturestart', (ev) => { ev.preventDefault(); pinchScale = pointers.size ? 0 : currentView().scale; });
   svg.addEventListener('gesturechange', (ev) => { ev.preventDefault(); if (!pinchScale || pointers.size) return; interact(200); zoom(pinchScale * ev.scale / currentView().scale, true); });
   svg.addEventListener('gestureend', (ev) => { ev.preventDefault(); pinchScale = 0; });
@@ -524,7 +721,7 @@ export function mountCoelum(root, model, formatTime) {
   // horizon level (the chart may tilt over the zenith); two fingers zoom
   // about their middle.
   const pointers = new Map();
-  let gesture = null, lastTap = null;
+  let gesture = null, lastTap = null, pinchScale = 0;
   const point = (ev) => { const p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); };
   const centroid = () => {
     const p = [...pointers.values()];
@@ -535,7 +732,19 @@ export function mountCoelum(root, model, formatTime) {
     const v = currentView();
     return { ...centroid(), scale: v.scale, rotation: v.rotation && [...v.rotation], side: v.rotation ? zenithSide(v.rotation) : 0, az: v.az, alt: v.alt, moved: pointers.size > 1 };
   };
-  svg.addEventListener('pointerdown', (ev) => { cancelAnimationFrame(flight); flight = 0; pointers.set(ev.pointerId, point(ev)); svg.setPointerCapture(ev.pointerId); gesture = baseline(); });
+  // A new first touch means any finger still listed has left without a
+  // pointerup (a system gesture, the app sent to the background): forget
+  // it, or one-finger drags would zoom and taps would never select.
+  const forgetPointers = () => { pointers.clear(); gesture = null; pinchScale = 0; settle(); };
+  svg.addEventListener('pointerdown', (ev) => {
+    if (ev.isPrimary && pointers.size) pointers.clear();
+    cancelAnimationFrame(flight); flight = 0; pointers.set(ev.pointerId, point(ev));
+    try { svg.setPointerCapture(ev.pointerId); } catch { /* already gone */ }
+    gesture = baseline();
+  });
+  document.addEventListener('visibilitychange', () => { if (!root.isConnected) return; if (document.hidden) forgetPointers(); else if (!playing) draw(); });
+  // Pages would scroll under a finger on an empty part of the SVG (WebKit).
+  svg.addEventListener('touchmove', (ev) => ev.preventDefault(), { passive: false });
   svg.addEventListener('pointermove', (ev) => {
     if (!pointers.has(ev.pointerId) || !gesture) return;
     pointers.set(ev.pointerId, point(ev));
@@ -544,19 +753,30 @@ export function mountCoelum(root, model, formatTime) {
     if (!gesture.moved) return;
     lastTap = null;
     const [lo, hi] = scaleLimits(), scale = Math.max(lo, Math.min(hi, gesture.scale * (gesture.distance ? distance / gesture.distance : 1)));
-    // The sky point grabbed at the start stays under the finger(s).
+    // The sky point grabbed at the start stays under the finger(s); while
+    // the view follows the phone, two fingers only zoom.
     interact();
+    if (orient && pointers.size < 2) stopOrientation();
+    if (orient) { currentView().scale = scale; requestDraw(); return; }
     if (mode === 'sky') {
       const v = skyView(), r0 = skyRadius(size, height, gesture.scale), r1 = skyRadius(size, height, scale);
       gesture.grab ||= unprojectSky((gesture.x - size / 2) / r0, (gesture.y - height / 2) / r0, lookAt(gesture.az, gesture.alt), true);
+      const look = solveLook(gesture.grab, (x - size / 2) / r1, (y - height / 2) / r1, v.az, v.alt);
       v.scale = scale; v.auto = false;
-      Object.assign(v, solveLook(gesture.grab, (x - size / 2) / r1, (y - height / 2) / r1, v.az, v.alt));
+      if (Number.isFinite(look.az) && Number.isFinite(look.alt)) Object.assign(v, look);
     } else {
-      const r0 = chartRadius(size, height, gesture.scale), r1 = chartRadius(size, height, scale);
-      const from = unprojectSky((gesture.x - size / 2) / r0, (gesture.y - height / 2) / r0), to = unprojectSky((x - size / 2) / r1, (y - height / 2) / r1);
-      const r = rotateSky(gesture.rotation, from, to);
+      // In small steps from the last position, each within 144° of the
+      // center: a point dragged toward the projection's edge (its antipode)
+      // would otherwise ask for a half turn about an undefined axis.
+      const prev = gesture.prev || gesture, r0 = chartRadius(size, height, prev.scale), r1 = chartRadius(size, height, scale);
+      const within = (u, v) => { const k = Math.min(1, 1.6 / Math.hypot(u, v)); return unprojectSky(u * k, v * k); };
+      const from = within((prev.x - size / 2) / r0, (prev.y - height / 2) / r0), to = within((x - size / 2) / r1, (y - height / 2) / r1);
+      const r = rotateSky(views.chart.rotation, from, to);
       gesture.side ||= zenithSide(r);
-      views.chart.scale = scale; views.chart.rotation = levelChart(r, gesture.side, to);
+      const rotation = levelChart(r, gesture.side, to);
+      views.chart.scale = scale;
+      if (rotation.every(Number.isFinite)) views.chart.rotation = rotation;
+      gesture.prev = { x, y, scale };
     }
     requestDraw();
   });
@@ -564,7 +784,7 @@ export function mountCoelum(root, model, formatTime) {
     if (!pointers.has(ev.pointerId)) return;
     const moved = gesture?.moved, p = point(ev);
     pointers.delete(ev.pointerId);
-    if (ev.type !== 'pointercancel' && !moved && !pointers.size) {
+    if (ev.type === 'pointerup' && !moved && !pointers.size) {
       if (lastTap && performance.now() - lastTap.time < 300 && Math.hypot(p.x - lastTap.x, p.y - lastTap.y) < 18) { fit(); lastTap = null; }
       else {
         // Choose the nearest rendered symbol, using the same projection.
@@ -581,7 +801,7 @@ export function mountCoelum(root, model, formatTime) {
     if (gesture) gesture.moved = true;
     else settle();
   };
-  svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
+  svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up); svg.addEventListener('lostpointercapture', up);
   svg.addEventListener('keydown', (ev) => {
     if (ev.key === '+' || ev.key === '=') zoom(1.5);
     else if (ev.key === '-') zoom(1 / 1.5);
@@ -618,7 +838,7 @@ export function mountCoelum(root, model, formatTime) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   return {

@@ -2,11 +2,11 @@
 // sky's colour with the time of day, stars dimmed by twilight, moonlight and
 // extinction, the Milky Way, the Sun's glare, the textured Moon with its
 // phase, and a landscape in front. Always drawn on a canvas.
-import { R, pen, lookAt, skyGrid, gridLabelAt, projectVector, pointVector, refractVector, eachFaint, faintObject, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
+import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, pointVector, refractVector, eachFaint, faintObject, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
 
 const FLAT = () => 0;
-export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, deep: false, labels: true, labelSize: 14 };
+export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, deep: false, minor: false, labels: true, labelSize: 14 };
 // The diagonal of the view spans 140° at scale 1.
 export const skyRadius = (W, H, scale) => Math.hypot(W, H) / 2 / Math.tan(35 * R) * scale;
 // The default direction: toward the Sun near sunrise or sunset, otherwise
@@ -25,7 +25,7 @@ const bvRGB = (bv) => {
   const [a, ca] = BV[i - 1], [b, cb] = BV[i], u = Math.max(0, Math.min(1, (bv - a) / (b - a)));
   return ca.map((x, k) => Math.round(x + (cb[k] - x) * u));
 };
-const BODY_RGB = { sun: [255, 246, 228], moon: [240, 238, 230], mercury: [230, 218, 205], venus: [255, 250, 232], mars: [255, 178, 140], jupiter: [255, 238, 214], saturn: [252, 236, 190], uranus: [196, 240, 238], neptune: [176, 196, 255] };
+const BODY_RGB = { sun: [255, 246, 228], moon: [240, 238, 230], mercury: [230, 218, 205], venus: [255, 250, 232], mars: [255, 178, 140], jupiter: [255, 238, 214], saturn: [252, 236, 190], uranus: [196, 240, 238], neptune: [176, 196, 255], minor: [225, 218, 205], comet: [190, 245, 225] };
 
 // Soft glow sprites, one per colour.
 const sprites = new Map();
@@ -137,7 +137,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     const r = point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), bvRGB(o.bv), q);
     if (!r) continue;
     objects.push({ ...o, x: q.x, y: q.y, radius: r });
-    if (o.name === view.selected || o.named && o.mag < (view.scale > 2.5 ? 3.5 : 1.6) && o.mag + 0.5 < limit) labels.push({ ...q, name: o.name, color: `rgba(215,225,240,${0.85 * fade + 0.15})`, r, priority: 2 });
+    if (o.name === view.selected || o.named && o.mag < (view.scale > 1.5 ? 4.5 : 2.5) && o.mag + 0.5 < limit) labels.push({ ...q, name: o.name, color: `rgba(215,225,240,${0.85 * fade + 0.15})`, r, priority: 2 });
   }
   // Downloaded fainter stars, to the same limit.
   eachFaint(frame, limit, (i, v, mag) => {
@@ -146,7 +146,10 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     const o = faintObject(frame, i, v), r = point(o, mag + (opts.atmosphere ? extinction(o.alt) : 0), bvRGB(o.bv), q);
     if (r) objects.push({ ...o, x: q.x, y: q.y, radius: r });
   });
+  const moonsOf = [];
   for (const o of frame.bodies) {
+    const minor = o.body === 'minor' || o.body === 'comet';
+    if (minor && !opts.minor && o.name !== view.selected) continue;
     const q = xy(o);
     if (!onScreen(q, 60) || !above(q)) continue;
     const pxPerRad = radius / 2 / Math.cos(Math.acos(Math.max(-1, Math.min(1, q.z))) / 2) ** 2;
@@ -165,9 +168,22 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     } else {
       r = point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), BODY_RGB[o.body], q);
       if (!r) continue;
+      const disk = diskRadius(o) * R * pxPerRad;
+      if (disk > r) { drawPlanet(ctx, o, q, disk, xy(o.light), o.body === 'saturn' && saturnRings(frame, o, xy, disk)); r = disk; }
     }
     objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4) });
-    labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? '#fff1c9' : '#ffc98f', r: Math.max(r, 3), priority: o.name === view.selected ? 0 : 1, important: true, mag: o.mag });
+    labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? '#fff1c9' : '#ffc98f', r: Math.max(r, 3), priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
+    if (hasMoons(o) && pxPerRad * R > 20) moonsOf.push([o, r, pxPerRad * R]);
+  }
+  // Zoomed in, the planets' moons, to the same limiting magnitude.
+  for (const [o, r, pxPerDeg] of moonsOf) for (const m of planetMoons(frame, o)) {
+    if (m.hidden || m.separation * pxPerDeg < r + 3) continue;
+    const q = xy(m);
+    if (!onScreen(q, 4) || !above(q)) continue;
+    const mr = point(m, m.mag + (opts.atmosphere ? extinction(m.alt) : 0), BODY_RGB[o.body], q);
+    if (!mr && m.name !== view.selected) continue;
+    objects.push({ ...m, x: q.x, y: q.y, radius: Math.max(mr, 3) });
+    labels.push({ ...q, name: m.name, color: '#ffd9b0', r: Math.max(mr, 2), priority: m.name === view.selected ? 0 : 2, mag: m.mag });
   }
   if (bg.ground) ctx.drawImage(bg.ground, 0, bg.groundY, bg.w, bg.h, 0, 0, bg.width, bg.height);
   // Cardinal points on the horizon, then labels over everything.
@@ -195,6 +211,28 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (o || q.z > -0.2) reticle(p, q.x, q.y, o ? o.radius : 3, '#ffe9a8');
   }
   return { objects, radius, hitLabels, light };
+}
+
+// A planet's disk with its phase (the night side faint), darker toward the
+// limb; Saturn's rings behind it, then their near half in front.
+function drawPlanet(ctx, o, q, r, lightPoint, rings) {
+  const rgb = BODY_RGB[o.body], ring = (near) => {
+    ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(rings.angle);
+    if (near) { ctx.beginPath(); ctx.rect(-rings.outer - 2, 0, 2 * rings.outer + 4, rings.near * (rings.outer + 2)); ctx.clip(); }
+    ctx.beginPath(); ctx.ellipse(0, 0, rings.outer, rings.outer * rings.open, 0, 0, Math.PI * 2); ctx.ellipse(0, 0, rings.inner, rings.inner * rings.open, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(214, 196, 150, 0.85)'; ctx.fill('evenodd'); ctx.restore();
+  };
+  if (rings) ring(false);
+  const k = Math.cos((o.phase || 0) * R), lit = new Path2D();
+  for (let i = 0; i <= 32; i++) { const a = -Math.PI / 2 + i * Math.PI / 32; lit[i ? 'lineTo' : 'moveTo'](r * Math.cos(a), r * Math.sin(a)); }
+  for (let i = 0; i <= 32; i++) { const a = Math.PI / 2 - i * Math.PI / 32; lit.lineTo(-k * r * Math.cos(a), r * Math.sin(a)); }
+  ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(Math.atan2(lightPoint.y - q.y, lightPoint.x - q.x));
+  ctx.fillStyle = `rgb(${rgb.map((x) => Math.round(x * 0.07)).join(',')})`; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createRadialGradient(r * 0.3, 0, 0, 0, 0, r);
+  g.addColorStop(0, `rgb(${rgb.join(',')})`); g.addColorStop(1, `rgb(${rgb.map((x) => Math.round(x * 0.55)).join(',')})`);
+  ctx.clip(lit); ctx.fillStyle = g; ctx.fillRect(-r, -r, 2 * r, 2 * r);
+  ctx.restore();
+  if (rings) ring(true);
 }
 
 // The Moon: its near side turned with celestial north, the lit part bright

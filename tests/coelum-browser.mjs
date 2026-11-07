@@ -521,6 +521,68 @@ try {
   await page.locator('[data-download="remove"]').click();
   await page.waitForFunction(() => /Only stars to magnitude 6/.test(document.querySelector('.coelum-faint-note').textContent));
   await page.unrouteAll();
+  // Gestures: no page scrolling over the sky; a finger that never sent
+  // pointerup is forgotten at the next first touch, so a tap still selects;
+  // a chart dragged toward its edge at the smallest zoom turns smoothly.
+  await page.locator('[data-view="chart"]').click();
+  await page.locator('[data-action="fit"]').click();
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.coelum-viewport')).touchAction), 'none');
+  assert.ok(await page.evaluate(async () => {
+    const svg = document.querySelector('.coelum-full'), b = svg.getBoundingClientRect();
+    const ev = (type, id, x, y) => svg.dispatchEvent(new PointerEvent(type, { pointerId: id, isPrimary: true, clientX: x, clientY: y, bubbles: true, pointerType: 'touch' }));
+    document.querySelector('[data-action="deselect"]').click();
+    ev('pointerdown', 41, b.left + 30, b.top + 30);
+    const x = b.left + b.width / 2, y = b.top + b.height / 2;
+    ev('pointerdown', 42, x, y); ev('pointerup', 42, x, y);
+    await new Promise((r) => setTimeout(r, 50));
+    return document.querySelector('.coelum-explorer').classList.contains('coelum-has-selection');
+  }), 'A stale pointer does not block taps');
+  {
+    const box = await page.locator('.coelum-full').boundingBox(), cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+    await page.mouse.move(cx, cy); await page.mouse.down();
+    let last = null, worst = 0;
+    for (let i = 1; i <= 40; i++) {
+      await page.mouse.move(cx + (box.width / 2 - 2) * i / 40, cy + (box.height / 2 - 2) * i / 40);
+      const r = (await page.locator('.coelum-full').getAttribute('data-rotation')).split(',').map(Number).slice(6, 9);
+      if (last) worst = Math.max(worst, Math.acos(Math.min(1, r[0] * last[0] + r[1] * last[1] + r[2] * last[2])) / Math.PI * 180);
+      last = r;
+    }
+    await page.mouse.up();
+    assert.ok(worst < 15, `Chart drag toward the edge jumps ${worst.toFixed(1)}°`);
+  }
+  // Both views zoom to the same magnification.
+  const most = async () => { for (let i = 0; i < 24; i++) await page.locator('[data-action="in"]').click(); return Number(await page.locator('.coelum-full').getAttribute('data-scale')); };
+  const chartMost = await most();
+  await page.locator('[data-view="sky"]').click();
+  const skyMost = await most();
+  const ratio = await page.evaluate(async ([c, k]) => {
+    const { chartRadius } = await import('./js/coelum.js'); const { skyRadius } = await import('./js/coelumsky.js');
+    const svg = document.querySelector('.coelum-full'), w = svg.viewBox.baseVal.width, h = svg.viewBox.baseVal.height;
+    return (chartRadius(w, h, c) / 90) / (skyRadius(w, h, k) / 2 * Math.PI / 180);
+  }, [chartMost, skyMost]);
+  assert.ok(skyMost === 400 && Math.abs(ratio - 1) < 0.01, `Largest zooms ${chartMost} / ${skyMost}: ${ratio}`);
+  await page.locator('[data-action="fit"]').click();
+  // Date and time panel: the day's events; the place panel: coordinates.
+  await page.locator('[data-action="time"]').click();
+  await page.waitForSelector('[data-time-event]');
+  assert.match(await page.locator('.coelum-events').textContent(), /Sunrise.*Sunset/s);
+  await page.locator('[data-time-event]').filter({ hasText: 'Sunset' }).click();
+  assert.match(await page.locator('.coelum-condition').textContent(), /Sun −?-?0\.\d|Sun -0|Sun 0\./);
+  await page.locator('[data-action="place"]').click();
+  await page.locator('.coelum-place-form input').fill('Milan');
+  assert.match(await page.locator('.coelum-place').first().textContent(), /Milan/);
+  await page.locator('.coelum-place').first().click();
+  await page.waitForFunction(() => /Milan/.test(document.querySelector('.coelum-status').textContent));
+  await page.locator('[data-action="reset"]').click();
+  await page.waitForFunction(() => !/Milan/.test(document.querySelector('.coelum-status').textContent));
+  // Minor planets (a layer, and in search) and the planets' moons.
+  await page.locator('.coelum-search input').fill('Vesta'); await page.keyboard.press('Enter');
+  await page.waitForFunction(() => /minor planet/.test(document.querySelector('.coelum-detail').textContent));
+  await page.locator('.coelum-search input').fill('Io'); await page.keyboard.press('Enter');
+  await page.waitForFunction(() => /moon of Jupiter/i.test(document.querySelector('.coelum-detail').textContent));
+  await page.locator('.coelum-search input').fill('Vega'); await page.keyboard.press('Enter');
+  await page.waitForFunction(() => /type A/.test(document.querySelector('.coelum-spectrum')?.textContent || ''));
+  await page.locator('[data-action="reset"]').click();
   // The WebGL sky matches the JavaScript one (but for sharper edges), with
   // a terrain horizon, at night and by day, and for the chart's Milky Way.
   const shader = await page.evaluate(async () => {
@@ -549,7 +611,7 @@ try {
   if (shader) for (const s of shader) assert.ok(s.mean < 1 && s.big < 0.01, `WebGL sky differs: ${JSON.stringify(s)}`);
   else console.log('WebGL2 unavailable: the shader was not compared');
   assert.deepEqual(errors, []);
-  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars, the local horizon and the WebGL sky');
+  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars, the local horizon, the WebGL sky, stale touches, edge drags, equal zooms, time and place panels, minor planets, moons and spectra');
 } finally {
   if (browser) await browser.close();
   await new Promise((r) => server.close(r));

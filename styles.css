@@ -384,10 +384,11 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-topbar, .coelum-timebar { background: var(--c-bg); color: var(--c-ink); }
 .coelum-topbar { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 16px 16px 0 0; }
 .coelum-timebar { padding: 8px 10px 10px; border-radius: 0 0 16px 16px; }
-.coelum-viewport { position: relative; height: min(92vw, 62vh, 620px); background: #060b16; overflow: hidden; }
+.coelum-viewport { position: relative; height: min(92vw, 62vh, 620px); background: #060b16; overflow: hidden; touch-action: none; }
 .coelum-explorer[data-mode="chart"] .coelum-viewport { background: #0c1730; }
 .coelum-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.coelum-full { position: relative; z-index: 1; display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; background: transparent; outline: none; }
+.coelum-full { position: relative; z-index: 1; display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; background: rgba(0, 0, 0, 0.001); outline: none; }
+.coelum-panel { touch-action: pan-y; }
 .coelum-full:active { cursor: grabbing; }
 .coelum-full:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -2px; }
 .coelum-btn { display: inline-grid; place-items: center; flex: none; box-sizing: border-box; width: 40px; height: 40px; padding: 0; border: 1px solid var(--c-line); border-radius: 12px; background: rgba(255, 255, 255, 0.045); color: var(--c-ink); font: 600 14px/1 system-ui, -apple-system, sans-serif; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s; -webkit-tap-highlight-color: transparent; }
@@ -464,8 +465,33 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-status { margin: 0; color: var(--c-muted); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
 .coelum-status b { color: var(--c-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 .coelum-speed { flex: none; padding: 2px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: var(--c-ink); font: 600 12px/1.6 system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; }
-.coelum-controls { display: flex; align-items: center; justify-content: space-between; gap: 4px; max-width: 420px; margin: 0 auto; }
-.coelum-controls .coelum-btn:not(.coelum-play) { width: 42px; }
+.coelum-controls { display: flex; align-items: center; justify-content: space-between; gap: 2px; max-width: 420px; margin: 0 auto; }
+.coelum-controls .coelum-btn { width: 36px; height: 36px; border-radius: 10px; font-size: 13px; }
+.coelum-controls .coelum-btn svg { width: 19px; height: 19px; }
+.coelum-controls .coelum-btn[hidden] { display: none; }
+.coelum-link { padding: 0; border: 0; border-bottom: 1px dotted currentColor; background: none; color: inherit; font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.coelum-link:hover, .coelum-link[aria-expanded="true"] { color: var(--c-accent); }
+.coelum-link:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+.coelum-chips { display: flex; flex-wrap: wrap; margin-top: 6px; }
+.coelum-time-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.coelum-time-row input, .coelum-place-form input { min-width: 0; flex: 1 1 180px; padding: 7px 9px; border: 1px solid var(--c-line); border-radius: 8px; background: #1a2541; color: var(--c-ink); font: 15px system-ui, -apple-system, sans-serif; color-scheme: dark; }
+.coelum-time-row .coelum-chip, .coelum-place-form .coelum-chip { margin: 0; }
+.coelum-events-head { margin-top: 14px !important; }
+.coelum-events { display: flex; flex-wrap: wrap; margin-top: 4px; }
+.coelum-events .coelum-chip span { color: var(--c-muted); font-weight: 500; }
+.coelum-events .coelum-panel-note { flex-basis: 100%; }
+.coelum-place-form { display: flex; flex-wrap: wrap; gap: 8px; }
+.coelum-place-results { display: grid; gap: 2px; margin-top: 8px; }
+.coelum-place { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 10px; border: 0; border-radius: 9px; background: rgba(255, 255, 255, 0.045); color: var(--c-ink); font: 14px system-ui, -apple-system, sans-serif; text-align: left; cursor: pointer; }
+.coelum-place:hover { background: var(--c-hover); }
+.coelum-place small { flex: none; color: var(--c-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.coelum-toast { position: absolute; z-index: 6; left: 50%; bottom: 12px; max-width: calc(100% - 32px); margin: 0; padding: 7px 12px; border-radius: 10px; background: rgba(12, 20, 38, 0.92); color: var(--c-ink); font-size: 13px; transform: translateX(-50%); pointer-events: none; }
+.coelum-toast[hidden] { display: none; }
+.coelum-immersive .coelum-toast { bottom: calc(var(--coelum-controls-height, 130px) + 8px); }
+.coelum-spectrum { margin: 10px 0 0; }
+.coelum-spectrum svg { display: block; width: 100%; height: 32px; }
+.coelum-spectrum figcaption { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.coelum-spectrum figcaption span:nth-child(2) { color: inherit; text-align: center; }
 .coelum-detail { position: relative; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .coelum-detail .coelum-panel-close { border-color: var(--line); color: var(--muted); background: transparent; }
 .coelum-explorer:not(.coelum-has-selection) .coelum-detail .coelum-panel-close { display: none; }

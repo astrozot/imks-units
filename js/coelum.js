@@ -5,7 +5,8 @@
 // chart; coelumsky.js draws the realistic sky, coelumui.js the explorer.
 import { CHART_STARS, CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { STARS, DEEP } from './catalog.js';
-import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude } from './astro.js';
+import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf } from './astro.js';
+import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
 
 export const R = Math.PI / 180;
@@ -14,7 +15,7 @@ export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 export const vec = (a, d) => [Math.cos(d * R) * Math.cos(a * R), Math.cos(d * R) * Math.sin(a * R), Math.sin(d * R)];
 export const horizontalVector = (alt, az) => [Math.cos(alt * R) * Math.sin(az * R), Math.cos(alt * R) * Math.cos(az * R), Math.sin(alt * R)];
 export const SOLAR_BODIES = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
-export const DEFAULT_LAYERS = { ground: true, milkyway: true, constellations: true, boundaries: false, ecliptic: true, horizontal: false, equatorial: false, deep: false, labels: true, magnitude: 6, labelSize: 14 };
+export const DEFAULT_LAYERS = { ground: true, milkyway: true, constellations: true, boundaries: false, ecliptic: true, horizontal: false, equatorial: false, deep: false, minor: false, labels: true, magnitude: 6, labelSize: 14 };
 export const SKY_IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 export const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 export const unit3 = (v) => { const n = Math.hypot(...v); return v.map((x) => x / n); };
@@ -61,7 +62,7 @@ export const measureLabel = (label, size, weight = 400) => {
   textMetrics.font = fontFor(size, weight); textMetrics.fontKerning = 'normal';
   return textMetrics.measureText(label).width;
 };
-export const BODY_COLORS = { sun: '#ffd36c', moon: '#f2eee3', mercury: '#c7b5a2', venus: '#fff2c6', mars: '#f59872', jupiter: '#f2d2ac', saturn: '#e6d49a', uranus: '#9fe1de', neptune: '#8da9ff' };
+export const BODY_COLORS = { sun: '#ffd36c', moon: '#f2eee3', mercury: '#c7b5a2', venus: '#fff2c6', mars: '#f59872', jupiter: '#f2d2ac', saturn: '#e6d49a', uranus: '#9fe1de', neptune: '#8da9ff', minor: '#c9c1b4', comet: '#9fe8d0' };
 // Atlas colours: deep-sky symbols follow the usual printed-atlas code
 // (galaxies red, clusters yellow, nebulae green).
 export const PALETTE = {
@@ -122,20 +123,44 @@ export function horizonPoint(ra, dec, lat, lst) {
   };
 }
 
+// Minor planets and comets: the built-in ones (osculating elements at
+// yearly epochs, as in lookup.js) and those the app has looked up.
+// A minor planet named like a moon (85 Io) keeps its number.
+const BUILTIN_MINOR = MINOR_PLANETS.map(([n, name, H, G, rows]) => ({
+  name: !name ? `(${n})` : planetOf(name) ? `${n} ${name}` : name, number: n, H, G, orbits: rows.map(([q, e, i, node, peri, tp], k) => [EPOCHS[k], q, e, i, node, peri, EPOCHS[k] + tp]),
+}));
+let minorBodies = BUILTIN_MINOR;
+export function setMinorBodies(extra = []) {
+  const names = new Set(BUILTIN_MINOR.map((m) => m.name));
+  const numbers = new Set(BUILTIN_MINOR.map((m) => m.number));
+  minorBodies = [...BUILTIN_MINOR, ...extra.filter((m) => (m.orbits || m.orbit) && !names.has(m.name) && !numbers.has(Number(/^\d+/.exec(m.name)?.[0])) && names.add(m.name))];
+}
+const isComet = (m) => m.M1 !== undefined;
+
 function solarBodies(t, place, hor) {
   const bodies = SOLAR_BODIES.map((body) => {
     const p = topocentric(body, t, place), h = hor(p);
     return { ...p, ...h, name: body[0].toUpperCase() + body.slice(1), body, mag: magnitude(body, t), type: body === 'sun' ? 'star' : body === 'moon' ? 'moon' : 'planet', color: BODY_COLORS[body] };
   });
+  bodies[0].bv = 0.65;
+  for (const m of minorBodies) {
+    let p, mag;
+    try { p = topocentric(m, t, place); mag = magnitude(m, t); } catch { continue; }
+    if (!Number.isFinite(p.ra) || !Number.isFinite(p.dec)) continue;
+    const comet = isComet(m);
+    bodies.push({ ...p, ...hor(p), name: m.name, number: m.number, body: comet ? 'comet' : 'minor', mag, type: comet ? 'comet' : 'minor planet', color: BODY_COLORS[comet ? 'comet' : 'minor'] });
+  }
   const moon = bodies[1], sun = bodies[0];
-  moon.phase = aspect('moon', t).phase;
-  // Project a nearby point toward the Sun to orient the illuminated limb.
-  const m = vec(moon.ra, moon.dec), s = vec(sun.ra, sun.dec), dot = m.reduce((v, x, i) => v + x * s[i], 0);
-  const tangent = s.map((x, i) => x - dot * m[i]), len = Math.hypot(...tangent);
-  const v = m.map((x, i) => x + 0.001 * tangent[i] / Math.max(len, 1e-12));
-  moon.light = hor({ ra: Math.atan2(v[1], v[0]) / R, dec: Math.atan2(v[2], Math.hypot(v[0], v[1])) / R });
+  for (const o of bodies.slice(1, SOLAR_BODIES.length)) { o.phase = aspect(o.body, t).phase; o.light = hor(towardSun(o, sun)); }
   moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
   return bodies;
+}
+// A point just off a body toward the Sun: it orients the lit limb.
+function towardSun(o, sun) {
+  const m = vec(o.ra, o.dec), s = vec(sun.ra, sun.dec), dot = dot3(m, s);
+  const tangent = s.map((x, i) => x - dot * m[i]), len = Math.hypot(...tangent);
+  const v = m.map((x, i) => x + 0.001 * tangent[i] / Math.max(len, 1e-12));
+  return { ra: Math.atan2(v[1], v[0]) / R, dec: Math.atan2(v[2], Math.hypot(v[0], v[1])) / R };
 }
 
 // Ecliptic of J2000 (the equinox moves it < 1′ a century against the stars),
@@ -223,14 +248,12 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
     }
     const fraction = (time - sampleTime) / 60;
     frame.bodies = left.map((a, i) => {
-      const b = right[i], p = { ...a, ra: (a.ra + (((b.ra - a.ra + 540) % 360) - 180) * fraction + 360) % 360 };
+      const b = right[i]?.name === a.name ? right[i] : a, p = { ...a, ra: (a.ra + (((b.ra - a.ra + 540) % 360) - 180) * fraction + 360) % 360 };
       for (const key of ['dec', 'dist', 'mag', 'phase']) if (Number.isFinite(a[key])) p[key] = a[key] + (b[key] - a[key]) * fraction;
       return Object.assign(p, hor(p));
     });
-    const moon = frame.bodies[1], sun = frame.bodies[0], m = vec(moon.ra, moon.dec), sv = vec(sun.ra, sun.dec), dot = dot3(m, sv);
-    const tangent = unit3(sv.map((x, i) => x - dot * m[i]));
-    const light = m.map((x, i) => x + 0.001 * tangent[i]);
-    moon.light = hor({ ra: Math.atan2(light[1], light[0]) / R, dec: Math.atan2(light[2], Math.hypot(light[0], light[1])) / R });
+    const moon = frame.bodies[1], sun = frame.bodies[0];
+    for (const o of frame.bodies.slice(1, SOLAR_BODIES.length)) o.light = hor(towardSun(o, sun));
     moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
     return frame;
   };
@@ -501,6 +524,8 @@ export function starSymbol(p, o, x, y, r, color) {
 
 // A planet: a disc in a ring (Saturn with its rings); the Sun: ☉.
 export function bodySymbol(p, o, x, y, r) {
+  if (o.body === 'minor') { p.circle(x, y, r, { fill: o.color }); return; }
+  if (o.body === 'comet') { p.path(`M${(x + r).toFixed(2)},${(y - r).toFixed(2)}l${(3 * r).toFixed(2)},${(-3 * r).toFixed(2)}`, { stroke: o.color, width: 1 }); p.circle(x, y, r, { fill: o.color }); return; }
   if (o.body === 'sun') { p.circle(x, y, r, { fill: o.color, stroke: '#fff3c4', width: 1 }); p.circle(x, y, 1.7, { fill: '#7a4e00' }); return; }
   if (o.body === 'saturn') p.ellipse(x, y, r + 3.4, (r + 3.4) * 0.38, -18, { stroke: o.color, width: 1 });
   p.circle(x, y, r, { fill: o.color, stroke: '#ffffff', width: 0.35 });
@@ -527,7 +552,53 @@ export function reticle(p, x, y, r, color) {
 
 export function findObject(frame, name) {
   if (!name) return null;
-  return frame.bodies.find((o) => o.name === name) || frame.stars.find((o) => o.name === name) || frame.deep.find((o) => o.name === name) || frame.constellations.find((o) => o.name === name) || findFaint(frame, name);
+  return frame.bodies.find((o) => o.name === name) || frame.stars.find((o) => o.name === name) || frame.deep.find((o) => o.name === name) || frame.constellations.find((o) => o.name === name) || findFaint(frame, name) || findMoon(frame, name);
+}
+
+// The major moons of a planet at the frame's time, placed by their offsets
+// from it (seen from the Earth's center); magnitudes are their mean values
+// at opposition, shifted with the planet's. Those behind the disk are
+// hidden.
+const MOON_MAG = {
+  Phobos: 11.8, Deimos: 12.9, Io: 5.0, Europa: 5.3, Ganymede: 4.6, Callisto: 5.7, Mimas: 12.9, Enceladus: 11.7, Tethys: 10.2, Dione: 10.4,
+  Rhea: 9.7, Titan: 8.4, Hyperion: 14.2, Iapetus: 11, Miranda: 16.5, Ariel: 14.4, Umbriel: 15.1, Titania: 13.9, Oberon: 14.1, Triton: 13.5,
+};
+const OPPOSITION_MAG = { mars: -2, jupiter: -2.7, saturn: 0.4, uranus: 5.7, neptune: 7.8 };
+export const hasMoons = (o) => o.body in OPPOSITION_MAG;
+const moonCache = new WeakMap();
+export function planetMoons(frame, planet) {
+  if (!hasMoons(planet)) return [];
+  let cache = moonCache.get(frame);
+  if (!cache || cache.t !== frame.t) { cache = { t: frame.t }; moonCache.set(frame, cache); }
+  if (cache[planet.body]) return cache[planet.body];
+  const c = Math.max(1e-6, Math.cos(planet.dec * R)), system = moons(planet.body, frame.t);
+  cache[`${planet.body}-pole`] = system.pole;
+  return (cache[planet.body] = system.moons.map((m) => {
+    const p = { ra: (planet.ra + m.east / c + 360) % 360, dec: planet.dec + m.north };
+    return {
+      ...p, ...frame.hor(p), name: m.name, type: `moon of ${planet.name}`, planet: planet.name, color: planet.color,
+      mag: MOON_MAG[m.name] + planet.mag - OPPOSITION_MAG[planet.body], separation: Math.hypot(m.east, m.north), hidden: m.occulted,
+    };
+  }));
+}
+// A planet's disk when zoomed in: its apparent equatorial radius (degrees)
+// and, for Saturn, the screen geometry of its rings: xy(o) places sky
+// points; the pole is [west, north, toward the Earth].
+const PLANET_RADIUS = { mercury: 2439.7, venus: 6051.8, mars: 3396.2, jupiter: 71492, saturn: 60268, uranus: 25559, neptune: 24764 };
+export const diskRadius = (o) => (PLANET_RADIUS[o.body] && o.dist ? Math.asin(PLANET_RADIUS[o.body] / o.dist) / R : 0);
+export function saturnRings(frame, o, xy, px) {
+  planetMoons(frame, o);
+  const [w, n, z] = moonCache.get(frame)['saturn-pole'], q = xy(o), d = 0.01;
+  const at = (ra, dec) => { const p = xy({ ra, dec, ...frame.hor({ ra, dec }) }); return [(p.x - q.x) / d, (p.y - q.y) / d]; };
+  const north = at(o.ra, o.dec + d), east = at(o.ra + d / Math.max(1e-6, Math.cos(o.dec * R)), o.dec);
+  const pole = [-w * east[0] + n * north[0], -w * east[1] + n * north[1]];
+  // Outer edge of the A ring and inner edge of the B ring, in radii; the
+  // near half is on the side away from the visible pole.
+  return { angle: Math.atan2(pole[1], pole[0]) - Math.PI / 2, open: Math.abs(z), outer: 2.27 * px, inner: 1.53 * px, near: z > 0 ? -1 : 1 };
+}
+function findMoon(frame, name) {
+  const body = planetOf(name), planet = body && frame.bodies.find((o) => o.body === body);
+  return (planet && planetMoons(frame, planet).find((m) => m.name === name)) || null;
 }
 
 const chartKey = {};
@@ -654,12 +725,32 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     p.circle(x, y, r, { fill: starTint(o.bv) });
     objects.push({ ...o, x, y, radius: r });
   });
+  // Planets; zoomed in, their moons; minor planets and comets on request.
+  const pxPerDeg = radius / 90;
   for (const o of frame.bodies) {
-    const r = o.body === 'sun' || o.body === 'moon' ? 7 : Math.max(2.2, 4 - o.mag * 0.3), q = add(o, r);
+    const minor = o.body === 'minor' || o.body === 'comet';
+    if (minor && !opts.minor && o.name !== view.selected) continue;
+    const r = o.body === 'sun' || o.body === 'moon' ? 7 : minor ? Math.max(1.6, 3 - o.mag * 0.12) : Math.max(2.2, 4 - o.mag * 0.3), q = add(o, r);
     if (!q) continue;
+    const disk = diskRadius(o) * pxPerDeg;
     if (o.body === 'moon') { const light = xy(o.light); moonSymbol(p, ctx, o, q.x, q.y, r, Math.atan2(light.y - q.y, light.x - q.x) / R); }
-    else bodySymbol(p, o, q.x, q.y, r);
-    labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? o.color : c.planet, r: o.body === 'saturn' ? r + 3 : r, priority: o.name === view.selected ? 0 : 1, important: true, mag: o.mag });
+    else if (disk > r) {
+      // Zoomed in: the planet's disk at its size (Saturn with its rings).
+      const rings = o.body === 'saturn' && saturnRings(frame, o, xy, disk);
+      const ring = () => rings && p.ellipse(q.x, q.y, (rings.outer + rings.inner) / 2, (rings.outer + rings.inner) / 2 * rings.open, rings.angle / R, { stroke: o.color, width: Math.max(1, (rings.outer - rings.inner) * Math.max(rings.open, 0.25)), opacity: 0.75 });
+      const light = xy(o.light);
+      moonSymbol(p, ctx, o, q.x, q.y, disk, Math.atan2(light.y - q.y, light.x - q.x) / R); ring();
+      objects.at(-1).radius = disk;
+    } else bodySymbol(p, o, q.x, q.y, r);
+    const size = Math.max(r, disk);
+    labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? o.color : c.planet, r: o.body === 'saturn' ? size + 3 : size, priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
+    if (hasMoons(o) && pxPerDeg > 20) for (const m of planetMoons(frame, o)) {
+      if (m.hidden || m.separation * pxPerDeg < size + 3) continue;
+      const mr = Math.max(1, Math.min(2.6, starRadius(m.mag, scale) * 0.8)), mq = add(m, mr);
+      if (!mq) continue;
+      p.circle(mq.x, mq.y, mr, { fill: o.color });
+      labels.push({ ...mq, name: m.name, color: c.planet, r: mr, priority: m.name === view.selected ? 0 : 2, mag: m.mag });
+    }
   }
   const symbols = objects.filter((o) => o.body), names = new Set(objects.map((o) => o.name));
   let hitLabels = [];
@@ -694,6 +785,9 @@ export function chartLegend() {
     ${row(icon((p) => bodySymbol(p, { body: 'sun', color: BODY_COLORS.sun }, 14, 10, 6)), 'Sun')}
     ${row(icon((p) => moonSymbol(p, null, { phase: 60, color: BODY_COLORS.moon }, 14, 10, 6, 0)), 'Moon (phase)')}
     ${row(icon((p) => bodySymbol(p, { body: 'mars', color: BODY_COLORS.mars }, 14, 10, 3.2)), 'Planet')}
+    ${row(icon((p) => p.circle(14, 10, 1.6, { fill: BODY_COLORS.jupiter })), 'Planet’s moon (zoomed in)')}
+    ${row(icon((p) => bodySymbol(p, { body: 'minor', color: BODY_COLORS.minor }, 14, 10, 2.2)), 'Minor planet')}
+    ${row(icon((p) => bodySymbol(p, { body: 'comet', color: BODY_COLORS.comet }, 12, 12, 2.2)), 'Comet')}
     ${row(icon((p) => deepSymbol(p, 'galaxy', 14, 10, 6)), 'Galaxy')}
     ${row(icon((p) => deepSymbol(p, 'open cluster', 14, 10, 6)), 'Open cluster')}
     ${row(icon((p) => deepSymbol(p, 'globular cluster', 14, 10, 6)), 'Globular cluster')}
@@ -714,9 +808,10 @@ const fold = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCa
 export function searchSky(frame, query, limit = 8) {
   const q = fold(query), qc = q.replace(/ /g, '');
   if (!qc) return [];
-  const order = { moon: 0, planet: 0, constellation: 2, star: 1 };
+  const order = { moon: 0, planet: 0, constellation: 2, star: 1, 'minor planet': 1.2, comet: 1.2 }, rank = (o) => order[o.type] ?? (o.planet ? 0.5 : 1.5);
   const entries = [
-    ...frame.bodies.map((o) => ({ o, keys: [o.name] })),
+    ...frame.bodies.map((o) => ({ o, keys: o.number ? [o.name, String(o.number)] : [o.name] })),
+    ...frame.bodies.filter(hasMoons).flatMap((planet) => planetMoons(frame, planet).map((o) => ({ o, keys: [o.name] }))),
     ...frame.stars.filter((o) => o.named || o.mag < 6.1 && /^hip/.test(qc)).map((o) => ({ o, keys: o.named ? [o.name, o.catalogId] : [o.catalogId] })),
     ...frame.deep.map((o) => ({ o, keys: [o.name, ...(o.description ? o.description.split(' · ') : [])] })),
     ...frame.constellations.map((o) => ({ o, keys: [o.name] })),
@@ -733,7 +828,7 @@ export function searchSky(frame, query, limit = 8) {
   }
   const hip = /^hip(\d+)$/.exec(qc), extra = hip && !out.some((r) => r.object.catalogId === `HIP ${hip[1]}`) && findFaint(frame, `HIP ${hip[1]}`);
   if (extra) out.push({ score: 0, alias: null, object: extra });
-  return out.sort((a, b) => a.score - b.score || (order[a.object.type] ?? 1.5) - (order[b.object.type] ?? 1.5) || (a.object.mag ?? 99) - (b.object.mag ?? 99)).slice(0, limit)
+  return out.sort((a, b) => a.score - b.score || rank(a.object) - rank(b.object) || (a.object.mag ?? 99) - (b.object.mag ?? 99)).slice(0, limit)
     .map(({ object, alias }) => ({ name: object.name, alias, type: object.type, alt: object.alt, mag: object.mag }));
 }
 
@@ -766,7 +861,31 @@ export function objectDetails(o) {
     ${notes.length ? row('Hipparcos', notes.join(', ')) : ''}
     ${o.catalogId ? row('Catalog', o.catalogId) : ''}
     ${o.distancePc ? row('Distance', `${o.distancePc.toFixed(2)} pc`) : ''}
-    ${o.body && Number.isFinite(o.dist) ? row('Distance', `${Math.round(o.dist).toLocaleString('en')} km`) : ''}
+    ${o.body && Number.isFinite(o.dist) ? row('Distance', o.dist > 1e7 ? `${(o.dist / 149597870.7).toFixed(3)} au` : `${Math.round(o.dist).toLocaleString('en')} km`) : ''}
     ${o.body === 'moon' ? row('Illuminated', `${((1 + Math.cos(o.phase * R)) * 50).toFixed(1)} %`) : ''}
-    </dl><p class="coelum-coordinate-note">Equatorial coordinates of date · ${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
+    </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv) : ''}<p class="coelum-coordinate-note">Equatorial coordinates of date · ${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
+}
+
+// A star's colour index as a temperature (Ballesteros 2012), a rough
+// spectral class, and the visible spectrum of a black body at that
+// temperature: the colour the views give the star, without the absorption
+// lines of a real spectrum.
+const wavelengthRGB = (nm) => {
+  const [r, g, b] = nm < 440 ? [(440 - nm) / 60, 0, 1] : nm < 490 ? [0, (nm - 440) / 50, 1] : nm < 510 ? [0, 1, (510 - nm) / 20] : nm < 580 ? [(nm - 510) / 70, 1, 0] : nm < 645 ? [1, (645 - nm) / 65, 0] : [1, 0, 0];
+  const edge = nm < 420 ? 0.3 + 0.7 * (nm - 380) / 40 : nm > 700 ? 0.3 + 0.7 * (750 - nm) / 50 : 1;
+  return [r, g, b].map((x) => x * edge);
+};
+export function starTemperature(bv) {
+  return 4600 * (1 / (0.92 * bv + 1.7) + 1 / (0.92 * bv + 0.62));
+}
+function spectrum(bv) {
+  const T = starTemperature(Math.max(-0.4, Math.min(2, bv))), planck = (nm) => 1 / (nm ** 5 * (Math.exp(1.4388e7 / (nm * T)) - 1));
+  const kind = bv < -0.3 ? 'O' : bv < -0.02 ? 'B' : bv < 0.3 ? 'A' : bv < 0.58 ? 'F' : bv < 0.81 ? 'G' : bv < 1.4 ? 'K' : 'M';
+  const nms = Array.from({ length: 38 }, (_, i) => 380 + i * 10), top = Math.max(...nms.map(planck));
+  const stops = nms.map((nm) => { const k = 0.15 + 0.85 * planck(nm) / top; return `<stop offset="${((nm - 380) / 370).toFixed(3)}" stop-color="rgb(${wavelengthRGB(nm).map((x) => Math.round(255 * x * k)).join(',')})"/>`; }).join('');
+  const curve = nms.map((nm, i) => `${i ? 'L' : 'M'}${((nm - 380) / 370 * 300).toFixed(1)},${(30 - 26 * planck(nm) / top).toFixed(1)}`).join('');
+  const id = `spectrum-${Math.round(T)}`;
+  return `<figure class="coelum-spectrum"><svg viewBox="0 0 300 32" preserveAspectRatio="none" role="img" aria-label="Approximate visible spectrum"><defs><linearGradient id="${id}">${stops}</linearGradient></defs><rect width="300" height="32" rx="4" fill="url(#${id})"/><path d="${curve}" fill="none" stroke="#fff" stroke-opacity="0.75" stroke-width="1.2" vector-effect="non-scaling-stroke"/></svg>
+    <figcaption><span>380 nm</span><span>B−V ${(Math.abs(bv) < 0.005 ? 0 : bv).toFixed(2).replace('-', '−')} · about ${(Math.round(T / 100) * 100).toLocaleString('en')} K · type ${kind}</span><span>750 nm</span></figcaption>
+    <p class="coelum-coordinate-note">Estimated from the colour index: the black-body spectrum that gives the star its colour in the views, without the absorption lines of the real one.</p></figure>`;
 }
