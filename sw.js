@@ -1,8 +1,9 @@
 // Offline support for iMKS Units: the app's own files are served from
 // the cache and refreshed in the background; other requests (exchange
-// rates) go to the network.
-const CACHE = "imks-v77";
-const FILES = ["./", "index.html", "styles.css", "js/data.js", "js/unum.js", "js/units.js", "js/interp.js", "js/defs.js", "js/dates.js", "js/calendars.js", "js/sensors.js", "js/vsop87.js", "js/moons.js", "js/moonseries.js", "js/astro.js", "js/skyview.js", "js/eclipsemap.js", "js/osmmap.js", "js/snapshot.js", "js/coast.js", "js/catalog.js", "js/minorplanets.js", "js/sgp4.js", "js/lookup.js", "js/sky.js", "js/app.js", "js/functionhelp.js", "js/diagnostics.js", "img/moon.webp", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "favicon.ico", "favicon-16.png", "favicon-32.png"];
+// rates) go to the network. Caches named imks-data… hold downloads the
+// user asked for (coelum's fainter stars) and survive updates.
+const CACHE = "imks-v84";
+const FILES = ["./", "index.html", "styles.css", "js/data.js", "js/unum.js", "js/units.js", "js/interp.js", "js/defs.js", "js/dates.js", "js/calendars.js", "js/sensors.js", "js/vsop87.js", "js/moons.js", "js/moonseries.js", "js/astro.js", "js/skyview.js", "js/coelum.js", "js/coelumsky.js", "js/coelumui.js", "js/skyraster.js", "js/skyhorizon.js", "js/skydata.js", "js/eclipsemap.js", "js/osmmap.js", "js/snapshot.js", "js/coast.js", "js/catalog.js", "js/minorplanets.js", "js/sgp4.js", "js/lookup.js", "js/sky.js", "js/app.js", "js/functionhelp.js", "js/diagnostics.js", "img/moon.webp", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "favicon.ico", "favicon-16.png", "favicon-32.png"];
 
 self.addEventListener("install", (ev) => {
   // bypass the HTTP cache, so a new version never caches stale files
@@ -13,7 +14,7 @@ self.addEventListener("install", (ev) => {
 self.addEventListener("activate", (ev) => {
   ev.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && !k.startsWith("imks-data")).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });

@@ -547,6 +547,7 @@ const functionDocs = {
   equinox: "The equinoxes of a year, (March, September): equinox(2027); years −1000 to 3000, to a minute today, less precise far from it (ΔT)",
   solstice: "The solstices of a year, (June, December): solstice(2027); years −1000 to 3000, to a minute today, less precise far from it (ΔT)",
   lst: "Local sidereal time: lst(t, longitude), or lst(t, (latitude, longitude))",
+  coelum: "The sky above a place at a date, offline: a map-like chart with atlas symbols and a legend, or a realistic view with the sky's colour by time of day; search, layers, time playback and full screen.",
   altaz: "Altitude and azimuth of a body seen from a place, (alt, az) without refraction: altaz(\"Mars\", t, (latitude, longitude)); the bodies are the Sun, the Moon and the planets, Mercury to Neptune, the stars and other objects, minor planets, comets and artificial satellites by name (\"Vega\", \"M31\", \"Ceres\", \"12P\", \"ISS\"; those not built in looked up online)",
   passes: "The passes of an artificial satellite over a place, for a day from t: passes(\"ISS\", t, place), or for up to 10 days, passes(\"ISS\", t, place, 3); a table of its risings, highest points and settings, with directions, and whether it can be seen (sunlit in a dark sky)",
   radec: "Apparent right ascension and declination of a body, of the date, in degrees (radec(…).1 @ hms in hours): radec(\"Mars\", t), geocentric, or radec(\"Mars\", t, (latitude, longitude)) seen from a place; radec(\"Vega\") alone, the catalog position of a star (ICRS, J2000)",

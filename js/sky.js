@@ -13,7 +13,7 @@ import { conjunction, opposition, occultation, occultationTrack, orbitAge, satel
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
 // are not taken elementwise
-const SKY_FNS = ["place", "passes", "sunday", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse", "conjunction", "opposition", "occultation"];
+const SKY_FNS = ["coelum", "place", "passes", "sunday", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse", "conjunction", "opposition", "occultation"];
 // the coordinate functions, whose points are lists (lon, lat)
 const COORD_FNS = ["eq2hor", "hor2eq", "eq2ecl", "ecl2eq", "eq2gal", "gal2eq", "precess", "sep", "pa"];
 // the functions whose first argument is the name of a body (a star or
@@ -196,6 +196,20 @@ function skyBuiltins(env, b) {
   };
   const deg = (x, err) => env.convert(new Q(UNum.uncertain(x * RAD, err * RAD)), ["deg"]);
   const days = (x) => env.convert(env.mul(new Q(x), env.unitValue("day")), ["day"]);
+
+  // A small numeric table accompanies a reproducible, offline sky drawing.
+  // Store only the instant/place, never thousands of chart stars in history.
+  b.coelum = (t, p) => {
+    const u = when("coelum", t), place = where("coelum", p);
+    if (new Date(u * 1000).getUTCFullYear() < -1000 || new Date(u * 1000).getUTCFullYear() > 3000) throw new UnitError("coelum: choose a date between years −1000 and 3000");
+    const positions = BODIES.map((body) => horizontal(body, u, place));
+    const values = BODIES.map((body) => altaz(body, u, place));
+    const v = [values.map((p) => p[0]), values.map((p) => p[1])];
+    v.rows = BODIES.map((body, i) => Name(body) + (positions[i].alt < 0 ? " (below horizon)" : ""));
+    v.heads = ["altitude", "azimuth"];
+    v.coelum = { t: u, place: [...place], label: typeof p === "string" ? p : `${place[0].toFixed(3)}°, ${place[1].toFixed(3)}°` };
+    return v;
+  };
 
   // a body: "sun"… "neptune", or a star, another object, a minor planet, a
   // comet or a satellite (lookup.js), of the kinds allowed ("star", "orbit"

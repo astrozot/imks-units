@@ -627,7 +627,7 @@ function diameter(body, t, place) {
 
 // A vector of J2000 to the mean equator and equinox of the date (IAU 1976,
 // Meeus 21.2), T in Julian centuries
-function precessVector([x, y, z], T) {
+export function precessVector([x, y, z], T) {
   const as = RAD / 3600;
   const zeta = (2306.2181 * T + 0.30188 * T * T + 0.017998 * T ** 3) * as;
   const zz = (2306.2181 * T + 1.09468 * T * T + 0.018203 * T ** 3) * as;
@@ -848,7 +848,7 @@ function lunarDiagram(e, place = null) {
   for (let t = e.P1 - 1800; t <= e.P4 + 1800; t += 300) path.push({ t, ...at(t) });
   const marks = [["P1", e.P1], ["U1", e.U1], ["U2", e.U2], ["max", e.max], ["U3", e.U3], ["U4", e.U4], ["P4", e.P4]]
     .filter(([, t]) => t !== null).map(([name, t]) => ({ name, t, ...at(t) }));
-  return { umbra: g.umbra, penumbra: g.penumbra, moon: g.moon, path, marks };
+  return { umbra: g.umbra, penumbra: g.penumbra, moon: g.moon, path, marks, ...(place ? { place: [...place] } : {}) };
 }
 
 // The Moon's shadow at the time t, on the Earth made a sphere (its axes

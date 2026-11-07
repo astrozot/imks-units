@@ -34,7 +34,84 @@ local file. To try it locally, run `python3 -m http.server 8000` in this
 folder and open `http://localhost:8000/` (use Shift-reload after editing,
 as the service worker serves the cached copy first).
 
+`coelum(now, "Rome")` shows the sky above a place, offline, in two views.
+Use `coelum(now, here)` for the device position, or omit the place to use the
+location in Settings. The table gives the solar-system bodies' geometric
+altitudes and azimuths, including those below the horizon. Dates from year
+−1000 through 3000 are supported (UTC).
+
+- **Chart** is a map-like whole-sky chart in the style of a printed atlas:
+  zenith at the center, north up, east left; stars to magnitude 6 sized by
+  brightness, double stars with a bar and variable stars with a ring
+  (Hipparcos), the Sun, planets and the Moon's phase, galaxies, clusters and
+  nebulae with the usual atlas symbols, constellation figures, boundaries,
+  the ecliptic and the Milky Way. The legend button explains the symbols.
+  Drag to roll the sky as seen from inside the celestial sphere.
+- **Sky** is a realistic view toward the horizon, like a planetarium
+  program: the sky's colour follows the Sun (daylight, sunset glow,
+  twilight, night), the Sun has its glare, the Moon its texture, phase and
+  glow, stars fade with twilight, moonlight and extinction near the horizon,
+  the Milky Way appears in a dark sky, and a landscape hides what is below
+  it. With the atmosphere on, positions include refraction (the standard
+  atmosphere at the place's height; about 34′ at the horizon), and the
+  details card gives the apparent altitude. Dragging keeps the grabbed
+  point under the finger with the horizon level, also across the zenith;
+  it opens toward the Sun around sunrise and sunset, otherwise toward the
+  equator.
+
+Switching between the views keeps the direction at the center and the
+scale there. In both, pinch or scroll to zoom, double-tap to reset the view, and tap an
+object or its label for a details card (name, type, equatorial and
+horizontal coordinates, magnitude, distance, double/variable flags). The
+search field finds stars, planets, deep-sky objects (also by their other
+names, as "Andromeda Galaxy"), constellations and HIP numbers, and flies to
+the object. The layers button toggles ground, atmosphere (Sky), Milky Way,
+constellations, boundaries, the ecliptic, grids, deep-sky objects and
+labels; each view keeps its own layers, and the last view used opens next
+time. **Horizon** chooses a generic landscape, a flat horizon or the
+**local terrain**: the first time for a place, about 40 elevation tiles
+(AWS Terrain Tiles, a few MB) are downloaded and the horizon is computed
+every half degree out to 150 km, with the Earth's curvature and
+terrestrial refraction; it is kept on the device for twelve places, and
+the chart draws it as a green line. Elevation models include no trees and
+only some buildings. **Fainter stars** can be downloaded: to magnitude 8
+(36,000 more stars, 5 MB) or the whole Hipparcos catalogue (113,000 more,
+15 MB), from d3-celestial; they are stored compactly in Cache Storage (the
+service worker keeps caches named `imks-data…` across updates) and appear
+as you zoom in, in the chart up to the chosen magnitude. The time bar steps an hour, plays forward or backward (÷2 and ×2
+change the speed, ⇄ the direction) and resets. **Full screen** fills the
+display; its controls float over the sky and fade after a few seconds
+without input, coming back on any movement, tap or key; Escape closes an
+open panel, then full screen. Eclipse, occultation and lunar eclipse sheets
+computed for a place have a **Show in the sky** button that opens the sky
+there at the event, centered on the Sun, the Moon or the occulted body.
+The chart's positions are geometric (no refraction); clouds and light
+pollution are not modeled. Chart drags and flights are drawn on a canvas
+and settle as SVG; the chart's Milky Way is painted on a canvas behind it.
+
+`js/skydata.js` bundles 5,044 stars from XHIP (Anderson & Francis, 2012),
+the 88 constellation figures, boundaries and Latin labels, and the Milky Way
+isophotes, via [d3-celestial](https://github.com/ofrohn/d3-celestial),
+BSD-3-Clause (the license is retained in the generated file), with double
+and variable flags from the Hipparcos catalogue (ESA, 1997). To regenerate,
+download `data/stars.6.json`, `data/constellations.lines.json`,
+`data/constellations.json`, `data/constellations.bounds.json`,
+`data/mw.json` and `LICENSE` from that repository into a directory, add the
+Hipparcos flags as `hip_main.tsv` (the VizieR query is in
+`tools/coelum.mjs`), then run `node tools/coelum.mjs <directory>`. Chart
+positions include precession and nutation, and proper motion where matched
+to the named-star catalog; they omit annual aberration and parallax. The
+existing `altaz` and `radec` functions retain their full precision.
+
 ## Checks
+
+`node tests/coelum.mjs` checks sky-chart geometry and catalog positions at
+northern, southern and polar locations, and calculator integration.
+
+`node tests/coelum-browser.mjs` checks the chart and realistic views,
+search, layers, legend, fading full-screen controls, the eclipse link,
+history and offline reuse in Chromium, using the Playwright options
+described below.
 
 `node tests/functionhelp.mjs` checks function-help coverage and calling forms.
 
