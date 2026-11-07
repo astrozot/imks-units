@@ -2,7 +2,7 @@
 // sky's colour with the time of day, stars dimmed by twilight, moonlight and
 // extinction, the Milky Way, the Sun's glare, the textured Moon with its
 // phase, and a landscape in front. Always drawn on a canvas.
-import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, pointVector, refractVector, eachFaint, faintObject, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
+import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
 
 const FLAT = () => 0;
@@ -19,7 +19,7 @@ export function defaultSkyView(frame, W, H) {
 // B−V to colour (after M. Charity's blackbody star colours, a little less
 // saturated, as the eye sees them).
 const BV = [[-0.4, [155, 178, 255]], [-0.1, [175, 196, 255]], [0.15, [212, 222, 255]], [0.4, [245, 245, 255]], [0.65, [255, 244, 228]], [0.9, [255, 228, 196]], [1.3, [255, 206, 156]], [2, [255, 180, 110]]];
-const bvRGB = (bv) => {
+const bvRGB = (bv = 0.6) => {
   let i = 1;
   while (i < BV.length - 1 && bv > BV[i][0]) i++;
   const [a, ca] = BV[i - 1], [b, cb] = BV[i], u = Math.max(0, Math.min(1, (bv - a) / (b - a)));
@@ -140,12 +140,12 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (o.name === view.selected || o.named && o.mag < (view.scale > 1.5 ? 4.5 : 2.5) && o.mag + 0.5 < limit) labels.push({ ...q, name: o.name, color: `rgba(215,225,240,${0.85 * fade + 0.15})`, r, priority: 2 });
   }
   // Downloaded fainter stars, to the same limit.
-  eachFaint(frame, limit, (i, v, mag) => {
+  eachFaint(frame, limit, (i, v, mag, bv) => {
     const q = apparent(refract(v));
     if (!onScreen(q, 2) || !above(q)) return;
-    const o = faintObject(frame, i, v), r = point(o, mag + (opts.atmosphere ? extinction(o.alt) : 0), bvRGB(o.bv), q);
-    if (r) objects.push({ ...o, x: q.x, y: q.y, radius: r });
-  });
+    const r = point({}, mag + (opts.atmosphere ? extinction(Math.asin(Math.max(-1, Math.min(1, v[2]))) / R) : 0), bvRGB(bv), q);
+    if (r) objects.push(new FaintHit(i, q.x, q.y, r));
+  }, { v: rotation.slice(6, 9), radius: 2 * Math.atan(Math.hypot(W, H) / 2 / radius) + 0.03 });
   const moonsOf = [];
   for (const o of frame.bodies) {
     const minor = o.body === 'minor' || o.body === 'comet';

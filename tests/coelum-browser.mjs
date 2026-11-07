@@ -91,7 +91,9 @@ try {
       const svg = document.querySelector('.coelum-full'), size = svg.viewBox.baseVal.width;
       const c = skyChart(f, size, svg.viewBox.baseVal.height, { constellations: true, horizontal: true, equatorial: true, deep: true });
       const names = new Set((kind === 'star' ? f.stars : f.deep).map((o) => o.name));
-      const label = c.hitLabels.find((l) => names.has(l.name) && l.box[1] > 20 && l.box[3] < svg.viewBox.baseVal.height - 20);
+      // a label with no symbol under its center (a symbol under the finger wins)
+      const clear = (l) => c.objects.every((o) => Math.hypot(o.x - (l.box[0] + l.box[2]) / 2, o.y - (l.box[1] + l.box[3]) / 2) > o.radius + 2);
+      const label = c.hitLabels.find((l) => names.has(l.name) && l.box[1] > 20 && l.box[3] < svg.viewBox.baseVal.height - 20 && clear(l));
       const v = svg.createSVGPoint(); v.x = (label.box[0] + label.box[2]) / 2; v.y = (label.box[1] + label.box[3]) / 2;
       const q = v.matrixTransform(svg.getScreenCTM()); return { name: label.name, x: q.x, y: q.y };
     }, kind);
@@ -465,35 +467,31 @@ try {
     return { tilt: Math.atan2(r[2], r[5]) * 180 / Math.PI, alt: Math.asin(r[8]) * 180 / Math.PI };
   });
   assert.ok(level.alt < 50 && Math.min(Math.abs(level.tilt), 180 - Math.abs(level.tilt)) < 0.1, `Level chart horizon: ${JSON.stringify(level)}`);
-  // Fainter stars: a (mocked) download, kept in Cache Storage, found by
-  // search, drawn when zoomed in, then removed.
-  const zenith = await page.locator('.coelum-full').evaluate(async (svg) => {
-    const { siderealTime } = await import('./js/astro.js');
-    return { ra: siderealTime(Number(svg.dataset.time), -3.7), dec: 40.4 };
-  });
-  await page.route('https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/stars.8.json', (route) => route.fulfill({
-    status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
-    body: JSON.stringify({ type: 'FeatureCollection', features: [
-      { type: 'Feature', id: 999001, properties: { mag: 7.2, bv: '0.5' }, geometry: { type: 'Point', coordinates: [zenith.ra > 180 ? zenith.ra - 360 : zenith.ra, zenith.dec] } },
-      { type: 'Feature', id: 999002, properties: { mag: 7.9, bv: '1.2' }, geometry: { type: 'Point', coordinates: [10, -80] } },
-      { type: 'Feature', id: 32349, properties: { mag: -1.44, bv: '0.009' }, geometry: { type: 'Point', coordinates: [101.28, -16.71] } },
-    ] }),
-  }));
+  // Fainter stars (the app's file to magnitude 8): kept in Cache Storage,
+  // found by search, drawn when zoomed in (a star high in the sky), then
+  // removed.
   await page.locator('[data-action="layers"]').click();
   assert.match(await page.locator('.coelum-faint-note').textContent(), /Only stars to magnitude 6/);
   assert.equal(await page.locator('[data-limit] option[value="8"]').evaluate((o) => o.disabled), true, 'Magnitudes past 6 need a download');
   await page.locator('[data-download="8"]').click();
-  await page.waitForFunction(() => /2 more stars/.test(document.querySelector('.coelum-faint-note').textContent));
+  await page.waitForFunction(() => /40,244 more stars/.test(document.querySelector('.coelum-faint-note').textContent), null, { timeout: 30000 });
   assert.equal(await page.locator('[data-limit] option[value="8"]').evaluate((o) => o.disabled), false);
+  assert.equal(await page.locator('[data-limit] option[value="9"]').evaluate((o) => o.disabled), true);
   await page.locator('[data-limit]').selectOption('8');
   await page.locator('[data-action="layers"]').click();
-  await input.fill('hip 999001'); await page.keyboard.press('Enter'); await page.waitForTimeout(900);
-  assert.equal(await page.locator('.coelum-detail h3').textContent(), 'HIP 999001');
-  assert.match(await page.locator('.coelum-detail').textContent(), /7\.20/);
+  const overhead = await page.locator('.coelum-full').evaluate(async (svg) => {
+    const { skyFrame, eachFaint, FaintHit } = await import('./js/coelum.js');
+    let best = null;
+    eachFaint(skyFrame(Number(svg.dataset.time), [40.4, -3.7, 650]), 8, (j, v, mag) => { if (v[2] > Math.sin(70 * Math.PI / 180) && mag > 7 && (!best || mag < best.mag)) best = { j, mag }; });
+    return new FaintHit(best.j).name;
+  });
+  await input.fill(overhead); await page.keyboard.press('Enter'); await page.waitForTimeout(900);
+  assert.equal(await page.locator('.coelum-detail h3').textContent(), overhead);
+  assert.match(await page.locator('.coelum-detail').textContent(), /Parallax/);
   await page.locator('[data-action="deselect"]').click();
   const mid = await page.locator('.coelum-full').boundingBox();
   await page.mouse.click(mid.x + mid.width / 2, mid.y + mid.height / 2);
-  assert.equal(await page.locator('.coelum-detail h3').textContent(), 'HIP 999001', 'Drawn and selectable when zoomed in');
+  assert.equal(await page.locator('.coelum-detail h3').textContent(), overhead, 'Drawn and selectable when zoomed in');
   // Local horizon from (mocked) terrain tiles: flat ground with 2000 m
   // from 40 km; seen from Madrid (about 650 m), about 1.7° all around, with
   // the Earth's curvature and terrestrial refraction.
@@ -518,9 +516,35 @@ try {
   assert.ok((await page.locator('.coelum-full').innerHTML()).includes('#9fd58c'), 'The local horizon on the chart');
   await page.locator('[data-terrain="forget"]').click();
   assert.equal(await page.locator('[data-horizon]').inputValue(), 'landscape');
+  await page.unrouteAll();
+  // To magnitude 10: found by HIP, HD or TYC number, with its parallax and
+  // proper motion; drawn from the tiles in view only, with what the whole
+  // set would give there.
+  await page.locator('[data-download="10"]').click();
+  await page.waitForFunction(() => /349,351 more stars/.test(document.querySelector('.coelum-faint-note').textContent), null, { timeout: 30000 });
+  assert.deepEqual(await page.locator('[data-limit] option').evaluateAll((os) => os.filter((o) => !o.disabled).map((o) => o.value)), ['3', '4', '5', '6', '7', '8', '9', '10']);
+  assert.equal(await page.evaluate(async () => (await (await caches.open('imks-data-stars')).keys()).length), 1);
+  await page.locator('[data-action="layers"]').click();
+  await input.fill('HD 225213'); await page.keyboard.press('Enter'); await page.waitForTimeout(900);
+  assert.equal(await page.locator('.coelum-detail h3').textContent(), 'HIP 439');
+  assert.match(await page.locator('.coelum-detail').textContent(), /HD 225213 · TYC 6995-1264-1.*230\.10 mas.*6\.10″ a year/s);
+  await input.fill('TYC 1-13-1'); await page.keyboard.press('Enter'); await page.waitForTimeout(900);
+  assert.match(await page.locator('.coelum-detail').textContent(), /TYC 1-13-1/);
+  const inView = await page.evaluate(async () => {
+    const { skyFrame, skyChart, findObject, lookAt, eachFaint } = await import('./js/coelum.js');
+    const f = skyFrame(Date.parse('2026-06-01T00:00:00Z') / 1000, [45, 9, 0]), o = findObject(f, 'HIP 439');
+    const view = { scale: 16, rotation: lookAt(o.az, o.alt) }, chart = skyChart(f, 390, 520, { magnitude: 10, ground: false }, view);
+    const names = chart.objects.map((x) => x.name), drawn = names.filter((n) => /^(TYC|HIP|HD) /.test(n)).length;
+    // every star of the set within 6.3° of the center (inside the frame)
+    let all = 0;
+    eachFaint(f, 10, (i, v) => { const c = view.rotation, z = c[6] * v[0] + c[7] * v[1] + c[8] * v[2]; if (z > Math.cos(0.11)) all++; });
+    return { found: names.includes('HIP 439'), drawn, all };
+  });
+  assert.ok(inView.found && inView.drawn > 100 && inView.drawn >= inView.all, `Stored stars in view: ${JSON.stringify(inView)}`);
+  await page.locator('[data-action="deselect"]').click();
+  await page.locator('[data-action="layers"]').click();
   await page.locator('[data-download="remove"]').click();
   await page.waitForFunction(() => /Only stars to magnitude 6/.test(document.querySelector('.coelum-faint-note').textContent));
-  await page.unrouteAll();
   // Gestures: no page scrolling over the sky; a finger that never sent
   // pointerup is forgotten at the next first touch, so a tap still selects;
   // a chart dragged toward its edge at the smallest zoom turns smoothly.
@@ -580,8 +604,25 @@ try {
   await page.waitForFunction(() => /minor planet/.test(document.querySelector('.coelum-detail').textContent));
   await page.locator('.coelum-search input').fill('Io'); await page.keyboard.press('Enter');
   await page.waitForFunction(() => /moon of Jupiter/i.test(document.querySelector('.coelum-detail').textContent));
+  // The moons' view from the card: it follows the chart's time, and a tap
+  // on a moon selects it.
+  await page.locator('.coelum-moons-button').click();
+  assert.equal(await page.locator('.coelum-moons-title').textContent(), 'Moons of Jupiter');
+  assert.equal(await page.locator('.coelum-moons-stage .sky-moon').count(), 4);
+  const moonsBefore = await page.locator('.coelum-moons-stage svg').innerHTML();
+  await page.locator('[data-action="forward"]').click();
+  await page.waitForFunction((before) => document.querySelector('.coelum-moons-stage svg').innerHTML !== before, moonsBefore);
+  const moon = await page.locator('.coelum-moons-stage circle.sky-moon:not(.off)').first().boundingBox();
+  await page.mouse.click(moon.x + moon.width / 2, moon.y + moon.height / 2);
+  await page.waitForFunction(() => /^(Io|Europa|Ganymede|Callisto)$/.test(document.querySelector('.coelum-object-head h3')?.textContent));
+  assert.equal(await page.locator('.coelum-moonspanel').isVisible(), true);
+  await page.locator('.coelum-moonspanel [data-action="close-panel"]').click();
+  assert.equal(await page.locator('.coelum-moonspanel').isVisible(), false);
+  // No page zoom by pinching the controls.
+  for (const s of ['.coelum-topbar', '.coelum-timebar', '.coelum-toolbar']) assert.equal(await page.locator(s).evaluate((e) => getComputedStyle(e).touchAction), 'pan-y');
   await page.locator('.coelum-search input').fill('Vega'); await page.keyboard.press('Enter');
-  await page.waitForFunction(() => /type A/.test(document.querySelector('.coelum-spectrum')?.textContent || ''));
+  // the catalog's spectral type, so the spectrum gives no estimated one
+  await page.waitForFunction(() => /Spectral typeA0V/.test(document.querySelector('.coelum-detail').textContent) && /K$/.test(document.querySelector('.coelum-spectrum figcaption span:nth-child(2)')?.textContent || ''));
   await page.locator('[data-action="reset"]').click();
   // The WebGL sky matches the JavaScript one (but for sharper edges), with
   // a terrain horizon, at night and by day, and for the chart's Milky Way.
@@ -611,7 +652,7 @@ try {
   if (shader) for (const s of shader) assert.ok(s.mean < 1 && s.big < 0.01, `WebGL sky differs: ${JSON.stringify(s)}`);
   else console.log('WebGL2 unavailable: the shader was not compared');
   assert.deepEqual(errors, []);
-  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars, the local horizon, the WebGL sky, stale touches, edge drags, equal zooms, time and place panels, minor planets, moons and spectra');
+  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars with parallaxes and proper motions, the local horizon, the WebGL sky, stale touches, edge drags, equal zooms, time and place panels, minor planets, moons, the moons view and spectra');
 } finally {
   if (browser) await browser.close();
   await new Promise((r) => server.close(r));

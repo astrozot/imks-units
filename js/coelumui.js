@@ -1,18 +1,22 @@
 // The coelum explorer: two views of the same sky (a map-like chart and a
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
-import { skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, setMinorBodies } from './coelum.js';
-import { riseSet } from './astro.js';
+import { skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons } from './coelum.js';
+import { riseSet, planetOf } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
 import { storedHorizon, computeHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
-import { CHART_STARS } from './skydata.js';
+import { skyView as moonSystem } from './sky.js';
+import { moonsView } from './skyview.js';
 
-// Optional fainter stars: d3-celestial's Hipparcos files, downloaded when
-// asked, kept compact in a cache that app updates leave alone.
+// Optional fainter stars, from AT-HYG like the built-in ones
+// (tools/stars.mjs): files of the app downloaded when asked, kept in a
+// cache that app updates leave alone; one set at a time. A set of an
+// older version is forgotten.
 const STAR_FILES = {
-  8: { url: 'https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/stars.8.json', label: 'to magnitude 8', size: '5 MB' },
-  all: { url: 'https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/stars.14.json', label: 'all Hipparcos stars', size: '15 MB' },
+  8: { url: 'data/stars-8.bin', label: 'to magnitude 8', size: '1.3 MB' },
+  10: { url: 'data/stars-10.bin', label: 'to magnitude 10', size: '8.3 MB' },
+  11: { url: 'data/stars-11.bin', label: 'to magnitude 11', size: '18.4 MB' },
 };
 const STAR_CACHE = 'imks-data-stars', STAR_KEY = new URL('coelum-faint-stars.bin', location.href).href;
 let faintVariant = null, faintLoading = null;
@@ -21,14 +25,17 @@ function loadFaintStars() {
     try {
       const res = await (await caches.open(STAR_CACHE)).match(STAR_KEY);
       if (!res) return;
-      faintVariant = res.headers.get('x-variant');
-      setFaintStars(new Float32Array(await res.arrayBuffer()));
+      try {
+        setFaintStars(await res.arrayBuffer());
+        faintVariant = res.headers.get('x-variant');
+      } catch { await removeFaintStars(); }
     } catch { /* no Cache Storage (private mode): nothing stored */ }
   })();
   return faintLoading;
 }
 async function downloadFaintStars(variant, progress) {
-  const res = await fetch(STAR_FILES[variant].url);
+  // no-store: past the service worker, which would keep a second copy
+  const res = await fetch(STAR_FILES[variant].url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`download failed (${res.status})`);
   const total = Number(res.headers.get('content-length')) || 0, reader = res.body.getReader(), parts = [];
   let got = 0;
@@ -38,13 +45,10 @@ async function downloadFaintStars(variant, progress) {
     parts.push(value); got += value.length;
     if (total) progress(got / total);
   }
-  const json = JSON.parse(await new Blob(parts).text()), known = new Set(CHART_STARS.map((s) => s[0]));
-  const stars = json.features.filter((f) => !known.has(f.id) && Number.isFinite(f.properties.mag)).sort((a, b) => a.properties.mag - b.properties.mag);
-  const data = new Float32Array(stars.length * 5);
-  stars.forEach((f, i) => data.set([((f.geometry.coordinates[0] % 360) + 360) % 360, f.geometry.coordinates[1], f.properties.mag, Number(f.properties.bv) || 0.6, f.id], i * 5));
-  try { await (await caches.open(STAR_CACHE)).put(STAR_KEY, new Response(data.buffer, { headers: { 'x-variant': variant } })); } catch { /* kept for this session */ }
-  faintVariant = variant;
+  const data = await new Blob(parts).arrayBuffer();
   setFaintStars(data);
+  faintVariant = variant;
+  try { await (await caches.open(STAR_CACHE)).put(STAR_KEY, new Response(data, { headers: { 'x-variant': variant } })); } catch { /* kept for this session */ }
 }
 async function removeFaintStars() {
   try { await caches.delete(STAR_CACHE); } catch { /* nothing stored */ }
@@ -174,7 +178,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       <div class="coelum-panel coelum-toolbar" id="${id}-layers" role="group" aria-label="Sky layers" hidden>
         <div class="coelum-panel-head"><h3>Layers</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close layers">${ICONS.close}</button></div>
         <div class="coelum-switches">${LAYERS.map(([key, label, modes]) => `<label data-modes="${modes}"><input type="checkbox" role="switch" data-layer="${key}"><span>${label}</span></label>`).join('')}</div>
-        <div class="coelum-selects"><label data-modes="chart">Stars to magnitude <select data-limit>${[3, 4, 5, 6, 7, 8, 9].map((n) => `<option value="${n}" ${n === 6 ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label>Horizon <select data-horizon><option value="landscape">Landscape</option><option value="terrain">Local terrain</option><option value="flat">Flat</option></select></label><label>Text size <select data-label-size><option value="14">Normal</option><option value="17">Large</option><option value="20">Larger</option></select></label></div>
+        <div class="coelum-selects"><label data-modes="chart">Stars to magnitude <select data-limit>${[3, 4, 5, 6, 7, 8, 9, 10, 11].map((n) => `<option value="${n}" ${n === 6 ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label>Horizon <select data-horizon><option value="landscape">Landscape</option><option value="terrain">Local terrain</option><option value="flat">Flat</option></select></label><label>Text size <select data-label-size><option value="14">Normal</option><option value="17">Large</option><option value="20">Larger</option></select></label></div>
         <p class="coelum-panel-note coelum-terrain-note" hidden></p>
         <p class="coelum-panel-note" data-modes="sky">Stars fade with twilight, moonlight and toward the horizon; zoom in to see fainter ones. With the atmosphere, positions include refraction.</p>
         <div class="coelum-downloads"><h3>Fainter stars</h3><p class="coelum-panel-note coelum-faint-note"></p>
@@ -194,6 +198,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-place-results" role="list"></div>
         <p class="coelum-panel-note coelum-place-status" role="status" aria-live="polite"></p>
         <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button><button type="button" class="coelum-chip" data-place="original">Original place</button></div>
+      </div>
+      <div class="coelum-panel coelum-moonspanel" id="${id}-moons" role="group" aria-label="Moons" hidden>
+        <div class="coelum-panel-head"><h3 class="coelum-moons-title">Moons</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close moons">${ICONS.close}</button></div>
+        <div class="sky-stage coelum-moons-stage"></div>
+        <p class="coelum-panel-note">As in a telescope (north up, east left), at the chart's time. Drag, pinch or double-tap to fit; tap a moon to select it.</p>
       </div>
       <p class="coelum-toast" role="status" aria-live="polite" hidden></p>
       <div class="coelum-panel coelum-legend" id="${id}-legend" role="group" aria-label="Legend" hidden>
@@ -215,7 +224,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     </div>
     <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><p>Tap an object or its label, or search for it, to see its characteristics.</p></div></section>
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
-    <details class="coelum-credit"><summary>Chart data</summary><p>Stars: XHIP (Anderson &amp; Francis, 2012), via <a href="https://github.com/ofrohn/d3-celestial" target="_blank" rel="noopener">d3-celestial</a>; double and variable stars from the Hipparcos catalogue (ESA, 1997). Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars and deep-sky objects: the app’s IAU / HYG / OpenNGC catalogs. The Moon: NASA LRO. Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Background stars include precession and nutation; named stars include proper motion. Clouds and light pollution are not modeled.</p></details>`;
+    <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars and deep-sky objects: the app’s IAU / HYG / OpenNGC catalogs. The Moon: NASA LRO. Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('.coelum-detail-body'), viewport = $('.coelum-viewport');
   const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results');
@@ -224,7 +233,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   let size = 360, height = 360;
   let place = [...model.place], placeLabel = model.label;
   setMinorBodies(options.minorBodies?.() || []);
-  let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null;
+  let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null, detailHTML = '';
   let animator = null, animation = 0, lastUI = -Infinity, frameNumber = 0, speed = 60, flight = 0, interacting = false, settleTimer = 0;
   // The horizon (shared by both views): the terrain's profile, if computed.
   let horizon = 'landscape', terrain = null;
@@ -256,8 +265,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     statusTime.textContent = formatTime(t); statusPlace.textContent = placeLabel; statusCondition.textContent = ` · ${condition} · Sun ${sun.toFixed(1)}°`;
     if (selected) {
       const o = findObject(frame, selected);
-      if (o) detail.innerHTML = objectDetails(mode === 'sky' && layers.sky.atmosphere ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
+      const html = o && objectDetails(mode === 'sky' && layers.sky.atmosphere ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
+      // unchanged, the card stays (a tap on its button is not lost)
+      if (html && html !== detailHTML) detail.innerHTML = detailHTML = html;
     }
+    followMoons();
   };
   const currentView = () => (mode === 'sky' ? skyView() : views.chart);
   // The view's state, also as attributes (for tests and snapshots).
@@ -379,29 +391,52 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
   const select = (name) => {
     selected = name;
-    if (!selected) detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>';
+    if (!selected) { detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; detailHTML = ''; }
+    // the moons' view, open, turns to the system of the object chosen
+    const o = moons && findObject(frame, name), system = o && (hasMoons(o) ? o.body : o.planet && planetOf(o.name));
+    if (system && system !== moons.planet) showMoons(system);
     lastUI = -Infinity;
   };
 
   // Panels: one at a time; they keep the full-screen controls awake.
-  const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel') };
+  const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel'), moons: $('.coelum-moonspanel') };
   const panelOpen = () => Object.values(panels).some((panel) => !panel.hidden);
   const showPanel = (name) => {
     for (const [key, panel] of Object.entries(panels)) {
       const on = key === name && panel.hidden;
       panel.hidden = !on;
-      $(`[data-action="${key}"]`).setAttribute('aria-expanded', String(on));
+      $(`[data-action="${key}"]`)?.setAttribute('aria-expanded', String(on));
     }
     root.classList.toggle('coelum-show-options', panelOpen() && panels.legend.hidden);
     if (name === 'time' && !panels.time.hidden) showTime();
     if (name === 'place' && !panels.place.hidden) { placeInput.value = ''; showPlaces(''); }
+    if (panels.moons.hidden) moons = null;
     wake();
+  };
+  // A planet and its moons as in the moons() view, at the chart's time; a
+  // fresh stage for each planet.
+  let moons = null;
+  const showMoons = (planet) => {
+    const stage = $('.coelum-moons-stage');
+    stage.innerHTML = '<canvas class="sky-canvas"></canvas><svg class="sky-svg sky-full" role="img"></svg>';
+    const sky = moonSystem(planet, t), name = planet[0].toUpperCase() + planet.slice(1);
+    stage.querySelector('svg').setAttribute('aria-label', `${name} and its moons`);
+    $('.coelum-moons-title').textContent = `Moons of ${name}`;
+    if (panels.moons.hidden) showPanel('moons');
+    moons = { planet, t, view: moonsView(stage, sky, { onTap: (m) => { select(m.name); draw(); } }) };
+    const W = Math.max(200, Math.round(stage.clientWidth));
+    moons.view.size(W, Math.round(Math.max(150, Math.min(W * 0.8, viewport.clientHeight - 190))));
+  };
+  const followMoons = () => {
+    if (!moons || moons.t === t) return;
+    moons.t = t;
+    moons.view.set(moonSystem(moons.planet, t), playing);
   };
   const syncLayers = () => {
     for (const box of root.querySelectorAll('[data-layer]')) box.checked = Boolean(layers[mode][box.dataset.layer]);
     $('[data-label-size]').value = String(layers[mode].labelSize);
     $('[data-horizon]').value = horizon;
-    for (const o of $('[data-limit]').options) o.disabled = Number(o.value) > 6 && !faintCount();
+    for (const o of $('[data-limit]').options) o.disabled = Number(o.value) > Math.max(6, Math.round(faintDepth()));
   };
   // Fainter stars: what is stored, and the buttons to change it.
   const faintNote = $('.coelum-faint-note');
@@ -689,6 +724,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (!action) return;
     if (action === 'fullscreen') fullscreen(!immersive());
     else if (action === 'layers' || action === 'legend' || action === 'time' || action === 'place') showPanel(action);
+    else if (action === 'moons') showMoons(button.dataset.planet);
     else if (action === 'orient') { if (orient) stopOrientation(); else startOrientation(); }
     else if (action === 'close-panel') showPanel(null);
     else if (action === 'deselect') { select(null); draw(); }
@@ -710,11 +746,16 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     }
   });
   // Wheels and trackpads: a pinch arrives as a wheel with Ctrl (smaller
-  // steps), or in Safari as gesture events.
+  // steps), or in Safari as gesture events. A pinch over the controls
+  // zooms the sky too, not the page; over a panel, nothing.
   svg.addEventListener('wheel', (ev) => { ev.preventDefault(); interact(200); zoom(Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.002)), true); }, { passive: false });
-  svg.addEventListener('gesturestart', (ev) => { ev.preventDefault(); pinchScale = pointers.size ? 0 : currentView().scale; });
-  svg.addEventListener('gesturechange', (ev) => { ev.preventDefault(); if (!pinchScale || pointers.size) return; interact(200); zoom(pinchScale * ev.scale / currentView().scale, true); });
-  svg.addEventListener('gestureend', (ev) => { ev.preventDefault(); pinchScale = 0; });
+  const overPanel = (ev) => ev.target.closest('.coelum-panel');
+  for (const el of [viewport, $('.coelum-topbar'), $('.coelum-timebar')]) {
+    el.addEventListener('gesturestart', (ev) => { ev.preventDefault(); pinchScale = pointers.size || overPanel(ev) ? 0 : currentView().scale; });
+    el.addEventListener('gesturechange', (ev) => { ev.preventDefault(); if (!pinchScale || pointers.size) return; interact(200); zoom(pinchScale * ev.scale / currentView().scale, true); });
+    el.addEventListener('gestureend', (ev) => { ev.preventDefault(); pinchScale = 0; });
+    el.addEventListener('touchmove', (ev) => { if (ev.touches.length > 1) ev.preventDefault(); }, { passive: false });
+  }
   svg.addEventListener('dblclick', fit);
 
   // Gestures: the grabbed point of the sky follows the finger, with the

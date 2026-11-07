@@ -9,7 +9,7 @@ import { parse, normalize, splitComment, firstLine, functionDocs, tokenize } fro
 import { Q, dimEq, fraction, UnitError } from "./units.js";
 import { HOLIDAY_GROUPS, CALENDAR_ORDER, DATE_FORMATS, isDate, literalText, dateQ } from "./dates.js";
 import { SENSORS, fixReadings, sensorAvailable } from "./sensors.js";
-import { skySVG, overlaySVG, drawPlanet, fitView } from "./skyview.js";
+import { skySVG, fitView, moonsView } from "./skyview.js";
 import { skyView } from "./sky.js";
 import { coelumPreview } from "./coelum.js";
 import { mountCoelum } from "./coelumui.js";
@@ -4525,11 +4525,8 @@ function openMap(e) {
   }, { passive: false });
 }
 
-// The zoom view of the moons of history entry e: drag to move, pinch or
-// scroll to zoom, double-tap to fit; the time runs forward or backward at
-// a speed, the moons at every frame. The planet is a canvas under the
-// moons: while the view moves it is only moved and scaled, then drawn
-// again sharp
+// The zoom view of the moons of history entry e (moonsView of skyview.js);
+// the time runs forward or backward at a speed, the moons at every frame
 const SKY_SPEEDS = [-36000, -3600, -600, -60, -10, -1, 1, 10, 60, 600, 3600, 36000];
 
 // the events of a moon at the Unix time t, as a new calculation
@@ -4566,57 +4563,32 @@ function openSky(e) {
       <p class="sky-hint"><span class="sky-when"></span> · <span class="sky-speed"></span></p>
       <p class="sky-hint">Drag to move, pinch or scroll to zoom, double-tap to fit; tap a moon for its events</p>`;
   }, () => ({ root: sheetBody.querySelector(".sky-stage"), caption: [e.input, sheetBody.querySelector(".sky-when").textContent], name: `moons-${e.sky.planet.toLowerCase()}` }));
-  const root = sheetBody, svg = root.querySelector(".sky-svg"), canvas = root.querySelector(".sky-canvas"), stage = root.querySelector(".sky-stage");
-  let sky = e.sky, t = sky.t, W = 320, H = 400, v = null, drawn = null, raf = 0, idle = 0;
-  let speed = 6, playing = false, last = 0, planetAt = 0;
-  const k = () => Math.min(2, window.devicePixelRatio || 1);
-  // the planet sharp for the view, and the canvas back in place
-  const sharp = () => {
-    drawPlanet(canvas, sky, W, H, v.cx, v.cy, v.s, playing ? 1 : k());
-    drawn = { ...v };
-    canvas.style.transform = "";
-  };
-  // the canvas of the view drawn moved and scaled to the view v
-  const follow = () => {
-    const m = v.s / drawn.s;
-    const tx = W / 2 + (drawn.cx - v.cx) * v.s - (W / 2) * m, ty = H / 2 - (drawn.cy - v.cy) * v.s - (H / 2) * m;
-    canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${m})`;
-  };
+  const root = sheetBody, stage = root.querySelector(".sky-stage");
+  let sky = e.sky, t = sky.t, raf = 0;
+  let speed = 6, playing = false, last = 0;
+  const view = moonsView(stage, sky, { onTap: (m) => showMoonEvents(m.name, t) });
   const label = () => {
     root.querySelector(".sky-when").textContent = sky.t === undefined ? "" : env().format(dateQ(env(), UNum.of(Math.round(t))));
     const x = SKY_SPEEDS[speed];
     root.querySelector(".sky-speed").textContent = `${x < 0 ? "backward " : ""}×${Math.abs(x)}${playing ? "" : ", paused"}`;
     root.querySelector('[data-sky="play"]').textContent = playing ? "❚❚" : "▶";
   };
-  const overlay = () => { svg.innerHTML = overlaySVG(sky, W, H, v.cx, v.cy, v.s, true); };
-  const moved = () => {
-    overlay();
-    follow();
-    clearTimeout(idle);
-    idle = setTimeout(sharp, 120);
-  };
   const size = () => {
-    W = Math.max(240, Math.round(stage.clientWidth));
-    H = Math.round(Math.max(240, Math.min(W * 1.2, window.innerHeight - 300)));
-    stage.style.height = `${H}px`;
-    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    if (!v) v = fitView(sky, W, H);
-    overlay();
-    sharp();
+    const W = Math.max(240, Math.round(stage.clientWidth));
+    view.size(W, Math.round(Math.max(240, Math.min(W * 1.2, window.innerHeight - 300))));
     label();
   };
   size();
-  plotViewResize = () => { if (svg.isConnected && !sheet.hidden) size(); };
+  plotViewResize = () => { if (stage.isConnected && !sheet.hidden) size(); };
 
   // the time: the moons at every frame, the planet three times a second
   const tick = (now) => {
-    if (!playing || !svg.isConnected) { raf = 0; return; }
+    if (!playing || !stage.isConnected) { raf = 0; return; }
     if (last) t += SKY_SPEEDS[speed] * (now - last) / 1000;
     last = now;
     if (sky.t !== undefined) {
       sky = skyView(sky.planet, t);
-      overlay();
-      if (now - planetAt > 300) { planetAt = now; sharp(); }
+      view.set(sky, true);
       label();
     }
     raf = requestAnimationFrame(tick);
@@ -4625,7 +4597,7 @@ function openSky(e) {
     playing = on;
     last = 0;
     if (on && !raf) raf = requestAnimationFrame(tick);
-    if (!on) sharp();
+    if (!on) view.set(sky);
     label();
   };
   root.querySelector(".sky-time").addEventListener("click", (ev) => {
@@ -4641,67 +4613,8 @@ function openSky(e) {
       sky = e.sky;
       speed = 6;
       play(false);
-      overlay();
     }
   });
-
-  const local = (ev) => {
-    const b = svg.getBoundingClientRect();
-    return { x: ((ev.clientX - b.left) * W) / b.width, y: ((ev.clientY - b.top) * H) / b.height };
-  };
-  // the view with the sky under the point p (of the view base) under q, at scale s
-  const keep = (base, p, q, s) => {
-    const sx = base.cx + (p.x - W / 2) / base.s, sy = base.cy - (p.y - H / 2) / base.s;
-    return { cx: sx - (q.x - W / 2) / s, cy: sy + (q.y - H / 2) / s, s };
-  };
-  // from all the moons in view to a planet radius of four times the view
-  const all = Math.max(2.5, ...sky.moons.map((m) => Math.hypot(m.x, m.y)));
-  const clampS = (s) => Math.min(4 * Math.min(W, H), Math.max(Math.min(W, H) / 2 / (1.1 * all), s));
-  const pts = new Map();
-  let base = null, dragged = false, lastTap = 0, moving = 0;
-  const start = () => { base = { v: { ...v }, pts: new Map([...pts].map(([id, p]) => [id, { ...p }])) }; };
-  svg.addEventListener("pointerdown", (ev) => {
-    svg.setPointerCapture(ev.pointerId);
-    pts.set(ev.pointerId, local(ev));
-    dragged = false;
-    start();
-  });
-  svg.addEventListener("pointermove", (ev) => {
-    if (!pts.has(ev.pointerId)) return;
-    pts.set(ev.pointerId, local(ev));
-    const ids = [...pts.keys()].filter((id) => base.pts.has(id));
-    if (ids.length === 1) {
-      const p0 = base.pts.get(ids[0]), p1 = pts.get(ids[0]);
-      if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > 4) dragged = true;
-      if (dragged) v = keep(base.v, p0, p1, base.v.s);
-    } else if (ids.length >= 2) {
-      const [a0, b0] = ids.slice(0, 2).map((id) => base.pts.get(id)), [a1, b1] = ids.slice(0, 2).map((id) => pts.get(id));
-      const d0 = Math.hypot(a0.x - b0.x, a0.y - b0.y), d1 = Math.hypot(a1.x - b1.x, a1.y - b1.y);
-      const s = clampS(base.v.s * (d0 > 20 ? d1 / d0 : 1));
-      v = keep(base.v, { x: (a0.x + b0.x) / 2, y: (a0.y + b0.y) / 2 }, { x: (a1.x + b1.x) / 2, y: (a1.y + b1.y) / 2 }, s);
-      dragged = true;
-    }
-    if (!moving) moving = requestAnimationFrame(() => { moving = 0; moved(); });
-  });
-  const up = (ev) => {
-    if (!pts.delete(ev.pointerId)) return;
-    if (!dragged && !pts.size) {
-      // a moon under the finger: its events
-      const p = local(ev), X = (x) => W / 2 + (x - v.cx) * v.s, Y = (y) => H / 2 - (y - v.cy) * v.s;
-      const near = sky.t === undefined ? null : sky.moons.find((m) => Math.hypot(X(m.x) - p.x, Y(m.y) - p.y) < 16);
-      if (near) { showMoonEvents(near.name, t); return; }
-      if (ev.timeStamp - lastTap < 350) { v = fitView(sky, W, H); moved(); lastTap = 0; } else lastTap = ev.timeStamp;
-    }
-    start();
-  };
-  svg.addEventListener("pointerup", up);
-  svg.addEventListener("pointercancel", up);
-  svg.addEventListener("wheel", (ev) => {
-    ev.preventDefault();
-    const p = local(ev);
-    v = keep(v, p, p, clampS(v.s * Math.exp(-ev.deltaY * 0.002)));
-    moved();
-  }, { passive: false });
 }
 
 // The zoom view of the plot of history entry e: drag to move, pinch or
@@ -8390,7 +8303,7 @@ const HELP = [
     ["2026.12.25 - today @ day", "days to Christmas"], ["2026.12.25 @ dow", ""], ["now + 1000[day]", ""], ["now @ JD", ""], ["2000.01.01 12:00 Z @ JD", "J2000.0"], ["(2026.10.31 18:00 - 2026.10.30 6:30) @ hms", ""],
     ["ymd(today)", "year, month, day"], ["ymd(today).1", "the year"], ["ymd(today, \"hebrew\")", ""], ["today @ hebrew", ""], ["julian(1582, 10, 4) + 1[day]", "the Gregorian reform"], ["hebrew(5787, 1, 15)", "Passover"], ["chinese(2027, 1, 1)", "Chinese New Year"], ["islamic(1448, 9, 1)", "Ramadan"], ["easter(2027)", ""], ["easter_orthodox(2027)", ""], ["japanese(\"Reiwa\", 8, 10, 30)", ""], ["holiday(\"Rosh Hashanah\", 2027)", ""], ["holiday(\"Diwali\", 2027)", ""], ["today @ hindu", ""], ["today @ umalqura", "Saudi Arabia"], ["holiday(\"Eid al-Adha\", 2027)", ""], ["french(8, 2, 18)", "18 Brumaire"], ["today @ french", ""], ["today @ saka", ""], ["2012.12.21 @ mayan", ""],
   ]],
-  ["Sky chart", "coelum(t, place) shows the sky above a place, in two views. Chart is a map-like whole-sky chart, as in a printed atlas: north up, east left, stars to magnitude 6 sized by brightness, double stars with a bar and variable stars with a ring, the Sun, the planets, the phase of the Moon, galaxies, clusters and nebulae with their atlas symbols, constellations, the ecliptic and the Milky Way; the legend button explains the symbols. Sky is a realistic view toward the horizon: the colour of the sky follows the Sun through daylight, sunset and twilight to night, stars fade with twilight, moonlight and toward the horizon, the Moon shows its face and phase, the Milky Way appears in a dark sky, and a landscape hides what is below the horizon. The place may be a name, coordinates or here; omitted, it uses Settings. Drag to look around, pinch or scroll to zoom, double-tap to reset; tap an object or its label for its name, type, coordinates and magnitude, or find it with the search field (stars, planets, deep-sky objects by any of their names, constellations, HIP numbers). The layers button toggles ground, atmosphere, Milky Way, constellations, boundaries, ecliptic, grids, deep-sky objects and labels, and the text size. Step through time or play it forward or backward. Full screen fills the display; its controls fade after a few seconds and come back when you touch, move or press a key. The eclipse, occultation and lunar eclipse sheets for a place open it at the event with Show in the sky. In Sky, with the atmosphere on, positions include refraction, and the card gives the apparent altitude; switching views keeps the same direction and scale. Horizon chooses a landscape, a flat horizon or the local terrain, computed once for a place from elevation tiles (online, a few MB) and then kept. Fainter stars can be downloaded (to magnitude 8, 5 MB, or all 118,000 Hipparcos stars, 15 MB) and appear as you zoom in; star sizes follow their magnitude at every zoom, and the grids get finer (down to minutes) as you zoom. Dragging the chart keeps its horizon level once you look away from the zenith. Tap the date to set the date and time or jump to the day's sunrise, sunset, twilights, moonrise and moonset; tap the place to choose a city, type coordinates, search online or use your position. The Minor planets layer shows the built-in minor planets and dwarf planets, and those looked up before; they can be searched by name or number. Zoomed in on Mars, Jupiter, Saturn, Uranus or Neptune, their major moons appear and can be tapped or searched, and the planets show their disks and phases (Saturn its rings). A star's card shows its colour index, an estimated temperature and spectral type, and the black-body spectrum that sets its colour in the views. On a phone, the orientation button makes the view follow where the phone points (using the compass); drag to stop. Clouds and light pollution are not modeled. The chart and its catalogs work offline. Dates from year −1000 through 3000 (UTC).", [
+  ["Sky chart", "coelum(t, place) shows the sky above a place, in two views. Chart is a map-like whole-sky chart, as in a printed atlas: north up, east left, stars to magnitude 6 sized by brightness, double stars with a bar and variable stars with a ring, the Sun, the planets, the phase of the Moon, galaxies, clusters and nebulae with their atlas symbols, constellations, the ecliptic and the Milky Way; the legend button explains the symbols. Sky is a realistic view toward the horizon: the colour of the sky follows the Sun through daylight, sunset and twilight to night, stars fade with twilight, moonlight and toward the horizon, the Moon shows its face and phase, the Milky Way appears in a dark sky, and a landscape hides what is below the horizon. The place may be a name, coordinates or here; omitted, it uses Settings. Drag to look around, pinch or scroll to zoom, double-tap to reset; tap an object or its label for its name, type, coordinates and magnitude (for a star also its designations, spectral type, parallax, distance and proper motion), or find it with the search field (stars by name, Bayer letter as α Lyr or alpha Lyr, Flamsteed, HIP, HD or HR number; planets, deep-sky objects by any of their names, constellations). Stars move by their proper motions over the centuries; the stars come from the AT-HYG catalog (Tycho-2, Hipparcos and Gaia DR3). The layers button toggles ground, atmosphere, Milky Way, constellations, boundaries, ecliptic, grids, deep-sky objects and labels, and the text size. Step through time or play it forward or backward. Full screen fills the display; its controls fade after a few seconds and come back when you touch, move or press a key. The eclipse, occultation and lunar eclipse sheets for a place open it at the event with Show in the sky. In Sky, with the atmosphere on, positions include refraction, and the card gives the apparent altitude; switching views keeps the same direction and scale. Horizon chooses a landscape, a flat horizon or the local terrain, computed once for a place from elevation tiles (online, a few MB) and then kept. Fainter stars can be downloaded (to magnitude 8, 40,000 stars, 1.3 MB; 10, 349,000 stars, 8.3 MB; or 11, 937,000 stars, 18.4 MB, found by their HIP, HD or TYC numbers) and appear as you zoom in; star sizes follow their magnitude at every zoom, and the grids get finer (down to minutes) as you zoom. Dragging the chart keeps its horizon level once you look away from the zenith. Tap the date to set the date and time or jump to the day's sunrise, sunset, twilights, moonrise and moonset; tap the place to choose a city, type coordinates, search online or use your position. The Minor planets layer shows the built-in minor planets and dwarf planets, and those looked up before; they can be searched by name or number. Zoomed in on Mars, Jupiter, Saturn, Uranus or Neptune, their major moons appear and can be tapped or searched, and the planets show their disks and phases (Saturn its rings); Moons of … on the card of a planet or a moon opens their view as in moons(), at the chart's time. A star's card shows its colour index, an estimated temperature and spectral type, and the black-body spectrum that sets its colour in the views. On a phone, the orientation button makes the view follow where the phone points (using the compass); drag to stop. Clouds and light pollution are not modeled. The chart and its catalogs work offline. Dates from year −1000 through 3000 (UTC).", [
     ["coelum(now, \"Rome\")", "Sky above Rome"], ["coelum(now, here)", "Sky at your position"],
   ]],
   ["Sky", "The Sun and the Moon seen from a place (latitude, longitude), (latitude, longitude, height) or a name, as \"Milan\", or from the location set in Settings (its elevation, 0 if left out): sunrise, sunset, solar noon, moonrise and moonset after a date, with an error from the refraction near the horizon; positions as (altitude, azimuth), the phases and quarters of the Moon, the equinoxes and solstices of a year, and the local sidereal time. A third argument to sunrise and sunset gives twilights: −6° civil, −12° nautical, −18° astronomical. With a location, Hebrew dates after sunset show the next day. The planets, and the Sun and the Moon, by name: altaz(“Mars”, t, place), radec(“Mars”, t) (apparent right ascension and declination, in degrees, radec(“Mars”, t).1 @ hms in hours; with a place, seen from it), ecl(“Mars”, t) (ecliptic longitude and latitude) and dist(“Mars”, t), from VSOP87, to about 1″ (Uranus and Neptune a few ″; see Accuracy of the sky); mag(“Venus”, t), the visual magnitude; illum, the lit fraction and the phase angle; elong, the angle from the Sun (positive to the east, in the evening sky); diam, the apparent diameter; and rising, setting and transit (on the meridian) after a date, as rising(“Mars”, t, place). moons(“Jupiter”, t) draws the major moons of a planet (north up, east to the left) and gives their offsets from it, with transits, occultations, eclipses and shadows on the planet; for Mars, Jupiter, Saturn, Uranus and Neptune, fitted to JPL's ephemerides from 1900 to 2100; tap the drawing to zoom and to see the moons move, faster or backward, and a moon, there or in the table, for its events. moonpos(“Io”, t) gives one moon's offsets, moonevents(“Io”, t) its next transit, shadow, eclipse and occultation (within 30 days), and moonevents(“Io”, t, “eclipse”) the beginning and end of the next eclipse. lunareclipse(t) gives the next lunar eclipse, its contacts and magnitudes; solareclipse(t) the next solar eclipse, its kind, greatest phase, gamma and magnitude, and solareclipse(t, place) the next one seen from a place, with its contacts to a few seconds and the sunrise or sunset during it; its map shows the path, the hours (UTC) when the partial eclipse begins and ends, and where the maximum is at sunrise or sunset; tap it to zoom, and to see it on OpenStreetMap, a topographic, dark or satellite map (online), or to follow the Moon's shadow across the Earth: the penumbra, darker where more of the Sun is covered, the umbra (or the antumbra of an annular eclipse) and the night at each moment, with the contacts on the Earth (P1, U1… P4) and at the place (C1… C4), and the phase there. The globe and the maps keep the same view when you switch between them; tap a place on any of them for the eclipse seen from there (its kind, magnitude, contacts and the Sun's altitude), and Calculate here for the whole calculation there. lunareclipse(t, place) gives the next lunar eclipse seen from a place; its drawing shows the Moon's path through the Earth's penumbra and umbra, with the times (UTC) of the contacts (P1, U1… P4), dashed where the Moon is down; tap it to follow the Moon through the shadow, with the phase and the magnitude at each moment, and the Moon as it looks then (its near side, north up, from NASA's LRO maps). conjunction(“Venus”, “Jupiter”, t) gives the next conjunction of two bodies in ecliptic longitude, their separation then (the second toward ecliptic north from the first, south when negative), the closest approach and the least separation, and their angle from the Sun; with a place, seen from it (this matters for the Moon, shifted by its parallax up to 1°). opposition(“Mars”, “Sun”, t) gives the next difference of 180° in ecliptic longitude, with the separation and the greatest separation nearby; both functions require two bodies and accept a place for a local calculation. occultation(“Moon”, “Regulus”, t) gives the next occultation anywhere on Earth, with its greatest phase and map; give a fourth argument for local contact times. occultation(“Moon”, “Regulus”, t, place) gives the next occultation of a star, a planet or a minor planet by the Moon seen from a place, with the body above the horizon: when it disappears and reappears (for a planet, its first and last contacts and when it is wholly covered, its disk flattened as it is seen; for Saturn, also those of its rings, to the outer edge of the A ring, which may be covered without the globe), on the dark or bright limb of the Moon, the position angles on the limb (from the north through the east), the altitudes and the lit part of the Moon; the times are good to a few seconds, from the positions and the Moon's mountains and valleys, which are not modeled (grazes, where the star skims the limb, need them). Its map shows where on the Earth it is seen: its limits (to a few km: the Moon's mountains and valleys move them as much), the central line with its times, the lines of the hours (UTC) when it begins and ends, where it does at the body's rising or setting, and the night; for a planet, where it is wholly covered; tap the map to zoom, and a place for the occultation there (and Calculate here). occultation(“Venus”, “Jupiter”, t, place) looks for a planet in front: these are rare (Venus in front of Jupiter on 2065.11.22, the first since 1818), but the planets' positions, to about 1″, decide them.  Points of the sky are pairs (longitude, latitude), as (ra, dec), the right ascension also as a time (5h 34m 32s, or in hourangle): eq2hor and hor2eq between (ra, dec) and (alt, az) at a date and place, eq2ecl and ecl2eq to the ecliptic (true, of a date; mean of J2000 without it), eq2gal and gal2eq to galactic coordinates (from J2000), precess((ra, dec), 2000, today) between two epochs, sep and pa the angular distance and the position angle of a point from another, and refract(alt) the refraction to add to a true altitude (also refract(alt, pressure, temperature)). The height of a place moves the Moon by its parallax (0.5″ a kilometre) and makes the refraction at the horizon smaller, with the pressure of the standard atmosphere (34′ at sea level, 24′ at 3000 m): rising and setting a minute or so later; a sea horizon seen from above is lower by dip(h), as in sunrise(t, place, −50′ − dip(h)). The stars named by the IAU and the Messier and other named deep-sky objects are bodies too, by name: altaz(“Vega”, t, place), rising(“Sirius”, t, place), transit(“M31”, t, place), radec(“Vega”, t), apparent (proper motion, precession, nutation, aberration and parallax, to about 0.3″), radec(“Vega”) the catalog position (ICRS, J2000), mag(“Vega”) and dist(“Sirius”) from the parallax. place(“Milan”) gives (latitude, longitude, height); the large cities are built in. Other names, of objects (“NGC 7000”, “HD 12345”, “alf Cen”) or places (“Mount Etna”, an address), are looked up online when you press =: objects in SIMBAD, places in OpenStreetMap with their elevation from a terrain map; they are kept on the device, so the history computes offline. Minor planets and comets are bodies too: about 175 brighter minor planets, the dwarf planets and some visited ones are built in, with their orbits of each year from 2016 to 2040 (good to some arcseconds; further from those years, and near the Earth, the error grows, as shown); others, by name, number or designation (“2004 MN4”), and comets (“12P”, “C/2023 A3”, “Halley”), come from the Minor Planet Center. Artificial satellites in near-Earth orbits (“ISS”, “Hubble”, “Tiangong”, others by name or as “NORAD 25544”) come from CelesTrak, updated when a day old: altaz(“ISS”, now, here), rising and setting, and passes(“ISS”, today, here), the passes of a day (or up to 10), with directions and whether it can be seen. The here key gives (latitude, longitude, altitude) when the device reports the altitude. sunday(t, place) gives the day of the Sun as a table (civil dawn, sunrise, noon, sunset, civil dusk, day length), moonphases(t) the next four phases of the Moon, seasons(year) the equinoxes and solstices; a row of a table by its name: moonphases(today).“full moon”, seasons(2027).“June solstice”, moonevents(“Io”, today).“eclipse begins” (also item(table, “full moon”)); tapping the name of a row in a result types it, as ans₃.“sunset”. On the ƒ(x) page, the Sky, Planets and Coords keys hold the functions; their arguments come as they are needed: after altaz( the bodies, then the dates, then the places (here, place… for a city, Use location for your saved location, or Geocentric to omit the place where supported), each typed with the comma that follows, the last with the closing parenthesis; numbers show the 123 keys; a section tapped brings its keys back.", [

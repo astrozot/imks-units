@@ -64,10 +64,12 @@ altitudes and azimuths, including those below the horizon. Dates from year
 Switching between the views keeps the direction at the center and the
 scale there. In both, pinch (touch or trackpad) or scroll to zoom, double-tap to reset the view, and tap an
 object or its label for a details card (name, type, equatorial and
-horizontal coordinates, magnitude, distance, double/variable flags). The
-search field finds stars, planets, deep-sky objects (also by their other
-names, as "Andromeda Galaxy"), constellations and HIP numbers, and flies to
-the object. The layers button toggles ground, atmosphere (Sky), Milky Way,
+horizontal coordinates, magnitude, designations, spectral type, parallax
+and distance, proper motion, double/variable flags). The search field finds
+stars (by name, Bayer letter as "α Lyr", "alpha Lyr" or "alf Lyr",
+Flamsteed number, HIP, HD and HR numbers), planets, deep-sky objects (also
+by their other names, as "Andromeda Galaxy") and constellations, and flies
+to the object. The layers button toggles ground, atmosphere (Sky), Milky Way,
 constellations, boundaries, the ecliptic, grids, deep-sky objects and
 labels; each view keeps its own layers, and the last view used opens next
 time. Grids get finer as you zoom (30° down to 2′; RA from 2h down to
@@ -79,11 +81,14 @@ magnified cluster keeps its bright and faint members apart. **Horizon** chooses 
 every half degree out to 150 km, with the Earth's curvature and
 terrestrial refraction; it is kept on the device for twelve places, and
 the chart draws it as a green line. Elevation models include no trees and
-only some buildings. **Fainter stars** can be downloaded: to magnitude 8
-(36,000 more stars, 5 MB) or the whole Hipparcos catalogue (113,000 more,
-15 MB), from d3-celestial; they are stored compactly in Cache Storage (the
-service worker keeps caches named `imks-data…` across updates) and appear
-as you zoom in, in the chart up to the chosen magnitude. The time bar steps an hour, plays forward or backward (÷2 and ×2
+only some buildings. **Fainter stars** can be downloaded from the app's
+own `data/`: to magnitude 8 (40,000 more stars, 1.3 MB), 10 (349,000,
+8.3 MB) or 11 (937,000, 18.4 MB), with parallaxes and proper motions and
+found by their HIP, HD or TYC numbers; one set at a time is stored in Cache
+Storage (the service worker keeps caches named `imks-data…` across
+updates) and appears as you zoom in, in the chart up to the chosen
+magnitude. The stars are kept in tiles of the sky, and only those in view
+are read. The time bar steps an hour, plays forward or backward (÷2 and ×2
 change the speed, ⇄ the direction) and resets. **Full screen** fills the
 display; its controls float over the sky and fade after a few seconds
 without input, coming back on any movement, tap or key; Escape closes an
@@ -104,25 +109,41 @@ online, the device's position). A Minor planets layer adds the built-in
 minor planets and dwarf planets (and those looked up in the calculator),
 which search also finds; zoomed in, the major moons of Mars, Jupiter,
 Saturn, Uranus and Neptune appear around their planets, and the planets
-become disks with their phases (Saturn with its rings). A star's card
+become disks with their phases (Saturn with its rings); the card of a
+planet with moons opens their view as in `moons()` (shared code in
+`js/skyview.js`), at the chart's time. A star's card
 shows its B−V colour index, an estimated temperature and spectral type,
 and a black-body spectrum. On phones the orientation button makes the
 view follow where the phone points. Both views zoom to the same largest
 magnification.
 
-`js/skydata.js` bundles 5,044 stars from XHIP (Anderson & Francis, 2012),
-the 88 constellation figures, boundaries and Latin labels, and the Milky Way
-isophotes, via [d3-celestial](https://github.com/ofrohn/d3-celestial),
-BSD-3-Clause (the license is retained in the generated file), with double
-and variable flags from the Hipparcos catalogue (ESA, 1997). To regenerate,
-download `data/stars.6.json`, `data/constellations.lines.json`,
-`data/constellations.json`, `data/constellations.bounds.json`,
-`data/mw.json` and `LICENSE` from that repository into a directory, add the
-Hipparcos flags as `hip_main.tsv` (the VizieR query is in
-`tools/coelum.mjs`), then run `node tools/coelum.mjs <directory>`. Chart
-positions include precession and nutation, and proper motion where matched
-to the named-star catalog; they omit annual aberration and parallax. The
-existing `altaz` and `radec` functions retain their full precision.
+The chart's stars, built in and downloadable, come from one catalog,
+[AT-HYG](https://codeberg.org/astronexus/athyg) v4.0 (David Nash): Tycho-2,
+Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and
+proper motions, and the IAU star names. V, B−V and the double and variable
+flags of Hipparcos stars come from the Hipparcos catalogue (ESA, 1997), and
+their positions from its new reduction (van Leeuwen, 2007), as AT-HYG gives
+those of the brightest stars at 1991.25. AT-HYG is licensed CC BY-SA 4.0,
+and so are the files made from it: `js/stardata.js` (5,783 stars: to V 6,
+and all with a name, a Bayer letter or a Flamsteed number) and
+`data/stars-8.bin`, `stars-10.bin` and `stars-11.bin` (the others, in sky
+tiles of 3°, each brightest first, 16 bytes a star plus the HIP and HD
+numbers; the layout is described in the tool). To regenerate, download
+`athyg_40.csv.gz` (AT-HYG's `data/`), `hip_main.dat` (VizieR I/239),
+`hip2.dat.gz` (I/311) and `suppl_1.dat.gz` (I/259) — the last three from
+https://vizier.cfa.harvard.edu/ftp/cats/ — into a directory and run
+`node tools/stars.mjs <directory>`.
+
+`js/skydata.js` bundles the 88 constellation figures, boundaries and Latin
+labels, and the Milky Way isophotes, via
+[d3-celestial](https://github.com/ofrohn/d3-celestial), BSD-3-Clause (the
+license is retained in the generated file). To regenerate, download
+`data/constellations.lines.json`, `data/constellations.json`,
+`data/constellations.bounds.json`, `data/mw.json` and `LICENSE` from that
+repository into a directory, then run `node tools/coelum.mjs <directory>`.
+Chart positions include precession, nutation and proper motion; they omit
+annual aberration and parallax. The existing `altaz` and `radec` functions
+retain their full precision.
 
 ## Checks
 

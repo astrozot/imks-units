@@ -5,7 +5,8 @@ import { createCalculator } from '../js/defs.js';
 import { skyFrame, createSkyAnimator, skyChart, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
 import { horizontal, siderealTime } from '../js/astro.js';
 import { STARS } from '../js/catalog.js';
-import { CHART_STARS, CONSTELLATIONS } from '../js/skydata.js';
+import { CONSTELLATIONS } from '../js/skydata.js';
+import { CHART_STARS } from '../js/stardata.js';
 const window = {};
 new Function('window', fs.readFileSync(new URL('../js/data.js', import.meta.url), 'utf8'))(window);
 const { calc, errors } = createCalculator({ constants: window.IMKS_DATA.constants });
@@ -203,5 +204,26 @@ for (const phase of [0, 45, 90, 135, 180]) {
   const card = (bv) => objectDetails({ name: 'X', type: 'star', ra: 0, dec: 0, alt: 10, az: 0, mag: 1, bv });
   assert.match(card(0), /type A/); assert.match(card(0.65), /type G/); assert.match(card(1.85), /type M/);
   assert.ok(!objectDetails({ ...galilean[0], ra: 0, dec: 0 }).includes('coelum-spectrum'));
+}
+// The stars (AT-HYG, tools/stars.mjs): J2000 positions as the calculator's
+// catalog (but for Barnard's Star, of 1991 there), proper motions over the
+// centuries, designations in search and on the cards.
+{
+  const { STARS } = await import('../js/catalog.js');
+  const R = Math.PI / 180, sep = (a, b) => Math.acos(Math.min(1, Math.sin(a.dec * R) * Math.sin(b.dec * R) + Math.cos(a.dec * R) * Math.cos(b.dec * R) * Math.cos((a.ra - b.ra) * R))) / R;
+  const named = new Map(CHART_STARS.filter((s) => s[9]).map((s) => [s[9], s]));
+  const off = STARS.filter((s) => named.has(s[0]) && sep({ ra: s[1], dec: s[2] }, { ra: named.get(s[0])[1], dec: named.get(s[0])[2] }) * 3600 > 0.5).map((s) => s[0]);
+  assert.ok(named.size > 500 && off.length <= 2 && off.includes("Barnard's Star"), `Positions differ: ${off}`);
+  // against the J2000 place without motion, both precessed to 1000
+  const barnard = named.get("Barnard's Star"), then = skyFrame(Date.UTC(1000, 0, 1) / 1000, [45, 9, 0]);
+  const moved = sep(findObject(then, "Barnard's Star"), then.catalog(barnard[1], barnard[2]));
+  assert.ok(Math.abs(moved - Math.hypot(barnard[6], barnard[7]) * 1000 / 3.6e6) < 0.05, `Barnard's Star moved ${moved}°`);
+  const f = skyFrame(Date.UTC(2026, 10, 6, 21) / 1000, [41.892, 12.511, 20]);
+  for (const q of ['alpha Lyr', 'alf Lyr', 'α Lyr', 'HD 172167', 'HR 7001', 'HIP 91262', '3 Lyr']) assert.equal(searchSky(f, q)[0].name, 'Vega', q);
+  assert.equal(searchSky(f, 'alpha Cen')[0].name, 'Rigil Kentaurus');
+  assert.equal(searchSky(f, 'mu Her')[0].name, 'μ Her');
+  const vega = objectDetails(findObject(f, 'Vega'));
+  for (const text of ['α Lyr · 3 Lyr · HD 172167 · HR 7001 · HIP 91262', 'A0V', '130.23 mas', '7.68 pc · 25.0 light years', '349.7 mas a year, toward 35°']) assert.ok(vega.includes(text), text);
+  assert.equal(new Set(CHART_STARS.filter((s) => s[9]).map((s) => s[9])).size, named.size, 'Names are unique');
 }
 console.log('Coelum geometry, catalogs and calculator checks passed');

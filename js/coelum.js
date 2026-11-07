@@ -3,8 +3,9 @@
 // celestial sphere; its orientation is rotated by spherical drag gestures.
 // This module holds the geometry, the catalogs of a frame and the map-like
 // chart; coelumsky.js draws the realistic sky, coelumui.js the explorer.
-import { CHART_STARS, CONSTELLATIONS, BOUNDARIES } from './skydata.js';
-import { STARS, DEEP } from './catalog.js';
+import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
+import { CHART_STARS } from './stardata.js';
+import { DEEP } from './catalog.js';
 import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf } from './astro.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
@@ -69,7 +70,7 @@ export const PALETTE = {
   sky: '#0c1730', ground: '#17211b', horizon: '#86a690', lines: '#5274a3', bounds: '#3d5780', ecliptic: '#d0a54c', equatorial: '#3d5384', horizontal: '#2e4c5e',
   terrain: '#9fd58c', galaxy: '#ff8f80', cluster: '#f0d36c', nebula: '#6fdc9a', other: '#b9a3ff', label: '#c3d1e6', constellation: '#86a3cc', planet: '#ffe2a8',
 };
-export const starTint = (bv) => (bv < 0 ? '#cbdcff' : bv < 0.3 ? '#eef2ff' : bv < 0.6 ? '#fffaf0' : bv < 1.0 ? '#ffecc9' : '#ffd5a4');
+export const starTint = (bv = 0.6) => (bv < 0 ? '#cbdcff' : bv < 0.3 ? '#eef2ff' : bv < 0.6 ? '#fffaf0' : bv < 1.0 ? '#ffecc9' : '#ffd5a4');
 // Sizes follow the magnitude below the chart's limit, which deepens as it
 // zooms: a zoomed-in cluster keeps its bright and faint members apart.
 export const starRadius = (mag, scale = 1) => {
@@ -77,21 +78,9 @@ export const starRadius = (mag, scale = 1) => {
   return Math.min(4.6 * Math.min(1.5, 1 + 0.12 * zoom), 0.5 + 0.045 * rel ** 2.1);
 };
 
-// Match the named catalog once; use its motions and names in the chart,
-// retaining HIP identifiers for the remaining stars.
 const previews = new WeakMap();
 export const MIN_TIME = Date.parse('-001000-01-01T00:00:00Z') / 1000, MAX_TIME = Date.parse('3001-01-01T00:00:00Z') / 1000 - 1;
 export const limitTime = (t) => Math.min(MAX_TIME, Math.max(MIN_TIME, t));
-const named = new Map();
-for (const s of STARS) {
-  let best = null, distance = 0.025;
-  for (const c of CHART_STARS) {
-    const da = ((c[1] - s[1] + 540) % 360 - 180) * Math.cos(s[2] * R);
-    const d = Math.hypot(da, c[2] - s[2]);
-    if (d < distance) { best = c[0]; distance = d; }
-  }
-  if (best !== null && !named.has(best)) named.set(best, s);
-}
 
 // A date's precession/nutation matrix is shared by the entire background.
 // Annual aberration/parallax (< a chart pixel) are omitted in this drawing;
@@ -191,9 +180,10 @@ export function skyFrame(t, place) {
   };
   const hor = (p) => horizonPoint(p.ra, p.dec, place[0], lst);
   const catalog = (ra, dec, pmra, pmdec) => { const p = eq(ra, dec, pmra, pmdec); return { ...p, ...hor(p) }; };
-  const stars = CHART_STARS.map(([id, ra, dec, mag, bv, flags = 0]) => {
-    const n = named.get(id), p = n ? catalog(n[1], n[2], n[3], n[4]) : catalog(ra, dec);
-    return { ...p, name: n ? n[0] : `HIP ${id}`, mag, bv, type: 'star', named: Boolean(n), catalogId: `HIP ${id}`, distancePc: n && n[5] > 0 ? 1000 / n[5] : null, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
+  const stars = CHART_STARS.map(([hip, ra, dec, mag, bv, flags, pmra, pmdec, parallax, proper, names, spect]) => {
+    // named by the IAU, or by the first designation (Bayer, Flamsteed, HIP)
+    const designations = [...names ? names.split('|') : [], ...hip ? [`HIP ${hip}`] : []], name = proper || designations.shift() || 'Star';
+    return { ...catalog(ra, dec, pmra, pmdec), name, designations, mag, bv: bv ?? undefined, type: 'star', named: Boolean(proper), parallax, pmra, pmdec, spect, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
   });
   const bodies = solarBodies(t, place, hor);
   const deep = DEEP.map(([names, ra, dec, mag, type]) => ({ ...catalog(ra, dec), name: names[0], description: names.slice(1).join(' · '), mag, type }));
@@ -345,52 +335,113 @@ export function gridLabelAt(screen, W, H, visible) {
   return best;
 }
 
-// Optional fainter stars (downloaded by the explorer): one Float32Array of
-// [RA, Dec (J2000, degrees), V, B−V, HIP] per star, brightest first.
-let FAINT = null, FAINT_INDEX = null;
-export function setFaintStars(data) {
-  FAINT = data && data.length ? data : null;
-  FAINT_INDEX = FAINT ? new Map(Array.from({ length: FAINT.length / 5 }, (_, i) => [FAINT[i * 5 + 4], i])) : null;
-}
-export const faintCount = () => (FAINT ? FAINT.length / 5 : 0);
-// Equatorial vectors of date, once per frame, when they are first needed.
-function faintVectors(frame) {
-  if (!FAINT) return null;
-  if (frame.faintData === FAINT) return frame.faintEq;
-  const n = FAINT.length / 5, eq = new Float32Array(3 * n), M = frame.matrix;
-  for (let i = 0; i < n; i++) {
-    const u = vec(FAINT[5 * i], FAINT[5 * i + 1]);
-    for (let k = 0; k < 3; k++) eq[3 * i + k] = M[0][k] * u[0] + M[1][k] * u[1] + M[2][k] * u[2];
+// Optional fainter stars (downloaded by the explorer): an ArrayBuffer of
+// tools/stars.mjs, in tiles of the sky, of which only those in view are
+// read; positions move by the proper motions.
+let STORED = null;
+export function setFaintStars(data) { STORED = data ? readStars(data) : null; }
+export const faintCount = () => (STORED ? STORED.n : 0);
+// The deepest magnitude of the stored stars.
+export const faintDepth = () => (STORED ? STORED.depth : 6);
+
+// The file: its arrays, each tile's center (J2000) and radius (radians),
+// a polar cap about the pole, and the fastest proper motion (radians a
+// year), by which stars may leave their tiles.
+export function readStars(buffer) {
+  const head = new Uint32Array(buffer, 0, 5);
+  if (String.fromCharCode(...new Uint8Array(buffer, 0, 4)) !== 'STAR' || head[1] !== 1) throw new Error('not a star file of this version');
+  const [, , T, n, A] = head, box = new Float32Array(buffer, 20, 4 * T);
+  let o = 20 + 16 * T;
+  const start = new Uint32Array(buffer, o, T + 1); o += 4 * (T + 1);
+  const tyc = new Uint32Array(buffer, o, n); o += 4 * n;
+  const ra = new Uint16Array(buffer, o, n); o += 2 * n;
+  const dec = new Uint16Array(buffer, o, n); o += 2 * n;
+  const pmra = new Int16Array(buffer, o, n); o += 2 * n;
+  const pmdec = new Int16Array(buffer, o, n); o += 2 * n;
+  const plx = new Uint16Array(buffer, o, n); o += 2 * n;
+  const mag = new Uint8Array(buffer, o, n); o += n;
+  const bv = new Int8Array(buffer, o, n); o += n;
+  const aliasStar = new Uint32Array(buffer, o, A), alias = new Uint32Array(buffer, o + 4 * A, A);
+  const center = new Float32Array(3 * T), reach = new Float32Array(T);
+  let depth = 0, fastest = 0;
+  for (let t = 0; t < T; t++) {
+    const [a, d, sa, sd] = box.subarray(4 * t, 4 * t + 4);
+    if (sa > 180) {
+      center.set([0, 0, d < 0 ? -1 : 1], 3 * t);
+      reach[t] = (90 - Math.min(Math.abs(d), Math.abs(d + sd))) * R;
+    } else {
+      const c = vec(a + sa / 2, d + sd / 2);
+      center.set(c, 3 * t);
+      reach[t] = Math.max(...[[a, d], [a + sa, d], [a, d + sd], [a + sa, d + sd], [a + sa / 2, d], [a + sa / 2, d + sd]].map(([x, y]) => Math.acos(clamp(dot3(c, vec(x, y))))));
+    }
+    if (start[t + 1] > start[t]) depth = Math.max(depth, mag[start[t + 1] - 1] / 20);
   }
-  frame.faintData = FAINT; frame.faintEq = eq;
-  return eq;
+  for (let j = 0; j < n; j++) fastest = Math.max(fastest, Math.abs(pmra[j]), Math.abs(pmdec[j]));
+  return { n, T, box, start, tyc, ra, dec, pmra, pmdec, plx, mag, bv, aliasStar, alias, center, reach, depth, fastest: Math.SQRT2 * fastest * R / 3.6e6 };
 }
-// Calls visit(i, horizontal vector, magnitude) for the downloaded stars
-// brighter than the limit; no objects are made for the others.
-export function eachFaint(frame, limit, visit) {
-  const eq = faintVectors(frame);
-  if (!eq) return;
-  const lst = siderealTime(frame.t, frame.place[1]) * R, lat = frame.place[0] * R;
-  const sl = Math.sin(lst), cl = Math.cos(lst), sp = Math.sin(lat), cp = Math.cos(lat), n = FAINT.length / 5;
-  for (let i = 0; i < n && FAINT[5 * i + 2] <= limit; i++) {
-    const x = eq[3 * i], y = eq[3 * i + 1], z = eq[3 * i + 2], m = x * cl + y * sl;
-    visit(i, [y * cl - x * sl, z * cp - m * sp, z * sp + m * cp], FAINT[5 * i + 2]);
+// Stored star j: its J2000 vector at the epoch, its tile and data
+function storedStar(j) {
+  const S = STORED;
+  let lo = 0, hi = S.T - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S.start[m] <= j) lo = m; else hi = m - 1; }
+  const b = 4 * lo, ra = S.box[b] + S.ra[j] / 65535 * S.box[b + 2], dec = S.box[b + 1] + S.dec[j] / 65535 * S.box[b + 3];
+  return { ra, dec, pmra: S.pmra[j], pmdec: S.pmdec[j], mag: S.mag[j] / 20, bv: S.bv[j] === -128 ? undefined : S.bv[j] / 50, parallax: S.plx[j] * 0.02 };
+}
+// Its designations, HIP and HD (from the aliases, sorted by star) then TYC
+function storedNames(j) {
+  const S = STORED, out = [];
+  let lo = 0, hi = S.alias.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (S.aliasStar[m] < j) lo = m + 1; else hi = m; }
+  for (let k = lo; k < S.alias.length && S.aliasStar[k] === j; k++) out.push(`${S.alias[k] >= 2 ** 29 ? 'HD' : 'HIP'} ${S.alias[k] % 2 ** 28}`);
+  const t = S.tyc[j];
+  if (t) out.push(`TYC ${Math.floor(t / 65536)}-${Math.floor(t / 4) % 16384}-${t % 4 + 1}`);
+  return out.length ? out : ['Star'];
+}
+
+// Calls visit(j, horizontal vector, magnitude, B−V) for the stored stars
+// brighter than the limit; no objects are made for the others. With a
+// cone ({ v: horizontal direction, radius: radians }), only the tiles that
+// reach it are read.
+export function eachFaint(frame, limit, visit, cone = null) {
+  const S = STORED;
+  if (!S) return;
+  const H = horizonToJ2000(frame), top = limit * 20, years = centuries(frame.t) * 100, k = years * R / 3.6e6;
+  // the cone's axis in J2000; from J2000 to the horizon by the transpose
+  const c = cone && [0, 1, 2].map((i) => H[3 * i] * cone.v[0] + H[3 * i + 1] * cone.v[1] + H[3 * i + 2] * cone.v[2]);
+  const margin = cone ? cone.radius + S.fastest * Math.abs(years) : 0;
+  for (let t = 0; t < S.T; t++) {
+    const first = S.start[t], end = S.start[t + 1];
+    if (first === end || S.mag[first] > top) continue;
+    if (c && c[0] * S.center[3 * t] + c[1] * S.center[3 * t + 1] + c[2] * S.center[3 * t + 2] < Math.cos(Math.min(Math.PI, margin + S.reach[t]))) continue;
+    const b = 4 * t, a0 = S.box[b] * R, d0 = S.box[b + 1] * R, ka = S.box[b + 2] * R / 65535, kd = S.box[b + 3] * R / 65535;
+    for (let j = first; j < end && S.mag[j] <= top; j++) {
+      // moved in the tangent plane: east × μα cos δ + north × μδ
+      const a = a0 + S.ra[j] * ka, d = d0 + S.dec[j] * kd, ca = Math.cos(a), sa = Math.sin(a), cd = Math.cos(d), sd = Math.sin(d);
+      const e = S.pmra[j] * k, nn = S.pmdec[j] * k;
+      let x = cd * ca - e * sa - nn * sd * ca, y = cd * sa + e * ca - nn * sd * sa, z = sd + nn * cd;
+      const norm = Math.hypot(x, y, z); x /= norm; y /= norm; z /= norm;
+      visit(j, [H[0] * x + H[3] * y + H[6] * z, H[1] * x + H[4] * y + H[7] * z, H[2] * x + H[5] * y + H[8] * z], S.mag[j] / 20, S.bv[j] === -128 ? 0.6 : S.bv[j] / 50);
+    }
   }
 }
-export function faintObject(frame, i, v) {
-  const eq = faintVectors(frame), x = eq[3 * i], y = eq[3 * i + 1], z = eq[3 * i + 2];
-  return {
-    name: `HIP ${FAINT[5 * i + 4]}`, catalogId: `HIP ${FAINT[5 * i + 4]}`, type: 'star', mag: FAINT[5 * i + 2], bv: FAINT[5 * i + 3], vector: v,
-    ra: (Math.atan2(y, x) / R + 360) % 360, dec: Math.asin(clamp(z)) / R, alt: Math.asin(clamp(v[2])) / R, az: (Math.atan2(v[0], v[1]) / R + 360) % 360,
-  };
+// A drawn star, its name made only when it is tapped.
+export class FaintHit {
+  constructor(i, x, y, radius) { this.i = i; this.x = x; this.y = y; this.radius = radius; }
+  get name() { return storedNames(this.i)[0]; }
 }
+// Stored star j as an object (as the built-in stars), at the frame's time
+function faintObject(frame, j) {
+  const s = storedStar(j), [name, ...designations] = storedNames(j), p = frame.catalog(s.ra, s.dec, s.pmra, s.pmdec);
+  return { ...p, ...frame.hor(p), name, designations, type: 'star', mag: s.mag, bv: s.bv, parallax: s.parallax, pmra: s.pmra, pmdec: s.pmdec };
+}
+// A stored star by one of its designations: HIP 12345, HD 12345, TYC 1-2-1
 function findFaint(frame, name) {
-  const m = /^HIP (\d+)$/.exec(name || '');
-  if (!m || !FAINT_INDEX || !FAINT_INDEX.has(Number(m[1]))) return null;
-  const i = FAINT_INDEX.get(Number(m[1]));
-  let found = null;
-  eachFaint(frame, FAINT[5 * i + 2], (j, v) => { if (j === i) found = faintObject(frame, i, v); });
-  return found;
+  if (!STORED) return null;
+  const m = /^(HIP|HD) (\d+)$/.exec(name || ''), t = /^TYC (\d+)-(\d+)-(\d+)$/.exec(name || '');
+  let j = -1;
+  if (m) { const k = STORED.alias.indexOf((m[1] === 'HD' ? 2 : 1) * 2 ** 28 + Number(m[2])); j = k < 0 ? -1 : STORED.aliasStar[k]; }
+  else if (t) j = STORED.tyc.indexOf(Number(t[1]) * 65536 + Number(t[2]) * 4 + Number(t[3]) - 1);
+  return j < 0 ? null : faintObject(frame, j);
 }
 
 // Approximate only the ground silhouette, not object positions. Fully filled
@@ -442,6 +493,13 @@ export function pen(ctx) {
     circle(x, y, r, st) {
       if (!ctx) { svg += `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r)}" ${attrs(st)}/>`; return; }
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); paint(st);
+    },
+    // many circles of one style, [x, y, r, x, y, r…], filled at once
+    dots(xyr, st) {
+      if (!ctx) { for (let i = 0; i < xyr.length; i += 3) this.circle(xyr[i], xyr[i + 1], xyr[i + 2], st); return; }
+      ctx.beginPath();
+      for (let i = 0; i < xyr.length; i += 3) { ctx.moveTo(xyr[i] + xyr[i + 2], xyr[i + 1]); ctx.arc(xyr[i], xyr[i + 1], xyr[i + 2], 0, Math.PI * 2); }
+      paint(st);
     },
     ellipse(x, y, rx, ry, angle, st) {
       if (!ctx) { svg += `<ellipse cx="${f(x)}" cy="${f(y)}" rx="${f(rx)}" ry="${f(ry)}" ${attrs(st)} transform="rotate(${f(angle)} ${f(x)} ${f(y)})"/>`; return; }
@@ -716,15 +774,18 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     if (o.name === view.selected || o.named && o.mag < (scale > 2 ? 4.5 : 2)) labels.push({ ...q, name: o.name, color: c.label, r, priority: 2 });
   }
   // Downloaded stars: fainter ones appear as the chart is zoomed in.
-  const faintLimit = Math.min(opts.magnitude, 6 + 1.25 * Math.log2(scale));
-  if (faintLimit > 6) eachFaint(frame, faintLimit, (i, v, mag) => {
+  // by tint, so that thousands are filled at once
+  const faintLimit = Math.min(opts.magnitude, 6 + 1.25 * Math.log2(scale)), tints = new Map();
+  if (faintLimit > 6) eachFaint(frame, faintLimit, (i, v, mag, bv) => {
     if (opts.ground && v[2] < 0) return;
     const pv = projectVector(v, rotation), x = cx + pv.x * radius, y = cy + pv.y * radius;
     if (x < -2 || x > W + 2 || y < -2 || y > H + 2) return;
-    const r = Math.max(0.45, starRadius(mag, scale) * 0.9), o = faintObject(frame, i, v);
-    p.circle(x, y, r, { fill: starTint(o.bv) });
-    objects.push({ ...o, x, y, radius: r });
-  });
+    const r = Math.max(0.45, starRadius(mag, scale) * 0.9), tint = starTint(bv);
+    if (!tints.has(tint)) tints.set(tint, []);
+    tints.get(tint).push(x, y, r);
+    objects.push(new FaintHit(i, x, y, r));
+  }, { v: rotation.slice(6, 9), radius: Math.min(2, Math.hypot(W, H) / 2 / radius) * Math.PI / 2 + 0.02 });
+  for (const [fill, xyr] of tints) p.dots(xyr, { fill });
   // Planets; zoomed in, their moons; minor planets and comets on request.
   const pxPerDeg = radius / 90;
   for (const o of frame.bodies) {
@@ -802,9 +863,26 @@ export function chartLegend() {
   </ul>`;
 }
 
-// Search names, aliases (M31 → Andromeda Galaxy), constellations and HIP
-// numbers; accents, case and spaces are ignored ("m 31" finds M31).
-const fold = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+// Search names, aliases (M31 → Andromeda Galaxy), constellations, star
+// designations (Bayer, Flamsteed, HIP, HD, HR; for downloaded stars HIP,
+// HD and TYC); accents, case and spaces are ignored ("m 31" finds M31).
+// Greek letters are spelled out (α Tau as alpha Tau); their IAU
+// abbreviations (alf Tau) are keys too.
+const GREEK = { α: ['alpha', 'alf'], β: ['beta', 'bet'], γ: ['gamma', 'gam'], δ: ['delta', 'del'], ε: ['epsilon', 'eps'], ζ: ['zeta', 'zet'], η: ['eta', 'eta'], θ: ['theta', 'tet'], ι: ['iota', 'iot'], κ: ['kappa', 'kap'], λ: ['lambda', 'lam'], μ: ['mu', 'mu'], ν: ['nu', 'nu'], ξ: ['xi', 'ksi'], ο: ['omicron', 'omi'], π: ['pi', 'pi'], ρ: ['rho', 'rho'], σ: ['sigma', 'sig'], τ: ['tau', 'tau'], υ: ['upsilon', 'ups'], φ: ['phi', 'phi'], χ: ['chi', 'chi'], ψ: ['psi', 'psi'], ω: ['omega', 'ome'] };
+const fold = (s) => String(s).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[α-ω]/g, (c) => GREEK[c]?.[0] ?? c).replace(/[^a-z0-9]+/g, ' ').trim();
+const folded = new Map(), foldKey = (s) => { let f = folded.get(s); if (f === undefined) folded.set(s, f = fold(s)); return f; };
+// a star's search keys: its name and designations, a Bayer letter also
+// without its superscript (α Cen for α¹ Cen) and abbreviated
+const starKeys = new WeakMap();
+const keysOf = (o) => {
+  let keys = starKeys.get(o);
+  if (!keys) {
+    keys = [o.name, ...o.designations || []];
+    for (const k of [...keys]) if (/^[α-ω]/.test(k)) { const bare = k.replace(/[⁰-⁹¹²³]+/g, ''); keys.push(bare, bare.replace(/^[α-ω]/, (c) => GREEK[c][1])); }
+    starKeys.set(o, keys);
+  }
+  return keys;
+};
 export function searchSky(frame, query, limit = 8) {
   const q = fold(query), qc = q.replace(/ /g, '');
   if (!qc) return [];
@@ -812,7 +890,7 @@ export function searchSky(frame, query, limit = 8) {
   const entries = [
     ...frame.bodies.map((o) => ({ o, keys: o.number ? [o.name, String(o.number)] : [o.name] })),
     ...frame.bodies.filter(hasMoons).flatMap((planet) => planetMoons(frame, planet).map((o) => ({ o, keys: [o.name] }))),
-    ...frame.stars.filter((o) => o.named || o.mag < 6.1 && /^hip/.test(qc)).map((o) => ({ o, keys: o.named ? [o.name, o.catalogId] : [o.catalogId] })),
+    ...frame.stars.map((o) => ({ o, keys: keysOf(o) })),
     ...frame.deep.map((o) => ({ o, keys: [o.name, ...(o.description ? o.description.split(' · ') : [])] })),
     ...frame.constellations.map((o) => ({ o, keys: [o.name] })),
   ];
@@ -820,13 +898,16 @@ export function searchSky(frame, query, limit = 8) {
   for (const { o, keys } of entries) {
     let best = null;
     for (const key of keys) {
-      const k = fold(key), kc = k.replace(/ /g, '');
+      const k = foldKey(key), kc = k.replace(/ /g, '');
       const score = kc === qc ? 0 : kc.startsWith(qc) ? 1 : k.split(' ').some((w) => w.startsWith(q)) ? 2 : kc.includes(qc) ? 3 : null;
       if (score !== null && (!best || score < best.score)) best = { score, alias: key === o.name ? null : key };
     }
     if (best) out.push({ ...best, object: o });
   }
-  const hip = /^hip(\d+)$/.exec(qc), extra = hip && !out.some((r) => r.object.catalogId === `HIP ${hip[1]}`) && findFaint(frame, `HIP ${hip[1]}`);
+  // downloaded stars by number: HIP 12345, HD 12345, TYC 1234-567-1
+  const number = /^(hip|hd)(\d+)$/.exec(qc), tyc = /^tyc ?(\d+) (\d+) (\d+)$/.exec(q);
+  const id = number ? `${number[1].toUpperCase()} ${Number(number[2])}` : tyc && `TYC ${Number(tyc[1])}-${Number(tyc[2])}-${Number(tyc[3])}`;
+  const extra = id && !out.some((r) => r.object.name === id || r.object.designations?.includes(id)) && findFaint(frame, id);
   if (extra) out.push({ score: 0, alias: null, object: extra });
   return out.sort((a, b) => a.score - b.score || rank(a.object) - rank(b.object) || (a.object.mag ?? 99) - (b.object.mag ?? 99)).slice(0, limit)
     .map(({ object, alias }) => ({ name: object.name, alias, type: object.type, alt: object.alt, mag: object.mag }));
@@ -847,9 +928,22 @@ const sexagesimal = (value, hours = false, signed = false) => {
     : `${sign}${a}° ${String(b).padStart(2, '0')}′ ${String(c).padStart(2, '0')}″`;
 };
 
+// A distance in parsecs, and in light years
+const distanceText = (pc) => {
+  const f = (x) => (x < 100 ? x.toFixed(x < 10 ? 2 : 1) : Math.round(x).toLocaleString('en'));
+  return `${f(pc)} pc · ${f(pc * 3.26156)} light years`;
+};
+// A proper motion (mas/yr) and its direction, the position angle from the
+// north through the east
+const motionText = (pmra, pmdec) => {
+  const total = Math.hypot(pmra, pmdec), pa = (Math.atan2(pmra, pmdec) / R + 360) % 360;
+  return `${total >= 1000 ? `${(total / 1000).toFixed(2)}″` : `${total.toFixed(1)} mas`} a year, toward ${Math.round(pa)}°`;
+};
 export function objectDetails(o) {
   const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`;
   const notes = [o.double && 'double or multiple', o.variable && 'variable'].filter(Boolean);
+  // a planet with moons, or one of them: a button for the moons' view
+  const system = hasMoons(o) ? o.body : o.planet ? planetOf(o.name) : null;
   return `<div class="coelum-object-head"><h3>${esc(o.name)}</h3><span>${esc(o.type)}</span></div>
     ${o.description ? `<p>${esc(o.description)}</p>` : ''}<dl>
     ${row('Right ascension (RA)', sexagesimal(o.ra / 15, true))}
@@ -859,11 +953,13 @@ export function objectDetails(o) {
     ${row('Azimuth (Az)', sexagesimal(o.az))}
     ${o.type === 'constellation' ? '' : row('Visual magnitude', Number.isFinite(o.mag) ? o.mag.toFixed(2) : 'Not available')}
     ${notes.length ? row('Hipparcos', notes.join(', ')) : ''}
-    ${o.catalogId ? row('Catalog', o.catalogId) : ''}
-    ${o.distancePc ? row('Distance', `${o.distancePc.toFixed(2)} pc`) : ''}
+    ${o.designations?.length ? row('Designations', o.designations.join(' · ')) : ''}
+    ${o.spect ? row('Spectral type', o.spect) : ''}
+    ${o.parallax > 0 ? row('Parallax', `${o.parallax.toFixed(o.parallax < 10 ? 3 : 2)} mas`) + row('Distance', distanceText(1000 / o.parallax)) : ''}
+    ${Number.isFinite(o.pmra) && (o.pmra || o.pmdec) ? row('Proper motion', motionText(o.pmra, o.pmdec)) : ''}
     ${o.body && Number.isFinite(o.dist) ? row('Distance', o.dist > 1e7 ? `${(o.dist / 149597870.7).toFixed(3)} au` : `${Math.round(o.dist).toLocaleString('en')} km`) : ''}
     ${o.body === 'moon' ? row('Illuminated', `${((1 + Math.cos(o.phase * R)) * 50).toFixed(1)} %`) : ''}
-    </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv) : ''}<p class="coelum-coordinate-note">Equatorial coordinates of date · ${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
+    </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">Moons of ${esc(hasMoons(o) ? o.name : o.planet)}</button>` : ''}<p class="coelum-coordinate-note">Equatorial coordinates of date · ${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
 }
 
 // A star's colour index as a temperature (Ballesteros 2012), a rough
@@ -878,7 +974,7 @@ const wavelengthRGB = (nm) => {
 export function starTemperature(bv) {
   return 4600 * (1 / (0.92 * bv + 1.7) + 1 / (0.92 * bv + 0.62));
 }
-function spectrum(bv) {
+function spectrum(bv, type = true) {
   const T = starTemperature(Math.max(-0.4, Math.min(2, bv))), planck = (nm) => 1 / (nm ** 5 * (Math.exp(1.4388e7 / (nm * T)) - 1));
   const kind = bv < -0.3 ? 'O' : bv < -0.02 ? 'B' : bv < 0.3 ? 'A' : bv < 0.58 ? 'F' : bv < 0.81 ? 'G' : bv < 1.4 ? 'K' : 'M';
   const nms = Array.from({ length: 38 }, (_, i) => 380 + i * 10), top = Math.max(...nms.map(planck));
@@ -886,6 +982,6 @@ function spectrum(bv) {
   const curve = nms.map((nm, i) => `${i ? 'L' : 'M'}${((nm - 380) / 370 * 300).toFixed(1)},${(30 - 26 * planck(nm) / top).toFixed(1)}`).join('');
   const id = `spectrum-${Math.round(T)}`;
   return `<figure class="coelum-spectrum"><svg viewBox="0 0 300 32" preserveAspectRatio="none" role="img" aria-label="Approximate visible spectrum"><defs><linearGradient id="${id}">${stops}</linearGradient></defs><rect width="300" height="32" rx="4" fill="url(#${id})"/><path d="${curve}" fill="none" stroke="#fff" stroke-opacity="0.75" stroke-width="1.2" vector-effect="non-scaling-stroke"/></svg>
-    <figcaption><span>380 nm</span><span>B−V ${(Math.abs(bv) < 0.005 ? 0 : bv).toFixed(2).replace('-', '−')} · about ${(Math.round(T / 100) * 100).toLocaleString('en')} K · type ${kind}</span><span>750 nm</span></figcaption>
+    <figcaption><span>380 nm</span><span>B−V ${(Math.abs(bv) < 0.005 ? 0 : bv).toFixed(2).replace('-', '−')} · about ${(Math.round(T / 100) * 100).toLocaleString('en')} K${type ? ` · type ${kind}` : ''}</span><span>750 nm</span></figcaption>
     <p class="coelum-coordinate-note">Estimated from the colour index: the black-body spectrum that gives the star its colour in the views, without the absorption lines of the real one.</p></figure>`;
 }

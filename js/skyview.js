@@ -230,4 +230,121 @@ function fitView(sky, W, H) {
   return { cx: 0, cy: 0, s: Math.min((W / 2 - 18) / reach, (H / 2 - 16) / 1.2) };
 }
 
-export { skySVG, overlaySVG, drawPlanet, fitView };
+// The zoom view of a planet and its moons in a stage holding a canvas
+// (.sky-canvas) under an SVG (.sky-svg): drag to move, pinch or scroll to
+// zoom, double-tap to fit, onTap(moon) for a tap on a moon. The planet is
+// a canvas under the moons: while the view moves it is only moved and
+// scaled, then drawn again sharp. size(W, H) lays it out; set(sky, quick)
+// shows the moons at another time, the planet three times a second if
+// quick
+function moonsView(stage, sky, { onTap = null } = {}) {
+  const svg = stage.querySelector(".sky-svg"), canvas = stage.querySelector(".sky-canvas");
+  let W = 320, H = 400, v = null, drawn = null, idle = 0, quick = false, planetAt = 0;
+  const k = () => Math.min(2, window.devicePixelRatio || 1);
+  // the planet sharp for the view, and the canvas back in place
+  const sharp = () => {
+    drawPlanet(canvas, sky, W, H, v.cx, v.cy, v.s, quick ? 1 : k());
+    drawn = { ...v };
+    canvas.style.transform = "";
+  };
+  // the canvas of the view drawn moved and scaled to the view v
+  const follow = () => {
+    const m = v.s / drawn.s;
+    const tx = W / 2 + (drawn.cx - v.cx) * v.s - (W / 2) * m, ty = H / 2 - (drawn.cy - v.cy) * v.s - (H / 2) * m;
+    canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${m})`;
+  };
+  const overlay = () => { svg.innerHTML = overlaySVG(sky, W, H, v.cx, v.cy, v.s, true); };
+  const moved = () => {
+    overlay();
+    follow();
+    clearTimeout(idle);
+    idle = setTimeout(sharp, 120);
+  };
+
+  const local = (ev) => {
+    const b = svg.getBoundingClientRect();
+    return { x: ((ev.clientX - b.left) * W) / b.width, y: ((ev.clientY - b.top) * H) / b.height };
+  };
+  // the view with the sky under the point p (of the view base) under q, at scale s
+  const keep = (base, p, q, s) => {
+    const sx = base.cx + (p.x - W / 2) / base.s, sy = base.cy - (p.y - H / 2) / base.s;
+    return { cx: sx - (q.x - W / 2) / s, cy: sy + (q.y - H / 2) / s, s };
+  };
+  // from all the moons in view to a planet radius of four times the view
+  const clampS = (s) => {
+    const all = Math.max(2.5, ...sky.moons.map((m) => Math.hypot(m.x, m.y)));
+    return Math.min(4 * Math.min(W, H), Math.max(Math.min(W, H) / 2 / (1.1 * all), s));
+  };
+  const pts = new Map();
+  let base = null, dragged = false, lastTap = 0, moving = 0;
+  const start = () => { base = { v: { ...v }, pts: new Map([...pts].map(([id, p]) => [id, { ...p }])) }; };
+  svg.addEventListener("pointerdown", (ev) => {
+    // a new first finger: those of before were lost
+    if (ev.isPrimary) pts.clear();
+    svg.setPointerCapture(ev.pointerId);
+    pts.set(ev.pointerId, local(ev));
+    dragged = false;
+    start();
+  });
+  svg.addEventListener("pointermove", (ev) => {
+    if (!pts.has(ev.pointerId)) return;
+    pts.set(ev.pointerId, local(ev));
+    const ids = [...pts.keys()].filter((id) => base.pts.has(id));
+    if (ids.length === 1) {
+      const p0 = base.pts.get(ids[0]), p1 = pts.get(ids[0]);
+      if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > 4) dragged = true;
+      if (dragged) v = keep(base.v, p0, p1, base.v.s);
+    } else if (ids.length >= 2) {
+      const [a0, b0] = ids.slice(0, 2).map((id) => base.pts.get(id)), [a1, b1] = ids.slice(0, 2).map((id) => pts.get(id));
+      const d0 = Math.hypot(a0.x - b0.x, a0.y - b0.y), d1 = Math.hypot(a1.x - b1.x, a1.y - b1.y);
+      const s = clampS(base.v.s * (d0 > 20 ? d1 / d0 : 1));
+      v = keep(base.v, { x: (a0.x + b0.x) / 2, y: (a0.y + b0.y) / 2 }, { x: (a1.x + b1.x) / 2, y: (a1.y + b1.y) / 2 }, s);
+      dragged = true;
+    }
+    if (!moving) moving = requestAnimationFrame(() => { moving = 0; moved(); });
+  });
+  const up = (ev) => {
+    if (!pts.delete(ev.pointerId)) return;
+    if (ev.type === "pointerup" && !dragged && !pts.size) {
+      // a moon under the finger
+      const p = local(ev), X = (x) => W / 2 + (x - v.cx) * v.s, Y = (y) => H / 2 - (y - v.cy) * v.s;
+      const near = onTap && sky.t !== undefined ? sky.moons.find((m) => Math.hypot(X(m.x) - p.x, Y(m.y) - p.y) < 16) : null;
+      if (near) { onTap(near); return; }
+      if (ev.timeStamp - lastTap < 350) { v = fitView(sky, W, H); moved(); lastTap = 0; } else lastTap = ev.timeStamp;
+    }
+    start();
+  };
+  svg.addEventListener("pointerup", up);
+  svg.addEventListener("pointercancel", up);
+  svg.addEventListener("touchmove", (ev) => ev.preventDefault(), { passive: false });
+  svg.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    const p = local(ev);
+    v = keep(v, p, p, clampS(v.s * Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.002))));
+    moved();
+  }, { passive: false });
+
+  return {
+    size(w, h) {
+      W = w;
+      H = h;
+      stage.style.height = `${H}px`;
+      svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      if (!v) v = fitView(sky, W, H);
+      overlay();
+      sharp();
+    },
+    set(next, fast = false) {
+      sky = next;
+      quick = fast;
+      if (!v) return;
+      overlay();
+      const now = performance.now();
+      if (!fast || now - planetAt > 300) { planetAt = now; sharp(); }
+    },
+    fit() { v = fitView(sky, W, H); moved(); },
+    get sky() { return sky; },
+  };
+}
+
+export { skySVG, overlaySVG, drawPlanet, fitView, moonsView };
