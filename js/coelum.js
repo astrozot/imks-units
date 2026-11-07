@@ -566,7 +566,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   else p.raw(`<rect width="${W}" height="${H}" rx="10" fill="${c.sky}"/>`);
   if (opts.milkyway && frame.matrix && typeof document !== 'undefined') {
     const mw = skyRaster(back || chartKey, { W, H, radius, camera: { rotation, stereographic: false }, toJ2000: horizonToJ2000(frame), kind: 'chart' });
-    if (back) { back.imageSmoothingEnabled = true; back.drawImage(mw.sky, 0, 0, mw.width, mw.height); }
+    if (back) { back.imageSmoothingEnabled = true; back.drawImage(mw.sky, 0, 0, mw.w, mw.h, 0, 0, mw.width, mw.height); }
     else p.raw(`<image class="coelum-milkyway" href="${mw.sky.toDataURL()}" width="${f(mw.width)}" height="${f(mw.height)}" preserveAspectRatio="none"/>`);
   }
   if (opts.ground) {

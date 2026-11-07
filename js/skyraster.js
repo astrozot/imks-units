@@ -107,6 +107,137 @@ export function skyLight(sunAlt, moon = null, atmosphere = true) {
   return { day: atmosphere ? day : 0, twilight: atmosphere ? twilight : 0, moonLight: atmosphere ? moonLight : 0, limit };
 }
 
+// The colours (linear-ish, 0…1) of the zenith, the horizon and the ground,
+// and the strength of the twilight glow, the Sun's glare and the Milky Way.
+function skyColours({ sun, moon, atmosphere, groundColor }) {
+  const light = skyLight(sun.alt, moon, atmosphere), { day, twilight } = light;
+  return {
+    light,
+    zenith: mix(mix([0.006, 0.01, 0.026], [0.05, 0.085, 0.2], twilight), [0.13, 0.32, 0.72], day),
+    horizon: mix(mix([0.032, 0.042, 0.075], [0.24, 0.25, 0.36], twilight), [0.6, 0.73, 0.88], day),
+    glow: atmosphere ? Math.exp(-(((sun.alt + 1) / 6) ** 2)) : 0,
+    sunUp: atmosphere ? smooth(-2, 1, sun.alt) : 0,
+    mwLight: (1 - smooth(-18, -11, sun.alt) * (atmosphere ? 1 : 0)) * (1 - 0.75 * light.moonLight),
+    groundRGB: groundColor || mix(mix([0.008, 0.01, 0.012], [0.05, 0.055, 0.06], twilight), [0.16, 0.18, 0.12], day),
+  };
+}
+
+// The same backgrounds as a WebGL2 fragment shader, at up to two samples
+// per CSS pixel. Without WebGL2, on a software renderer, or after a lost
+// context, skyRaster falls back to the loop below. The sky and the ground
+// share one canvas: the sky in the top h rows, the ground below them.
+export const rasterOptions = { gl: true };
+const VERTEX = `#version 300 es
+void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+const FRAGMENT = `#version 300 es
+precision highp float;
+uniform vec2 size;
+uniform float radius, f, rows, glow, sunUp, mwLight, moonLight, day;
+uniform bool sky, stereo, milkyWay, atmosphere, ground;
+uniform mat3 rot, toJ2000;
+uniform vec3 zenith, horizon, groundRGB, S, M;
+uniform sampler2D milky, hill;
+out vec4 colour;
+const float PI = 3.141592653589793, R = PI / 180.0;
+vec3 tone(vec3 x) { return min(vec3(1.0), x / (1.0 + 0.22 * x) * 1.22); }
+void main() {
+  float h = ground ? rows / 2.0 : rows, y = rows - gl_FragCoord.y;
+  bool below = y > h;
+  if (below) y -= h;
+  float sx = (gl_FragCoord.x * f - size.x / 2.0) / radius, sy = (y * f - size.y / 2.0) / radius;
+  float rr = sqrt(sx * sx + sy * sy), angle = stereo ? 2.0 * atan(rr) : min(rr, 1.999999) * PI / 2.0;
+  float k = rr > 1e-12 ? -sin(angle) / rr : 0.0;
+  vec3 v = rot * vec3(sx * k, sy * k, cos(angle));
+  float mw = 0.0;
+  if (milkyWay) {
+    vec3 e = v * toJ2000;
+    mw = texture(milky, vec2(fract(atan(e.y, e.x) / (2.0 * PI)), 0.5 - asin(clamp(e.z, -1.0, 1.0)) / PI)).r;
+  }
+  if (!sky) { float a = min(1.0, mw * 120.0 / 255.0); colour = vec4(vec3(150.0, 176.0, 232.0) / 255.0 * a, a); return; }
+  float alt = asin(clamp(v.z, -1.0, 1.0));
+  if (below) {
+    // Coverage of the pixel by the ground: soft edges a pixel wide.
+    float az = atan(v.x, v.y) / R, step = 2.0 * f / radius / (1.0 + sx * sx + sy * sy);
+    float cover = clamp((texture(hill, vec2((az + 0.125) / 360.0, 0.5)).r * R - alt) / step + 0.5, 0.0, 1.0);
+    colour = vec4(tone(groundRGB * (0.55 + 0.45 * exp(min(0.0, alt) / 0.12))) * cover, cover);
+    return;
+  }
+  vec3 c = vec3(0.0);
+  if (atmosphere) {
+    float hgt = max(alt, 0.0), d = 1.0 - dot(S, v);
+    c = mix(zenith, horizon, exp(-hgt / 0.3));
+    if (glow > 0.002) {
+      float warm = glow * exp(-d / 0.4) * exp(-hgt / 0.16), band = glow * 0.22 * exp(-hgt / 0.06) * (1.5 - d / 2.0);
+      c += vec3(1.05, 0.45, 0.14) * warm + vec3(0.85, 0.38, 0.3) * band;
+    }
+    if (sunUp > 0.0) c += vec3(1.0, 0.94, 0.84) * sunUp * (0.9 * exp(-d / 0.0015) + 0.35 * exp(-d / 0.02) + 0.1 * exp(-d / 0.15));
+    if (moonLight > 0.0) {
+      float md = 1.0 - dot(M, v);
+      c += vec3(0.5, 0.56, 0.68) * moonLight * (1.0 - day) * (0.5 * exp(-md / 0.0012) + 0.07 * exp(-md / 0.03) + 0.025);
+    }
+    if (alt < 0.0) c *= 0.35 + 0.65 * exp(alt / 0.08);
+  }
+  if (mw > 0.0) c += vec3(0.82, 0.86, 1.0) * mw * mwLight * (atmosphere ? clamp(alt / 0.2, 0.0, 1.0) : 1.0) * 0.3;
+  colour = vec4(tone(c), 1.0);
+}`;
+let gpu = null;
+function gpuContext() {
+  if (gpu) return gpu.lost ? null : gpu;
+  gpu = { lost: false, canvas: document.createElement('canvas') };
+  const gl = gpu.canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, failIfMajorPerformanceCaveat: true });
+  if (!gl) { gpu.lost = true; return null; }
+  gpu.canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); gpu.lost = true; });
+  gpu.canvas.addEventListener('webglcontextrestored', () => { gpu.lost = !setup(gpu, gl); });
+  return setup(gpu, gl) ? gpu : (gpu.lost = true, null);
+}
+function setup(g, gl) {
+  const shader = (type, source) => { const s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s); return s; };
+  const program = gl.createProgram();
+  gl.attachShader(program, shader(gl.VERTEX_SHADER, VERTEX));
+  gl.attachShader(program, shader(gl.FRAGMENT_SHADER, FRAGMENT));
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) { console.warn('Sky shader:', gl.getProgramInfoLog(program)); return false; }
+  gl.useProgram(program);
+  const texture = (unit, name, w, h, data) => {
+    const t = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, w, h, 0, gl.RED, gl.FLOAT, data);
+    gl.uniform1i(gl.getUniformLocation(program, name), unit);
+  };
+  texture(0, 'milky', TW, TH, milkyWayTexture());
+  texture(1, 'hill', 1440, 1, HILL);
+  const u = {};
+  for (let i = 0, n = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS); i < n; i++) { const name = gl.getActiveUniform(program, i).name; u[name] = gl.getUniformLocation(program, name); }
+  Object.assign(g, { gl, u, hill: hillAt });
+  return true;
+}
+function gpuRaster(g, { W, H, radius, camera, toJ2000, kind, milkyWay, ground, atmosphere, sun, moon, groundColor, hill }) {
+  const { gl, u, canvas } = g, sky = kind === 'sky', k = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  const w = Math.ceil(W * k), h = Math.ceil(H * k), rows = sky && ground ? 2 * h : h;
+  if (canvas.width !== w || canvas.height !== rows) { canvas.width = w; canvas.height = rows; }
+  gl.viewport(0, 0, w, rows);
+  if (sky && ground && hill !== g.hill) {
+    // The horizon's altitudes every quarter degree, as for HILL.
+    const profile = hill === hillAt ? HILL : Float32Array.from({ length: 1440 }, (_, i) => hill(i / 4));
+    gl.activeTexture(gl.TEXTURE1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, 1440, 1, 0, gl.RED, gl.FLOAT, profile);
+    g.hill = hill;
+  }
+  gl.uniform2f(u.size, W, H); gl.uniform1f(u.radius, radius); gl.uniform1f(u.f, 1 / k); gl.uniform1f(u.rows, rows);
+  gl.uniform1i(u.sky, sky); gl.uniform1i(u.stereo, camera.stereographic); gl.uniform1i(u.milkyWay, milkyWay); gl.uniform1i(u.ground, sky && ground); gl.uniform1i(u.atmosphere, atmosphere);
+  gl.uniformMatrix3fv(u.rot, false, camera.rotation); gl.uniformMatrix3fv(u.toJ2000, false, toJ2000);
+  if (sky) {
+    const c = skyColours({ sun, moon, atmosphere, groundColor });
+    gl.uniform3fv(u.zenith, c.zenith); gl.uniform3fv(u.horizon, c.horizon); gl.uniform3fv(u.groundRGB, c.groundRGB);
+    gl.uniform3fv(u.S, sun.vector); gl.uniform3fv(u.M, moon.vector);
+    gl.uniform1f(u.glow, c.glow); gl.uniform1f(u.sunUp, c.sunUp); gl.uniform1f(u.mwLight, c.mwLight); gl.uniform1f(u.moonLight, c.light.moonLight); gl.uniform1f(u.day, c.light.day);
+  }
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  return { sky: canvas, ground: sky && ground ? canvas : null, w, h, groundY: h, width: w / k, height: h / k };
+}
+
 const canvases = new WeakMap();
 // One background: W×H CSS pixels, in about `samples` samples (fewer while
 // the view moves).
@@ -115,7 +246,15 @@ const canvases = new WeakMap();
 // camera { rotation, stereographic } gives the horizontal unit vector
 // [east, north, up] of each sample (as unprojectSky, inlined: this loop is
 // most of a frame's work).
-export function skyRaster(key, { W, H, radius, camera, samples = 45000, toJ2000, kind, milkyWay = true, ground = false, atmosphere = true, sun = null, moon = null, groundColor = null, hill = hillAt }) {
+// Draw with drawImage(bg.sky, 0, 0, bg.w, bg.h, 0, 0, bg.width, bg.height)
+// and the ground from (0, bg.groundY) of bg.ground; both are only valid
+// until the next call.
+export function skyRaster(key, opts) {
+  const g = rasterOptions.gl && typeof window !== 'undefined' ? gpuContext() : null;
+  if (g) return gpuRaster(g, { milkyWay: true, ground: false, atmosphere: true, sun: null, moon: null, groundColor: null, hill: hillAt, ...opts });
+  return cpuRaster(key, opts);
+}
+function cpuRaster(key, { W, H, radius, camera, samples = 45000, toJ2000, kind, milkyWay = true, ground = false, atmosphere = true, sun = null, moon = null, groundColor = null, hill = hillAt }) {
   const f = Math.max(2, Math.sqrt(W * H / samples)), w = Math.ceil(W / f), h = Math.ceil(H / f);
   let c = canvases.get(key);
   if (!c) { c = { sky: document.createElement('canvas'), ground: document.createElement('canvas') }; canvases.set(key, c); }
@@ -123,19 +262,9 @@ export function skyRaster(key, { W, H, radius, camera, samples = 45000, toJ2000,
   const g = c.sky.getContext('2d'), image = g.createImageData(w, h), px = image.data;
   const groundImage = kind === 'sky' && ground ? c.ground.getContext('2d').createImageData(w, h) : null, gp = groundImage?.data;
   const tex = milkyWay ? milkyWayTexture() : null, A = toJ2000;
-  const light = kind === 'sky' ? skyLight(sun.alt, moon, atmosphere) : null;
+  const colours = kind === 'sky' ? skyColours({ sun, moon, atmosphere, groundColor }) : null, light = colours?.light;
   const S = sun?.vector, M = moon?.vector;
-  // Colours (linear-ish, 0…1) of the zenith and the horizon.
-  let zenith, horizon, glow, sunUp, mwLight, groundRGB;
-  if (light) {
-    const { day, twilight } = light;
-    zenith = mix(mix([0.006, 0.01, 0.026], [0.05, 0.085, 0.2], twilight), [0.13, 0.32, 0.72], day);
-    horizon = mix(mix([0.032, 0.042, 0.075], [0.24, 0.25, 0.36], twilight), [0.6, 0.73, 0.88], day);
-    glow = atmosphere ? Math.exp(-(((sun.alt + 1) / 6) ** 2)) : 0;
-    sunUp = atmosphere ? smooth(-2, 1, sun.alt) : 0;
-    mwLight = (1 - smooth(-18, -11, sun.alt) * (atmosphere ? 1 : 0)) * (1 - 0.75 * light.moonLight);
-    groundRGB = groundColor || mix(mix([0.008, 0.01, 0.012], [0.05, 0.055, 0.06], twilight), [0.16, 0.18, 0.12], day);
-  }
+  const { zenith, horizon, glow, sunUp, mwLight, groundRGB } = colours || {};
   const tone = (x) => { const y = x / (1 + 0.22 * x) * 1.22 * 255; return y > 255 ? 255 : y; };
   const rot = camera.rotation, stereo = camera.stereographic, v = [0, 0, 0];
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
@@ -181,5 +310,5 @@ export function skyRaster(key, { W, H, radius, camera, samples = 45000, toJ2000,
   }
   g.putImageData(image, 0, 0);
   if (groundImage) c.ground.getContext('2d').putImageData(groundImage, 0, 0);
-  return { sky: c.sky, ground: groundImage ? c.ground : null, width: w * f, height: h * f };
+  return { sky: c.sky, ground: groundImage ? c.ground : null, w, h, groundY: 0, width: w * f, height: h * f };
 }

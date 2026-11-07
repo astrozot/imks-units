@@ -94,7 +94,10 @@ The chart's positions are geometric (no refraction); clouds and light
 pollution are not modeled. Both views draw on one canvas under the SVG,
 at most once per display frame while dragging or pinching; the chart's
 drags and flights are drawn there and settle as SVG over its sky and
-Milky Way, which stay on the canvas.
+Milky Way, which stay on the canvas. The sky's colours, the Milky Way and
+the ground are drawn by a WebGL2 shader at up to two samples per pixel;
+without WebGL2 (or on a software renderer) the same model runs in
+JavaScript at lower resolution.
 
 `js/skydata.js` bundles 5,044 stars from XHIP (Anderson & Francis, 2012),
 the 88 constellation figures, boundaries and Latin labels, and the Milky Way

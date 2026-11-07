@@ -5,6 +5,7 @@
 import { R, pen, lookAt, skyGrid, gridLabelAt, projectVector, pointVector, refractVector, eachFaint, faintObject, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
 
+const FLAT = () => 0;
 export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, deep: false, labels: true, labelSize: 14 };
 // The diagonal of the view spans 140° at scale 1.
 export const skyRadius = (W, H, scale) => Math.hypot(W, H) / 2 / Math.tan(35 * R) * scale;
@@ -64,14 +65,14 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const apparent = (v) => { const q = proj(v); q.alt = Math.asin(Math.max(-1, Math.min(1, v[2]))) / R; q.az = (Math.atan2(v[0], v[1]) / R + 360) % 360; return q; };
   const xy = (o) => apparent(refract(pointVector(o)));
   // The horizon: a generic landscape, the local terrain, or flat.
-  const hill = opts.horizon === 'flat' ? () => 0 : opts.horizon === 'terrain' && opts.terrain ? opts.terrain : hillAt;
+  const hill = opts.horizon === 'flat' ? FLAT : opts.horizon === 'terrain' && opts.terrain ? opts.terrain : hillAt;
   const bg = skyRaster(ctx, {
     W, H, radius, camera: { rotation, stereographic: true }, samples: view.moving ? 22000 : 45000, toJ2000: horizonToJ2000(frame), kind: 'sky',
     milkyWay: opts.milkyway, ground: opts.ground, atmosphere: opts.atmosphere, hill,
     sun: { alt: sun.alt, vector: refract(pointVector(sun)) }, moon: { alt: moon.alt, illum, vector: refract(pointVector(moon)) },
   });
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(bg.sky, 0, 0, bg.width, bg.height);
+  ctx.drawImage(bg.sky, 0, 0, bg.w, bg.h, 0, 0, bg.width, bg.height);
   const above = (q) => !opts.ground || q.alt > hill(q.az);
   const onScreen = (q, r) => q.z > -0.2 && q.x > -r && q.x < W + r && q.y > -r && q.y < H + r;
   // Lines: drawn before the ground, which hides them; segments far behind
@@ -168,7 +169,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4) });
     labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? '#fff1c9' : '#ffc98f', r: Math.max(r, 3), priority: o.name === view.selected ? 0 : 1, important: true, mag: o.mag });
   }
-  if (bg.ground) ctx.drawImage(bg.ground, 0, 0, bg.width, bg.height);
+  if (bg.ground) ctx.drawImage(bg.ground, 0, bg.groundY, bg.w, bg.h, 0, 0, bg.width, bg.height);
   // Cardinal points on the horizon, then labels over everything.
   for (const [name, az, size, color] of [['N', 0, 17, '#ff8a6b'], ['NE', 45, 12, '#ffb49e'], ['E', 90, 17, '#ff8a6b'], ['SE', 135, 12, '#ffb49e'], ['S', 180, 17, '#ff8a6b'], ['SW', 225, 12, '#ffb49e'], ['W', 270, 17, '#ff8a6b'], ['NW', 315, 12, '#ffb49e']]) {
     const q = proj(pointVector({ alt: -1.2, az }));

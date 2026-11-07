@@ -521,8 +521,35 @@ try {
   await page.locator('[data-download="remove"]').click();
   await page.waitForFunction(() => /Only stars to magnitude 6/.test(document.querySelector('.coelum-faint-note').textContent));
   await page.unrouteAll();
+  // The WebGL sky matches the JavaScript one (but for sharper edges), with
+  // a terrain horizon, at night and by day, and for the chart's Milky Way.
+  const shader = await page.evaluate(async () => {
+    const { skyFrame, skyChart } = await import('./js/coelum.js');
+    const { skyScene } = await import('./js/coelumsky.js');
+    const { rasterOptions } = await import('./js/skyraster.js');
+    if (!document.createElement('canvas').getContext('webgl2', { failIfMajorPerformanceCaveat: true })) return null;
+    const W = 390, H = 520, terrain = (az) => 4 + 3 * Math.sin(3 * az * Math.PI / 180), out = [];
+    for (const [t, az, alt] of [['2026-11-06T19:00:00Z', 290, 45], ['2026-11-06T11:00:00Z', 180, 20], ['2026-11-06T21:00:00Z']]) {
+      const f = skyFrame(Date.parse(t) / 1000, [41.892, 12.511, 20]), px = [];
+      for (const gl of [true, false]) {
+        rasterOptions.gl = gl;
+        const c = document.createElement('canvas'); c.width = W * 2; c.height = H * 2;
+        const ctx = c.getContext('2d'); ctx.setTransform(2, 0, 0, 2, 0, 0);
+        if (az === undefined) skyChart(f, W, H, {}, { scale: 1, rotation: [1, 0, 0, 0, 0, 1, 0, -1, 0] }, ctx);
+        else skyScene(f, W, H, { horizon: 'terrain', terrain }, { az, alt, scale: 1 }, ctx);
+        px.push(ctx.getImageData(0, 0, c.width, c.height).data);
+      }
+      let sum = 0, big = 0;
+      for (let i = 0; i < px[0].length; i++) if (i % 4 < 3) { const d = Math.abs(px[0][i] - px[1][i]); sum += d; if (d > 24) big++; }
+      out.push({ mean: sum / (px[0].length * 0.75), big: big / (px[0].length * 0.75) });
+    }
+    rasterOptions.gl = true;
+    return out;
+  });
+  if (shader) for (const s of shader) assert.ok(s.mean < 1 && s.big < 0.01, `WebGL sky differs: ${JSON.stringify(s)}`);
+  else console.log('WebGL2 unavailable: the shader was not compared');
   assert.deepEqual(errors, []);
-  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars and the local horizon');
+  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars, the local horizon and the WebGL sky');
 } finally {
   if (browser) await browser.close();
   await new Promise((r) => server.close(r));
