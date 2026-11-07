@@ -69,7 +69,12 @@ export const PALETTE = {
   terrain: '#9fd58c', galaxy: '#ff8f80', cluster: '#f0d36c', nebula: '#6fdc9a', other: '#b9a3ff', label: '#c3d1e6', constellation: '#86a3cc', planet: '#ffe2a8',
 };
 export const starTint = (bv) => (bv < 0 ? '#cbdcff' : bv < 0.3 ? '#eef2ff' : bv < 0.6 ? '#fffaf0' : bv < 1.0 ? '#ffecc9' : '#ffd5a4');
-export const starRadius = (mag, scale = 1) => Math.max(0.55, 3.2 * Math.pow(10, -0.14 * (mag + 1.4))) * Math.min(1.6, 1 + 0.15 * Math.log2(Math.max(1, scale)));
+// Sizes follow the magnitude below the chart's limit, which deepens as it
+// zooms: a zoomed-in cluster keeps its bright and faint members apart.
+export const starRadius = (mag, scale = 1) => {
+  const zoom = Math.log2(Math.max(1, scale)), rel = Math.max(0, 6 + 1.25 * zoom - mag);
+  return Math.min(4.6 * Math.min(1.5, 1 + 0.12 * zoom), 0.5 + 0.045 * rel ** 2.1);
+};
 
 // Match the named catalog once; use its motions and names in the chart,
 // retaining HIP identifiers for the remaining stars.
@@ -202,16 +207,12 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
     if (!frame || Math.abs(time - catalogTime) >= 86400) {
       frame = skyFrame(time, place); catalogTime = time;
       for (const c of frame.constellations) c.curves = c.lines.map(curve);
-      frame.equatorialGrid = [];
-      for (let dec = -60; dec <= 60; dec += 30) frame.equatorialGrid.push(Array.from({ length: 181 }, (_, i) => ({ ra: i * 2, dec })));
-      for (let ra = 0; ra < 360; ra += 30) frame.equatorialGrid.push(Array.from({ length: 91 }, (_, i) => ({ ra, dec: -90 + i * 2 })));
     }
     const lst = siderealTime(time, place[1]) * R; sl = Math.sin(lst); cl = Math.cos(lst);
     frame.t = time; frame.hor = hor;
     for (const p of frame.stars) update(p);
     if (layers.deep) for (const p of frame.deep) update(p);
     if (layers.constellations) for (const c of frame.constellations) { update(c); for (const line of c.curves) for (const p of line) update(p); }
-    if (layers.equatorial) for (const line of frame.equatorialGrid) for (const p of line) update(p);
     if (layers.ecliptic) for (const p of frame.ecliptic) update(p);
     if (layers.boundaries) for (const line of frame.boundaries) for (const p of line) update(p);
     const sample = Math.floor(time / 60) * 60;
@@ -263,6 +264,62 @@ export function refractVector(v, height = 0) {
   const alt = Math.asin(clamp(v[2])) / R, apparent = Math.min(90, alt + refraction(alt, height));
   const c = Math.cos(alt * R), k = c > 1e-9 ? Math.cos(apparent * R) / c : 1;
   return [v[0] * k, v[1] * k, Math.sin(apparent * R)];
+}
+
+// Coordinate grids that get denser as the view zooms in: lines about 70 px
+// apart, only within fov (degrees) of the view's center (a horizontal
+// vector). kind 'horizontal' (alt/az) or 'equatorial' (RA/Dec of date).
+const GRID_STEPS = [30, 15, 10, 5, 2, 1, 0.5, 0.25, 1 / 6, 1 / 12, 1 / 30];
+const RA_STEPS = [30, 15, 7.5, 5, 2.5, 1.25, 0.5, 0.25, 0.125, 1 / 12];
+const gridStep = (steps, pxPerDeg) => { let step = steps[0]; for (const s of steps) if (s * pxPerDeg >= 70) step = s; return step; };
+const degrees = (x) => {
+  const t = Math.round(Math.abs(x) * 60), m = t % 60;
+  return `${x < 0 && t ? '−' : ''}${Math.floor(t / 60)}°${m ? `${m}′` : ''}`;
+};
+const hours = (ra) => {
+  const t = Math.round(((ra % 360) + 360) % 360 / 15 * 3600) % 86400, m = Math.floor(t / 60) % 60, s = t % 60;
+  return `${Math.floor(t / 3600)}h${m || s ? `${m}m` : ''}${s ? `${s}s` : ''}`;
+};
+export function skyGrid(kind, frame, center, fov, pxPerDeg) {
+  const horizontal = kind === 'horizontal';
+  const point = horizontal ? (lat, lon) => ({ alt: lat, az: ((lon % 360) + 360) % 360, vector: horizontalVector(lat, lon) }) : (lat, lon) => frame.hor({ ra: ((lon % 360) + 360) % 360, dec: lat });
+  let c = center;
+  if (!horizontal) {
+    // The center in RA/Dec of date: hor() is a rotation, so its transpose.
+    const axes = [frame.hor({ ra: 0, dec: 0 }), frame.hor({ ra: 90, dec: 0 }), frame.hor({ ra: 0, dec: 90 })].map(pointVector);
+    c = axes.map((a) => dot3(a, center));
+  }
+  const lat0 = Math.asin(clamp(c[2])) / R, lon0 = horizontal ? Math.atan2(c[0], c[1]) / R : Math.atan2(c[1], c[0]) / R;
+  const f = Math.min(180, fov), cos0 = Math.max(0.25, Math.cos(lat0 * R));
+  const latStep = gridStep(GRID_STEPS, pxPerDeg), lonStep = gridStep(horizontal ? GRID_STEPS : RA_STEPS, pxPerDeg * cos0);
+  const latLo = Math.max(-90, lat0 - f), latHi = Math.min(90, lat0 + f), polar = Math.abs(lat0) + f >= 89.9;
+  const lonHalf = polar ? 180 : Math.asin(Math.min(1, Math.sin(f * R) / Math.cos(lat0 * R))) / R;
+  const res = Math.min(2, f / 30), lines = [];
+  for (let k = Math.ceil(latLo / latStep); k * latStep <= latHi; k++) {
+    const lat = k * latStep;
+    if (Math.abs(lat) > 89.99) continue;
+    const n = Math.min(720, Math.ceil(2 * lonHalf * Math.cos(lat * R) / res) + 2);
+    lines.push({ parallel: true, value: lat, label: degrees(lat), points: Array.from({ length: n + 1 }, (_, i) => point(lat, lon0 - lonHalf + 2 * lonHalf * i / n)) });
+  }
+  const from = polar ? 0 : Math.ceil((lon0 - lonHalf) / lonStep), to = polar ? Math.round(360 / lonStep) - 1 : Math.floor((lon0 + lonHalf) / lonStep);
+  const n = Math.min(400, Math.ceil((latHi - latLo) / res) + 1);
+  for (let k = from; k <= to; k++) {
+    const lon = k * lonStep;
+    lines.push({ parallel: false, value: lon, label: horizontal ? degrees(((lon % 360) + 360) % 360) : hours(lon), points: Array.from({ length: n + 1 }, (_, i) => point(latLo + (latHi - latLo) * i / n, lon)) });
+  }
+  return lines;
+}
+// Where a grid line's label goes: parallels at their leftmost visible
+// point, meridians where they cross a band low in the view (clear of the
+// full-screen controls at the edges).
+export function gridLabelAt(screen, W, H, visible) {
+  let best = null, score = -Infinity;
+  for (const q of screen.points) {
+    if (q.x < 6 || q.x > W - 48 || q.y < 16 || q.y > H - 6 || (!screen.parallel && Math.abs(q.y - 0.78 * H) > 0.1 * H) || !visible(q)) continue;
+    const s = screen.parallel ? -q.x : -Math.abs(q.y - 0.78 * H);
+    if (s > score) { score = s; best = q; }
+  }
+  return best;
 }
 
 // Optional fainter stars (downloaded by the explorer): one Float32Array of
@@ -508,7 +565,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   if (back) { back.fillStyle = c.sky; back.fillRect(0, 0, W, H); }
   else p.raw(`<rect width="${W}" height="${H}" rx="10" fill="${c.sky}"/>`);
   if (opts.milkyway && frame.matrix && typeof document !== 'undefined') {
-    const mw = skyRaster(back || chartKey, { W, H, radius, unproject: (x, y) => unprojectSky(x, y, rotation), toJ2000: horizonToJ2000(frame), kind: 'chart' });
+    const mw = skyRaster(back || chartKey, { W, H, radius, camera: { rotation, stereographic: false }, toJ2000: horizonToJ2000(frame), kind: 'chart' });
     if (back) { back.imageSmoothingEnabled = true; back.drawImage(mw.sky, 0, 0, mw.width, mw.height); }
     else p.raw(`<image class="coelum-milkyway" href="${mw.sky.toDataURL()}" width="${f(mw.width)}" height="${f(mw.height)}" preserveAspectRatio="none"/>`);
   }
@@ -538,21 +595,14 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     if (Math.hypot(a.x - b.x, a.y - b.y) < radius * 0.2) ticks += `M${f(a.x)},${f(a.y)}L${f(b.x)},${f(b.y)}`;
   }
   p.path(ticks, { stroke: c.horizon, width: 1 });
-  if (opts.horizontal) {
-    for (const alt of [-60, -30, 30, 60]) {
-      line(Array.from({ length: 181 }, (_, i) => ({ alt, az: i * 2 })), { stroke: c.horizontal, width: 0.65 });
-      const q = { alt, az: 0 }, v = xy(q);
-      if (visible({ ...q, ...v })) p.text(v.x + 4, v.y + 14, `${alt}°`, '#8baabd', 12);
-    }
-    for (let az = 0; az < 360; az += 30) line(Array.from({ length: 91 }, (_, i) => ({ alt: -90 + i * 2, az })), { stroke: c.horizontal, width: 0.65 });
-  }
-  if (opts.equatorial) {
-    if (frame.equatorialGrid) for (const g of frame.equatorialGrid) line(g, { stroke: c.equatorial, width: 0.65 });
-    else for (let dec = -60; dec <= 60; dec += 30) line(Array.from({ length: 181 }, (_, i) => frame.hor({ ra: i * 2, dec })), { stroke: c.equatorial, width: 0.65 });
-    for (let ra = 0; ra < 360; ra += 30) {
-      if (!frame.equatorialGrid) line(Array.from({ length: 91 }, (_, i) => frame.hor({ ra, dec: -90 + i * 2 })), { stroke: c.equatorial, width: 0.65 });
-      const q = frame.hor({ ra, dec: 0 }), v = xy(q);
-      if (visible({ ...q, ...v })) p.text(v.x, v.y, `${ra / 15}h`, '#96a4ce', 12);
+  // Grids: denser as the chart zooms in, labelled toward the view's edges.
+  for (const [kind, stroke, ink] of [['horizontal', c.horizontal, '#8baabd'], ['equatorial', c.equatorial, '#96a4ce']]) {
+    if (!opts[kind]) continue;
+    for (const g of skyGrid(kind, frame, rotation.slice(6, 9), Math.hypot(W, H) / 2 / radius * 90, radius / 90)) {
+      if (kind === 'horizontal' && g.parallel && g.value === 0) continue;
+      line(g.points, { stroke, width: 0.65 });
+      const q = gridLabelAt({ parallel: g.parallel, points: g.points.map((o) => ({ ...xy(o), alt: o.alt })) }, W, H, (o) => !opts.ground || o.alt >= 0);
+      if (q) p.text(q.x + 3, q.y - 4, g.label, ink, 11);
     }
   }
   if (opts.boundaries && frame.boundaries) for (const b of frame.boundaries) line(b, { stroke: c.bounds, width: 0.7, dash: [2, 3] });

@@ -69,6 +69,36 @@ function solveLook(d, x, y, az, alt) {
   return { az, alt };
 }
 
+// The chart turns freely near the zenith, where the horizon is a circle
+// around the center; further away it keeps the horizon level, with the
+// zenith up or, once tilted past it, down (side 1 or −1), so it never flips
+// over during a gesture. It turns about the direction under the finger
+// (axis, in camera coordinates; the center for keys and flights), so the
+// grabbed point stays there; the angle comes from a few secant steps. When
+// no such turn levels it (a high star held near the edge), the view then
+// rolls about its center: the horizon wins over the finger.
+const smooth = (a, b, x) => { const u = Math.max(0, Math.min(1, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+const zenithSide = (r) => (Math.hypot(r[2], r[5]) < 0.05 ? 0 : r[5] >= 0 ? 1 : -1);
+function turnAbout(r, u, t) {
+  const c = Math.cos(t), s = Math.sin(t), k = 1 - c;
+  const q = [c + u[0] * u[0] * k, u[0] * u[1] * k - u[2] * s, u[0] * u[2] * k + u[1] * s, u[1] * u[0] * k + u[2] * s, c + u[1] * u[1] * k, u[1] * u[2] * k - u[0] * s, u[2] * u[0] * k - u[1] * s, u[2] * u[1] * k + u[0] * s, c + u[2] * u[2] * k];
+  return [0, 1, 2].flatMap((i) => [0, 1, 2].map((j) => q[3 * i] * r[j] + q[3 * i + 1] * r[3 + j] + q[3 * i + 2] * r[6 + j]));
+}
+function levelChart(r, side, axis = null, t0 = null) {
+  if (!side) return r;
+  const tilt = (m) => Math.atan2(side * m[2], side * m[5]), free = (m) => smooth(50, 80, Math.abs(Math.asin(Math.max(-1, Math.min(1, m[8])))) / R);
+  t0 ??= tilt(r);
+  const miss = (m) => tilt(m) - free(m) * t0;
+  let a = 0, fa = miss(r), b = -fa, best = r;
+  for (let k = 0; k < 8 && Math.abs(fa) > 1e-7; k++) {
+    const m = turnAbout(r, axis || [0, 0, 1], b), fb = miss(m);
+    if (Math.abs(fb) < Math.abs(fa)) best = m;
+    if (Math.abs(fb - fa) < 1e-12) break;
+    [a, fa, b] = [b, fb, b - fb * (b - a) / (fb - fa)];
+  }
+  return axis && Math.abs(miss(best)) > 1e-4 ? levelChart(best, side, null, t0) : best;
+}
+
 const icon = (d, extra = '') => `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${d}${extra}</svg>`;
 const ICONS = {
   search: icon('<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/>'),
@@ -111,7 +141,7 @@ export function mountCoelum(root, model, formatTime) {
       <button type="button" class="coelum-btn" data-action="fullscreen" aria-pressed="false" aria-label="Full screen" title="Full screen">${ICONS.expand}</button>
     </div>
     <div class="coelum-viewport">
-      <canvas class="coelum-back" aria-hidden="true"></canvas><svg class="coelum-full" viewBox="0 0 600 600" role="img" tabindex="0" aria-label="Interactive sky; drag to look around, pinch or scroll to zoom"></svg><canvas class="coelum-motion" aria-hidden="true"></canvas>
+      <canvas class="coelum-canvas" aria-hidden="true"></canvas><svg class="coelum-full" viewBox="0 0 600 600" role="img" tabindex="0" aria-label="Interactive sky; drag to look around, pinch or scroll to zoom"></svg>
       <div class="coelum-rail coelum-hud" role="toolbar" aria-label="View" aria-orientation="vertical">
         <button type="button" class="coelum-btn" data-action="in" aria-label="Zoom in" title="Zoom in">${ICONS.plus}</button>
         <button type="button" class="coelum-btn" data-action="out" aria-label="Zoom out" title="Zoom out">${ICONS.minus}</button>
@@ -150,7 +180,7 @@ export function mountCoelum(root, model, formatTime) {
     <details class="coelum-credit"><summary>Chart data</summary><p>Stars: XHIP (Anderson &amp; Francis, 2012), via <a href="https://github.com/ofrohn/d3-celestial" target="_blank" rel="noopener">d3-celestial</a>; double and variable stars from the Hipparcos catalogue (ESA, 1997). Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars and deep-sky objects: the app’s IAU / HYG / OpenNGC catalogs. The Moon: NASA LRO. Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Background stars include precession and nutation; named stars include proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   const svg = $('.coelum-full'), status = $('.coelum-status'), detail = $('.coelum-detail-body'), viewport = $('.coelum-viewport');
-  const canvas = $('.coelum-motion'), ctx = canvas.getContext('2d'), back = $('.coelum-back'), backCtx = back.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results');
+  const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results');
   const layers = { chart: { ...DEFAULT_LAYERS }, sky: { ...SKY_LAYERS } };
   const views = { chart: { scale: 1, rotation: [...SKY_IDENTITY] }, sky: null };
   let size = 360, height = 360;
@@ -189,36 +219,47 @@ export function mountCoelum(root, model, formatTime) {
       if (o) detail.innerHTML = objectDetails(mode === 'sky' && layers.sky.atmosphere ? { ...o, apparentAlt: o.alt + refraction(o.alt, model.place[2] || 0) } : o);
     }
   };
-  const draw = (recompute = false) => {
-    if (recompute) { animator = null; frame = skyFrame(t, model.place); }
-    svg.setAttribute('viewBox', `0 0 ${size} ${height}`);
-    const view = mode === 'sky' ? skyView() : views.chart;
+  const currentView = () => (mode === 'sky' ? skyView() : views.chart);
+  // The view's state, also as attributes (for tests and snapshots).
+  const mark = () => {
+    const view = currentView();
     svg.dataset.rotation = (view.rotation || []).join(','); svg.dataset.scale = String(view.scale);
     if (mode === 'sky') { svg.dataset.az = view.az.toFixed(3); svg.dataset.alt = view.alt.toFixed(3); }
+    return view;
+  };
+  let pending = 0;
+  const draw = (recompute = false) => {
+    cancelAnimationFrame(pending); pending = 0;
+    if (recompute) { animator = null; frame = skyFrame(t, model.place); }
+    svg.setAttribute('viewBox', `0 0 ${size} ${height}`);
+    const view = mark();
     svg.dataset.time = String(t);
     if (playing) {
       if (!animator) animator = createSkyAnimator(t, model.place, layers[mode]);
       frame = animator(t);
     }
-    // The chart moves on the canvas (playback, drags, flights) and settles
-    // as SVG; its sky and Milky Way then go on the backdrop canvas.
+    // One canvas under the SVG. The chart moves on it (playback, drags,
+    // flights) and settles as SVG over its sky and Milky Way.
     const onCanvas = playing || mode === 'sky' || interacting;
+    const dpr = Math.min(2, window.devicePixelRatio || 1), w = Math.round(size * dpr), h = Math.round(height * dpr);
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (onCanvas) {
-      const dpr = Math.min(2, window.devicePixelRatio || 1), w = Math.round(size * dpr), h = Math.round(height * dpr);
-      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawn = mode === 'sky' ? skyScene(frame, size, height, layers.sky, { ...view, selected }, ctx) : skyChart(frame, size, height, layers.chart, { ...view, selected }, ctx);
+      drawn = mode === 'sky' ? skyScene(frame, size, height, layers.sky, { ...view, selected, moving: interacting }, ctx) : skyChart(frame, size, height, layers.chart, { ...view, selected }, ctx);
       canvas.dataset.frame = String(++frameNumber);
-      if (mode === 'sky' && svg.childElementCount) svg.innerHTML = '';
+      if (svg.childElementCount) svg.innerHTML = '';
     } else {
-      const dpr = Math.min(2, window.devicePixelRatio || 1), w = Math.round(size * dpr), h = Math.round(height * dpr);
-      if (back.width !== w || back.height !== h) { back.width = w; back.height = h; }
-      backCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawn = skyChart(frame, size, height, layers.chart, { ...view, selected, backdrop: backCtx });
+      drawn = skyChart(frame, size, height, layers.chart, { ...view, selected, backdrop: ctx });
       svg.innerHTML = drawn.svg;
     }
-    canvas.hidden = !onCanvas;
+    canvas.dataset.content = onCanvas ? 'scene' : 'backdrop';
     updateUI(!playing && !interacting);
+  };
+  // Gestures redraw at most once per display frame (two fingers send twice
+  // the events); the state is already up to date.
+  const requestDraw = () => {
+    mark();
+    if (!pending) pending = requestAnimationFrame(() => { pending = 0; if (root.isConnected) draw(); });
   };
   const tick = (now) => {
     animation = 0;
@@ -246,17 +287,24 @@ export function mountCoelum(root, model, formatTime) {
     interacting = true; clearTimeout(settleTimer);
     if (settleAfter) settleTimer = setTimeout(settle, settleAfter);
   };
+  // A flight cut short (reset, another view) leaves nothing moving.
+  const stopFlight = () => { if (flight) { cancelAnimationFrame(flight); flight = 0; interacting = false; clearTimeout(settleTimer); } };
   const settle = () => { clearTimeout(settleTimer); if (!interacting) return; interacting = false; if (root.isConnected) draw(); };
-  const scaleLimits = () => (mode === 'sky' ? [0.6, 80] : [1, 16]);
-  const zoom = (factor) => { const v = mode === 'sky' ? skyView() : views.chart, [lo, hi] = scaleLimits(); v.auto = false; v.scale = Math.min(hi, Math.max(lo, v.scale * factor)); draw(); };
+  const scaleLimits = () => (mode === 'sky' ? [0.6, 80] : [1, 40]);
+  const zoom = (factor, later = false) => {
+    const v = currentView(), [lo, hi] = scaleLimits();
+    v.auto = false; v.scale = Math.min(hi, Math.max(lo, v.scale * factor));
+    if (later) requestDraw(); else draw();
+  };
   const fit = () => {
-    cancelAnimationFrame(flight); flight = 0;
+    stopFlight();
     if (mode === 'sky') views.sky = defaultSkyView(frame, size, height);
     else Object.assign(views.chart, { scale: 1, rotation: [...SKY_IDENTITY] });
     draw();
   };
-  // Fly to an object: the chart turns along a great circle, the sky view
-  // pans in azimuth and altitude; both zoom in a little.
+  // Fly to an object: the chart turns along a great circle (levelling its
+  // horizon), the sky view pans in azimuth and altitude; both zoom in a
+  // little.
   const goTo = (o) => {
     cancelAnimationFrame(flight);
     const start = performance.now(), duration = 650, ease = (u) => (u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2);
@@ -268,12 +316,12 @@ export function mountCoelum(root, model, formatTime) {
       step = (e) => Object.assign(v, { az: (from.az + daz * e + 360) % 360, alt: from.alt + (alt - from.alt) * e, scale: from.scale + (scale - from.scale) * e });
     } else {
       const v = views.chart, rotation = [...v.rotation], fromScale = v.scale, scale = Math.max(v.scale, 2.5);
-      const w = pointVector(o), p = [0, 1, 2].map((i) => dot3(rotation.slice(i * 3, i * 3 + 3), w));
-      const angle = Math.acos(Math.max(-1, Math.min(1, p[2])));
+      const w = pointVector(o), p = [0, 1, 2].map((i) => dot3(rotation.slice(i * 3, i * 3 + 3), w)), angle = Math.acos(Math.max(-1, Math.min(1, p[2])));
+      const axis = unit3(p[0] || p[1] ? [p[0], p[1], 0] : [1, 0, 0]);
+      const side = zenithSide(rotation) || zenithSide(rotateSky(rotation, p, [0, 0, 1])) || 1;
       step = (e) => {
-        const a = angle * (1 - e), axis = unit3(p[0] || p[1] ? [p[0], p[1], 0] : [1, 0, 0]);
-        const target = [axis[0] * Math.sin(a), axis[1] * Math.sin(a), Math.cos(a)];
-        v.rotation = e === 0 ? rotation : rotateSky(rotation, p, target);
+        const a = angle * (1 - e), target = [axis[0] * Math.sin(a), axis[1] * Math.sin(a), Math.cos(a)];
+        v.rotation = levelChart(e === 0 ? rotation : rotateSky(rotation, p, target), side);
         v.scale = fromScale + (scale - fromScale) * e;
       };
     }
@@ -347,13 +395,13 @@ export function mountCoelum(root, model, formatTime) {
       Object.assign(v, { az: alt > 89.5 ? v.az : (Math.atan2(d[0], d[1]) / R + 360) % 360, alt, scale: Math.max(0.6, Math.min(80, chartRadius(size, height, chart.scale) * 4 / Math.PI / skyRadius(size, height, 1))), auto: false });
     } else if (m === 'chart' && views.sky && !views.sky.auto) {
       const v = views.sky;
-      views.chart = { rotation: lookAt(v.az, v.alt), scale: Math.max(1, Math.min(16, skyRadius(size, height, v.scale) * Math.PI / 4 / chartRadius(size, height, 1))) };
+      views.chart = { rotation: lookAt(v.az, v.alt), scale: Math.max(1, Math.min(40, skyRadius(size, height, v.scale) * Math.PI / 4 / chartRadius(size, height, 1))) };
     }
     mode = m; root.dataset.mode = m; animator = null;
     try { localStorage.setItem('imks-coelum-mode', m); } catch { /* private mode */ }
     for (const b of root.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === m));
     if (m === 'sky' && !panels.legend.hidden) showPanel(null);
-    cancelAnimationFrame(flight); flight = 0;
+    stopFlight();
     syncLayers(); draw();
   };
   const immersive = () => root.classList.contains('coelum-immersive');
@@ -463,12 +511,18 @@ export function mountCoelum(root, model, formatTime) {
       draw(true);
     }
   });
-  svg.addEventListener('wheel', (ev) => { ev.preventDefault(); if (mode === 'chart') interact(200); zoom(Math.exp(-ev.deltaY * 0.002)); }, { passive: false });
+  // Wheels and trackpads: a pinch arrives as a wheel with Ctrl (smaller
+  // steps), or in Safari as gesture events.
+  svg.addEventListener('wheel', (ev) => { ev.preventDefault(); interact(200); zoom(Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.002)), true); }, { passive: false });
+  let pinchScale = 0;
+  svg.addEventListener('gesturestart', (ev) => { ev.preventDefault(); pinchScale = pointers.size ? 0 : currentView().scale; });
+  svg.addEventListener('gesturechange', (ev) => { ev.preventDefault(); if (!pinchScale || pointers.size) return; interact(200); zoom(pinchScale * ev.scale / currentView().scale, true); });
+  svg.addEventListener('gestureend', (ev) => { ev.preventDefault(); pinchScale = 0; });
   svg.addEventListener('dblclick', fit);
 
-  // Gestures: in the chart, the grabbed point of the sphere follows the
-  // finger; in the sky view, dragging pans in azimuth and altitude so the
-  // horizon stays level. Two fingers also zoom.
+  // Gestures: the grabbed point of the sky follows the finger, with the
+  // horizon level (the chart may tilt over the zenith); two fingers zoom
+  // about their middle.
   const pointers = new Map();
   let gesture = null, lastTap = null;
   const point = (ev) => { const p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); };
@@ -478,8 +532,8 @@ export function mountCoelum(root, model, formatTime) {
   };
   const baseline = () => {
     if (!pointers.size) return null;
-    const v = mode === 'sky' ? skyView() : views.chart;
-    return { ...centroid(), scale: v.scale, rotation: v.rotation && [...v.rotation], az: v.az, alt: v.alt, moved: pointers.size > 1 };
+    const v = currentView();
+    return { ...centroid(), scale: v.scale, rotation: v.rotation && [...v.rotation], side: v.rotation ? zenithSide(v.rotation) : 0, az: v.az, alt: v.alt, moved: pointers.size > 1 };
   };
   svg.addEventListener('pointerdown', (ev) => { cancelAnimationFrame(flight); flight = 0; pointers.set(ev.pointerId, point(ev)); svg.setPointerCapture(ev.pointerId); gesture = baseline(); });
   svg.addEventListener('pointermove', (ev) => {
@@ -490,21 +544,21 @@ export function mountCoelum(root, model, formatTime) {
     if (!gesture.moved) return;
     lastTap = null;
     const [lo, hi] = scaleLimits(), scale = Math.max(lo, Math.min(hi, gesture.scale * (gesture.distance ? distance / gesture.distance : 1)));
+    // The sky point grabbed at the start stays under the finger(s).
+    interact();
     if (mode === 'sky') {
-      // The sky point grabbed at the start stays under the finger(s).
       const v = skyView(), r0 = skyRadius(size, height, gesture.scale), r1 = skyRadius(size, height, scale);
       gesture.grab ||= unprojectSky((gesture.x - size / 2) / r0, (gesture.y - height / 2) / r0, lookAt(gesture.az, gesture.alt), true);
       v.scale = scale; v.auto = false;
       Object.assign(v, solveLook(gesture.grab, (x - size / 2) / r1, (y - height / 2) / r1, v.az, v.alt));
     } else {
-      interact();
-      views.chart.scale = scale;
-      const oldRadius = chartRadius(size, height, gesture.scale), newRadius = chartRadius(size, height, scale);
-      const from = unprojectSky((gesture.x - size / 2) / oldRadius, (gesture.y - height / 2) / oldRadius);
-      const to = unprojectSky((x - size / 2) / newRadius, (y - height / 2) / newRadius);
-      views.chart.rotation = rotateSky(gesture.rotation, from, to);
+      const r0 = chartRadius(size, height, gesture.scale), r1 = chartRadius(size, height, scale);
+      const from = unprojectSky((gesture.x - size / 2) / r0, (gesture.y - height / 2) / r0), to = unprojectSky((x - size / 2) / r1, (y - height / 2) / r1);
+      const r = rotateSky(gesture.rotation, from, to);
+      gesture.side ||= zenithSide(r);
+      views.chart.scale = scale; views.chart.rotation = levelChart(r, gesture.side, to);
     }
-    draw();
+    requestDraw();
   });
   const up = (ev) => {
     if (!pointers.has(ev.pointerId)) return;
@@ -516,7 +570,9 @@ export function mountCoelum(root, model, formatTime) {
         // Choose the nearest rendered symbol, using the same projection.
         const nearby = drawn.objects.map((o) => ({ o, d: Math.hypot(o.x - p.x, o.y - p.y) })).filter(({ o, d }) => d < Math.max(14, o.radius + 4)).sort((a, b) => a.d - b.d);
         const label = drawn.hitLabels.find(({ box }) => p.x >= box[0] && p.x <= box[2] && p.y >= box[1] && p.y <= box[3]);
-        select(label?.name || nearby[0]?.o.name || null);
+        // A symbol right under the finger wins over a label lying on it.
+        const direct = nearby[0] && nearby[0].d <= nearby[0].o.radius + 2 ? nearby[0].o.name : null;
+        select(direct || label?.name || nearby[0]?.o.name || null);
         lastTap = { time: performance.now(), x: p.x, y: p.y };
         draw();
       }
@@ -539,8 +595,8 @@ export function mountCoelum(root, model, formatTime) {
         v.az = ((v.az + dx * step / Math.max(0.25, Math.cos(v.alt * R))) % 360 + 360) % 360;
         v.alt = Math.max(-90, Math.min(90, v.alt - dy * step));
       } else {
-        const amount = 0.12 / views.chart.scale;
-        views.chart.rotation = rotateSky(views.chart.rotation, [0, 0, 1], unprojectSky(-dx * amount, -dy * amount));
+        const v = views.chart, amount = 0.12 / v.scale, r = rotateSky(v.rotation, [0, 0, 1], unprojectSky(-dx * amount, -dy * amount));
+        v.rotation = levelChart(r, zenithSide(v.rotation) || zenithSide(r));
       }
       draw();
     }
@@ -562,7 +618,7 @@ export function mountCoelum(root, model, formatTime) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { cancelAnimationFrame(animation); cancelAnimationFrame(flight); clearTimeout(idleTimer); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   return {

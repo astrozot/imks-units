@@ -108,13 +108,15 @@ export function skyLight(sunAlt, moon = null, atmosphere = true) {
 }
 
 const canvases = new WeakMap();
-// One background: W×H CSS pixels, at about one sample per f pixels.
+// One background: W×H CSS pixels, in about `samples` samples (fewer while
+// the view moves).
 //  kind 'chart': the Milky Way only, as transparent shading;
 //  kind 'sky': opaque sky and, separately, the ground in front of objects.
-// unproject(x, y) gives the horizontal unit vector [east, north, up] of a
-// point (x, y) in units of the chart radius from the center.
-export function skyRaster(key, { W, H, radius, unproject, toJ2000, kind, milkyWay = true, ground = false, atmosphere = true, sun = null, moon = null, groundColor = null, hill = hillAt }) {
-  const f = Math.max(2, Math.sqrt(W * H / 45000)), w = Math.ceil(W / f), h = Math.ceil(H / f);
+// camera { rotation, stereographic } gives the horizontal unit vector
+// [east, north, up] of each sample (as unprojectSky, inlined: this loop is
+// most of a frame's work).
+export function skyRaster(key, { W, H, radius, camera, samples = 45000, toJ2000, kind, milkyWay = true, ground = false, atmosphere = true, sun = null, moon = null, groundColor = null, hill = hillAt }) {
+  const f = Math.max(2, Math.sqrt(W * H / samples)), w = Math.ceil(W / f), h = Math.ceil(H / f);
   let c = canvases.get(key);
   if (!c) { c = { sky: document.createElement('canvas'), ground: document.createElement('canvas') }; canvases.set(key, c); }
   for (const cv of [c.sky, c.ground]) if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
@@ -135,8 +137,12 @@ export function skyRaster(key, { W, H, radius, unproject, toJ2000, kind, milkyWa
     groundRGB = groundColor || mix(mix([0.008, 0.01, 0.012], [0.05, 0.055, 0.06], twilight), [0.16, 0.18, 0.12], day);
   }
   const tone = (x) => { const y = x / (1 + 0.22 * x) * 1.22 * 255; return y > 255 ? 255 : y; };
+  const rot = camera.rotation, stereo = camera.stereographic, v = [0, 0, 0];
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-    const v = unproject(((i + 0.5) * f - W / 2) / radius, ((j + 0.5) * f - H / 2) / radius), o = (j * w + i) * 4;
+    const sx = ((i + 0.5) * f - W / 2) / radius, sy = ((j + 0.5) * f - H / 2) / radius, o = (j * w + i) * 4;
+    const rr = Math.sqrt(sx * sx + sy * sy), angle = stereo ? 2 * Math.atan(rr) : (rr < 1.999999 ? rr : 1.999999) * Math.PI / 2;
+    const k = rr > 1e-12 ? -Math.sin(angle) / rr : 0, ux = sx * k, uy = sy * k, uz = Math.cos(angle);
+    v[0] = rot[0] * ux + rot[3] * uy + rot[6] * uz; v[1] = rot[1] * ux + rot[4] * uy + rot[7] * uz; v[2] = rot[2] * ux + rot[5] * uy + rot[8] * uz;
     const mw = tex ? milkyWayAt(tex, A[0] * v[0] + A[1] * v[1] + A[2] * v[2], A[3] * v[0] + A[4] * v[1] + A[5] * v[2], A[6] * v[0] + A[7] * v[1] + A[8] * v[2]) : 0;
     if (!light) {
       px[o] = 150; px[o + 1] = 176; px[o + 2] = 232; px[o + 3] = Math.min(255, mw * 120);
@@ -145,8 +151,7 @@ export function skyRaster(key, { W, H, radius, unproject, toJ2000, kind, milkyWa
     const up = v[2], alt = Math.asin(up > 1 ? 1 : up < -1 ? -1 : up);
     if (gp) {
       // Coverage of the sample by the ground: soft edges a sample wide.
-      const az = Math.atan2(v[0], v[1]) / R, x = ((i + 0.5) * f - W / 2) / radius, y = ((j + 0.5) * f - H / 2) / radius;
-      const step = 2 * f / radius / (1 + x * x + y * y), cover = (hill(az) * R - alt) / step + 0.5;
+      const az = Math.atan2(v[0], v[1]) / R, step = 2 * f / radius / (1 + sx * sx + sy * sy), cover = (hill(az) * R - alt) / step + 0.5;
       if (cover > 0) {
         const depth = 0.55 + 0.45 * Math.exp(Math.min(0, alt) / 0.12);
         gp[o] = tone(groundRGB[0] * depth); gp[o + 1] = tone(groundRGB[1] * depth); gp[o + 2] = tone(groundRGB[2] * depth); gp[o + 3] = cover >= 1 ? 255 : cover * 255;

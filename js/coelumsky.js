@@ -2,7 +2,7 @@
 // sky's colour with the time of day, stars dimmed by twilight, moonlight and
 // extinction, the Milky Way, the Sun's glare, the textured Moon with its
 // phase, and a landscape in front. Always drawn on a canvas.
-import { R, pen, lookAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, faintObject, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
+import { R, pen, lookAt, skyGrid, gridLabelAt, projectVector, pointVector, refractVector, eachFaint, faintObject, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
 
 export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, deep: false, labels: true, labelSize: 14 };
@@ -66,7 +66,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   // The horizon: a generic landscape, the local terrain, or flat.
   const hill = opts.horizon === 'flat' ? () => 0 : opts.horizon === 'terrain' && opts.terrain ? opts.terrain : hillAt;
   const bg = skyRaster(ctx, {
-    W, H, radius, unproject: (x, y) => unprojectSky(x, y, rotation, true), toJ2000: horizonToJ2000(frame), kind: 'sky',
+    W, H, radius, camera: { rotation, stereographic: true }, samples: view.moving ? 22000 : 45000, toJ2000: horizonToJ2000(frame), kind: 'sky',
     milkyWay: opts.milkyway, ground: opts.ground, atmosphere: opts.atmosphere, hill,
     sun: { alt: sun.alt, vector: refract(pointVector(sun)) }, moon: { alt: moon.alt, illum, vector: refract(pointVector(moon)) },
   });
@@ -86,16 +86,16 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     p.path(d, st);
   };
   const fade = opts.atmosphere ? 1 - 0.7 * light.day : 1;
-  if (opts.horizontal) {
-    for (const alt of [-60, -30, 0, 30, 60]) line(Array.from({ length: 181 }, (_, i) => ({ alt, az: i * 2 })), { stroke: '#7fbf8f', width: 0.7, opacity: 0.45 * fade }, true);
-    for (let az = 0; az < 360; az += 30) line(Array.from({ length: 89 }, (_, i) => ({ alt: -88 + i * 2, az })), { stroke: '#7fbf8f', width: 0.7, opacity: 0.45 * fade }, true);
-  }
-  if (opts.equatorial) {
-    const grid = frame.equatorialGrid || [
-      ...[-60, -30, 0, 30, 60].map((dec) => Array.from({ length: 181 }, (_, i) => frame.hor({ ra: i * 2, dec }))),
-      ...Array.from({ length: 12 }, (_, k) => Array.from({ length: 89 }, (_, i) => frame.hor({ ra: k * 30, dec: -88 + i * 2 }))),
-    ];
-    for (const g of grid) line(g, { stroke: '#6f95e6', width: 0.7, opacity: 0.5 * fade });
+  // Grids, denser as the view zooms in; labels are drawn with the others.
+  const gridLabels = [];
+  for (const [kind, stroke, opacity] of [['horizontal', '#7fbf8f', 0.45], ['equatorial', '#6f95e6', 0.5]]) {
+    if (!opts[kind]) continue;
+    const fixed = kind === 'horizontal';
+    for (const g of skyGrid(kind, frame, rotation.slice(6, 9), 2 * Math.atan(Math.hypot(W, H) / 2 / radius) / R, radius / 2 * R)) {
+      line(g.points, { stroke, width: 0.7, opacity: opacity * fade }, fixed);
+      const q = gridLabelAt({ parallel: g.parallel, points: g.points.map((o) => (fixed ? apparent(pointVector(o)) : xy(o))) }, W, H, (o) => o.z > 0 && above(o));
+      if (q) gridLabels.push([q, g.label, stroke, opacity * fade]);
+    }
   }
   if (opts.boundaries && frame.boundaries) for (const b of frame.boundaries) line(b, { stroke: '#c49a7a', width: 0.7, dash: [2, 3], opacity: 0.45 * fade });
   if (opts.ecliptic && frame.ecliptic) line(frame.ecliptic, { stroke: '#e3b45c', width: 1, dash: [6, 4], opacity: 0.6 * fade });
@@ -114,14 +114,16 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     labels.push({ ...q, name: o.name, color: deepColor(o.type), r: 5.5, priority: 3 });
   }
   // Stars: visible to the sky's limiting magnitude, dimmed near the
-  // horizon; brighter ones with a soft halo. Sizes grow a little with zoom.
-  const zoom = Math.min(1.8, 1 + 0.22 * Math.log2(Math.max(1, view.scale))), limit = light.limit + 0.8 * Math.log2(Math.max(1, view.scale));
+  // horizon; brighter ones with a soft halo. Sizes follow the magnitude
+  // below the limit, which deepens as the view zooms in, so a magnified
+  // cluster keeps its bright and faint members apart.
+  const zoom = Math.log2(Math.max(1, view.scale)), limit = light.limit + 0.8 * zoom, grow = Math.min(1.4, 1 + 0.1 * zoom);
   const point = (o, mag, rgb, q) => {
     const rel = limit - mag;
     if (rel < 0) return 0;
-    const r = Math.min(3.4, Math.max(0.5, 0.5 + 0.9 * Math.pow(10, -0.2 * (mag - 1)))) * zoom, a = Math.min(1, Math.max(0.15, rel / 1.8));
-    if (mag < 2.5 || o.body) {
-      const s = r * (o.body ? 9 : 7) * (0.6 + 0.4 * Math.min(1, (2.5 - mag) / 4));
+    const r = Math.min(4.2, 0.5 + 0.05 * rel * rel) * grow, a = Math.min(1, Math.max(0.15, rel / 1.8));
+    if (rel > 4 || o.body) {
+      const s = r * (o.body ? 9 : 7) * (0.6 + 0.4 * Math.max(0, Math.min(1, (rel - 4) / 4)));
       ctx.globalAlpha = Math.min(1, 0.55 * a * (opts.atmosphere ? 1 : 0.6)); ctx.drawImage(glow(rgb), q.x - s, q.y - s, 2 * s, 2 * s);
     }
     ctx.globalAlpha = a; ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
@@ -172,6 +174,9 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     const q = proj(pointVector({ alt: -1.2, az }));
     if (onScreen(q, 20)) { ctx.font = fontFor(size, 700); ctx.textAlign = 'center'; ctx.fillStyle = color; ctx.shadowColor = '#000a'; ctx.shadowBlur = 4; ctx.fillText(name, q.x, q.y + size / 2); ctx.shadowBlur = 0; }
   }
+  ctx.font = fontFor(11); ctx.textAlign = 'left'; ctx.shadowColor = '#000c'; ctx.shadowBlur = 3;
+  for (const [q, text, color, alpha] of gridLabels) { ctx.globalAlpha = Math.min(1, 1.8 * alpha); ctx.fillStyle = color; ctx.fillText(text, q.x + 3, q.y - 4); }
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
   const symbols = objects.filter((o) => o.body), names = new Set(objects.map((o) => o.name));
   let hitLabels = [];
   if (opts.labels) {

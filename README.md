@@ -46,7 +46,9 @@ altitudes and azimuths, including those below the horizon. Dates from year
   (Hipparcos), the Sun, planets and the Moon's phase, galaxies, clusters and
   nebulae with the usual atlas symbols, constellation figures, boundaries,
   the ecliptic and the Milky Way. The legend button explains the symbols.
-  Drag to roll the sky as seen from inside the celestial sphere.
+  Drag to roll the sky as seen from inside the celestial sphere; near the
+  zenith it turns freely, and further away it keeps the horizon level (the
+  zenith up, or down once dragged past it, so it never flips over).
 - **Sky** is a realistic view toward the horizon, like a planetarium
   program: the sky's colour follows the Sun (daylight, sunset glow,
   twilight, night), the Sun has its glare, the Moon its texture, phase and
@@ -60,7 +62,7 @@ altitudes and azimuths, including those below the horizon. Dates from year
   equator.
 
 Switching between the views keeps the direction at the center and the
-scale there. In both, pinch or scroll to zoom, double-tap to reset the view, and tap an
+scale there. In both, pinch (touch or trackpad) or scroll to zoom, double-tap to reset the view, and tap an
 object or its label for a details card (name, type, equatorial and
 horizontal coordinates, magnitude, distance, double/variable flags). The
 search field finds stars, planets, deep-sky objects (also by their other
@@ -68,7 +70,10 @@ names, as "Andromeda Galaxy"), constellations and HIP numbers, and flies to
 the object. The layers button toggles ground, atmosphere (Sky), Milky Way,
 constellations, boundaries, the ecliptic, grids, deep-sky objects and
 labels; each view keeps its own layers, and the last view used opens next
-time. **Horizon** chooses a generic landscape, a flat horizon or the
+time. Grids get finer as you zoom (30° down to 2′; RA from 2h down to
+20s), labelled along the left edge and low in the view. Star sizes follow
+the magnitude below the view's limit, which deepens with zoom, so a
+magnified cluster keeps its bright and faint members apart. **Horizon** chooses a generic landscape, a flat horizon or the
 **local terrain**: the first time for a place, about 40 elevation tiles
 (AWS Terrain Tiles, a few MB) are downloaded and the horizon is computed
 every half degree out to 150 km, with the Earth's curvature and
@@ -86,8 +91,10 @@ open panel, then full screen. Eclipse, occultation and lunar eclipse sheets
 computed for a place have a **Show in the sky** button that opens the sky
 there at the event, centered on the Sun, the Moon or the occulted body.
 The chart's positions are geometric (no refraction); clouds and light
-pollution are not modeled. Chart drags and flights are drawn on a canvas
-and settle as SVG; the chart's Milky Way is painted on a canvas behind it.
+pollution are not modeled. Both views draw on one canvas under the SVG,
+at most once per display frame while dragging or pinching; the chart's
+drags and flights are drawn there and settle as SVG over its sky and
+Milky Way, which stay on the canvas.
 
 `js/skydata.js` bundles 5,044 stars from XHIP (Anderson & Francis, 2012),
 the 88 constellation figures, boundaries and Latin labels, and the Milky Way

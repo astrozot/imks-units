@@ -168,11 +168,11 @@ try {
   await page.evaluate(() => {
     window.skyFrameTimes = [];
     window.skyFrameObserver = new MutationObserver(() => window.skyFrameTimes.push(performance.now()));
-    window.skyFrameObserver.observe(document.querySelector('.coelum-motion'), { attributes: true, attributeFilter: ['data-frame'] });
+    window.skyFrameObserver.observe(document.querySelector('.coelum-canvas'), { attributes: true, attributeFilter: ['data-frame'] });
   });
   await page.locator('[data-action="play"]').click();
   await page.waitForTimeout(1400);
-  assert.equal(await page.locator('.coelum-motion').isVisible(), true);
+  assert.equal(await page.locator('.coelum-canvas').getAttribute('data-content'), 'scene');
   if (process.env.COELUM_SCREENSHOT) await page.screenshot({ path: process.env.COELUM_SCREENSHOT.replace('.png', '-playing.png'), fullPage: true });
   const playback = await page.evaluate(() => {
     window.skyFrameObserver.disconnect();
@@ -201,7 +201,7 @@ try {
   assert.equal(await page.evaluate(() => window.coelumShared[0].name), 'coelum.png');
 
   await page.locator('[data-action="play"]').click();
-  assert.equal(await page.locator('.coelum-motion').isVisible(), false);
+  assert.equal(await page.locator('.coelum-canvas').getAttribute('data-content'), 'backdrop');
   const stopped = await page.locator('.coelum-full').getAttribute('data-time');
   await page.waitForTimeout(200);
   assert.equal(await page.locator('.coelum-full').getAttribute('data-time'), stopped, 'Paused playback stops its clock');
@@ -289,7 +289,7 @@ try {
   await page.evaluate(() => {
     window.fullSkyTimes = [];
     window.fullSkyObserver = new MutationObserver(() => window.fullSkyTimes.push(performance.now()));
-    window.fullSkyObserver.observe(document.querySelector('.coelum-motion'), { attributes: true, attributeFilter: ['data-frame'] });
+    window.fullSkyObserver.observe(document.querySelector('.coelum-canvas'), { attributes: true, attributeFilter: ['data-frame'] });
   });
   await page.locator('[data-action="play"]').click(); await page.waitForTimeout(1200);
   const fullPerformance = await page.evaluate(() => {
@@ -303,7 +303,7 @@ try {
   await page.locator('[data-action="fullscreen"]').click();
   assert.equal(await page.locator('.coelum-immersive').count(), 0);
   await page.locator('[data-action="play"]').click();
-  await page.evaluate(() => { window.closedSkyCanvas = document.querySelector('.coelum-motion'); });
+  await page.evaluate(() => { window.closedSkyCanvas = document.querySelector('.coelum-canvas'); });
   await page.keyboard.press('Escape');
   await page.waitForTimeout(100);
   const closedFrame = await page.evaluate(() => window.closedSkyCanvas.dataset.frame);
@@ -320,7 +320,7 @@ try {
   await page.locator('[data-view="sky"]').click();
   assert.equal(await page.locator('[data-view="sky"]').getAttribute('aria-pressed'), 'true');
   assert.equal(await page.locator('[data-action="legend"]').isVisible(), false, 'No legend in the realistic view');
-  assert.equal(await page.locator('.coelum-motion').isVisible(), true);
+  assert.equal(await page.locator('.coelum-canvas').getAttribute('data-content'), 'scene');
   assert.equal(await page.locator('.coelum-full > *').count(), 0, 'The realistic view is drawn on the canvas');
   assert.equal(await page.locator('[data-layer="atmosphere"]').isChecked(), true);
   assert.equal(await page.locator('[data-layer="constellations"]').isChecked(), false, 'Each view keeps its own layers');
@@ -355,7 +355,7 @@ try {
   await page.evaluate(() => {
     window.realTimes = [];
     window.realObserver = new MutationObserver(() => window.realTimes.push(performance.now()));
-    window.realObserver.observe(document.querySelector('.coelum-motion'), { attributes: true, attributeFilter: ['data-frame'] });
+    window.realObserver.observe(document.querySelector('.coelum-canvas'), { attributes: true, attributeFilter: ['data-frame'] });
   });
   await page.locator('[data-action="play"]').click(); await page.waitForTimeout(1200);
   const realFrames = await page.evaluate(() => { window.realObserver.disconnect(); return window.realTimes.length; });
@@ -394,11 +394,12 @@ try {
   await page.waitForSelector('.coelum-full');
   assert.equal(await page.locator('.coelum-detail h3').textContent(), 'Sun');
   assert.match(await page.locator('.coelum-status').textContent(), /2026\.08\.12/);
-  // Chart drags move on the canvas and settle as SVG; the Milky Way sits on
-  // a backdrop canvas (no image to decode, so no flicker).
+  // Chart drags move on the canvas and settle as SVG over the same canvas,
+  // which keeps the sky and the Milky Way (no image to decode, no flicker).
   await page.locator('[data-action="fit"]').click();
   assert.equal(await page.locator('.coelum-full image').count(), 0);
-  assert.ok(await page.locator('.coelum-back').evaluate((c) => {
+  assert.equal(await page.locator('.coelum-canvas').getAttribute('data-content'), 'backdrop');
+  assert.ok(await page.locator('.coelum-canvas').evaluate((c) => {
     const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, colours = new Set();
     for (let i = 0; i < d.length; i += 4 * 97) colours.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
     return colours.size > 3;
@@ -406,10 +407,10 @@ try {
   const vb = await page.locator('.coelum-full').boundingBox(), svgBefore = await page.locator('.coelum-full').innerHTML();
   await page.mouse.move(vb.x + vb.width / 2, vb.y + vb.height / 2); await page.mouse.down();
   await page.mouse.move(vb.x + vb.width / 2 + 40, vb.y + vb.height / 2 + 20, { steps: 4 });
-  assert.equal(await page.locator('.coelum-motion').isVisible(), true, 'A chart drag moves on the canvas');
-  assert.equal(await page.locator('.coelum-full').innerHTML(), svgBefore, 'No SVG rebuild while dragging');
+  await page.waitForFunction(() => document.querySelector('.coelum-canvas').dataset.content === 'scene');
+  assert.equal(await page.locator('.coelum-full > *').count(), 0, 'A chart drag moves on the canvas');
   await page.mouse.up();
-  assert.equal(await page.locator('.coelum-motion').isVisible(), false, 'Settles as SVG');
+  assert.equal(await page.locator('.coelum-canvas').getAttribute('data-content'), 'backdrop', 'Settles as SVG');
   assert.notEqual(await page.locator('.coelum-full').innerHTML(), svgBefore);
   // The two views stay in step: the chart's center becomes the sky's.
   const chartCenter = await page.locator('.coelum-full').evaluate(async (svg) => {
@@ -436,6 +437,15 @@ try {
     return { dx: W / 2 + p.x * r - to.x, dy: H / 2 + p.y * r - to.y, scale: Number(svg.dataset.scale) };
   }, { near, from, to });
   assert.ok(Math.hypot(follow.dx, follow.dy) < 1.5 && follow.scale === near.scale, `The grabbed point follows near the zenith: ${JSON.stringify(follow)}`);
+  // Two fingers zoom the sky view (fingers landing together).
+  const cdp = await page.context().newCDPSession(page), centre = { x: vb.x + vb.width / 2, y: vb.y + vb.height / 2 };
+  const fingers = (d) => [{ x: centre.x - d, y: centre.y, id: 1 }, { x: centre.x + d, y: centre.y, id: 2 }];
+  const pinchFrom = Number(await page.locator('.coelum-full').getAttribute('data-scale'));
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: fingers(30) });
+  for (let d = 36; d <= 90; d += 6) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: fingers(d) });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  const pinchTo = Number(await page.locator('.coelum-full').getAttribute('data-scale'));
+  assert.ok(Math.abs(pinchTo / pinchFrom - 3) < 0.01, `Sky pinch: ${pinchFrom} → ${pinchTo}`);
   // Sky → chart: the same center again.
   const back = await page.locator('.coelum-full').evaluate((svg) => ({ az: Number(svg.dataset.az), alt: Number(svg.dataset.alt) }));
   await page.locator('[data-view="chart"]').click();
@@ -445,6 +455,16 @@ try {
     return { az: (Math.atan2(d[0], d[1]) * 180 / Math.PI + 360) % 360, alt: Math.asin(d[2]) * 180 / Math.PI };
   });
   assert.ok(Math.abs(chartAgain.alt - back.alt) < 0.01 && (back.alt > 89.9 || Math.abs(((chartAgain.az - back.az + 540) % 360) - 180) < 0.01), `Sky → chart: ${JSON.stringify({ back, chartAgain })}`);
+  // Dragging the chart from the zenith toward the horizon levels it, with
+  // the zenith up (or down, past it): no tilted or vertical horizon.
+  await page.locator('[data-action="fit"]').click();
+  await page.mouse.move(centre.x + 30, centre.y - 20); await page.mouse.down();
+  await page.mouse.move(centre.x + 90, centre.y - 170, { steps: 10 }); await page.mouse.up();
+  const level = await page.locator('.coelum-full').evaluate((svg) => {
+    const r = svg.dataset.rotation.split(',').map(Number);
+    return { tilt: Math.atan2(r[2], r[5]) * 180 / Math.PI, alt: Math.asin(r[8]) * 180 / Math.PI };
+  });
+  assert.ok(level.alt < 50 && Math.min(Math.abs(level.tilt), 180 - Math.abs(level.tilt)) < 0.1, `Level chart horizon: ${JSON.stringify(level)}`);
   // Fainter stars: a (mocked) download, kept in Cache Storage, found by
   // search, drawn when zoomed in, then removed.
   const zenith = await page.locator('.coelum-full').evaluate(async (svg) => {
@@ -502,7 +522,7 @@ try {
   await page.waitForFunction(() => /Only stars to magnitude 6/.test(document.querySelector('.coelum-faint-note').textContent));
   await page.unrouteAll();
   assert.deepEqual(errors, []);
-  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, view sync, fainter stars and the local horizon');
+  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars and the local horizon');
 } finally {
   if (browser) await browser.close();
   await new Promise((r) => server.close(r));

@@ -75,7 +75,7 @@ for (const t of [Date.UTC(1950, 0, 1), Date.UTC(2026, 10, 6), Date.UTC(2100, 0, 
     assert.ok(!/NaN|Infinity|undefined/.test(chart.svg));
     assert.ok(chart.objects.every((o) => o.alt >= 0));
     assert.ok(chart.objects.some((o) => o.type === 'star'));
-    assert.ok(chart.svg.includes('0h'), 'Equatorial hour labels');
+    assert.ok(/>\d+h(\d+m)?</.test(chart.svg) && />-?\d+°</.test(chart.svg), 'Grid labels in hours and degrees');
     const starsOnly = skyChart(frame, 600, 600, { ...all, deep: false, constellations: false, magnitude: 3 });
     assert.ok(starsOnly.objects.every((o) => o.body || o.type === 'star' && o.mag <= 3));
     assert.ok(starsOnly.objects.length < chart.objects.length);
@@ -158,5 +158,32 @@ for (const phase of [0, 45, 90, 135, 180]) {
   assert.ok(Math.abs(Math.hypot(...v) - 1) < 1e-12 && Math.abs(Math.asin(v[2]) * 180 / Math.PI - 10 - refraction(10)) < 1e-9 && v[0] === 0, 'Raised in altitude only');
   const at = horizonAt(Float32Array.from({ length: 720 }, (_, i) => i / 100));
   assert.ok(Math.abs(at(0.25) - 0.005) < 1e-6 && Math.abs(at(359.75) - 3.595) < 1e-5 && Math.abs(at(-0.25) - at(359.75)) < 1e-6);
+}
+{
+  // Grids get denser with zoom, only around the view's center, and their
+  // points lie on the right circles; labels read in degrees or hours.
+  const { skyGrid, starRadius, horizontalVector, pointVector } = await import('../js/coelum.js');
+  const f = skyFrame(Date.parse('2026-11-06T21:00:00Z') / 1000, [41.892, 12.511, 20]);
+  const center = horizontalVector(30, 180);
+  const spacing = (lines) => { const p = lines.filter((l) => l.parallel).map((l) => l.value); return p[1] - p[0]; };
+  assert.equal(spacing(skyGrid('horizontal', f, center, 120, 2)), 30);
+  assert.equal(spacing(skyGrid('horizontal', f, center, 10, 20)), 5);
+  const fine = skyGrid('horizontal', f, center, 1, 400);
+  assert.ok(Math.abs(spacing(fine) - 0.25) < 1e-12 && fine.every((l) => l.points.every((p) => Math.abs(p.alt - 30) < 1.01 && Math.abs(p.az - 180) < 1.2)), 'Fine grids stay near the center');
+  assert.ok(fine.some((l) => l.label === '30°15′'));
+  const eq = skyGrid('equatorial', f, center, 8, 40);
+  const meridian = eq.find((l) => !l.parallel), parallel = eq.find((l) => l.parallel);
+  assert.match(meridian.label, /^\d+h(\d+m)?$/);
+  // Back to RA/Dec of date through the equator's and the pole's directions.
+  const axes = [{ ra: 0, dec: 0 }, { ra: 90, dec: 0 }, { ra: 0, dec: 90 }].map((p) => pointVector(f.hor(p)));
+  const radec = (p) => {
+    const e = axes.map((a) => a.reduce((s, x, i) => s + x * pointVector(p)[i], 0));
+    return { ra: (Math.atan2(e[1], e[0]) * 180 / Math.PI + 360) % 360, dec: Math.asin(e[2]) * 180 / Math.PI };
+  };
+  assert.ok(meridian.points.every((p) => Math.abs(((radec(p).ra - meridian.value + 540) % 360) - 180) < 1e-6), 'Meridians at constant RA');
+  assert.ok(parallel.points.every((p) => Math.abs(radec(p).dec - parallel.value) < 1e-6), 'Parallels at constant Dec');
+  // Zoomed in, a cluster's bright and faint members keep different sizes.
+  assert.ok(starRadius(2.9, 8) / starRadius(6, 8) > 2 && starRadius(6, 8) > starRadius(8, 8) * 1.5, 'Sizes follow the magnitude when zoomed');
+  assert.ok(Math.abs(starRadius(-1.4) - starRadius(-1.4, 1)) < 1e-12 && starRadius(0) > starRadius(3) * 2);
 }
 console.log('Coelum geometry, catalogs and calculator checks passed');

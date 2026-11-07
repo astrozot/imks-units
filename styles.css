@@ -385,12 +385,11 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-topbar { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 16px 16px 0 0; }
 .coelum-timebar { padding: 8px 10px 10px; border-radius: 0 0 16px 16px; }
 .coelum-viewport { position: relative; height: min(92vw, 62vh, 620px); background: #060b16; overflow: hidden; }
-.coelum-back { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.coelum-explorer[data-mode="chart"] .coelum-viewport { background: #0c1730; }
+.coelum-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .coelum-full { position: relative; z-index: 1; display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; background: transparent; outline: none; }
 .coelum-full:active { cursor: grabbing; }
 .coelum-full:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -2px; }
-.coelum-motion { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.coelum-motion[hidden] { display: none; }
 .coelum-btn { display: inline-grid; place-items: center; flex: none; box-sizing: border-box; width: 40px; height: 40px; padding: 0; border: 1px solid var(--c-line); border-radius: 12px; background: rgba(255, 255, 255, 0.045); color: var(--c-ink); font: 600 14px/1 system-ui, -apple-system, sans-serif; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s; -webkit-tap-highlight-color: transparent; }
 .coelum-btn:hover { background: var(--c-hover); }
 .coelum-btn:active { transform: scale(0.93); }
