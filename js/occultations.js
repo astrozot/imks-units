@@ -55,12 +55,12 @@ function contact(target, t, place, mag) {
   return { t, alt, sun, seen: alt > 0 && sun < sky };
 }
 
-// The occultations from t0, for the days, in time order; job.done (0 to 1)
-// as they are computed, job.progress() now and then, job.stop to end.
+// The occultations from t0, for the days, in time order (a generator,
+// yielding the part done, 0 to 1, after each candidate).
 // From a place: those seen there (going in or coming out), { target, name,
 // mag, e (occultationLocal), in, out (contact), lit (of the Moon), t: e.first };
 // anywhere: { target, name, mag, max, covers, lit, t: max }
-async function lunarOccultations(t0, days, place, job = {}) {
+function* search(t0, days, place) {
   const list = [], cands = candidates(t0, days), end = t0 + days * DAY;
   for (let i = 0; i < cands.length; i++) {
     const { target, t } = cands[i], name = nameOf(target);
@@ -76,14 +76,30 @@ async function lunarOccultations(t0, days, place, job = {}) {
         list.push({ target, name, mag: magOf(target, e.max), max: e.max, covers: e.covers, lit: (1 + Math.cos(aspect("moon", e.max).phase * RAD)) / 2, t: e.max });
       }
     }
-    job.done = (i + 1) / cands.length;
-    if (i % 4 === 3) {
-      job.progress?.();
-      await new Promise((r) => setTimeout(r, 0));
-      if (job.stop) return null;
-    }
+    yield (i + 1) / cands.length;
   }
   return list.sort((a, b) => a.t - b.t);
 }
 
-export { OCC_MAG, lunarOccultations };
+// At once (iMKS's occultations()), or yielding to the page every few
+// candidates: job.done (0 to 1) as they are computed, job.progress() now
+// and then, job.stop to end (then null)
+function lunarOccultationsNow(t0, days, place) {
+  const it = search(t0, days, place);
+  for (;;) { const r = it.next(); if (r.done) return r.value; }
+}
+async function lunarOccultations(t0, days, place, job = {}) {
+  const it = search(t0, days, place);
+  for (let i = 0; ; i++) {
+    const r = it.next();
+    if (r.done) return r.value;
+    job.done = r.value;
+    if (i % 4 === 3) {
+      job.progress?.();
+      await new Promise((res) => setTimeout(res, 0));
+      if (job.stop) return null;
+    }
+  }
+}
+
+export { OCC_MAG, lunarOccultations, lunarOccultationsNow };

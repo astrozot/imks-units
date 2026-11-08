@@ -594,6 +594,29 @@ for (const [jd, i, k] of [[2461345.61, 1, "occulted"], [2461345.75694, 0, "trans
     if (again && again.max <= map.t + 1) fail("global occultation repeats the previous event");
   }
 }
+// The coming occultations (occultations.js): from Milan in November 2026,
+// 52 Sgr going in and ε Ari coming out, as occultation() gives them;
+// anywhere, the Pleiades among them; the stars of the chart by their
+// designations, offline
+{
+  const here = calc.run('occultations(2026.11.08 12:00 Z, (45.4642, 9.19, 120[m])[deg])');
+  const rows = here.q?.rows || [];
+  if (here.kind !== "value" || rows.join("|") !== "1. 52 Sgr disappears (dark limb)|2. ε Ari reappears (bright limb)") fail(`occultations from Milan: ${here.message || rows}`);
+  else {
+    const one = calc.run('occultation("Moon", "52 Sgr", 2026.11.14, (45.4642, 9.19, 120[m])[deg])');
+    if (one.kind !== "value" || Math.abs(one.q[0][0].relative().x.n - here.q[0][0].relative().x.n) > 1) fail(`occultations and occultation of 52 Sgr: ${one.message || one.q.rows}`);
+  }
+  const anywhere = calc.run("occultations(2026.11.08 12:00 Z)");
+  if (anywhere.kind !== "value" || !anywhere.q.rows.some((r) => /Alcyone$/.test(r)) || anywhere.q.rows.length < 30) fail(`occultations anywhere: ${anywhere.message || anywhere.q.rows.length}`);
+  if (calc.run('occultations(today, "Milan", 120)').kind !== "error") fail("occultations over 90 days should be an error");
+  for (const name of ["52 Sgr", "phi Sgr", "φ Sgr", "alf Sco", "HIP 96465", "HD 184707", "HR 7440"]) {
+    const r = calc.run(`radec(${JSON.stringify(name)})`);
+    if (r.kind !== "value") fail(`${name} is not found: ${r.message}`);
+  }
+  const phi = calc.run('radec("phi Sgr")'), sgr52 = calc.run('radec("52 Sgr")');
+  if (phi.kind === "value" && sgr52.kind === "value" && Math.abs(phi.q[0].x.n - sgr52.q[0].x.n) < 1e-6) fail("phi Sgr is not 52 Sgr");
+  if (calc.run('radec("Antares")').q?.[0].x.n !== calc.run('radec("alpha Sco")').q?.[0].x.n) fail("alpha Sco is not Antares");
+}
 // The foreground must be explicit and first. Catalog filtering is broad,
 // but excludes polar stars while retaining known lunar occultation targets.
 {

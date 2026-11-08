@@ -708,7 +708,7 @@ try {
   await page.locator('.coelum-moons-button').click();
   assert.equal(await page.locator('.coelum-moons-title').textContent(), 'Venus');
   assert.match(await page.locator('.coelum-moons-data').textContent(), /% lit/);
-  assert.ok(await page.locator('.coelum-moons-stage .sky-canvas').evaluate((c) => c.getContext('2d').getImageData(0, 0, c.width, c.height).data.some((x, i) => i % 4 === 3 && x > 0)), 'Venus drawn');
+  assert.ok(await page.locator('.coelum-moons-stage .sky-canvas').evaluate((c) => { const d = document.createElement('canvas'); d.width = c.width; d.height = c.height; const g = d.getContext('2d'); g.drawImage(c, 0, 0); return g.getImageData(0, 0, c.width, c.height).data.some((x, i) => i % 4 === 3 && x > 0); }), 'Venus drawn');
   await page.keyboard.press('Escape');
   await page.locator('[data-action="deselect"]').click();
   // Without the ground, no horizon line and no cardinal points.
@@ -752,8 +752,51 @@ try {
   });
   if (shader) for (const s of shader) assert.ok(s.mean < 1 && s.big < 0.01, `WebGL sky differs: ${JSON.stringify(s)}`);
   else console.log('WebGL2 unavailable: the shader was not compared');
+  // The planets traced on the GPU (skyview.js) as in JavaScript: the same
+  // but at the edges, smoothed by four rays a pixel
+  const traced = await page.evaluate(async () => {
+    const { skyView } = await import('./js/sky.js');
+    const { drawPlanet } = await import('./js/skyview.js');
+    const out = [];
+    for (const [planet, t] of [['saturn', '2026-11-06T21:00:00Z'], ['jupiter', '2026-11-06T21:00:00Z'], ['saturn', '2032-03-01T00:00:00Z']]) {
+      const sky = skyView(planet, Date.parse(t) / 1000), W = 360, H = 240, s = planet === 'saturn' ? 70 : 100;
+      const gpu = document.createElement('canvas'), cpu = document.createElement('canvas');
+      cpu.getContext('2d');
+      if (!drawPlanet(gpu, sky, W, H, 0, 0, s, 1)) return null;
+      drawPlanet(cpu, sky, W, H, 0, 0, s, 1);
+      const px = [gpu, cpu].map((c) => { const d = document.createElement('canvas'); d.width = W; d.height = H; const g = d.getContext('2d'); g.drawImage(c, 0, 0); return g.getImageData(0, 0, W, H).data; });
+      let sum = 0, big = 0, lit = 0;
+      for (let i = 0; i < px[0].length; i++) { const d = Math.abs(px[0][i] - px[1][i]); sum += d; if (d > 24) big++; if (i % 4 === 3 && px[0][i] > 0) lit++; }
+      out.push({ planet, mean: sum / px[0].length, big: big / px[0].length, drawn: lit / (W * H) });
+    }
+    return out;
+  });
+  if (traced) for (const x of traced) assert.ok(x.mean < 2.5 && x.big < 0.03 && x.drawn > 0.1, `The planet on the GPU differs: ${JSON.stringify(x)}`);
+  else console.log('WebGL unavailable: the planets were not compared');
+
+  // iMKS's chart has Coelum's Events panel: an occultation tapped is
+  // computed, with its map
+  {
+    const p2 = await context.newPage();
+    p2.on('pageerror', (e) => errors.push(e.message));
+    await p2.goto(`http://localhost:${server.address().port}/`);
+    await p2.waitForFunction(() => document.querySelector('#expr') && document.querySelectorAll('.key').length);
+    await p2.keyboard.type('coelum(2026.11.06 21:00 Z, "Rome")');
+    await p2.keyboard.press('Enter');
+    await p2.locator('.coelum-preview').last().click();
+    await p2.locator('[data-action="events"]').click();
+    await p2.waitForSelector('[data-event="occultations"]', { timeout: 60000 });
+    assert.match(await p2.locator('[data-panel="events"] .coelum-panel-note').first().textContent(), /Seen from .*its calculation, with its map or drawing/);
+    assert.match(await p2.locator('[data-event="occultations"]').first().innerText(), /^52 Sgr behind the Moon/);
+    await p2.locator('[data-event="occultations"]').first().click();
+    await p2.waitForFunction(() => /52 Sgr occulted by the Moon/.test(document.querySelector('.entry:last-child')?.textContent || ''), null, { timeout: 30000 });
+    const entry = (await p2.locator('.entry').last().innerText()).replace(/\s+/g, ' ');
+    assert.match(entry, /occultation ⁡ \( “ Moon ” , “ 52 Sgr ” , 2026\.11\.14 [\d:]+ UTC , \( 41\.892 ⁢ ° , 12\.511 ⁢ ° , 20 ⁢ m \) \)/);
+    assert.match(entry, /limits .*disappears \(dark limb\)/, 'With its map');
+    await p2.close();
+  }
   assert.deepEqual(errors, []);
-  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars with parallaxes and proper motions, the local horizon, the WebGL sky, stale touches, edge drags, equal zooms, time and place panels, minor planets, moons, the moons view, the backward play button, the ruler, the mounts, the lock and spectra');
+  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars with parallaxes and proper motions, the local horizon, the WebGL sky, stale touches, edge drags, equal zooms, time and place panels, minor planets, moons, the moons view, the backward play button, the ruler, the mounts, the lock and spectra, the planets traced on the GPU, the Events panel in iMKS');
 } finally {
   if (browser) await browser.close();
   await new Promise((r) => server.close(r));

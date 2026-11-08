@@ -4,7 +4,9 @@
 // The planet is traced pixel by pixel: its flattened globe with its bands,
 // lit by the Sun, Saturn's rings with the shadows of the globe on them and
 // theirs on the globe, and the shadows of the moons; the moons, their
-// names and a scale go on top, in SVG.
+// names and a scale go on top, in SVG. The tracing runs on the GPU (WebGL),
+// four rays a pixel for smooth edges, at every frame; without WebGL, in
+// JavaScript, a ray a pixel, after the view stops.
 
 const FLAT = { mars: 0.00589, jupiter: 0.06487, saturn: 0.09796, uranus: 0.02293, neptune: 0.01708 };
 
@@ -30,15 +32,16 @@ const BANDS = {
   venus: [[-90, [240, 228, 196]]],
 };
 
-// the color at a latitude, the bands blended over 1.5°
+// the color at a latitude, the bands blended over 1.5° on each side of
+// their edges
 function bandColor(planet, lat) {
   const bands = BANDS[planet];
-  let i = 0;
-  while (i + 1 < bands.length && lat >= bands[i + 1][0]) i++;
-  const c = bands[i][1], next = bands[i + 1];
-  if (!next || next[0] - lat > 1.5) return c;
-  const w = (1.5 - (next[0] - lat)) / 3;
-  return c.map((v, k) => v + (next[1][k] - v) * w);
+  let c = bands[0][1];
+  for (let i = 1; i < bands.length; i++) {
+    const w = Math.min(1, Math.max(0, (lat - bands[i][0] + 1.5) / 3));
+    if (w > 0) c = c.map((v, k) => v + (bands[i][1][k] - v) * w);
+  }
+  return c;
 }
 
 const ringAt = (rho) => RINGS.find(([a, b]) => rho >= a && rho < b);
@@ -65,10 +68,11 @@ function hitGlobe(o, d, f) {
   return [(-B - q) / A, (-B + q) / A];
 }
 
-// The pixels of the planet, for the context ctx: the part of the sky from
-// (x0, y0) (the top left corner, planet radii) over w × h pixels of scale s
-// (pixels per radius)
-function planetPixels(ctx, sky, x0, y0, w, h, s) {
+// The geometry of the planet for the tracing, at s pixels per radius: its
+// flattening, its axes (e1, e2 in its equator, p to its north pole), the
+// directions of the Earth and the Sun on them, the moons' shadows (at
+// least 0.7 pixels across), and which face of the rings is lit
+function planetModel(sky, s) {
   const { planet, moons } = sky, f = FLAT[planet] || 0;
   // the pole and the Sun made unit vectors again: rounded to 1e-5 in the
   // view, their lengths off by 1e-5 would shift a moon's shadow, 15 radii
@@ -77,10 +81,17 @@ function planetPixels(ctx, sky, x0, y0, w, h, s) {
   const [e1, e2, p] = axes(pole);
   const toP = (v) => [dot(v, e1), dot(v, e2), dot(v, p)];
   // the Earth's direction and the Sun's, on the planet's axes
-  const view = toP([0, 0, 1]), light = toP(sun), sat = planet === "saturn";
+  const view = toP([0, 0, 1]), light = toP(sun);
   const shadows = moons.filter((m) => m.r > 0).map((m) => ({ c: toP([m.x, m.y, m.z]), r: Math.max(m.r, 0.7 / s) }));
+  return { planet, f, e1, e2, p, toP, view, light, shadows, sat: planet === "saturn", litFace: Math.sign(light[2]) === Math.sign(view[2]) };
+}
+
+// The pixels of the planet, for the context ctx: the part of the sky from
+// (x0, y0) (the top left corner, planet radii) over w × h pixels of scale s
+// (pixels per radius)
+function planetPixels(ctx, sky, x0, y0, w, h, s) {
+  const { planet, f, toP, view, light, shadows, sat, litFace } = planetModel(sky, s);
   const img = ctx.createImageData(w, h), px = img.data;
-  const litFace = Math.sign(light[2]) === Math.sign(view[2]);
   for (let j = 0; j < h; j++) {
     const y = y0 - (j + 0.5) / s;
     for (let i = 0; i < w; i++) {
@@ -140,6 +151,187 @@ function planetPixels(ctx, sky, x0, y0, w, h, s) {
   return img;
 }
 
+// The same tracing on the GPU: a fragment shader over the canvas, four
+// rays a pixel (a rotated grid), the colors premultiplied by their
+// opacity. A renderer per canvas, or null without WebGL.
+const MAX_SHADOWS = 16, MAX_BANDS = 16;
+const FRAGMENT = `precision highp float;
+uniform vec2 origin, size;
+uniform float scale, flattening, reach;
+uniform mat3 toP;
+uniform vec3 view, light;
+uniform bool saturn, litFace;
+uniform vec4 shadows[${MAX_SHADOWS}];
+uniform int nShadows;
+uniform vec4 bands[${MAX_BANDS}];
+uniform int nBands;
+uniform vec4 rings[4];
+uniform vec2 ringEdges[4];
+
+vec2 hitGlobe(vec3 o, vec3 d, out bool hit) {
+  float k = 1.0 / (1.0 - flattening);
+  vec3 a = vec3(o.xy, o.z * k), b = vec3(d.xy, d.z * k);
+  float A = dot(b, b), B = dot(a, b), C = dot(a, a) - 1.0, disc = B * B - A * C;
+  hit = disc >= 0.0;
+  float q = sqrt(max(disc, 0.0));
+  return vec2(-B - q, -B + q) / A;
+}
+// the ring at a distance from the center: its color and opacity (0: none)
+vec4 ringAt(float rho) {
+  for (int i = 0; i < 4; i++) if (rho >= ringEdges[i].x && rho < ringEdges[i].y) return rings[i];
+  return vec4(0.0);
+}
+vec3 bandColor(float lat) {
+  vec3 c = bands[0].yzw;
+  for (int i = 1; i < ${MAX_BANDS}; i++) {
+    if (i >= nBands) break;
+    c = mix(c, bands[i].yzw, clamp((lat - bands[i].x + 1.5) / 3.0, 0.0, 1.0));
+  }
+  return c;
+}
+// a ray through the point (x, y) of the sky (planet radii): its color,
+// premultiplied, and its opacity
+vec4 trace(vec2 xy) {
+  if (dot(xy, xy) > reach * reach) return vec4(0.0);
+  vec3 o = toP * vec3(xy, 10.0), d = -view;
+  vec4 c = vec4(0.0);
+  bool hit;
+  vec2 g = hitGlobe(o, d, hit);
+  float tGlobe = hit ? g.x : 1e9;
+  if (hit) {
+    vec3 q = o + d * tGlobe, n = vec3(q.xy, q.z / ((1.0 - flattening) * (1.0 - flattening)));
+    float nn = length(n), lat = degrees(atan(n.z, length(n.xy)));
+    float mu = -dot(n, d) / nn, lit = dot(n, light) / nn;
+    float shade = lit > 0.0 ? pow(lit, 0.75) * (0.7 + 0.3 * mu) : 0.0;
+    // the rings' shadow on the globe
+    if (saturn && shade > 0.0 && abs(light.z) > 1e-6) {
+      float t = -q.z / light.z;
+      if (t > 0.0) shade *= 1.0 - 0.85 * ringAt(length(q.xy + t * light.xy)).a;
+    }
+    // the moons' shadows
+    for (int i = 0; i < ${MAX_SHADOWS}; i++) {
+      if (i >= nShadows) break;
+      vec3 v = shadows[i].xyz - q;
+      float along = dot(v, light);
+      if (along > 0.0 && dot(v, v) - along * along < shadows[i].w * shadows[i].w) shade *= 0.08;
+    }
+    c = vec4(bandColor(lat) * shade, 1.0);
+  }
+  // the rings, in front of the globe or where it is not
+  if (saturn && abs(d.z) > 1e-9) {
+    float t = -o.z / d.z;
+    if (t < tGlobe) {
+      vec3 q = o + d * t;
+      vec4 r = ringAt(length(q.xy));
+      if (r.a > 0.0) {
+        float b = litFace ? 1.0 : 0.3;
+        // the globe's shadow on the rings
+        bool shadowed;
+        vec2 gs = hitGlobe(q, light, shadowed);
+        if (shadowed && gs.y > 0.0) b *= 0.06;
+        c = vec4(r.rgb * b * r.a, r.a) + c * (1.0 - r.a);
+      }
+    }
+  }
+  return c;
+}
+void main() {
+  // the pixel from the top left corner, and the sky there
+  vec2 px = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y);
+  vec4 c = vec4(0.0);
+  c += trace(origin + vec2(px.x + 0.125, -(px.y - 0.375)) / scale);
+  c += trace(origin + vec2(px.x - 0.375, -(px.y - 0.125)) / scale);
+  c += trace(origin + vec2(px.x - 0.125, -(px.y + 0.375)) / scale);
+  c += trace(origin + vec2(px.x + 0.375, -(px.y + 0.125)) / scale);
+  gl_FragColor = c / 4.0;
+}`;
+const VERTEX = "attribute vec2 at; void main() { gl_Position = vec4(at, 0.0, 1.0); }";
+
+// the program on a WebGL context, its uniforms (an error if it fails)
+function planetProgram(gl) {
+  const shader = (type, src) => {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+    return sh;
+  };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, shader(gl.VERTEX_SHADER, VERTEX));
+  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FRAGMENT));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const at = gl.getAttribLocation(prog, "at");
+  gl.enableVertexAttribArray(at);
+  gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
+  const u = {};
+  for (const name of ["origin", "size", "scale", "flattening", "reach", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges"]) u[name] = gl.getUniformLocation(prog, name);
+  gl.uniform4fv(u.rings, RINGS.flatMap(([, , a, c]) => [...c.map((x) => x / 255), a]));
+  gl.uniform2fv(u.ringEdges, RINGS.flatMap(([a, b]) => [a, b]));
+  return u;
+}
+// Tried first on a canvas of its own: a canvas given a WebGL context
+// cannot be drawn in 2D any more
+const GL_OPTIONS = { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: true };
+let glWorks = null;
+function webglWorks() {
+  if (glWorks === null) {
+    try {
+      const gl = document.createElement("canvas").getContext("webgl", GL_OPTIONS);
+      glWorks = Boolean(gl && planetProgram(gl));
+      gl?.getExtension("WEBGL_lose_context")?.loseContext();
+    } catch { glWorks = false; }
+  }
+  return glWorks;
+}
+const renderers = new WeakMap();
+function glRenderer(canvas) {
+  if (renderers.has(canvas)) return renderers.get(canvas);
+  let r = null;
+  if (webglWorks()) {
+    try {
+      const gl = canvas.getContext("webgl", GL_OPTIONS);
+      if (gl) r = { gl, u: planetProgram(gl) };
+    } catch { r = null; }
+  }
+  renderers.set(canvas, r);
+  return r;
+}
+
+// The planet traced on the GPU over the canvas, w × h pixels whose top left
+// corner is the point (x0, y0) of the sky, s pixels per radius; false
+// without WebGL
+function tracePlanet(canvas, sky, x0, y0, w, h, s) {
+  const r = glRenderer(canvas);
+  if (!r || r.gl.isContextLost()) return false;
+  const { gl, u } = r, m = planetModel(sky, s);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  gl.viewport(0, 0, w, h);
+  gl.uniform2f(u.origin, x0, y0);
+  gl.uniform2f(u.size, w, h);
+  gl.uniform1f(u.scale, s);
+  gl.uniform1f(u.flattening, m.f);
+  gl.uniform1f(u.reach, m.sat ? 2.3 : 1.02);
+  gl.uniformMatrix3fv(u.toP, false, [0, 1, 2].flatMap((k) => [m.e1[k], m.e2[k], m.p[k]]));
+  gl.uniform3fv(u.view, m.view);
+  gl.uniform3fv(u.light, m.light);
+  gl.uniform1i(u.saturn, m.sat ? 1 : 0);
+  gl.uniform1i(u.litFace, m.litFace ? 1 : 0);
+  const shadows = m.shadows.slice(0, MAX_SHADOWS);
+  gl.uniform1i(u.nShadows, shadows.length);
+  if (shadows.length) gl.uniform4fv(u.shadows, shadows.flatMap((x) => [...x.c, x.r]));
+  const bands = BANDS[m.planet].slice(0, MAX_BANDS);
+  gl.uniform1i(u.nBands, bands.length);
+  gl.uniform4fv(u.bands, bands.flatMap(([lat, c]) => [lat, ...c.map((x) => x / 255)]));
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  return true;
+}
+
 // the part of the view (W × H, centered on cx, cy, s pixels per radius)
 // where the planet and its rings can be: left, top, right, bottom
 function planetBox(sky, W, H, cx, cy, s) {
@@ -148,8 +340,10 @@ function planetBox(sky, W, H, cx, cy, s) {
     Math.min(W, W / 2 + (reach - cx) * s), Math.min(H, H / 2 - (-reach - cy) * s)];
 }
 
-// The planet in a canvas covering the view, k pixels per pixel of the view
+// The planet in a canvas covering the view, k pixels per pixel of the view:
+// on the GPU (then true), or else in JavaScript
 function drawPlanet(canvas, sky, W, H, cx, cy, s, k) {
+  if (tracePlanet(canvas, sky, cx - W / 2 / s, cy + H / 2 / s, Math.round(W * k), Math.round(H * k), s * k)) return true;
   canvas.width = Math.round(W * k);
   canvas.height = Math.round(H * k);
   const ctx = canvas.getContext("2d");
@@ -157,19 +351,27 @@ function drawPlanet(canvas, sky, W, H, cx, cy, s, k) {
   if (R <= L || B <= T) return;
   const x = Math.floor(L * k), y = Math.floor(T * k), w = Math.ceil(R * k) - x, h = Math.ceil(B * k) - y;
   ctx.putImageData(planetPixels(ctx, sky, cx + (x / k - W / 2) / s, cy - (y / k - H / 2) / s, w, h, s * k), x, y);
+  return false;
 }
 
-// the planet as an image (a data URL) at (L, T) of the view, or ""
+// the planet as an image (a data URL) at (L, T) of the view, or "" (traced
+// on a canvas kept for them)
+let imageCanvas = null;
 function planetImage(sky, W, H, cx, cy, s, k) {
   const [L, T, R, B] = planetBox(sky, W, H, cx, cy, s);
   if (R <= L || B <= T) return "";
   const w = Math.ceil((R - L) * k), h = Math.ceil((B - T) * k);
   if (w * h > 4e6) return "";
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.putImageData(planetPixels(ctx, sky, cx + (L - W / 2) / s, cy - (T - H / 2) / s, w, h, s * k), 0, 0);
+  const x0 = cx + (L - W / 2) / s, y0 = cy - (T - H / 2) / s;
+  imageCanvas ??= document.createElement("canvas");
+  let canvas = imageCanvas;
+  if (!tracePlanet(canvas, sky, x0, y0, w, h, s * k)) {
+    canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.putImageData(planetPixels(ctx, sky, x0, y0, w, h, s * k), 0, 0);
+  }
   return `<image href="${canvas.toDataURL()}" x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${(w / k).toFixed(1)}" height="${(h / k).toFixed(1)}"/>`;
 }
 
@@ -238,18 +440,18 @@ function fitView(sky, W, H) {
 // The zoom view of a planet and its moons in a stage holding a canvas
 // (.sky-canvas) under an SVG (.sky-svg): drag to move, pinch or scroll to
 // zoom, double-tap to fit, onTap(moon) for a tap on a moon. The planet is
-// a canvas under the moons: while the view moves it is only moved and
-// scaled, then drawn again sharp. size(W, H) lays it out; set(sky, quick)
-// shows the moons at another time, the planet ten times a second if
-// quick. Without a bar, onScale(arcseconds per pixel) gives the scale;
+// a canvas under the moons, traced again at every move on the GPU; without
+// it, while the view moves it is only moved and scaled, then drawn again
+// sharp. size(W, H) lays it out; set(sky, quick) shows the moons at
+// another time, the planet (without the GPU) ten times a second if quick. Without a bar, onScale(arcseconds per pixel) gives the scale;
 // top moves the directions down
 function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top = 0 } = {}) {
   const svg = stage.querySelector(".sky-svg"), canvas = stage.querySelector(".sky-canvas");
-  let W = 320, H = 400, v = null, drawn = null, idle = 0, quick = false, planetAt = 0;
-  const k = () => Math.min(2, window.devicePixelRatio || 1);
+  let W = 320, H = 400, v = null, drawn = null, idle = 0, quick = false, planetAt = 0, gpu = false;
+  const k = () => Math.min(gpu ? 3 : 2, window.devicePixelRatio || 1);
   // the planet sharp for the view, and the canvas back in place
   const sharp = () => {
-    drawPlanet(canvas, sky, W, H, v.cx, v.cy, v.s, quick ? 1 : k());
+    gpu = drawPlanet(canvas, sky, W, H, v.cx, v.cy, v.s, quick && !gpu ? 1 : k());
     drawn = { ...v };
     canvas.style.transform = "";
   };
@@ -262,6 +464,7 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
   const overlay = () => { svg.innerHTML = overlaySVG(sky, W, H, v.cx, v.cy, v.s, true, bar, top); onScale?.(sky.radius / v.s); };
   const moved = () => {
     overlay();
+    if (gpu) { sharp(); return; }
     follow();
     clearTimeout(idle);
     idle = setTimeout(sharp, 120);
@@ -327,7 +530,7 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
     ev.preventDefault();
     const p = local(ev);
     v = keep(v, p, p, clampS(v.s * Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.002))));
-    moved();
+    if (!moving) moving = requestAnimationFrame(() => { moving = 0; moved(); });
   }, { passive: false });
 
   return {
@@ -346,7 +549,7 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
       if (!v) return;
       overlay();
       const now = performance.now();
-      if (!fast || now - planetAt > 100) { planetAt = now; sharp(); }
+      if (gpu || !fast || now - planetAt > 100) { planetAt = now; sharp(); }
     },
     fit() { v = fitView(sky, W, H); moved(); },
     get sky() { return sky; },

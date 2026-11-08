@@ -8,12 +8,13 @@ import { Q, UnitError, dimEq } from "./units.js";
 import { UNum, ufuncs, atan2 } from "./unum.js";
 import { isDate, dateQ, yearArg } from "./dates.js";
 import { findObject, findPlace } from "./lookup.js";
+import { OCC_MAG, lunarOccultationsNow } from "./occultations.js";
 import { conjunction, opposition, occultation, occultationTrack, orbitAge, satellitePasses, horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, planetDisk, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season, deltaTError } from "./astro.js";
 
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
 // are not taken elementwise
-const SKY_FNS = ["coelum", "place", "passes", "sunday", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse", "conjunction", "opposition", "occultation"];
+const SKY_FNS = ["coelum", "place", "passes", "sunday", "sun", "moon", "sunrise", "sunset", "noon", "moonrise", "moonset", "lst", "altaz", "radec", "dist", "diam", "rising", "setting", "transit", "solareclipse", "lunareclipse", "conjunction", "opposition", "occultation", "occultations"];
 // the coordinate functions, whose points are lists (lon, lat)
 const COORD_FNS = ["eq2hor", "hor2eq", "eq2ecl", "ecl2eq", "eq2gal", "gal2eq", "precess", "sep", "pa"];
 // the functions whose first argument is the name of a body (a star or
@@ -580,6 +581,26 @@ function skyBuiltins(env, b) {
       v = e.max + 3600;
     }
     throw new UnitError(`occultation: none of ${Name(target)} by ${front === "moon" ? "the Moon" : Name(front)} ${place ? "seen here " : ""}in the next ${years} years`);
+  };
+
+  // The occultations by the Moon of the planets and of the stars to
+  // magnitude OCC_MAG (occultations.js) in the days from t (30, up to 90):
+  // anywhere on the Earth, the greatest of each; from a place, those seen
+  // there, when the body disappears (or reappears, if only that is seen),
+  // and on which limb. occultation() gives the whole of one.
+  b.occultations = (t, p, n) => {
+    const u = when("occultations", t), place = p === undefined ? null : where("occultations", p);
+    const days = n === undefined ? 30 : env.checkPure(n, "occultations").n;
+    if (!(days > 0 && days <= 90)) throw new UnitError("occultations: up to 90 days, as in occultations(today, here, 60)");
+    const list = lunarOccultationsNow(u, days, place);
+    if (!list.length) throw new UnitError(`occultations: none ${place ? "seen here " : ""}within ${days} days`);
+    const limb = (lit) => (lit ? "bright" : "dark");
+    const rows = list.map((x, k) => {
+      const pre = list.length > 1 ? `${k + 1}. ` : "";
+      if (!x.e) return [`${pre}${x.name}`, at(x.t, 10)];
+      return x.in.seen ? [`${pre}${x.name} disappears (${limb(x.e.litIn)} limb)`, at(x.e.first, 5)] : [`${pre}${x.name} reappears (${limb(x.e.litOut)} limb)`, at(x.e.last, 5)];
+    });
+    return named(`Occultations by the Moon (to magnitude ${OCC_MAG})`, rows);
   };
 
   // a place by name, as (latitude, longitude, height)

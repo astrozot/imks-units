@@ -1,4 +1,6 @@
-[![Web App](https://img.shields.io/badge/Web_App-[@]-blue)](https://astrozot.github.io/imks-units/)
+[![iMKS](https://img.shields.io/badge/Web_App-[@]-blue)](https://astrozot.github.io/imks-units/)
+
+[![Coelum](https://img.shields.io/badge/Web_App-[@]-blue)](https://astrozot.github.io/imks-units/coelum/)
 
 # iMKS Units
 
@@ -113,7 +115,14 @@ become disks with their phases (Saturn with its rings); the card of a
 planet with moons opens their view as in `moons()` (shared code in
 `js/skyview.js`) over the whole screen, at the chart's time, with the
 planet's phase, size, magnitude and distance; Mercury and Venus have a
-close-up too, for their phases. Cards give apparent diameters (the Sun,
+close-up too, for their phases. The planet there is ray-traced (its bands,
+phase, Saturn's rings and the shadows of the globe, the rings and the
+moons) by a WebGL shader, four rays a pixel, at every frame of a drag,
+pinch or playback; without WebGL the same tracing runs in JavaScript, a
+ray a pixel, after the view stops. The **Events** panel (`js/eventspanel.js`,
+shared with the Coelum app below) lists the events after the chart's time;
+in iMKS, an eclipse or an occultation tapped there is computed as
+`solareclipse`, `lunareclipse` or `occultation`, with its map or drawing. Cards give apparent diameters (the Sun,
 the Moon, the planets and their moons) and the sizes of deep-sky objects
 (OpenNGC's axes). A star's card
 shows its B−V colour index, an estimated temperature and spectral type,
@@ -188,8 +197,10 @@ seen from the place, or anywhere on the Earth, after the time of the sky.
 Each occultation or eclipse opens the same map or drawing as
 `occultation`, `solareclipse` and `lunareclipse` in iMKS, and Show in the
 sky goes to it. Both apps load the same modules from `js/`
-(`js/coelumapp.js` is the app's own part; the eclipse sheets are in
-`js/eventview.js`), so a change to either shows in both. On the same site
+(`js/coelumapp.js` is the app's own part; the Events panel is
+`js/eventspanel.js`, the eclipse sheets `js/eventview.js`), so a change to
+either shows in both. In iMKS, `occultations(t, place)` lists the same
+occultations as a table. On the same site
 they share their storage (the places and objects looked up, the downloaded
 fainter stars, the UTC setting) and `sw.js`, registered for each folder with
 a cache of its own.

@@ -10,6 +10,7 @@
 
 import { UnitError } from "./units.js";
 import { STARS, DEEP, CITIES } from "./catalog.js";
+import { CHART_STARS } from "./stardata.js";
 import { EPOCHS, MINOR_PLANETS } from "./minorplanets.js";
 import { sgp4init } from "./sgp4.js";
 import { findSatellite } from "./satellites.js";
@@ -33,6 +34,9 @@ const placeKey = (s) => plain(s).replace(/\s*,\s*/g, ",").replace(/\s+/g, " ").t
 // always come from CelesTrak)
 const SATELLITES = { iss: 25544, zarya: 25544, hubble: 20580, hst: 20580, tiangong: 48274, css: 48274, tianhe: 48274 };
 
+// Greek letters spelled out and as the IAU abbreviates them
+const GREEK = { α: ["alpha", "alf"], β: ["beta", "bet"], γ: ["gamma", "gam"], δ: ["delta", "del"], ε: ["epsilon", "eps"], ζ: ["zeta", "zet"], η: ["eta"], θ: ["theta", "tet"], ι: ["iota", "iot"], κ: ["kappa", "kap"], λ: ["lambda", "lam"], μ: ["mu"], ν: ["nu"], ξ: ["xi", "ksi"], ο: ["omicron", "omi"], π: ["pi"], ρ: ["rho"], σ: ["sigma", "sig"], τ: ["tau"], υ: ["upsilon", "ups"], φ: ["phi"], χ: ["chi"], ψ: ["psi"], ω: ["omega", "ome"] };
+
 // objects: stars { name, ra, dec, pmra, pmdec, plx, rv, mag, kind },
 // minor planets { name, kind, H, G, orbits }
 let objects = null;
@@ -43,6 +47,20 @@ function objectTable() {
   for (const [names, ra, dec, mag, kind] of DEEP) {
     const o = { name: names.length > 2 ? `${names[0]} (${names[2]})` : names[0], ra, dec, pmra: 0, pmdec: 0, plx: 0, rv: 0, mag, kind };
     for (const n of names) if (!objects.has(key(n))) objects.set(key(n), o);
+  }
+  // the stars of the sky chart (stardata.js), to about magnitude 6.5, by
+  // their designations (Bayer, Flamsteed, HIP, HD, HR), a Bayer letter
+  // also spelled out or abbreviated (φ Sgr, phi Sgr; α Sco, alf Sco) and without
+  // its superscript; named by the first, as in the chart
+  for (const [hip, ra, dec, mag, , , pmra, pmdec, plx, proper, names] of CHART_STARS) {
+    const designations = [...names ? names.split("|") : [], ...hip ? [`HIP ${hip}`] : []];
+    const o = { name: proper || designations[0], ra, dec, pmra, pmdec, plx, rv: 0, mag, kind: "star" };
+    for (const d of [proper, ...designations]) {
+      if (!d) continue;
+      const bare = d.replace(/[⁰-⁹¹²³]+/g, "");
+      const spelled = /^[α-ω]/.test(bare) ? GREEK[bare[0]].map((g) => g + bare.slice(1)) : [];
+      for (const n of [d, bare, ...spelled]) if (!objects.has(key(n))) objects.set(key(n), o);
+    }
   }
   // by name, number and both; a star keeps its name
   for (const [n, name, H, G, rows] of MINOR_PLANETS) {

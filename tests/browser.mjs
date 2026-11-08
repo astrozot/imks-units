@@ -556,7 +556,8 @@ try {
   await sketch.click();
   await page.waitForTimeout(300);
   // the planet on the canvas (some pixels not transparent), the moons over it
-  check(await page.$eval(".sky-canvas", (c) => c.getContext("2d").getImageData(0, 0, c.width, c.height).data.some((x, i) => i % 4 === 3 && x > 0)), "moons: the planet in the zoom view");
+  // (the canvas copied: it may be a WebGL one)
+  check(await page.$eval(".sky-canvas", (c) => { const d = document.createElement("canvas"); d.width = c.width; d.height = c.height; const g = d.getContext("2d"); g.drawImage(c, 0, 0); return g.getImageData(0, 0, c.width, c.height).data.some((x, i) => i % 4 === 3 && x > 0); }), "moons: the planet in the zoom view");
   check(await page.$$eval(".sky-full .sky-moon", (x) => x.length) === 4, "moons: the moons in the zoom view");
   // the time runs, sixty times faster after ▶▶ ▶▶
   const when0 = await page.$eval(".sky-when", (x) => x.textContent);
