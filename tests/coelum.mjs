@@ -285,4 +285,18 @@ for (const phase of [0, 45, 90, 135, 180]) {
   assert.ok(anywhere.length > 30 && anywhere.some((x) => x.name === 'Antares'), 'The Antares series');
   assert.ok(anywhere.every((x, i) => !i || anywhere[i - 1].t <= x.t));
 }
+// The Earth's shadow on the Moon (the sky view draws it): in the umbra at
+// the total eclipse of 2029-12-20 (umbral magnitude 1.12), halfway in at
+// 21:20 UTC, none at the full moon of 2026-11-24 (no eclipse); the
+// animator gives it too
+{
+  const milan = [45.4642, 9.19, 120], at = (iso) => skyFrame(Date.parse(iso) / 1000, milan).bodies[1].shadow;
+  const total = at('2029-12-20T22:42:00Z'), partial = at('2029-12-20T21:20:00Z');
+  assert.ok(total && total.d + 1 < total.umbra, `Total: ${JSON.stringify(total)}`);
+  assert.ok(total.umbra > 2.4 && total.umbra < 2.9 && total.penumbra > 4.4 && total.penumbra < 4.9, 'Umbra and penumbra about 2.6 and 4.6 Moon radii');
+  assert.ok(partial && Math.abs(partial.d - partial.umbra) < 0.7, `Partial: ${JSON.stringify(partial)}`);
+  assert.equal(at('2026-11-24T15:00:00Z'), null);
+  const t = Date.parse('2029-12-20T22:42:00Z') / 1000, live = createSkyAnimator(t, milan, {})(t + 30).bodies[1].shadow;
+  assert.ok(live && live.d + 1 < live.umbra);
+}
 console.log('Coelum geometry, catalogs and calculator checks passed');

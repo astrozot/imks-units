@@ -95,6 +95,7 @@ function skyView(planet, t, m = MOON_PLANETS.includes(planet) ? moons(planet, t)
   return {
     planet, t, radius: r5(m.radius * 3600), pole: m.pole.map(r5), sun: m.sun.map(r5),
     moons: m.moons.map((o) => ({ name: o.name, x: r5(o.view.x), y: r5(o.view.y), z: r5(o.view.z), r: r5(o.view.r), doing: doing(o) })),
+    ...(m.facing && { facing: Object.fromEntries(Object.entries(m.facing).map(([k, v]) => [k, Math.round(v * 100) / 100])) }),
   };
 }
 

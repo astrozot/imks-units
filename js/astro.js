@@ -705,6 +705,44 @@ const MOON_RADIUS = {
   Umbriel: 584.7, Titania: 788.9, Oberon: 761.4, Triton: 1353.4,
 };
 
+// The face of a planet turned to the Earth, for its map (skyview.js): the
+// longitude below the Earth (degrees, east of the prime meridian), from
+// the IAU's prime meridians (W, at the time the light left); for
+// Jupiter's clouds, those of System II and of System I (its equatorial
+// zone, which turns faster), west longitudes made east, of Meeus (chapter
+// 43, lower accuracy: 0.1°); those of Saturn, Uranus and Neptune (System
+// III, the interior's, as the IAU's); for Venus, the surface, and its
+// clouds (clouds), which circle it in 4 days (backward, as its surface:
+// longitude 0 is arbitrary). Longitudes count around the IAU's north pole
+// by the right hand (east for Uranus and Venus, which turn backward).
+// pole: of J2000; P: the planet (equatorial)
+const MERIDIAN = { mercury: [329.5988, 6.1385108], venus: [160.2, -1.4813688], mars: [176.630, 350.89198226], saturn: [38.9, 810.7939024], uranus: [203.81, -501.1600928], neptune: [249.978, 541.1397757] };
+function facing(planet, pole, P, t) {
+  const T = centuries(t), d = T * 36525 - P.dist / 299792.458 / 86400;
+  if (planet === "jupiter") {
+    const V = 172.74 + 0.00111588 * d, M = 357.529 + 0.9856003 * d, N = 20.02 + 0.0830853 * d + 0.329 * sin(V), J = 66.115 + 0.9025179 * d - 0.329 * sin(V);
+    const A = 1.915 * sin(M) + 0.02 * sin(2 * M), B = 5.555 * sin(N) + 0.168 * sin(2 * N), K = J + A - B;
+    const R = 1.00014 - 0.01671 * cos(M) - 0.00014 * cos(2 * M), r = 5.20872 - 0.25208 * cos(N) - 0.00611 * cos(2 * N);
+    const delta = Math.sqrt(r * r + R * R - 2 * r * R * cos(K)), psi = Math.asin(R / delta * sin(K)) / RAD;
+    // (d − Δ/173: the light time, already in d)
+    const dl = d + P.dist / 299792.458 / 86400;
+    const w1 = 210.98 + 877.8169088 * (dl - delta / 173) + psi - B, w2 = 187.23 + 870.1869088 * (dl - delta / 173) + psi - B;
+    return { lon: -mod360(w2), lon1: -mod360(w1) };
+  }
+  if (!MERIDIAN[planet]) return null;
+  const [w0, rate] = MERIDIAN[planet], below = (W) => lonBelow(pole, W, P, T);
+  return { lon: below(w0 + rate * d), ...(planet === "venus" && { clouds: below(-90 * d) }) };
+}
+// The longitude (east, degrees) below the observer of a body seen at P
+// (ra, dec), its pole (of J2000) and its prime meridian at W (degrees from
+// the node of its equator on the ICRF's, IAU)
+function lonBelow(pole, W, P, T) {
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const h = Math.hypot(pole[0], pole[1]), Q = [-pole[1] / h, pole[0] / h, 0], E = cross(pole, Q), observer = unit(P.ra, P.dec).map((x) => -x);
+  const M = Q.map((x, i) => cos(W) * x + sin(W) * E[i]), m = precessVector(M, T), e = precessVector(cross(pole, M), T);
+  return Math.atan2(dot(observer, e), dot(observer, m)) / RAD;
+}
+
 // The moons of a planet seen from the center of the Earth: for each, its
 // offsets from the planet to the east and to the north (degrees), its
 // distance behind the planet's center (km, negative in front), what it is
@@ -726,7 +764,7 @@ function moons(planet, t) {
       view: { x: vx / sys.radius, y: vy / sys.radius, z: vz / sys.radius, r: (MOON_RADIUS[name] || 0) / sys.radius },
     };
   });
-  return { moons: out, radius: Math.asin(sys.radius / P.dist) / RAD, pole: toView(g.pole), sun: toView(g.l.map((x) => -x)) };
+  return { moons: out, radius: Math.asin(sys.radius / P.dist) / RAD, pole: toView(g.pole), sun: toView(g.l.map((x) => -x)), facing: facing(planet, g.axes[2], P, t) };
 }
 
 // A planet without moons (Mercury, Venus) for drawing, as moons() gives
@@ -739,7 +777,32 @@ function planetDisk(planet, t) {
   const u = unit(P.ra, P.dec), east = [-sin(P.ra), cos(P.ra), 0], north = [-sin(P.dec) * cos(P.ra), -sin(P.dec) * sin(P.ra), cos(P.dec)];
   const toView = (v) => [-dot(v, east), dot(v, north), -dot(v, u)];
   const sv = unit(S.ra, S.dec).map((x) => x * S.dist), toSun = u.map((x, k) => sv[k] - x * P.dist), n = Math.hypot(...toSun);
-  return { moons: [], radius: Math.asin(RADIUS[planet] / P.dist) / RAD, pole: toView(precessVector(unit(a0 * RAD, d0 * RAD), centuries(t))), sun: toView(toSun.map((x) => x / n)) };
+  const pole = unit(a0, d0);
+  return { moons: [], radius: Math.asin(RADIUS[planet] / P.dist) / RAD, pole: toView(precessVector(pole, centuries(t))), sun: toView(toSun.map((x) => x / n)), facing: facing(planet, pole, P, t) };
+}
+
+// The Moon for drawing (skyview.js), as planetDisk gives a planet, seen
+// from P (its place, from a point of the Earth: ra, dec, dist): its radius
+// (degrees), on axes to the west, to the north and toward the observer its
+// north pole and the direction of the Sun, and the longitude below the
+// observer (facing). Its rotation is the IAU's (2009, the mean Earth
+// frame), with the librations: up to 8° in longitude and 7° in latitude
+// (the pole's tilt), and the diurnal one of the place's 1°.
+function moonDisk(t, P) {
+  const T = centuries(t), d = T * 36525;
+  const E = [125.045 - 0.0529921 * d, 250.089 - 0.1059842 * d, 260.008 + 13.0120009 * d, 176.625 + 13.3407154 * d, 357.529 + 0.9856003 * d,
+    311.589 + 26.4057084 * d, 134.963 + 13.064993 * d, 276.617 + 0.3287146 * d, 34.226 + 1.7484877 * d, 15.134 - 0.1589763 * d,
+    119.743 + 0.0036096 * d, 239.961 + 0.1643573 * d, 25.053 + 12.9590088 * d];
+  const sE = E.map(sin), cE = E.map(cos);
+  const a0 = 269.9949 + 0.0031 * T - 3.8787 * sE[0] - 0.1204 * sE[1] + 0.07 * sE[2] - 0.0172 * sE[3] + 0.0072 * sE[5] - 0.0052 * sE[9] + 0.0043 * sE[12];
+  const d0 = 66.5392 + 0.013 * T + 1.5419 * cE[0] + 0.0239 * cE[1] - 0.0278 * cE[2] + 0.0068 * cE[3] - 0.0029 * cE[5] + 0.0009 * cE[6] + 0.0008 * cE[9] - 0.0009 * cE[12];
+  const W = 38.3213 + 13.17635815 * d - 1.4e-12 * d * d + 3.561 * sE[0] + 0.1208 * sE[1] - 0.0642 * sE[2] + 0.0158 * sE[3] + 0.0252 * sE[4] - 0.0066 * sE[5]
+    - 0.0047 * sE[6] - 0.0046 * sE[7] + 0.0028 * sE[8] + 0.0052 * sE[9] + 0.004 * sE[10] + 0.0019 * sE[11] - 0.0044 * sE[12];
+  const S = equatorial("sun", t), u = unit(P.ra, P.dec), east = [-sin(P.ra), cos(P.ra), 0], north = [-sin(P.dec) * cos(P.ra), -sin(P.dec) * sin(P.ra), cos(P.dec)];
+  const toView = (v) => [-dot(v, east), dot(v, north), -dot(v, u)];
+  const sv = unit(S.ra, S.dec).map((x) => x * S.dist), toSun = u.map((x, k) => sv[k] - x * P.dist), n = Math.hypot(...toSun);
+  const pole = unit(a0, d0);
+  return { planet: "moon", t, moons: [], radius: Math.asin(1737.4 / P.dist) / RAD, pole: toView(precessVector(pole, T)), sun: toView(toSun.map((x) => x / n)), facing: { lon: lonBelow(pole, W, P, T) } };
 }
 
 // The planet of a moon, or undefined
@@ -817,6 +880,18 @@ function lunarAt(t) {
   const pm = Math.asin(R_EARTH / m.dist) / RAD, ps = Math.asin(R_EARTH / s.dist) / RAD, ss = Math.asin(R_SUN / s.dist) / RAD;
   return {
     d: sep(vec(m), vec(s).map((x) => -x)), moon: Math.asin(1737.4 / m.dist) / RAD,
+    umbra: 1.01 * pm + ps - ss, penumbra: 1.01 * pm + ps + ss,
+  };
+}
+
+// The Earth's shadow at the time t, as lunarAt: its center (opposite the
+// Sun) and the Moon's, as (right ascension, declination), and the radii of
+// the umbra, the penumbra and the Moon (degrees)
+function earthShadow(t) {
+  const m = equatorial("moon", t), s = equatorial("sun", t);
+  const pm = Math.asin(R_EARTH / m.dist) / RAD, ps = Math.asin(R_EARTH / s.dist) / RAD, ss = Math.asin(R_SUN / s.dist) / RAD;
+  return {
+    center: { ra: (s.ra + 180) % 360, dec: -s.dec }, moon: { ra: m.ra, dec: m.dec, r: Math.asin(1737.4 / m.dist) / RAD },
     umbra: 1.01 * pm + ps - ss, penumbra: 1.01 * pm + ps + ss,
   };
 }
@@ -1778,4 +1853,4 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
-export { MOON_RADIUS, planetDisk, conjunction, opposition, occultationCandidate, occultation, occultationLocal, occultationTrack, orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };
+export { MOON_RADIUS, planetDisk, conjunction, opposition, occultationCandidate, occultation, occultationLocal, occultationTrack, orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, earthShadow, moonDisk, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };

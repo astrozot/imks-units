@@ -119,7 +119,35 @@ close-up too, for their phases. The planet there is ray-traced (its bands,
 phase, Saturn's rings and the shadows of the globe, the rings and the
 moons) by a WebGL shader, four rays a pixel, at every frame of a drag,
 pinch or playback; without WebGL the same tracing runs in JavaScript, a
-ray a pixel, after the view stops. The **Events** panel (`js/eventspanel.js`,
+ray a pixel, after the view stops. The moons' shadows on the planet are
+the part of the Sun each moon covers, seen from each point: an umbra
+narrowing away from the moon in a widening penumbra. The moons are
+traced too, as lit spheres in their colours (`MOON_LOOK` in
+`js/skyview.js`), hidden behind the planet or in front of it, dark in
+its shadow. In Sky, the Moon zoomed in is traced on the GPU (`traceMoon`
+in `js/coelumsky.js`) from NASA's CGI Moon Kit (`img/planets/moon.jpg`,
+LRO colours, and `moon-heights.jpg`, LOLA heights at 4 pixels a degree,
+0–255 for −9 to +11 km; public domain), turned by the IAU's rotation
+(`moonDisk` in `js/astro.js`, the librations checked against JPL
+Horizons), lit by the Lommel–Seeliger law, with its relief (twice as
+steep) and soft shadows marched toward the Sun near the terminator. The planets have
+maps of their surfaces or clouds (`img/planets/`, from Solar System
+Scope, CC BY 4.0, based on NASA's missions; Venus's clouds at a third of
+their contrast, Uranus and Neptune reduced to their bands, Neptune in the
+paler colour of Irwin et al. 2024), fetched the first time a
+close-up shows them and kept in Cache Storage (`imks-data-planets`), so
+they are not part of the offline download. `facing` in `js/astro.js`
+gives the longitude below the Earth: the IAU prime meridians (checked
+against JPL Horizons; Venus's clouds turn in 4 days), Meeus's Systems I and II for
+Jupiter, whose equatorial zone turns on System I. Jupiter's clouds drift,
+so its map is turned to put the Great Red Spot where observers measure
+it (`GRS` in `js/skyview.js`: 91° in System II on 2026 June 1, +1.75° a
+month, from Sky & Telescope's transit tool; update it now and then). In Sky, a solar
+eclipse cuts the Moon out of the Sun, its glare and (at totality) the
+corona, and darkens the sky as a lower Sun would (to 8° below the horizon
+at totality); the Moon in the Earth's shadow (`earthShadow` in
+`js/astro.js`, as the lunar eclipses) is darkened in the penumbra and
+reddened in the umbra, and lights the sky less. The **Events** panel (`js/eventspanel.js`,
 shared with the Coelum app below) lists the events after the chart's time;
 in iMKS, an eclipse or an occultation tapped there is computed as
 `solareclipse`, `lunareclipse` or `occultation`, with its map or drawing. Cards give apparent diameters (the Sun,

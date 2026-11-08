@@ -6,7 +6,7 @@
 import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { CHART_STARS } from './stardata.js';
 import { DEEP } from './catalog.js';
-import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition } from './astro.js';
+import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow } from './astro.js';
 import { satelliteLight } from './satellites.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
@@ -144,7 +144,20 @@ function solarBodies(t, place, hor) {
   const moon = bodies[1], sun = bodies[0];
   for (const o of bodies.slice(1, SOLAR_BODIES.length)) { o.phase = aspect(o.body, t).phase; o.light = hor(towardSun(o, sun)); }
   moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
+  moon.shadow = shadowOnMoon(moon, t, hor);
   return bodies;
+}
+// The Earth's shadow on the Moon, near the full moon: its center where the
+// Moon is seen (the offset from the Moon's geocentric place, scaled to its
+// size seen from the place), and the radii of the umbra and the penumbra
+// and the distance of their center, in the Moon's radii; or null
+function shadowOnMoon(moon, t, hor) {
+  if (!(moon.phase < 6)) return null;
+  const g = earthShadow(t), dra = ((g.center.ra - g.moon.ra + 540) % 360) - 180, dy = g.center.dec - g.moon.dec;
+  const d = Math.hypot(dra * Math.cos(g.moon.dec * R), dy);
+  if (d > g.penumbra + g.moon.r) return null;
+  const k = Math.asin(1737.4 / moon.dist) / R / g.moon.r;
+  return { center: hor({ ra: moon.ra + dra * k, dec: moon.dec + dy * k }), umbra: g.umbra / g.moon.r, penumbra: g.penumbra / g.moon.r, d: d / g.moon.r };
 }
 // A point just off a body toward the Sun: it orients the lit limb.
 function towardSun(o, sun) {
@@ -273,6 +286,7 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
     const moon = frame.bodies[1], sun = frame.bodies[0];
     for (const o of frame.bodies.slice(1, SOLAR_BODIES.length)) o.light = hor(towardSun(o, sun));
     moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
+    moon.shadow = shadowOnMoon(moon, time, hor);
     frame.bodies.push(...satelliteBodies(time, place, hor));
     return frame;
   };

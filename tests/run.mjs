@@ -594,6 +594,29 @@ for (const [jd, i, k] of [[2461345.61, 1, "occulted"], [2461345.75694, 0, "trans
     if (again && again.max <= map.t + 1) fail("global occultation repeats the previous event");
   }
 }
+// The faces of the planets turned to the Earth (their maps in the
+// close-ups): Mars and Mercury as JPL Horizons gives them (sub-observer
+// longitudes, 2026-11-08 0h and 6h UT), and the others; Jupiter's Systems I and II
+// as Meeus (example 43.a, 1992-12-16 0h)
+{
+  const t = Date.UTC(2026, 10, 8) / 1000, west = (f) => ((-f.lon % 360) + 360) % 360;
+  for (const [what, got, want, tol] of [["Mars", west(A.moons("mars", t).facing), 30.042, 0.1], ["Mars 6h", west(A.moons("mars", t + 21600).facing), 117.644, 0.1],
+    ["Mercury", west(A.planetDisk("mercury", t).facing), 25.236, 0.1]]) if (Math.abs(got - want) > tol) fail(`${what}'s central meridian ${got}, not ${want}`);
+  const j = A.moons("jupiter", Date.UTC(1992, 11, 16) / 1000).facing;
+  if (Math.abs(((-j.lon1 % 360) + 360) % 360 - 268.06) > 0.5 || Math.abs(((-j.lon % 360) + 360) % 360 - 72.74) > 0.5) fail(`Jupiter's central meridians ${-j.lon1}, ${-j.lon}`);
+  // Saturn and Neptune (System III, west), Uranus and Venus (east)
+  const m360 = (x) => ((x % 360) + 360) % 360;
+  for (const [what, got, want] of [["Saturn", m360(-A.moons("saturn", t).facing.lon), 122.372], ["Uranus", m360(A.moons("uranus", t).facing.lon), 354.131],
+    ["Neptune", m360(-A.moons("neptune", t).facing.lon), 107.581], ["Venus", m360(A.planetDisk("venus", t).facing.lon), 349.006]]) if (Math.abs(((got - want + 540) % 360) - 180) > 0.2) fail(`${what}'s central meridian ${got}, not ${want}`);
+}
+// The Moon's librations (moonDisk, the IAU's rotation): the point below
+// the Earth's center as JPL Horizons gives it (east longitude, latitude),
+// 2026-11-08, 15 and 22 at 0h UT
+for (const [day, lon, lat] of [[8, 4.8346, 5.9327], [15, -2.6171, 3.3071], [22, -6.3828, -5.6032]]) {
+  const t = Date.UTC(2026, 10, day) / 1000, m = A.moonDisk(t, A.equatorial("moon", t));
+  const gotLat = Math.asin(m.pole[2]) * 180 / Math.PI;
+  if (Math.abs(m.facing.lon - lon) > 0.03 || Math.abs(gotLat - lat) > 0.03) fail(`Moon's libration on Nov ${day}: ${m.facing.lon}, ${gotLat}, not ${lon}, ${lat}`);
+}
 // The coming occultations (occultations.js): from Milan in November 2026,
 // 52 Sgr going in and ε Ari coming out, as occultation() gives them;
 // anywhere, the Pleiades among them; the stars of the chart by their

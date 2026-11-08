@@ -4,6 +4,8 @@
 // phase, and a landscape in front. Always drawn on a canvas.
 import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
+import { covered, tracePlanet, planetMap } from './skyview.js';
+import { moonDisk } from './astro.js';
 
 const SOLID = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const FLAT = () => 0;
@@ -59,8 +61,15 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const opts = { ...SKY_LAYERS, ...layers }, radius = skyRadius(W, H, view.scale), rotation = view.rotation || lookAt(view.az, view.alt);
   const cx = W / 2, cy = H / 2, p = pen(ctx), f = (x) => x.toFixed(2);
   const sun = frame.bodies[0], moon = frame.bodies[1];
-  const illum = (1 + Math.cos(moon.phase * R)) / 2;
-  const light = skyLight(sun.alt, { alt: moon.alt, illum }, opts.atmosphere);
+  // Eclipses: the part of the Sun covered by the Moon darkens the sky as
+  // the Sun lower in the sky would (at totality, as 8° below the horizon);
+  // the Moon in the Earth's shadow gives less light
+  const sunV = pointVector(sun), moonV = pointVector(moon), sunR = Math.asin(695700 / sun.dist), moonR = Math.asin(1737.4 / moon.dist);
+  const apart = Math.acos(Math.max(-1, Math.min(1, sunV[0] * moonV[0] + sunV[1] * moonV[1] + sunV[2] * moonV[2])));
+  const eclipsed = apart < sunR + moonR ? covered(sunR, moonR, apart) : 0, total = apart <= moonR - sunR;
+  const sunAlt = eclipsed > 0.5 ? Math.min(sun.alt, 15 + (Math.log10(Math.max(1 - eclipsed, 1e-3)) + 0.5) * 9.2) : sun.alt;
+  const illum = (1 + Math.cos(moon.phase * R)) / 2 * moonDim(moon);
+  const light = skyLight(sunAlt, { alt: moon.alt, illum }, opts.atmosphere);
   const proj = (v) => { const q = projectVector(v, rotation, true); return { x: cx + q.x * radius, y: cy + q.y * radius, z: q.z }; };
   // With the atmosphere, objects are seen raised by the refraction (for the
   // pressure at the place's height); the horizontal grid is not.
@@ -72,7 +81,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const bg = skyRaster(ctx, {
     W, H, radius, camera: { rotation, stereographic: true }, samples: view.moving ? 22000 : 45000, toJ2000: horizonToJ2000(frame), kind: 'sky',
     milkyWay: opts.milkyway, ground: opts.ground, atmosphere: opts.atmosphere, hill,
-    sun: { alt: sun.alt, vector: refract(pointVector(sun)) }, moon: { alt: moon.alt, illum, vector: refract(pointVector(moon)) },
+    sun: { alt: sunAlt, vector: refract(pointVector(sun)) }, moon: { alt: moon.alt, illum, vector: refract(pointVector(moon)) },
   });
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(bg.sky, 0, 0, bg.w, bg.h, 0, 0, bg.width, bg.height);
@@ -172,13 +181,27 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       const reddening = opts.atmosphere ? Math.exp(-Math.max(0, o.alt) / 4) : 0, rgb = [255, Math.round(246 - 90 * reddening), Math.round(228 - 170 * reddening)];
       r = diskOf(o, pxPerRad);
       const s = r * 9;
+      // its light, the glare, the corona at totality and the disk, but
+      // where the Moon covers them
+      ctx.save();
+      if (eclipsed > 0) {
+        const m = xy(moon), mr = diskOf(moon, pxPerRadAt(m)), cut = new Path2D();
+        cut.rect(q.x - s - mr, q.y - s - mr, 2 * (s + mr), 2 * (s + mr)); cut.arc(m.x, m.y, mr, 0, Math.PI * 2);
+        ctx.clip(cut, 'evenodd');
+      }
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.9; ctx.drawImage(glow(rgb), q.x - s, q.y - s, 2 * s, 2 * s);
+      ctx.globalAlpha = 0.9 * Math.sqrt(1 - eclipsed); ctx.drawImage(glow(rgb), q.x - s, q.y - s, 2 * s, 2 * s);
+      if (total) {
+        const g = ctx.createRadialGradient(q.x, q.y, r, q.x, q.y, 5 * r);
+        g.addColorStop(0, 'rgba(250, 248, 240, 0.9)'); g.addColorStop(0.12, 'rgba(225, 230, 240, 0.45)'); g.addColorStop(0.4, 'rgba(190, 205, 230, 0.12)'); g.addColorStop(1, 'rgba(160, 180, 220, 0)');
+        ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(q.x - 5 * r, q.y - 5 * r, 10 * r, 10 * r);
+      }
       ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
-      ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
+      if (!total) { ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill(); }
+      ctx.restore();
     } else if (o.body === 'moon') {
       r = diskOf(o, pxPerRad);
-      drawMoon(ctx, o, q, r, xy(o.light), xy(o.north), light, opts.atmosphere);
+      drawMoon(ctx, o, q, r, xy(o.light), xy(o.north), light, opts.atmosphere, o.shadow && xy(o.shadow.center), { t: frame.t, W, H });
     } else {
       r = point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), BODY_RGB[o.body], q);
       if (!r) continue;
@@ -264,31 +287,74 @@ function drawPlanet(ctx, o, q, r, lightPoint, rings) {
   if (rings) ring(true);
 }
 
+// The light of the Moon in the Earth's shadow (coelum.js's moon.shadow),
+// from its center: in the penumbra, the part of the Sun seen from there;
+// in the umbra, a little, reddened by the Earth's atmosphere
+function moonDim(o) {
+  const s = o.shadow;
+  if (!s) return 1;
+  return s.d < s.umbra ? 0.01 : Math.min(1, 0.02 + 0.98 * (s.d - s.umbra) / (s.penumbra - s.umbra));
+}
+
+// The Moon traced on the GPU (skyview.js), when it is large enough: its
+// map turned to the face seen from the place (the librations), its
+// relief and shadows, the night side with earthshine; only the part on the
+// screen, turned with celestial north, its light added to the sky's.
+// False without WebGL (or before its map is loaded).
+const moonCanvas = typeof document === 'undefined' ? null : document.createElement('canvas');
+function traceMoon(ctx, o, q, r, north, { t, W, H }, earthshine, alpha) {
+  if (!moonCanvas || r < 10 || !planetMap('moon')?.img) return false;
+  // the screen's corners in the Moon's frame (north up)
+  const c = Math.cos(north), s = Math.sin(north), xs = [], ys = [];
+  for (const [x, y] of [[0, 0], [W, 0], [0, H], [W, H]]) { const dx = x - q.x, dy = y - q.y; xs.push(dx * c + dy * s); ys.push(-dx * s + dy * c); }
+  const L = Math.max(-r, Math.min(...xs)), Rt = Math.min(r, Math.max(...xs)), T = Math.max(-r, Math.min(...ys)), B = Math.min(r, Math.max(...ys));
+  if (Rt <= L || B <= T) return true;
+  const k = Math.min(2, window.devicePixelRatio || 1), w = Math.ceil((Rt - L) * k), h = Math.ceil((B - T) * k);
+  if (!tracePlanet(moonCanvas, { ...moonDisk(t, o), earthshine }, L / r, -T / r, w, h, r * k)) return false;
+  ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(north);
+  ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha;
+  ctx.drawImage(moonCanvas, 0, 0, w, h, L, T, w / k, h / k);
+  ctx.restore();
+  return true;
+}
+
 // The Moon: its near side turned with celestial north, the lit part bright
-// and the rest faint with earthshine; paler by day.
-function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere) {
+// and the rest faint with earthshine; paler by day; in a lunar eclipse,
+// the Earth's shadow on it, centered at shadowPoint: the penumbra darker
+// inward, the umbra dark red.
+function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere, shadowPoint = null, screen = null) {
   const k = Math.cos(o.phase * R), angle = Math.atan2(lightPoint.y - q.y, lightPoint.x - q.x), north = Math.atan2(northPoint.y - q.y, northPoint.x - q.x) + Math.PI / 2;
-  const illum = (1 + k) / 2, night = 1 - light.day;
+  const illum = (1 + k) / 2 * moonDim(o), night = 1 - light.day;
   if (atmosphere) {
     const s = r * 10;
     ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.35 * illum * (0.3 + 0.7 * night);
     ctx.drawImage(glow([200, 210, 230]), q.x - s, q.y - s, 2 * s, 2 * s);
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
   }
-  const lit = new Path2D();
-  for (let i = 0; i <= 32; i++) { const a = -Math.PI / 2 + i * Math.PI / 32; lit[i ? 'lineTo' : 'moveTo'](r * Math.cos(a), r * Math.sin(a)); }
-  for (let i = 0; i <= 32; i++) { const a = Math.PI / 2 - i * Math.PI / 32; lit.lineTo(-k * r * Math.cos(a), r * Math.sin(a)); }
-  lit.closePath();
-  const face = (alpha) => {
-    ctx.globalAlpha = alpha;
-    if (moonImage) { ctx.save(); ctx.rotate(north - angle); ctx.drawImage(moonImage, -r, -r, 2 * r, 2 * r); ctx.restore(); }
-    else { ctx.fillStyle = '#e9e5d9'; ctx.fillRect(-r, -r, 2 * r, 2 * r); }
-  };
-  ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(angle);
-  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.clip();
-  face(atmosphere ? 0.06 + 0.06 * night : 0.1);
-  ctx.clip(lit);
-  face(atmosphere ? 0.75 + 0.25 * night : 1);
-  ctx.restore(); ctx.globalAlpha = 1;
+  if (!(screen && traceMoon(ctx, o, q, r, north, screen, atmosphere ? 0.03 + 0.04 * night : 0.06, atmosphere ? 0.75 + 0.25 * night : 1))) {
+    const lit = new Path2D();
+    for (let i = 0; i <= 32; i++) { const a = -Math.PI / 2 + i * Math.PI / 32; lit[i ? 'lineTo' : 'moveTo'](r * Math.cos(a), r * Math.sin(a)); }
+    for (let i = 0; i <= 32; i++) { const a = Math.PI / 2 - i * Math.PI / 32; lit.lineTo(-k * r * Math.cos(a), r * Math.sin(a)); }
+    lit.closePath();
+    const face = (alpha) => {
+      ctx.globalAlpha = alpha;
+      if (moonImage) { ctx.save(); ctx.rotate(north - angle); ctx.drawImage(moonImage, -r, -r, 2 * r, 2 * r); ctx.restore(); }
+      else { ctx.fillStyle = '#e9e5d9'; ctx.fillRect(-r, -r, 2 * r, 2 * r); }
+    };
+    ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(angle);
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.clip();
+    face(atmosphere ? 0.06 + 0.06 * night : 0.1);
+    ctx.clip(lit);
+    face(atmosphere ? 0.75 + 0.25 * night : 1);
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  if (!shadowPoint) return;
+  const s = o.shadow, P = s.penumbra * r, u = s.umbra / s.penumbra;
+  const g = ctx.createRadialGradient(shadowPoint.x, shadowPoint.y, 0, shadowPoint.x, shadowPoint.y, P);
+  g.addColorStop(0, 'rgb(62, 20, 10)'); g.addColorStop(u * 0.85, 'rgb(92, 32, 16)'); g.addColorStop(u, 'rgb(122, 52, 30)');
+  g.addColorStop(Math.min(1, u + 0.015), 'rgb(70, 68, 66)'); g.addColorStop(1, 'rgb(255, 255, 255)');
+  ctx.save(); ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.clip();
+  ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = g; ctx.fillRect(q.x - r, q.y - r, 2 * r, 2 * r);
+  ctx.restore();
 }
 

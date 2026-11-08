@@ -122,6 +122,27 @@ try {
   assert.equal(await page.evaluate(() => window.imks.history.length), 0);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   assert.equal(await page.evaluate(() => window.imks.history.length), 300, "clear history still supports undo");
+  // a long press on the History button, then on the session's name, opens
+  // the Clear menu at once (the press does not open History)
+  const hold = async (locator) => {
+    const b = await locator.boundingBox();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.mouse.down(); await page.waitForTimeout(700); await page.mouse.up();
+  };
+  await hold(page.locator("#btn-history"));
+  assert.equal(await page.locator("#menu").isVisible(), true, "long press on History opens Clear");
+  assert.equal(await page.locator("#sheet").isHidden(), true, "the long press does not open History");
+  await page.keyboard.press("Escape");
+  await page.mouse.click(5, 300);
+  await open();
+  await page.waitForTimeout(400); // the sheet in place
+  await hold(page.locator(".session-title"));
+  assert.equal(await page.locator("#menu button").filter({ hasText: "Clear results" }).count(), 1, "long press on the session opens Clear");
+  assert.notEqual(await page.locator("#sheet-title").textContent(), "Sessions", "the long press does not open Sessions");
+  await page.locator("#menu button").filter({ hasText: "Clear results" }).click();
+  assert.equal(await page.evaluate(() => window.imks.history.length), 0);
+  assert.equal(await page.locator("#sheet").isHidden(), true, "History closes after clearing");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
   await clearResults();
   await open();
   await pinned();

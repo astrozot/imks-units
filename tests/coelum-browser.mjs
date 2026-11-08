@@ -756,9 +756,11 @@ try {
   // but at the edges, smoothed by four rays a pixel
   const traced = await page.evaluate(async () => {
     const { skyView } = await import('./js/sky.js');
-    const { drawPlanet } = await import('./js/skyview.js');
+    const { drawPlanet, planetMap } = await import('./js/skyview.js');
     const out = [];
-    for (const [planet, t] of [['saturn', '2026-11-06T21:00:00Z'], ['jupiter', '2026-11-06T21:00:00Z'], ['saturn', '2032-03-01T00:00:00Z']]) {
+    // Jupiter's and Mars's maps first (fetched, then kept)
+    if (!(await planetMap('jupiter').ready) || !(await planetMap('mars').ready)) return [{ planet: 'maps not loaded', mean: 99 }];
+    for (const [planet, t] of [['saturn', '2026-11-06T21:00:00Z'], ['jupiter', '2026-11-06T21:00:00Z'], ['saturn', '2032-03-01T00:00:00Z'], ['mars', '2026-11-06T21:00:00Z']]) {
       const sky = skyView(planet, Date.parse(t) / 1000), W = 360, H = 240, s = planet === 'saturn' ? 70 : 100;
       const gpu = document.createElement('canvas'), cpu = document.createElement('canvas');
       cpu.getContext('2d');
