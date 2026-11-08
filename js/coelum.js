@@ -6,7 +6,8 @@
 import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { CHART_STARS } from './stardata.js';
 import { DEEP } from './catalog.js';
-import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS } from './astro.js';
+import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition } from './astro.js';
+import { satelliteLight } from './satellites.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
 
@@ -16,7 +17,7 @@ export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 export const vec = (a, d) => [Math.cos(d * R) * Math.cos(a * R), Math.cos(d * R) * Math.sin(a * R), Math.sin(d * R)];
 export const horizontalVector = (alt, az) => [Math.cos(alt * R) * Math.sin(az * R), Math.cos(alt * R) * Math.cos(az * R), Math.sin(alt * R)];
 export const SOLAR_BODIES = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
-export const DEFAULT_LAYERS = { ground: true, milkyway: true, constellations: true, boundaries: false, ecliptic: true, horizontal: false, equatorial: false, deep: false, minor: false, labels: true, magnitude: 6, labelSize: 14 };
+export const DEFAULT_LAYERS = { ground: true, milkyway: true, constellations: true, boundaries: false, ecliptic: true, horizontal: false, equatorial: false, deep: false, minor: false, satellites: true, labels: true, magnitude: 6, labelSize: 14 };
 export const SKY_IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 export const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 export const unit3 = (v) => { const n = Math.hypot(...v); return v.map((x) => x / n); };
@@ -69,6 +70,7 @@ export const BODY_COLORS = { sun: '#ffd36c', moon: '#f2eee3', mercury: '#c7b5a2'
 export const PALETTE = {
   sky: '#0c1730', ground: '#17211b', horizon: '#86a690', lines: '#5274a3', bounds: '#3d5780', ecliptic: '#d0a54c', equatorial: '#3d5384', horizontal: '#2e4c5e',
   terrain: '#9fd58c', galaxy: '#ff8f80', cluster: '#f0d36c', nebula: '#6fdc9a', other: '#b9a3ff', label: '#c3d1e6', constellation: '#86a3cc', planet: '#ffe2a8',
+  satellite: '#7fdcff', shadowed: '#71819a',
 };
 export const starTint = (bv = 0.6) => (bv < 0 ? '#cbdcff' : bv < 0.3 ? '#eef2ff' : bv < 0.6 ? '#fffaf0' : bv < 1.0 ? '#ffecc9' : '#ffd5a4');
 // Sizes follow the magnitude below the chart's limit, which deepens as it
@@ -152,6 +154,32 @@ function towardSun(o, sun) {
   return { ra: Math.atan2(v[1], v[0]) / R, dec: Math.atan2(v[2], Math.hypot(v[0], v[1])) / R };
 }
 
+// Artificial satellites (satellites.js, set by the app): exact at every
+// frame, as they cross the sky in minutes; those docked to a station are
+// left out, and all with elements over 30 days from the time. Sunlit or in
+// the Earth's shadow, with the magnitude estimated; above the horizon, the
+// trail of the last 80 s, from where they came.
+let satellites = [];
+export function setSatellites(list) { satellites = list; }
+const SAT_SPAN = 30 * 86400;
+function satelliteBodies(t, place, hor) {
+  const out = [];
+  let s = null;
+  for (const sat of satellites) {
+    if (sat.docked || Math.abs(t - sat.epoch) > SAT_SPAN) continue;
+    const g = satellitePosition(sat, t);
+    if (!g) continue;
+    const p = topocentric(sat, t, place);
+    if (!Number.isFinite(p.ra)) continue;
+    if (!s) { const sun = equatorial('sun', t); s = vec(sun.ra, sun.dec); }
+    const h = hor(p), light = satelliteLight(sat.std, g, vec(p.ra, p.dec).map((x) => x * p.dist), s);
+    const o = { ...p, ...h, name: sat.name, body: 'satellite', type: 'satellite', satellite: sat, lit: light.lit, mag: light.mag ?? undefined, height: Math.hypot(...g) - 6378.137 };
+    if (h.alt > -3) o.trail = Array.from({ length: 8 }, (_, k) => horizontal(sat, t - 10 * (k + 1), place)).filter((q) => Number.isFinite(q.alt));
+    out.push(o);
+  }
+  return out;
+}
+
 // Ecliptic of J2000 (the equinox moves it < 1′ a century against the stars),
 // precessed like the catalogs; boundaries follow their B1875 parallels,
 // so their long edges are subdivided in RA and Dec, not along great circles.
@@ -185,7 +213,7 @@ export function skyFrame(t, place) {
     const designations = [...names ? names.split('|') : [], ...hip ? [`HIP ${hip}`] : []], name = proper || designations.shift() || 'Star';
     return { ...catalog(ra, dec, pmra, pmdec), name, designations, mag, bv: bv ?? undefined, type: 'star', named: Boolean(proper), parallax, pmra, pmdec, spect, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
   });
-  const bodies = solarBodies(t, place, hor);
+  const bodies = [...solarBodies(t, place, hor), ...satelliteBodies(t, place, hor)];
   const deep = DEEP.map(([names, ra, dec, mag, type, major, minor]) => ({ ...catalog(ra, dec), name: names[0], description: names.slice(1).join(' · '), mag, size: major ? [major, minor ?? major] : null, type }));
   const constellations = CONSTELLATIONS.map(([name, ra, dec, lines]) => ({ name, type: 'constellation', ...catalog(ra, dec), lines: lines.map((line) => line.map(([a, d]) => catalog(a, d))) }));
   const ecliptic = ECLIPTIC.map(([a, d]) => catalog(a, d));
@@ -245,6 +273,7 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
     const moon = frame.bodies[1], sun = frame.bodies[0];
     for (const o of frame.bodies.slice(1, SOLAR_BODIES.length)) o.light = hor(towardSun(o, sun));
     moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
+    frame.bodies.push(...satelliteBodies(time, place, hor));
     return frame;
   };
 }
@@ -590,6 +619,13 @@ export function bodySymbol(p, o, x, y, r) {
   if (o.body !== 'saturn') p.circle(x, y, r + 2.2, { stroke: o.color, width: 0.7, opacity: 0.8 });
 }
 
+// A satellite: a diamond, filled when sunlit, an outline in the Earth's
+// shadow.
+export function satelliteSymbol(p, o, x, y, r) {
+  const f = (v) => v.toFixed(2), d = r * 1.4, shape = `M${f(x)},${f(y - d)}L${f(x + d)},${f(y)}L${f(x)},${f(y + d)}L${f(x - d)},${f(y)}Z`;
+  p.path(shape, o.lit ? { fill: PALETTE.satellite, stroke: '#e8fbff', width: 0.6 } : { stroke: PALETTE.shadowed, width: 1 });
+}
+
 // The Moon with its phase: dark disc, lit part turned to the Sun.
 export function moonSymbol(p, ctx, o, x, y, r, lightAngle) {
   const f = (v) => v.toFixed(2), k = Math.cos(o.phase * R);
@@ -792,7 +828,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   const pxPerDeg = radius / 90;
   for (const o of frame.bodies) {
     const minor = o.body === 'minor' || o.body === 'comet';
-    if (minor && !opts.minor && o.name !== view.selected) continue;
+    if (o.body === 'satellite' || minor && !opts.minor && o.name !== view.selected) continue;
     const r = o.body === 'sun' || o.body === 'moon' ? 7 : minor ? Math.max(1.6, 3 - o.mag * 0.12) : Math.max(2.2, 4 - o.mag * 0.3), q = add(o, r);
     if (!q) continue;
     const disk = diskRadius(o) * pxPerDeg;
@@ -814,6 +850,16 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
       p.circle(mq.x, mq.y, mr, { fill: o.color });
       labels.push({ ...mq, name: m.name, color: c.planet, r: mr, priority: m.name === view.selected ? 0 : 2, mag: m.mag });
     }
+  }
+  // Satellites: sunlit, by their magnitude; in the shadow, a ring. The
+  // stations are named, and the others brighter than magnitude 1.
+  for (const o of frame.bodies) {
+    if (o.body !== 'satellite' || !opts.satellites && o.name !== view.selected) continue;
+    const r = o.lit ? Math.max(1.8, Math.min(3.6, 2.8 - o.mag * 0.3)) : 1.8, q = add(o, r);
+    if (!q) continue;
+    if (o.trail?.length) line([o, ...o.trail], { stroke: o.lit ? c.satellite : c.shadowed, width: 1.2, opacity: 0.7 });
+    satelliteSymbol(p, o, q.x, q.y, r);
+    if (o.name === view.selected || o.lit && (o.satellite.group === 'stations' || o.mag < 1)) labels.push({ ...q, name: o.name, color: c.satellite, r: r + 2, priority: o.name === view.selected ? 0 : 2, mag: o.mag });
   }
   const symbols = objects.filter((o) => o.body), names = new Set(objects.map((o) => o.name));
   let hitLabels = [];
@@ -851,6 +897,8 @@ export function chartLegend() {
     ${row(icon((p) => p.circle(14, 10, 1.6, { fill: BODY_COLORS.jupiter })), 'Planet’s moon (zoomed in)')}
     ${row(icon((p) => bodySymbol(p, { body: 'minor', color: BODY_COLORS.minor }, 14, 10, 2.2)), 'Minor planet')}
     ${row(icon((p) => bodySymbol(p, { body: 'comet', color: BODY_COLORS.comet }, 12, 12, 2.2)), 'Comet')}
+    ${row(icon((p) => { p.path('M4,13L9,12L14,10', { stroke: PALETTE.satellite, width: 1, opacity: 0.55 }); satelliteSymbol(p, { lit: true }, 18, 9, 2.2); }), 'Satellite, sunlit (its trail)')}
+    ${row(icon((p) => satelliteSymbol(p, { lit: false }, 14, 10, 1.8)), 'Satellite in the Earth’s shadow')}
     ${row(icon((p) => deepSymbol(p, 'galaxy', 14, 10, 6)), 'Galaxy')}
     ${row(icon((p) => deepSymbol(p, 'open cluster', 14, 10, 6)), 'Open cluster')}
     ${row(icon((p) => deepSymbol(p, 'globular cluster', 14, 10, 6)), 'Globular cluster')}
@@ -888,9 +936,9 @@ const keysOf = (o) => {
 export function searchSky(frame, query, limit = 8) {
   const q = fold(query), qc = q.replace(/ /g, '');
   if (!qc) return [];
-  const order = { moon: 0, planet: 0, constellation: 2, star: 1, 'minor planet': 1.2, comet: 1.2 }, rank = (o) => order[o.type] ?? (o.planet ? 0.5 : 1.5);
+  const order = { moon: 0, planet: 0, constellation: 2, star: 1, 'minor planet': 1.2, comet: 1.2, satellite: 1.3 }, rank = (o) => order[o.type] ?? (o.planet ? 0.5 : 1.5);
   const entries = [
-    ...frame.bodies.map((o) => ({ o, keys: o.number ? [o.name, String(o.number)] : [o.name] })),
+    ...frame.bodies.map((o) => ({ o, keys: o.satellite ? [o.name, ...o.satellite.keys] : o.number ? [o.name, String(o.number)] : [o.name] })),
     ...frame.bodies.filter(hasMoons).flatMap((planet) => planetMoons(frame, planet).map((o) => ({ o, keys: [o.name] }))),
     ...frame.stars.map((o) => ({ o, keys: keysOf(o) })),
     ...frame.deep.map((o) => ({ o, keys: [o.name, ...(o.description ? o.description.split(' · ') : [])] })),
@@ -950,8 +998,27 @@ const motionText = (pmra, pmdec) => {
   const total = Math.hypot(pmra, pmdec), pa = (Math.atan2(pmra, pmdec) / R + 360) % 360;
   return `${total >= 1000 ? `${(total / 1000).toFixed(2)}″` : `${total.toFixed(1)} mas`} a year, toward ${Math.round(pa)}°`;
 };
+// A satellite's card: where it is, how far and how high, how bright, and
+// the age of its elements
+const GROUP_NAMES = { stations: 'Space station or crewed craft', visual: 'Bright satellite', science: 'Science satellite', amateur: 'Amateur radio satellite', weather: 'Weather satellite' };
+function satelliteDetails(o, row) {
+  const s = o.satellite, age = (Date.now() / 1000 - s.epoch) / 3600, km = (x) => `${Math.round(x).toLocaleString('en')} km`;
+  return `<div class="coelum-object-head"><h3>${esc(o.name)}</h3><span>${esc(GROUP_NAMES[s.group] || 'Satellite')}</span></div><dl>
+    ${row('Altitude (Alt)', sexagesimal(o.alt, false, true))}
+    ${Number.isFinite(o.apparentAlt) ? row('Apparent altitude', sexagesimal(o.apparentAlt, false, true)) : ''}
+    ${row('Azimuth (Az)', sexagesimal(o.az))}
+    ${row('Right ascension (RA)', sexagesimal(o.ra / 15, true))}
+    ${row('Declination (Dec)', sexagesimal(o.dec, false, true))}
+    ${row('Distance', km(o.dist))}
+    ${row('Height above the Earth', km(o.height))}
+    ${row('Visual magnitude', o.lit ? `${o.mag.toFixed(1)} (${s.stdKnown ? 'estimated' : 'rough guess'})` : 'In the Earth’s shadow')}
+    ${row('NORAD number', String(s.norad))}
+    ${row('Elements', `${age < 48 ? `${Math.max(0, Math.round(age))} hours` : `${Math.round(age / 24)} days`} old (CelesTrak)`)}
+    </dl><p class="coelum-coordinate-note">Seen from the place (topocentric), without refraction in the chart · SGP4 positions, good to a few km while the elements are fresh · brightness from the standard magnitude for the distance and the phase; tumbling and flares are not modeled${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
+}
 export function objectDetails(o) {
   const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`;
+  if (o.satellite) return satelliteDetails(o, row);
   const notes = [o.double && 'double or multiple', o.variable && 'variable'].filter(Boolean);
   // a planet, or a planet's moon: a button for the close-up of the planet
   // (with its moons)

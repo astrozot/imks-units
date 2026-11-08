@@ -12,6 +12,7 @@ import { UnitError } from "./units.js";
 import { STARS, DEEP, CITIES } from "./catalog.js";
 import { EPOCHS, MINOR_PLANETS } from "./minorplanets.js";
 import { sgp4init } from "./sgp4.js";
+import { findSatellite } from "./satellites.js";
 
 // A name not known yet, or a satellite whose elements are old (refresh):
 // kind "object" or "place"
@@ -83,10 +84,11 @@ function searchPlaces(query, extra = {}, limit = 12) {
   return out.sort((a, b) => a.rank - b.rank).slice(0, limit);
 }
 
-// the key of a satellite by its NORAD number: "NORAD 25544", or a common
-// name; null for other names
+// the key of a satellite by its NORAD number: "NORAD 25544", a name of
+// the catalog with it ("SL-16 R/B #22285"), or a common name; null for
+// other names
 function satelliteKey(name) {
-  const m = /^(?:norad|catnr)\s*#?\s*(\d+)$/i.exec(name.trim());
+  const m = /(?:^(?:norad|catnr)\s*#?\s*|#\s*)(\d+)$/i.exec(name.trim());
   const n = m ? Number(m[1]) : SATELLITES[key(name)];
   return n ? `norad${n}` : null;
 }
@@ -106,10 +108,15 @@ function satelliteBody(r) {
 // env.lookups: { objects: {key: object}, places: {key: place} }, kept by
 // the app; env.refresh, while the app evaluates a line typed: the
 // elements of a satellite older than a day and fetched over two hours ago
-// are fetched again
+// are fetched again. The built-in objects first, then the satellites of
+// the catalog (satellites.js, updated daily), then those found online.
 function findObject(env, name) {
   const k = satelliteKey(name) || key(name);
-  const o = objectTable().get(k) || env.lookups?.objects?.[k];
+  const builtin = objectTable().get(k);
+  if (builtin) return builtin;
+  const sat = findSatellite(name);
+  if (sat) return sat;
+  const o = env.lookups?.objects?.[k];
   if (o?.omm) {
     const now = Date.now();
     if (env.refresh && now - Date.parse(o.omm.EPOCH + "Z") > 86400e3 && now - o.fetched > 7200e3) {

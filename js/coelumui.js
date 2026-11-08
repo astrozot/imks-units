@@ -1,7 +1,8 @@
 // The coelum explorer: two views of the same sky (a map-like chart and a
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
-import { skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
+import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, satelliteList, satelliteStatus } from './satellites.js';
+import { setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
 import { riseSet, planetOf, siderealTime } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
@@ -12,13 +13,15 @@ import { moonsView } from './skyview.js';
 // Optional fainter stars, from AT-HYG like the built-in ones
 // (tools/stars.mjs): files of the app downloaded when asked, kept in a
 // cache that app updates leave alone; one set at a time. A set of an
-// older version is forgotten.
+// older version is forgotten. The files and the key of the cache are
+// next to iMKS's page, whichever app (iMKS or Coelum) downloads them.
+const appFile = (name) => new URL(`../${name}`, import.meta.url).href;
 const STAR_FILES = {
-  8: { url: 'data/stars-8.bin', label: 'to magnitude 8', size: '1.3 MB' },
-  10: { url: 'data/stars-10.bin', label: 'to magnitude 10', size: '8.3 MB' },
-  11: { url: 'data/stars-11.bin', label: 'to magnitude 11', size: '18.4 MB' },
+  8: { url: appFile('data/stars-8.bin'), label: 'to magnitude 8', size: '1.3 MB' },
+  10: { url: appFile('data/stars-10.bin'), label: 'to magnitude 10', size: '8.3 MB' },
+  11: { url: appFile('data/stars-11.bin'), label: 'to magnitude 11', size: '18.4 MB' },
 };
-const STAR_CACHE = 'imks-data-stars', STAR_KEY = new URL('coelum-faint-stars.bin', location.href).href;
+const STAR_CACHE = 'imks-data-stars', STAR_KEY = appFile('coelum-faint-stars.bin');
 let faintVariant = null, faintLoading = null;
 function loadFaintStars() {
   if (!faintLoading) faintLoading = (async () => {
@@ -142,7 +145,7 @@ const ICONS = {
 const LAYERS = [
   ['ground', 'Ground', 'chart sky'], ['atmosphere', 'Atmosphere', 'sky'], ['milkyway', 'Milky Way', 'chart sky'],
   ['constellations', 'Constellations', 'chart sky'], ['boundaries', 'Boundaries', 'chart sky'], ['ecliptic', 'Ecliptic', 'chart sky'],
-  ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['labels', 'Labels', 'chart sky'],
+  ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['satellites', 'Satellites', 'chart sky'], ['labels', 'Labels', 'chart sky'],
 ];
 const MODES = { chart: 'Chart', sky: 'Sky' };
 // The largest zoom of the sky view (the chart's matches it): enough to
@@ -155,16 +158,19 @@ let explorers = 0;
 // calculation. Timers end automatically when the sheet's root is removed.
 // options (from the app): places() and rememberPlace(key, place), the
 // places found online; minorBodies(), the minor planets and comets looked
-// up.
+// up; standalone, always in full screen (the Coelum app); onPlace(place,
+// label), a place chosen; panels, more panels of the app, [{ key, label,
+// icon, render(body, explorer) }], each with its button on the rail and
+// drawn anew on opening.
 export function mountCoelum(root, model, formatTime, options = {}) {
-  const id = `coelum-${++explorers}`;
+  const id = `coelum-${++explorers}`, extra = options.panels || [];
   let mode = 'chart';
   try { if (localStorage.getItem('imks-coelum-mode') === 'sky') mode = 'sky'; } catch { /* private mode */ }
   root.dataset.mode = mode;
   root.innerHTML = `<div class="coelum-topbar coelum-hud">
       <div class="coelum-search">${ICONS.search}<input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="Search" aria-label="Search stars, planets and deep-sky objects" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><ul class="coelum-results" id="${id}-results" role="listbox" aria-label="Matches" hidden></ul></div>
       <div class="coelum-seg" role="group" aria-label="View">${Object.entries(MODES).map(([m, label]) => `<button type="button" data-view="${m}" aria-pressed="${m === mode}" title="${m === 'chart' ? 'Map-like star chart' : 'Realistic sky'}">${ICONS[m]}<span>${label}</span></button>`).join('')}</div>
-      <button type="button" class="coelum-btn" data-action="fullscreen" aria-pressed="false" aria-label="Full screen" title="Full screen">${ICONS.expand}</button>
+      ${options.standalone ? '' : `<button type="button" class="coelum-btn" data-action="fullscreen" aria-pressed="false" aria-label="Full screen" title="Full screen">${ICONS.expand}</button>`}
     </div>
     <div class="coelum-viewport">
       <canvas class="coelum-canvas" aria-hidden="true"></canvas><svg class="coelum-full" viewBox="0 0 600 600" role="img" tabindex="0" aria-label="Interactive sky; drag to look around, pinch or scroll to zoom"></svg>
@@ -174,6 +180,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <button type="button" class="coelum-btn" data-action="lock" aria-pressed="false" aria-label="Lock the selected object in place" title="Lock the selected object in place">${ICONS.unlock}</button>
         <button type="button" class="coelum-btn coelum-btn-text coelum-mount" data-action="mount" aria-pressed="false" aria-label="Equatorial mount" title="Alt-az: the horizon level (tap for equatorial)">AZ</button>
         <span class="coelum-rail-gap" aria-hidden="true"></span>
+        ${extra.map((p) => `<button type="button" class="coelum-btn" data-action="${p.key}" aria-expanded="false" aria-controls="${id}-${p.key}" aria-label="${esc(p.label)}" title="${esc(p.label)}">${p.icon}</button>`).join('')}
         <button type="button" class="coelum-btn" data-action="layers" aria-expanded="false" aria-controls="${id}-layers" aria-label="Layers and labels" title="Layers and labels">${ICONS.layers}</button>
         <button type="button" class="coelum-btn" data-action="legend" data-modes="chart" aria-expanded="false" aria-controls="${id}-legend" aria-label="Legend" title="Legend">${ICONS.legend}</button>
       </div>
@@ -183,9 +190,15 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-selects"><label data-modes="chart">Stars to magnitude <select data-limit>${[3, 4, 5, 6, 7, 8, 9, 10, 11].map((n) => `<option value="${n}" ${n === 6 ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label>Horizon <select data-horizon><option value="landscape">Landscape</option><option value="terrain">Local terrain</option><option value="flat">Flat</option></select></label><label>Text size <select data-label-size><option value="14">Normal</option><option value="17">Large</option><option value="20">Larger</option></select></label></div>
         <p class="coelum-panel-note coelum-terrain-note" hidden></p>
         <p class="coelum-panel-note" data-modes="sky">Stars fade with twilight, moonlight and toward the horizon; zoom in to see fainter ones. With the atmosphere, positions include refraction.</p>
+        <div class="coelum-downloads coelum-satellites"><h3>Satellites</h3>
+          <div class="coelum-switches">${SAT_GROUPS.map(([g, label]) => `<label><input type="checkbox" role="switch" data-satellite-group="${g}"><span>${label}</span></label>`).join('')}</div>
+          <p class="coelum-panel-note coelum-satellite-note"></p><button type="button" class="coelum-chip" data-satellites="update">Update now</button></div>
         <div class="coelum-downloads"><h3>Fainter stars</h3><p class="coelum-panel-note coelum-faint-note"></p>
           <div class="coelum-download-buttons">${Object.entries(STAR_FILES).map(([k, f]) => `<button type="button" class="coelum-chip" data-download="${k}">${f.label[0].toUpperCase() + f.label.slice(1)} · ${f.size}</button>`).join('')}<button type="button" class="coelum-chip" data-download="remove">Remove</button></div></div>
       </div>
+      ${extra.map((p) => `<div class="coelum-panel coelum-extra" id="${id}-${p.key}" data-panel="${p.key}" role="group" aria-label="${esc(p.label)}" hidden>
+        <div class="coelum-panel-head"><h3>${esc(p.label)}</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close ${esc(p.label.toLowerCase())}">${ICONS.close}</button></div>
+        <div class="coelum-panel-body"></div></div>`).join('')}
       <div class="coelum-panel coelum-timepanel" id="${id}-time" role="group" aria-label="Date and time" hidden>
         <div class="coelum-panel-head"><h3>Date and time</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close date and time">${ICONS.close}</button></div>
         <div class="coelum-time-row"><input type="datetime-local" step="60" data-time-input aria-label="Date and time on this device's clock"><button type="button" class="coelum-chip" data-set-time="now">Now</button></div>
@@ -235,6 +248,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   let size = 360, height = 360;
   let place = [...model.place], placeLabel = model.label;
   setMinorBodies(options.minorBodies?.() || []);
+  setSatellites(satelliteList());
   let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null, detailHTML = '';
   let animator = null, animation = 0, lastUI = -Infinity, frameNumber = 0, speed = 60, flight = 0, interacting = false, settleTimer = 0;
   // The horizon (shared by both views): the terrain's profile, if computed.
@@ -481,6 +495,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
 
   // Panels: one at a time; they keep the full-screen controls awake.
   const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel') };
+  for (const p of extra) panels[p.key] = $(`[data-panel="${p.key}"]`);
   const panelOpen = () => Object.values(panels).some((panel) => !panel.hidden);
   const showPanel = (name) => {
     for (const [key, panel] of Object.entries(panels)) {
@@ -491,6 +506,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     root.classList.toggle('coelum-show-options', panelOpen() && panels.legend.hidden);
     if (name === 'time' && !panels.time.hidden) showTime();
     if (name === 'place' && !panels.place.hidden) { placeInput.value = ''; showPlaces(''); }
+    const more = extra.find((p) => p.key === name);
+    if (more && !panels[name].hidden) more.render(panels[name].querySelector('.coelum-panel-body'), explorer);
     wake();
   };
   // A planet and its moons as in the moons() view (Mercury and Venus
@@ -547,6 +564,23 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     for (const b of root.querySelectorAll('[data-download]')) b.hidden = b.dataset.download === 'remove' ? !n : b.dataset.download === faintVariant;
     syncLayers();
   };
+  // Satellites: the groups chosen, how many, how old their elements are;
+  // a new catalog redraws the sky.
+  const satelliteNote = $('.coelum-satellite-note');
+  const showSatellites = () => {
+    const st = satelliteStatus(), groups = chosenGroups();
+    for (const box of root.querySelectorAll('[data-satellite-group]')) box.checked = groups.includes(box.dataset.satelliteGroup);
+    const age = st.fetched && (Date.now() - st.fetched) / 3600e3;
+    satelliteNote.textContent = st.busy ? 'Getting the elements from CelesTrak…'
+      : !groups.length ? 'No satellites chosen.'
+      : `${st.count} satellites${age !== null && age !== undefined ? `, from CelesTrak ${age < 1 ? 'under an hour' : age < 48 ? `${Math.round(age)} hours` : `${Math.round(age / 24)} days`} ago` : ''}; updated once a day when online, kept for offline use.${st.error ? ` ${st.error}.` : ''}`;
+    $('[data-satellites="update"]').disabled = st.busy;
+  };
+  const stopSatellites = onSatellites((list) => {
+    setSatellites(list); animator = null;
+    if (root.isConnected) { showSatellites(); if (!playing) draw(true); }
+  });
+
   // The local horizon: computed from terrain tiles when first chosen.
   const terrainNote = $('.coelum-terrain-note');
   const showTerrain = (text) => {
@@ -582,7 +616,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const showTime = () => {
     if (document.activeElement !== timeInput) timeInput.value = localInput(t);
     const offset = -new Date(t * 1000).getTimezoneOffset(), zone = `UTC${offset < 0 ? '−' : '+'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
-    $('.coelum-zone-note').textContent = `On this device's clock (${zone}). The status line shows the calculator's time format.`;
+    $('.coelum-zone-note').textContent = `On this device's clock (${zone}).${options.standalone ? '' : " The status line shows the calculator's time format."}`;
     const d = new Date(t * 1000), start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000, key = `${start},${place.join(',')}`;
     if (key === eventsDay) return;
     eventsDay = key;
@@ -628,6 +662,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     applyHorizon(); syncLayers(); showTerrain();
     if (views.sky?.auto) views.sky = null;
     eventsDay = null; placeStatus.textContent = '';
+    options.onPlace?.([...place], placeLabel);
     showPanel(null);
     if (playing) pause(); else draw(true);
   };
@@ -737,13 +772,15 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     syncLayers(); draw();
   };
   const immersive = () => root.classList.contains('coelum-immersive');
-  const fullscreen = (on) => {
+  const fullscreen = (on, focus = true) => {
     root.classList.toggle('coelum-immersive', on);
     const button = $('[data-action="fullscreen"]');
-    button.innerHTML = on ? ICONS.shrink : ICONS.expand;
-    button.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen'); button.title = on ? 'Exit full screen' : 'Full screen';
-    button.setAttribute('aria-pressed', String(on));
-    svg.focus({ preventScroll: true });
+    if (button) {
+      button.innerHTML = on ? ICONS.shrink : ICONS.expand;
+      button.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen'); button.title = on ? 'Exit full screen' : 'Full screen';
+      button.setAttribute('aria-pressed', String(on));
+    }
+    if (focus) svg.focus({ preventScroll: true });
     wake();
   };
 
@@ -797,7 +834,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (ev.key !== 'Escape') return;
     if (moons) { ev.preventDefault(); ev.stopPropagation(); closeMoons(); }
     else if (panelOpen()) { ev.preventDefault(); ev.stopPropagation(); showPanel(null); }
-    else if (immersive()) { ev.preventDefault(); ev.stopPropagation(); fullscreen(false); }
+    else if (immersive() && !options.standalone) { ev.preventDefault(); ev.stopPropagation(); fullscreen(false); }
   });
   root.addEventListener('change', (ev) => {
     const L = layers[mode];
@@ -805,6 +842,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (ev.target.matches('[data-limit]')) layers.chart.magnitude = Number(ev.target.value);
     if (ev.target.matches('[data-label-size]')) layers.chart.labelSize = layers.sky.labelSize = Number(ev.target.value);
     if (ev.target.matches('[data-horizon]')) { chooseHorizon(ev.target.value); return; }
+    if (ev.target.matches('[data-satellite-group]')) { chooseGroups([...root.querySelectorAll('[data-satellite-group]:checked')].map((b) => b.dataset.satelliteGroup)); return; }
     draw();
   });
   root.addEventListener('click', async (ev) => {
@@ -838,6 +876,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       } catch (e) { placeStatus.textContent = e.message; }
       return;
     }
+    if (ev.target.closest('[data-satellites="update"]')) { loadSatellites({ force: true }); showSatellites(); return; }
     const terrainAction = ev.target.closest('[data-terrain]')?.dataset.terrain;
     if (terrainAction === 'refresh') { chooseHorizon('terrain', true); return; }
     if (terrainAction === 'forget') { forgetHorizon(place); setTerrain(null); chooseHorizon('landscape'); return; }
@@ -846,7 +885,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const button = ev.target.closest('[data-action]'), action = button?.dataset.action;
     if (!action) return;
     if (action === 'fullscreen') fullscreen(!immersive());
-    else if (action === 'layers' || action === 'legend' || action === 'time' || action === 'place') showPanel(action);
+    else if (action === 'layers' || action === 'legend' || action === 'time' || action === 'place' || action in panels) showPanel(action);
     else if (action === 'moons') showMoons(button.dataset.planet);
     else if (action === 'close-moons') closeMoons();
     else if (action === 'lock') {
@@ -1011,7 +1050,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     }
   });
   syncLayers();
-  showFaint(); showTerrain();
+  showFaint(); showTerrain(); showSatellites();
+  loadSatellites();
+  if (options.standalone) { root.classList.add('coelum-standalone'); fullscreen(true, false); }
   draw();
   loadFaintStars().then(() => { if (root.isConnected) { showFaint(); if (faintCount() && !playing) draw(true); } });
   moonTexture.then(() => { if (root.isConnected && mode === 'sky' && !playing) draw(); });
@@ -1028,12 +1069,21 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
-  return {
+  const explorer = {
     // Center an object on opening (an eclipse's Sun, an occultation's Moon).
     focus(name) { const o = findObject(frame, name); if (o) { select(o.name); goTo(o); } return Boolean(o); },
+    // the time and the place shown, and to change them (the app's panels)
+    get time() { return t; },
+    get place() { return [...place]; },
+    get placeLabel() { return placeLabel; },
+    setTime,
+    setPlace: (p) => setPlace(p),
+    setSpeed: (v) => setSpeed(v),
+    select: (name) => { select(name); draw(); },
+    closePanel: () => showPanel(null),
     snapshot() {
       // Export the current frame as SVG even while the canvas is moving;
       // the realistic view is a picture of its canvas.
@@ -1043,4 +1093,5 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       return svg;
     },
   };
+  return explorer;
 }

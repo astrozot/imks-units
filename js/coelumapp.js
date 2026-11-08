@@ -1,0 +1,430 @@
+// Coelum, the sky of iMKS as an app of its own (coelum/index.html): the
+// explorer (coelumui.js) over the whole screen, now, at the place last
+// chosen, with the events of the sky in a panel of its own; their maps and
+// drawings (eventview.js) open in a sheet. It shares iMKS's modules, and on
+// the same site its storage: the places and objects looked up, the
+// location and the UTC setting, the views chosen in the sheets.
+import { mountCoelum } from "./coelumui.js";
+import { solarEclipse, solarLocal, eclipseTrack, lunarEclipse, lunarDiagram, horizontal, satellitePasses, occultationTrack } from "./astro.js";
+import { satelliteList, satelliteMagnitude, satelliteStatus, onSatellites } from "./satellites.js";
+import { OCC_MAG, lunarOccultations } from "./occultations.js";
+import { mountLunar, mountMap } from "./eventview.js";
+import { snapshot } from "./snapshot.js";
+
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const DAY = 86400;
+
+// Storage, as iMKS keeps it (keys under "imks."), so the two apps share it
+const store = {
+  get(key, def) {
+    try {
+      const v = localStorage.getItem("imks." + key);
+      return v === null ? def : JSON.parse(v);
+    } catch {
+      return def;
+    }
+  },
+  set(key, value) {
+    try { localStorage.setItem("imks." + key, JSON.stringify(value)); } catch { /* storage unavailable */ }
+  },
+};
+const settings = store.get("settings", {});
+const utc = Boolean(settings.utc);
+// The stars, objects and places found online (lookup.js), read anew before
+// each change, as iMKS may have added some
+const lookups = () => {
+  const l = store.get("lookups", {});
+  return { objects: l.objects || {}, places: l.places || {} };
+};
+
+// Times: on the device's clock, or in UTC as iMKS is set
+const pad = (n) => String(n).padStart(2, "0");
+function formatTime(t) {
+  const d = new Date(t * 1000);
+  if (utc) return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+  return d.toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+let toastTimer = 0;
+function toast(msg, ms = 2600) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, ms);
+}
+
+// ---------------------------------------------------------------------
+// The sheet, over the sky: the drawings of the events
+
+const sheet = $("#sheet");
+let sheetBody = $("#sheet-body"), sheetShare = null, onResize = null;
+function openSheet(title, render, share = null) {
+  $("#sheet-title").textContent = title;
+  sheetShare = share;
+  onResize = null;
+  $("#sheet-share").hidden = !share;
+  // a fresh element, so that listeners added by earlier sheets go away
+  const fresh = sheetBody.cloneNode(false);
+  sheetBody.replaceWith(fresh);
+  sheetBody = fresh;
+  sheet.hidden = false;
+  render(sheetBody);
+}
+function closeSheet() {
+  sheet.hidden = true;
+  sheetBody.innerHTML = "";
+  onResize = null;
+}
+sheet.addEventListener("click", (ev) => {
+  if (ev.target.closest("[data-close]")) closeSheet();
+  else if (ev.target.closest("#sheet-share")) shareSheet();
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !sheet.hidden) { ev.stopPropagation(); closeSheet(); } }, true);
+window.addEventListener("resize", () => { if (onResize && !sheet.hidden) onResize(); });
+
+// The share button: a picture of the drawing, to the system's share menu,
+// or saved where there is none
+async function shareSheet() {
+  const s = sheetShare?.();
+  if (!s) return;
+  let blob;
+  try { blob = await snapshot(s.root, s); } catch { toast("The picture could not be made"); return; }
+  const file = new File([blob], `${s.name}.png`, { type: "image/png" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file] }).catch(() => {});
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(file);
+  a.download = file.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ---------------------------------------------------------------------
+// The events after the time of the sky: from its place, the visible passes
+// of the satellites (satellites.js) in the next day; the occultations by
+// the Moon in the next month (occultations.js) and the next solar and
+// lunar eclipses, seen from there or anywhere on the Earth
+
+// The passes seen (satellitePasses: sunlit, the Sun 6° or more below the
+// horizon), at least PASS_ALT high and as bright as PASS_MAG at their best,
+// within hours of u: the satellite, the pass, when it is seen (sunlit and
+// PASS_ALT or higher, every 10 s, as in the usual predictions), where, and
+// its best magnitude. The
+// search yields to the page every few satellites; job.stop ends it.
+const PASS_ALT = 10, PASS_MAG = 4.5;
+async function satellitePassesSeen(u, place, hours, job) {
+  const list = [];
+  const sats = satelliteList().filter((s) => !s.docked && Math.abs(u - s.epoch) < 30 * DAY);
+  for (let i = 0; i < sats.length; i++) {
+    const s = sats[i];
+    for (const p of satellitePasses(s, u, place, hours / 24)) {
+      if (!p.visible || p.max.alt < PASS_ALT || p.rise.t < u - 600) continue;
+      let from = null, to = null, mag = Infinity;
+      for (let y = p.rise.t; y <= p.set.t; y += 10) {
+        const m = satelliteMagnitude(s, y, place);
+        if (!m.lit || horizontal(s, y, place).alt < PASS_ALT) continue;
+        from ??= y;
+        to = y;
+        mag = Math.min(mag, m.mag);
+      }
+      if (from === null || mag > PASS_MAG) continue;
+      // it ends in the Earth's shadow, still high
+      const shadow = !satelliteMagnitude(s, to + 10, place).lit && horizontal(s, to + 10, place).alt >= PASS_ALT;
+      list.push({ s, p, from, to, mag, shadow, at: [horizontal(s, from, place), horizontal(s, to, place)] });
+    }
+    job.done = (i + 1) / sats.length;
+    if (i % 6 === 5) {
+      job.progress?.();
+      await new Promise((r) => setTimeout(r, 0));
+      if (job.stop) return null;
+    }
+  }
+  return list.sort((a, b) => a.from - b.from);
+}
+const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+const compass = (az) => COMPASS[Math.round(az / 22.5) % 16];
+const clock = (t) => (utc ? new Date(t * 1000).toISOString().slice(11, 16) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+function passRow(x, i) {
+  const shadow = x.shadow ? " into the shadow" : "";
+  const how = `${compass(x.at[0].az)} → ${compass(x.at[1].az)}${shadow} · highest ${Math.round(x.p.max.alt)}° · magnitude ${x.mag.toFixed(1).replace("-", "−")}`;
+  return `<button type="button" class="coelum-event" data-event="passes" data-index="${i}"><b>${esc(x.s.name)}</b><span>${esc(formatTime(x.from))} – ${esc(clock(x.to))}</span><small>${esc(how)}</small></button>`;
+}
+
+// An occultation: what, when (in and out, or the greatest), and how: from
+// the place, the limbs (dark or bright), how high, the contact not seen;
+// the Moon's lit part
+const magText = (m) => m.toFixed(1).replace("-", "−");
+function occultationRow(x, i) {
+  const limb = (lit) => (lit ? "bright" : "dark");
+  const sky = (c) => (c.alt <= 0 ? "below the horizon" : c.sun > -0.8 ? "in daylight" : "in twilight");
+  const how = x.e
+    ? [`magnitude ${magText(x.mag)}`, `in at the ${limb(x.e.litIn)} limb, out at the ${limb(x.e.litOut)}`, `${Math.round((x.in.seen ? x.in : x.out).alt)}° high`,
+      !x.in.seen && `disappears ${sky(x.in)}`, !x.out.seen && `reappears ${sky(x.out)}`, `Moon ${Math.round(x.lit * 100)}% lit`].filter(Boolean).join(" · ")
+    : `magnitude ${magText(x.mag)} · seen from part of the Earth · Moon ${Math.round(x.lit * 100)}% lit`;
+  const when = x.e ? `${formatTime(x.e.first)} – ${clock(x.e.last)}` : formatTime(x.t);
+  return `<button type="button" class="coelum-event" data-event="occultations" data-index="${i}"><b>${esc(x.name)} behind the Moon</b><span>${esc(when)}</span><small>${esc(how)}</small></button>`;
+}
+
+// From a place, only the eclipses seen there: the Sun up during some of it
+// (its center above −0.833°, with refraction), and for the Moon at some of
+// the contacts or in between (−0.8°)
+const sunUp = (a) => a !== null && a > -0.833;
+function solarEclipses(u, place, n) {
+  const list = [];
+  for (let k = 0; list.length < n && k < 80; k++) {
+    const e = solarEclipse(u);
+    if (!e) break;
+    u = e.max + DAY;
+    if (!place) { list.push({ e, t: e.max }); continue; }
+    const l = solarLocal(e.max, place);
+    if (l && (sunUp(l.altC1) || sunUp(l.altMax) || sunUp(l.altC4))) list.push({ e, l, t: l.max });
+  }
+  return { list, next: u };
+}
+function lunarEclipses(u, place, n) {
+  const list = [];
+  for (let k = 0; list.length < n && k < 80; k++) {
+    const e = lunarEclipse(u);
+    if (!e) break;
+    u = e.max + DAY;
+    if (!place) { list.push({ e, t: e.max }); continue; }
+    // the Moon's altitude at the maximum, and whether it is up at some time
+    // from P1 to P4 (every 10 minutes and at the contacts)
+    const alt = (x) => horizontal("moon", x, place).alt;
+    const times = [e.P1, e.U1, e.U2, e.max, e.U3, e.U4, e.P4].filter((x) => x !== null);
+    for (let x = e.P1; x < e.P4; x += 600) times.push(x);
+    if (times.some((x) => alt(x) > -0.8)) list.push({ e, t: e.max, alt: alt(e.max) });
+  }
+  return { list, next: u };
+}
+
+const KIND = (k) => k[0].toUpperCase() + k.slice(1);
+const percent = (x) => `${(x * 100).toFixed(x > 0.995 && x < 1 ? 1 : 0)}%`;
+// a line of the list: what, when (the maximum), and how it is seen
+function solarRow(x, i) {
+  const { e, l } = x;
+  const title = l ? `${KIND(l.kind)} solar eclipse${l.kind !== e.kind ? ` (${e.kind})` : ""}` : `${KIND(e.kind)} solar eclipse`;
+  const how = l
+    ? `${percent(l.obscuration)} of the Sun covered · ${sunUp(l.altMax) ? `Sun ${Math.round(l.altMax)}° high` : "at sunrise or sunset"}`
+    : `magnitude ${e.magnitude.toFixed(3)}`;
+  return `<button type="button" class="coelum-event" data-event="solar" data-index="${i}"><b>${esc(title)}</b><span>${esc(formatTime(x.t))}</span><small>${esc(how)}</small></button>`;
+}
+function lunarRow(x, i) {
+  const { e } = x;
+  const mag = e.umbral > 0 ? `umbral magnitude ${e.umbral.toFixed(3)}` : `penumbral magnitude ${e.penumbral.toFixed(3)}`;
+  const how = x.alt === undefined ? mag : `${mag} · ${x.alt > -0.8 ? `Moon ${Math.round(x.alt)}° high` : "the Moon rises or sets during it"}`;
+  return `<button type="button" class="coelum-event" data-event="lunar" data-index="${i}"><b>${esc(KIND(e.kind))} lunar eclipse</b><span>${esc(formatTime(x.t))}</span><small>${esc(how)}</small></button>`;
+}
+
+// The lists found, kept while the time (to the hour), the place, the
+// scope and the satellites stay the same; More extends them. The passes
+// and the occultations are searched while the panel is open, a span at a
+// time (SLOW: the search, its rows, ten shown at a time, More for ten
+// more or the next span); the eclipses at once (SEARCHES)
+let found = null, renders = 0;
+const jobs = {};
+const SEARCHES = { solar: [solarEclipses, solarRow, "Solar eclipses"], lunar: [lunarEclipses, lunarRow, "Lunar eclipses"] };
+const SLOW = {
+  passes: {
+    head: "Satellite passes", span: DAY, here: true, row: passRow,
+    search: (u, span, place, job) => satellitePassesSeen(u, place, span / 3600, job),
+    missing: () => (satelliteList().length ? null : satelliteStatus().busy ? "Getting the satellites from CelesTrak…" : "No satellites yet: they come from CelesTrak when online (Layers, Satellites)."),
+    none: (days) => `No bright passes seen here within ${days === 1 ? "a day" : `${days} days`}.`,
+    note: `Sunlit passes in a dark sky, ${PASS_ALT}° or higher and of magnitude ${PASS_MAG} or brighter (estimated).`,
+  },
+  occultations: {
+    head: "Occultations by the Moon", span: 30 * DAY, row: occultationRow,
+    search: (u, span, place, job) => lunarOccultations(u, span / DAY, place, job),
+    missing: () => null,
+    none: (days) => `None within ${days} days.`,
+    note: `Of the planets and of the stars to magnitude ${OCC_MAG}; tap one for its map (where it is seen), and to see it in the sky.`,
+  },
+};
+function renderEvents(body, explorer) {
+  const scope = store.get("coelumScope", "here");
+  const place = explorer.place, from = explorer.time;
+  const key = `${scope}|${Math.floor(from / 3600)}|${place.join(",")}|${satelliteStatus().fetched}|${satelliteList().length}`;
+  const at = scope === "here" ? place : null, render = ++renders;
+  const slow = Object.entries(SLOW).filter(([, k]) => at || !k.here);
+  body.innerHTML = `<div class="coelum-seg coelum-event-scope" role="group" aria-label="Where">${[["here", "From here"], ["anywhere", "Anywhere"]].map(([s, label]) => `<button type="button" data-scope="${s}" aria-pressed="${s === scope}">${label}</button>`).join("")}</div>
+    <p class="coelum-panel-note">${scope === "here" ? `Seen from ${esc(explorer.placeLabel)}` : "Anywhere on the Earth"}, after ${esc(formatTime(from))}. Tap one ${scope === "here" ? "to see it in the sky, or an eclipse or occultation for its map or drawing" : "for its map or drawing"}.</p>
+    ${[...slow.map(([kind, k]) => [kind, k.head]), ...Object.entries(SEARCHES).map(([kind, [, , head]]) => [kind, head])].map(([kind, head]) => `<h3 class="coelum-events-head">${head}</h3><div class="coelum-event-list" data-list="${kind}"><p class="coelum-panel-note">Searching…</p></div>`).join("")}`;
+  const fillSlow = (kind) => {
+    const box = body.querySelector(`[data-list="${kind}"]`), x = found?.[kind], k = SLOW[kind];
+    if (!box || !x) return;
+    const missing = k.missing();
+    if (missing) { box.innerHTML = `<p class="coelum-panel-note">${missing}</p>`; return; }
+    const rows = x.list.slice(0, x.shown).map(k.row).join("");
+    box.innerHTML = (rows || (x.busy ? "" : `<p class="coelum-panel-note">${k.none(x.span / DAY)}</p>`))
+      + (x.busy ? `<p class="coelum-panel-note">Searching… ${Math.round(100 * (jobs[kind]?.done || 0))}%</p>` : `<button type="button" class="coelum-chip" data-more="${kind}">More</button>`)
+      + (x.busy || !x.list.length ? "" : `<p class="coelum-panel-note">${k.note}</p>`);
+  };
+  // the next span of a slow list, from start
+  const searchSlow = async (kind, start) => {
+    jobs[kind] && (jobs[kind].stop = true);
+    const x = found[kind], job = jobs[kind] = { done: 0, progress: () => { if (found[kind] === x && body.isConnected) fillSlow(kind); } };
+    x.busy = true;
+    fillSlow(kind);
+    const list = await SLOW[kind].search(start, SLOW[kind].span, at, job);
+    if (!list || found[kind] !== x) return;
+    x.list.push(...list);
+    x.span += SLOW[kind].span;
+    x.busy = false;
+    if (jobs[kind] === job) jobs[kind] = null;
+    if (body.isConnected) fillSlow(kind);
+  };
+  // (a later rendering replaces this one's lists)
+  const fill = () => {
+    if (render !== renders) return;
+    if (found?.key !== key) {
+      for (const j of Object.values(jobs)) if (j) j.stop = true;
+      found = { key, at, solar: solarEclipses(from, at, 4), lunar: lunarEclipses(from, at, 4) };
+      for (const [kind] of slow) { found[kind] = { list: [], span: 0, busy: false, shown: 10 }; searchSlow(kind, from); }
+    }
+    for (const [kind] of slow) fillSlow(kind);
+    for (const kind of Object.keys(SEARCHES)) {
+      const box = body.querySelector(`[data-list="${kind}"]`), rows = found[kind].list.map(SEARCHES[kind][1]).join("");
+      if (box) box.innerHTML = (rows || `<p class="coelum-panel-note">None seen here in the next decades.</p>`) + (found[kind].list.length ? `<button type="button" class="coelum-chip" data-more="${kind}">More</button>` : "");
+    }
+  };
+  // the search after the panel is drawn
+  if (found?.key === key) fill(); else requestAnimationFrame(() => setTimeout(fill, 0));
+  body.onclick = (ev) => {
+    const s = ev.target.closest("[data-scope]")?.dataset.scope;
+    if (s) { store.set("coelumScope", s); renderEvents(body, explorer); return; }
+    const more = ev.target.closest("[data-more]")?.dataset.more;
+    if (more in SLOW) {
+      // ten more of those found, or the next span
+      const x = found[more];
+      x.shown += 10;
+      if (x.shown - 10 < x.list.length) fillSlow(more); else searchSlow(more, from + x.span);
+      return;
+    }
+    if (more) {
+      const [search] = SEARCHES[more], next = search(found[more].next, found.at, 4);
+      found[more] = { list: [...found[more].list, ...next.list], next: next.next };
+      fill();
+      return;
+    }
+    const row = ev.target.closest("[data-event]"), kind = row?.dataset.event, x = row && found[kind].list[Number(row.dataset.index)];
+    if (kind === "passes") showPass(x, explorer);
+    else if (kind === "occultations") openOccultation(x, found.at, explorer);
+    else if (kind) openEvent(kind, x, found.at, explorer);
+  };
+}
+
+// A pass in the sky: from when it is seen, the satellite selected and
+// centered, the time at its own pace (press play to follow it)
+function showPass(x, explorer) {
+  explorer.closePanel();
+  explorer.setSpeed(1);
+  explorer.setTime(x.from);
+  explorer.focus(x.s.name);
+}
+
+// The host of the sheets (eventview.js): Show in the sky goes to the time
+// and the place, centered on the bodies of the event
+const sheetHost = (explorer) => ({
+  store, utc, toast,
+  onResize: (fn) => { onResize = fn; },
+  sky: async (t, p, focus) => {
+    closeSheet();
+    explorer.closePanel();
+    const here = explorer.place;
+    if (Math.abs(p[0] - here[0]) > 1e-4 || Math.abs(p[1] - here[1]) > 1e-4) {
+      await explorer.setPlace({ lat: p[0], lon: p[1], h: Number.isFinite(p[2]) ? p[2] : null, name: `${p[0].toFixed(3)}°, ${p[1].toFixed(3)}°` });
+    }
+    explorer.setTime(t);
+    for (const name of focus) if (explorer.focus(name)) break;
+  },
+});
+
+// An occultation in the sheet: its map, where on the Earth it is seen (as
+// occultation() in iMKS), the place's contacts; computed after the sheet
+// opens
+function openOccultation(x, place, explorer) {
+  const head = `<p class="coelum-sheet-when">${esc(formatTime(x.t))}${place ? ` · from ${esc(explorer.placeLabel)}` : ""}</p>`, caption = [`${x.name} behind the Moon, ${formatTime(x.t)}`];
+  let view = null;
+  openSheet("Occultation", (root) => {
+    root.innerHTML = `${head}<p class="coelum-panel-note">Drawing the map…</p>`;
+    requestAnimationFrame(() => setTimeout(() => {
+      if (!root.isConnected) return;
+      const occ = { target: x.target, front: "moon", names: [x.name, "Moon"], covers: x.e ? x.e.covers : x.covers };
+      view = mountMap(root, { ...occultationTrack(x.target, "moon", x.e ? x.e.max : x.max), ...(place && { place: place.slice(0, 2) }), occ }, sheetHost(explorer), { head, caption });
+    }, 0));
+  }, () => view?.share());
+}
+
+// An eclipse in the sheet: the map of a solar eclipse (computed after the
+// sheet opens: it takes a moment), the drawing of a lunar one
+function openEvent(kind, x, place, explorer) {
+  const host = sheetHost(explorer);
+  const title = `${KIND(kind === "solar" && x.l ? x.l.kind : x.e.kind)} ${kind} eclipse`;
+  const head = `<p class="coelum-sheet-when">${esc(formatTime(x.t))}${place ? ` · from ${esc(explorer.placeLabel)}` : ""}</p>`, caption = [`${title}, ${formatTime(x.t)}`];
+  let view = null;
+  openSheet(KIND(title), (root) => {
+    if (kind === "lunar") { view = mountLunar(root, lunarDiagram(x.e, place), host, { head, caption }); return; }
+    root.innerHTML = `${head}<p class="coelum-panel-note">Drawing the map…</p>`;
+    requestAnimationFrame(() => setTimeout(() => {
+      if (!root.isConnected) return;
+      view = mountMap(root, { ...eclipseTrack(x.e.max), ...(place && { place: place.slice(0, 2) }) }, host, { head, caption });
+    }, 0));
+  }, () => view?.share());
+}
+
+// ---------------------------------------------------------------------
+// The sky: now, at the place last chosen here, or else iMKS's location, or
+// else Greenwich (then the place panel opens to choose one)
+
+const saved = store.get("coelumPlace", null) || settings.location || null;
+const start = saved && Number.isFinite(saved.lat) && Number.isFinite(saved.lon) ? saved : null;
+const placeOf = (p) => [p.lat, p.lon, Number.isFinite(p.h) ? p.h : 0];
+const model = start
+  ? { t: Math.round(Date.now() / 1000), place: placeOf(start), label: start.name || `${start.lat.toFixed(3)}°, ${start.lon.toFixed(3)}°` }
+  : { t: Math.round(Date.now() / 1000), place: [51.4769, -0.0005, 46], label: "Greenwich" };
+const EVENTS_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17 5 8.5 0 0 0 0-17z" fill="currentColor"/></svg>';
+const root = $("#coelum");
+const explorer = mountCoelum(root, model, formatTime, {
+  standalone: true,
+  places: () => lookups().places,
+  rememberPlace: (key, place) => { const l = lookups(); l.places[key] = place; store.set("lookups", l); },
+  minorBodies: () => Object.values(lookups().objects).filter((o) => o.orbits || o.orbit),
+  onPlace: (p, label) => store.set("coelumPlace", { lat: p[0], lon: p[1], h: p[2], name: label }),
+  panels: [{ key: "events", label: "Events", icon: EVENTS_ICON, render: renderEvents }],
+});
+// a new catalog of satellites: the passes again, if the panel is open
+onSatellites(() => {
+  const panel = $('[data-panel="events"]', root);
+  if (panel && !panel.hidden && !jobs.passes) renderEvents($(".coelum-panel-body", panel), explorer);
+});
+if (!start) $('[data-action="place"]', root).click();
+
+// ---------------------------------------------------------------------
+// Offline: the worker of iMKS (sw.js), for this folder. A new version is
+// fetched in full before it replaces the cached one; the page reloads to
+// it once out of sight. Updates are looked for at most once an hour.
+
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  const sws = navigator.serviceWorker, hadController = Boolean(sws.controller);
+  let pending = false;
+  sws.addEventListener("controllerchange", () => {
+    if (!hadController) return;
+    pending = true;
+    if (document.hidden) location.reload();
+  });
+  sws.register("../sw.js", { scope: "./", updateViaCache: "none" }).then((reg) => {
+    const check = () => {
+      if (Date.now() - store.get("coelumUpdateCheck", 0) < 3600e3) return;
+      reg.update().then(() => store.set("coelumUpdateCheck", Date.now())).catch(() => {});
+    };
+    check();
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && pending) location.reload();
+      else if (!document.hidden) check();
+    });
+  }).catch(() => {});
+}

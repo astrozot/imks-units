@@ -22,6 +22,8 @@ let browser;
 try {
   browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, timezoneId: 'Europe/Rome' });
+  // no satellites from CelesTrak while testing (satellites.js)
+  await context.route('https://celestrak.org/**', (route) => route.fulfill({ contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '[]' }));
   await context.addInitScript(() => {
     navigator.canShare = () => true;
     navigator.share = async ({ files }) => { window.coelumShared = files.map((f) => ({ name: f.name, size: f.size, type: f.type })); };

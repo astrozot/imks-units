@@ -158,6 +158,42 @@ Chart positions include precession, nutation and proper motion; they omit
 annual aberration and parallax. The existing `altaz` and `radec` functions
 retain their full precision.
 
+Satellites (`js/satellites.js`) come from CelesTrak's groups: the space
+stations and the brightest ones by default, science, amateur radio and
+weather satellites on request (Layers). Their elements are fetched once a
+day and kept in Cache Storage for offline use; SGP4 follows near-Earth
+orbits only, so geostationary and navigation satellites are left out. In
+the sky they are exact at every frame, sunlit (filled diamonds) or in the
+Earth's shadow (outlines), with a short trail; modules and craft docked to
+a station go with it. Their brightness is estimated from Mike McCants'
+standard magnitudes (`js/satmags.js`; regenerate with
+`node tools/satmags.mjs quicksat.mag`, the file in `qsmag.zip` from
+<https://www.mmccants.org/programs/>), or a default of the group. The
+calculator knows them by CelesTrak's names (`passes("SL-16 R/B #22285",
+today)` for one of several with a name).
+
+### Coelum, the app
+
+`coelum/` is the sky explorer as an app of its own, without the calculator:
+it opens in full screen, now, at the place last chosen there (or the
+location in iMKS's Settings), and installs separately (its own manifest and
+icons). Its Events panel lists the visible passes of the satellites in the
+next day (from 10° high, magnitude 4.5 or brighter; tap one to see it in
+the sky at its start, at the real pace), the occultations by the Moon of
+the planets and of the stars to magnitude 5 in the next month
+(`js/occultations.js`: the Moon's path scanned hourly, the close ones
+computed as `occultation` does; from the place, those seen there, with the
+limbs and the contacts not seen), and the next solar and lunar eclipses
+seen from the place, or anywhere on the Earth, after the time of the sky.
+Each occultation or eclipse opens the same map or drawing as
+`occultation`, `solareclipse` and `lunareclipse` in iMKS, and Show in the
+sky goes to it. Both apps load the same modules from `js/`
+(`js/coelumapp.js` is the app's own part; the eclipse sheets are in
+`js/eventview.js`), so a change to either shows in both. On the same site
+they share their storage (the places and objects looked up, the downloaded
+fainter stars, the UTC setting) and `sw.js`, registered for each folder with
+a cache of its own.
+
 ## Checks
 
 `node tests/coelum.mjs` checks sky-chart geometry and catalog positions at
@@ -211,6 +247,14 @@ from NASA's LRO colour map (Scientific Visualization Studio, CGI Moon Kit,
 public domain): `python3 tools/moondisk.py lroc_color_poles_1k.jpg` writes
 it (numpy and Pillow).
 
+`node tests/coelum-app.mjs` checks the Coelum app: its place at the start,
+full screen, the eclipses from a place and anywhere, their sheets and the
+sky then, the satellites and their passes, the occultations, and offline
+use, with the same
+Playwright options. CelesTrak is not reached by the tests: this one serves
+`tests/fixtures/celestrak.json` (some satellites of November 2026), the
+others an empty list.
+
 `node tests/browser.mjs` checks the app in Chromium at phone size, with
 simulated sensors (position, motion, compass, microphone). It needs
 Playwright (`npm install playwright-core`, then `CHROME=/path/to/chrome`;
@@ -236,5 +280,6 @@ and backup restoration, using the same Playwright and Chromium options.
 4. After a minute the app is at `https://<user>.github.io/imks-units/`.
 
 To publish a new version, upload the changed files (`index.html`,
-`styles.css`, `js/`) and bump `CACHE` in `sw.js`
-(e.g. `imks-v2`) so installed copies pick it up.
+`styles.css`, `js/`, `coelum/`) and bump the version in `CACHE` in `sw.js`
+(e.g. `imks-v2`) so installed copies of both apps pick it up. Coelum is then
+at `https://<user>.github.io/imks-units/coelum/`.

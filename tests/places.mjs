@@ -30,6 +30,8 @@ const url = `http://localhost:${server.address().port}/`;
 import assert from "node:assert/strict";
 const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
 const context = await browser.newContext({ viewport: { width: 360, height: 740 }, serviceWorkers: "block" });
+// no satellites from CelesTrak while testing (satellites.js)
+await context.route("https://celestrak.org/**", (route) => route.fulfill({ contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: "[]" }));
 const page = await context.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));

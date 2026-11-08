@@ -226,4 +226,63 @@ for (const phase of [0, 45, 90, 135, 180]) {
   for (const text of ['α Lyr · 3 Lyr · HD 172167 · HR 7001 · HIP 91262', 'A0V', '130.23 mas', '7.68 pc · 25.0 light years', '349.7 mas a year, toward 35°']) assert.ok(vega.includes(text), text);
   assert.equal(new Set(CHART_STARS.filter((s) => s[9]).map((s) => s[9])).size, named.size, 'Names are unique');
 }
+// Satellites (satellites.js): the groups of tests/fixtures (2026-11-07/08)
+// as CelesTrak gives them; in the sky, with their light, and to the
+// calculator by name, alias or "… #NORAD"
+{
+  const { loadSatellites, satelliteList, findSatellite, satelliteLight } = await import('../js/satellites.js');
+  const { setSatellites } = await import('../js/coelum.js');
+  const fixture = JSON.parse(fs.readFileSync(new URL('fixtures/celestrak.json', import.meta.url)));
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => ({ ok: true, json: async () => fixture[new URL(url).searchParams.get('GROUP')] || [] });
+  try { await loadSatellites(); } finally { globalThis.fetch = realFetch; }
+  const list = satelliteList();
+  assert.equal(findSatellite('ISS').norad, 25544);
+  assert.equal(findSatellite('Tiangong').norad, 48274);
+  assert.equal(findSatellite('NORAD 20580').name, 'HST');
+  assert.equal(findSatellite('Poisk').docked, 'ISS (ZARYA)', 'Modules and visiting craft go with their station');
+  assert.equal(list.filter((s) => s.docked).length, 11);
+  const twin = list.find((s) => /#\d+$/.test(s.name));
+  assert.ok(twin && findSatellite(twin.name) === twin, 'Names shared by several are told apart by number');
+  // the standard magnitude at 1000 km and a phase angle of 90°; full, 1.24
+  // brighter; in the Earth's shadow, unseen
+  const sun = [1, 0, 0];
+  assert.ok(Math.abs(satelliteLight(2, [0, 7000, 0], [0, 0, 1000], sun).mag - 2) < 1e-9);
+  assert.ok(Math.abs(satelliteLight(2, [7000, 0, 0], [-1000, 0, 0], sun).mag - (2 - 2.5 * Math.log10(Math.PI))) < 1e-9);
+  assert.equal(satelliteLight(2, [-7000, 0, 0], [-1000, 0, 0], sun).lit, false);
+  // passes, by the calculator's names
+  for (const name of ['ISS', 'Tiangong', twin.name]) assert.equal(calc.run(`passes("${name}", 2026.11.08 12:00 Z, "Milan")`).kind, 'value', name);
+  // in the sky: exact, sunlit or not, with a trail above the horizon
+  setSatellites(list);
+  const t = Date.parse('2026-11-08T17:30:00Z') / 1000, milan = [45.4642, 9.19, 120];
+  const f = skyFrame(t, milan), sats = f.bodies.filter((o) => o.body === 'satellite');
+  assert.equal(sats.length, list.length - 11);
+  const iss = sats.find((o) => o.name === 'ISS (ZARYA)'), h = horizontal(findSatellite('ISS'), t, milan);
+  assert.ok(Math.abs(iss.alt - h.alt) < 0.01 && Math.abs(((iss.az - h.az + 540) % 360) - 180) < 0.01, 'The chart agrees with altaz');
+  assert.ok(sats.some((o) => o.lit && Number.isFinite(o.mag)) && sats.some((o) => !o.lit));
+  assert.ok(sats.filter((o) => o.alt > 0).every((o) => o.trail.length === 8));
+  const animated = createSkyAnimator(t - 30, milan)(t).bodies.find((o) => o.name === 'ISS (ZARYA)');
+  assert.ok(Math.abs(animated.alt - iss.alt) < 0.01, 'Exact while playing, not interpolated');
+  assert.equal(searchSky(f, 'Zarya')[0].name, 'ISS (ZARYA)');
+  assert.ok(objectDetails(iss).includes('NORAD number'));
+  assert.ok(skyChart(f, 360, 360, { satellites: true }).objects.some((o) => o.body === 'satellite'));
+  assert.equal(skyFrame(t + 60 * 86400, milan).bodies.filter((o) => o.body === 'satellite').length, 0, 'Elements two months old are not used');
+  setSatellites([]);
+}
+// Occultations by the Moon (occultations.js): those seen from Milan in
+// two months, as occultation() finds them one by one; anywhere, more
+{
+  const { lunarOccultations } = await import('../js/occultations.js');
+  const { occultation } = await import('../js/astro.js');
+  const t0 = Date.parse('2026-11-08T12:00:00Z') / 1000, milan = [45.4642, 9.19, 120];
+  const here = await lunarOccultations(t0, 60, milan);
+  assert.deepEqual(here.map((x) => x.name), ['52 Sgr', 'ε Ari', 'Taygeta', 'Yunü', '58 Leo']);
+  const taygeta = here[2], one = occultation(taygeta.target, 'moon', t0, milan, 1);
+  assert.ok(Math.abs(one.first - taygeta.e.first) < 1 && Math.abs(one.last - taygeta.e.last) < 1, 'As occultation() finds it');
+  assert.ok(taygeta.in.seen && taygeta.out.seen && taygeta.in.alt > 55 && taygeta.in.sun < -60);
+  assert.equal(here[1].in.seen, false, 'ε Ari disappears in twilight');
+  const anywhere = await lunarOccultations(t0, 30, null);
+  assert.ok(anywhere.length > 30 && anywhere.some((x) => x.name === 'Antares'), 'The Antares series');
+  assert.ok(anywhere.every((x, i) => !i || anywhere[i - 1].t <= x.t));
+}
 console.log('Coelum geometry, catalogs and calculator checks passed');

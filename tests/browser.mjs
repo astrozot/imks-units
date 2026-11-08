@@ -47,6 +47,8 @@ const context = await browser.newContext({
   viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true, serviceWorkers: "block", timezoneId: "Europe/Rome",
   geolocation: { latitude: 45.4642, longitude: 9.19, accuracy: 10 }, permissions: ["geolocation", "accelerometer", "gyroscope", "magnetometer"],
 });
+// no satellites from CelesTrak while testing (satellites.js)
+await context.route("https://celestrak.org/**", (route) => route.fulfill({ contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: "[]" }));
 const page = await context.newPage();
 // the share menu: what is given to it, kept
 await page.addInitScript(() => {

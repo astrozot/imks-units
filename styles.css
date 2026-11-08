@@ -1651,3 +1651,20 @@ math .mu, math .mu mi, math .mu mn, math .mu mo { color: var(--unit); }
 .row .lbl sub { font-size: 0.7em; vertical-align: -0.25em; line-height: 0; }
 .toast.has-act { display: flex; align-items: center; gap: 14px; padding-right: 8px; }
 .toast-act { color: var(--accent); background: var(--bg); font-weight: 700; padding: 5px 12px; border-radius: 14px; font-size: 14px; }
+
+/* Coelum as an app of its own (coelum/index.html): the explorer always in
+   full screen, the sheet and the toast over it; the events panel */
+body.coelum-app { background: #000; }
+.coelum-app .sheet { z-index: 40; }
+.coelum-app .toast { z-index: 50; }
+.coelum-event-scope { margin-bottom: 2px; }
+.coelum-event-scope button { flex: 1; justify-content: center; }
+.coelum-event-list { display: grid; gap: 4px; margin-top: 6px; }
+.coelum-event { display: grid; gap: 1px; padding: 8px 10px; border: 0; border-radius: 9px; background: rgba(255, 255, 255, 0.045); color: var(--c-ink); font: 14px system-ui, -apple-system, sans-serif; text-align: left; cursor: pointer; }
+.coelum-event:hover { background: var(--c-hover); }
+.coelum-event:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+.coelum-event b { font-weight: 600; }
+.coelum-event span { color: var(--c-ink); font-size: 13px; font-variant-numeric: tabular-nums; }
+.coelum-event small { color: var(--c-muted); font-size: 12px; }
+.coelum-event-list > .coelum-chip { justify-self: start; }
+.coelum-sheet-when { margin: 0 0 8px; color: var(--muted); font-size: 14px; }

@@ -7,7 +7,7 @@ import { skyRaster, skyLight, hillAt } from './skyraster.js';
 
 const SOLID = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const FLAT = () => 0;
-export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, deep: false, minor: false, labels: true, labelSize: 14 };
+export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, deep: false, minor: false, satellites: true, labels: true, labelSize: 14 };
 // The diagonal of the view spans 140° at scale 1.
 export const skyRadius = (W, H, scale) => Math.hypot(W, H) / 2 / Math.tan(35 * R) * scale;
 // The default direction: toward the Sun near sunrise or sunset, otherwise
@@ -163,7 +163,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const moonsOf = [];
   for (const o of frame.bodies) {
     const minor = o.body === 'minor' || o.body === 'comet';
-    if (minor && !opts.minor && o.name !== view.selected) continue;
+    if (o.body === 'satellite' || minor && !opts.minor && o.name !== view.selected) continue;
     const q = xy(o);
     if (!onScreen(q, 60) || !above(q)) continue;
     const pxPerRad = pxPerRadAt(q);
@@ -198,6 +198,20 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (!mr && m.name !== view.selected) continue;
     objects.push({ ...m, x: q.x, y: q.y, radius: Math.max(mr, 3) });
     labels.push({ ...q, name: m.name, color: '#ffd9b0', r: Math.max(mr, 2), priority: m.name === view.selected ? 0 : 2, mag: m.mag });
+  }
+  // Satellites: sunlit ones as stars of their magnitude, with the trail of
+  // the last seconds; in the Earth's shadow, unseen unless selected. The
+  // stations are named, and the others brighter than magnitude 1.
+  for (const o of frame.bodies) {
+    if (o.body !== 'satellite' || !opts.satellites && o.name !== view.selected) continue;
+    const q = xy(o), chosen = o.name === view.selected;
+    if (!onScreen(q, 4) || !above(q)) continue;
+    let r = o.lit ? point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), [228, 242, 255], q) : 0;
+    if (!r && !chosen) continue;
+    if (o.trail?.length) line([o, ...o.trail], { stroke: o.lit ? '#cfe9ff' : '#8090a8', width: 1, opacity: 0.35 });
+    if (!r) { r = 2; p.circle(q.x, q.y, r, { stroke: '#8090a8', width: 1 }); }
+    objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4) });
+    if (chosen || o.satellite.group === 'stations' || o.mag < 1) labels.push({ ...q, name: o.name, color: '#cfe9ff', r: Math.max(r, 3), priority: chosen ? 0 : 2, mag: o.mag });
   }
   if (bg.ground) ctx.drawImage(bg.ground, 0, bg.groundY, bg.w, bg.h, 0, 0, bg.width, bg.height);
   // Cardinal points on the horizon (with the ground), then labels over
