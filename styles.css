@@ -504,6 +504,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-moonsview .coelum-moons-stage { position: absolute; inset: 0; border-radius: 0; }
 .coelum-moons-head { position: absolute; z-index: 1; top: calc(max(10px, env(safe-area-inset-top)) + 66px); left: max(12px, env(safe-area-inset-left)); display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border: 1px solid var(--c-line); border-radius: 12px; background: var(--c-glass); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); color: var(--c-ink); }
 .coelum-moons-head h3 { margin: 0; font-size: 14px; }
+.coelum-moons-data { margin: 1px 0 0; color: var(--c-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .coelum-moons-note { position: absolute; z-index: 1; left: 50%; bottom: calc(var(--coelum-controls-height, 130px) + 8px); width: min(420px, calc(100% - 32px)); margin: 0; padding: 6px 10px; border-radius: 10px; background: rgba(12, 20, 38, 0.8); color: var(--c-muted); font-size: 12px; line-height: 1.4; text-align: center; transform: translateX(-50%); pointer-events: none; }
 .coelum-moons-open .coelum-rail, .coelum-moons-open .coelum-detail { display: none !important; }
 .coelum-spectrum svg { display: block; width: 100%; height: 32px; }

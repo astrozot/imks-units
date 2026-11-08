@@ -611,11 +611,18 @@ try {
   await page.locator('.coelum-moons-button').click();
   assert.equal(await page.locator('.coelum-moons-title').textContent(), 'Moons of Jupiter');
   assert.equal(await page.locator('.coelum-moons-stage .sky-moon').count(), 4);
+  // its data; its scale in the ruler (arcseconds), not over the drawing;
+  // no sky drawn under it
+  assert.match(await page.locator('.coelum-moons-data').textContent(), /^\d+ % lit · \d+\.\d″ · mag −\d\.\d · \d\.\d\d au$/);
+  assert.match(await page.locator('.coelum-ruler b').textContent(), /^[\d.]+[″′]$/);
+  assert.equal(await page.locator('.coelum-moons-stage .sky-scale').count(), 1, 'only the directions');
+  const frameUnder = await page.locator('.coelum-canvas').getAttribute('data-frame');
   const cover = await page.evaluate(() => [document.querySelector('.coelum-moons-stage').getBoundingClientRect().width, document.querySelector('.coelum-viewport').getBoundingClientRect().width, document.querySelector('.coelum-explorer').classList.contains('coelum-immersive')]);
   assert.ok(cover[0] === cover[1] && cover[2], `Moons over the whole view in full screen: ${cover}`);
   const moonsBefore = await page.locator('.coelum-moons-stage svg').innerHTML();
   await page.locator('[data-action="forward"]').click();
   await page.waitForFunction((before) => document.querySelector('.coelum-moons-stage svg').innerHTML !== before, moonsBefore);
+  assert.equal(await page.locator('.coelum-canvas').getAttribute('data-frame'), frameUnder, 'The sky is not drawn under the close-up');
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.coelum-moonsview').isVisible(), false);
   assert.equal(await page.locator('.coelum-explorer').evaluate((e) => e.classList.contains('coelum-immersive')), wasFull);
@@ -671,9 +678,38 @@ try {
   for (let i = 0; i < 2; i++) await page.locator('[data-action="forward"]').click();
   const j1 = await jupiterPlace();
   assert.ok(j0 && j1 && Math.hypot(j1[0] - j0[0], j1[1] - j0[1]) < 1.5, `Locked Vega ${j0} → ${j1}`);
+  // a zoom (here the wheel) while time runs fast keeps it in place too
+  const mid0 = await page.locator('.coelum-full').boundingBox();
+  for (let i = 0; i < 6; i++) await page.locator('[data-action="faster"]').click();
+  await page.locator('[data-action="play"]').click();
+  await page.mouse.move(mid0.x + mid0.width / 2, mid0.y + mid0.height / 2);
+  for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, -60); await page.waitForTimeout(120); }
+  await page.waitForTimeout(400);
+  await page.locator('[data-action="play"]').click();
+  for (let i = 0; i < 6; i++) await page.locator('[data-action="slower"]').click();
+  const j2 = await jupiterPlace();
+  assert.ok(j2 && Math.hypot(j2[0] - j1[0], j2[1] - j1[1]) < 2, `Locked Vega after a zoom while playing ${j1} → ${j2}`);
   await page.locator('[data-action="lock"]').click();
   assert.equal(await page.locator('[data-action="lock"]').getAttribute('aria-pressed'), 'false');
   await page.locator('[data-action="deselect"]').click();
+  // The close-up of Venus (no moons): its phase, its data.
+  await page.locator('.coelum-search input').fill('Venus'); await page.keyboard.press('Enter'); await page.waitForTimeout(900);
+  assert.equal(await page.locator('.coelum-moons-button').textContent(), 'Close-up of Venus');
+  assert.match(await page.locator('.coelum-detail').textContent(), /Apparent diameter\d+\.\d″/);
+  await page.locator('.coelum-moons-button').click();
+  assert.equal(await page.locator('.coelum-moons-title').textContent(), 'Venus');
+  assert.match(await page.locator('.coelum-moons-data').textContent(), /% lit/);
+  assert.ok(await page.locator('.coelum-moons-stage .sky-canvas').evaluate((c) => c.getContext('2d').getImageData(0, 0, c.width, c.height).data.some((x, i) => i % 4 === 3 && x > 0)), 'Venus drawn');
+  await page.keyboard.press('Escape');
+  await page.locator('[data-action="deselect"]').click();
+  // Without the ground, no horizon line and no cardinal points.
+  const groundless = await page.evaluate(async () => {
+    const { skyFrame, skyChart } = await import('./js/coelum.js');
+    const f = skyFrame(Date.parse('2026-11-06T21:00:00Z') / 1000, [41.9, 12.5, 20]);
+    const texts = (layers) => [...skyChart(f, 400, 400, layers).svg.matchAll(/>([NSEW]{1,2})<\/text>/g)].length;
+    return [texts({ ground: true }), texts({ ground: false })];
+  });
+  assert.ok(groundless[0] >= 4 && groundless[1] === 0, `Cardinal points with and without ground: ${groundless}`);
   // No page zoom by pinching the controls.
   for (const s of ['.coelum-topbar', '.coelum-timebar', '.coelum-toolbar']) assert.equal(await page.locator(s).evaluate((e) => getComputedStyle(e).touchAction), 'pan-y');
   await page.locator('.coelum-search input').fill('Vega'); await page.keyboard.press('Enter');

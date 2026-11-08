@@ -8,7 +8,7 @@ import { Q, UnitError, dimEq } from "./units.js";
 import { UNum, ufuncs, atan2 } from "./unum.js";
 import { isDate, dateQ, yearArg } from "./dates.js";
 import { findObject, findPlace } from "./lookup.js";
-import { conjunction, opposition, occultation, occultationTrack, orbitAge, satellitePasses, horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season, deltaTError } from "./astro.js";
+import { conjunction, opposition, occultation, occultationTrack, orbitAge, satellitePasses, horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, planetDisk, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season, deltaTError } from "./astro.js";
 
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
@@ -87,8 +87,9 @@ const placeError = (body, t, place, dist) => Math.min(Math.hypot(posError(body, 
 const doing = (o) => ["transit", "occulted", "eclipsed", "shadow"].filter((k) => o[k]);
 
 // The moons of a planet at the time t for drawing (skyview.js), kept with
-// the history: in planet radii, the planet's radius in arcseconds, and t
-function skyView(planet, t, m = moons(planet, t)) {
+// the history: in planet radii, the planet's radius in arcseconds, and t;
+// Mercury and Venus alone
+function skyView(planet, t, m = MOON_PLANETS.includes(planet) ? moons(planet, t) : planetDisk(planet, t)) {
   const r5 = (x) => Math.round(x * 1e5) / 1e5;
   return {
     planet, t, radius: r5(m.radius * 3600), pole: m.pole.map(r5), sun: m.sun.map(r5),

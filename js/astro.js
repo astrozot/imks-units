@@ -729,6 +729,19 @@ function moons(planet, t) {
   return { moons: out, radius: Math.asin(sys.radius / P.dist) / RAD, pole: toView(g.pole), sun: toView(g.l.map((x) => -x)) };
 }
 
+// A planet without moons (Mercury, Venus) for drawing, as moons() gives
+// one with them: its radius (degrees), and on axes to the west, to the
+// north and toward the Earth its north pole (IAU 2015, of the date) and the
+// direction of the Sun
+const DISK_POLE = { mercury: [281.0103, 61.4155], venus: [272.76, 67.16] };
+function planetDisk(planet, t) {
+  const P = equatorial(planet, t), S = equatorial("sun", t), [a0, d0] = DISK_POLE[planet];
+  const u = unit(P.ra, P.dec), east = [-sin(P.ra), cos(P.ra), 0], north = [-sin(P.dec) * cos(P.ra), -sin(P.dec) * sin(P.ra), cos(P.dec)];
+  const toView = (v) => [-dot(v, east), dot(v, north), -dot(v, u)];
+  const sv = unit(S.ra, S.dec).map((x) => x * S.dist), toSun = u.map((x, k) => sv[k] - x * P.dist), n = Math.hypot(...toSun);
+  return { moons: [], radius: Math.asin(RADIUS[planet] / P.dist) / RAD, pole: toView(precessVector(unit(a0 * RAD, d0 * RAD), centuries(t))), sun: toView(toSun.map((x) => x / n)) };
+}
+
 // The planet of a moon, or undefined
 const planetOf = (name) => Object.keys(MOONS).find((p) => MOONS[p].moons[name]);
 
@@ -1765,4 +1778,4 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
-export { conjunction, opposition, occultationCandidate, occultation, occultationLocal, occultationTrack, orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };
+export { MOON_RADIUS, planetDisk, conjunction, opposition, occultationCandidate, occultation, occultationLocal, occultationTrack, orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };

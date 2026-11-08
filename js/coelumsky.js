@@ -5,6 +5,7 @@
 import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
 
+const SOLID = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const FLAT = () => 0;
 export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, deep: false, minor: false, labels: true, labelSize: 14 };
 // The diagonal of the view spans 140° at scale 1.
@@ -133,9 +134,20 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     ctx.globalAlpha = 1;
     return r;
   };
+  // The disks of the Sun, the Moon and the planets (pixels; at least the
+  // size they are drawn) hide the stars behind them, even their night sides.
+  const pxPerRadAt = (q) => radius / 2 / Math.cos(Math.acos(Math.max(-1, Math.min(1, q.z))) / 2) ** 2;
+  const diskOf = (o, pxPerRad) => (o.body === 'sun' ? Math.max(5, Math.asin(695700 / o.dist) * pxPerRad) : o.body === 'moon' ? Math.max(6, Math.asin(1737.4 / o.dist) * pxPerRad) : diskRadius(o) * R * pxPerRad);
+  const disks = [];
+  for (const o of frame.bodies) {
+    if (!SOLID.has(o.body)) continue;
+    const q = xy(o), r = onScreen(q, 60) && above(q) ? diskOf(o, pxPerRadAt(q)) : 0;
+    if (r > 1) disks.push([q.x, q.y, r * r]);
+  }
+  const behind = (q) => disks.some(([x, y, rr]) => (q.x - x) ** 2 + (q.y - y) ** 2 < rr);
   for (const o of frame.stars) {
     const q = xy(o);
-    if (!onScreen(q, 4) || !above(q)) continue;
+    if (!onScreen(q, 4) || !above(q) || behind(q)) continue;
     const r = point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), bvRGB(o.bv), q);
     if (!r) continue;
     objects.push({ ...o, x: q.x, y: q.y, radius: r });
@@ -144,7 +156,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   // Downloaded fainter stars, to the same limit.
   eachFaint(frame, limit, (i, v, mag, bv) => {
     const q = apparent(refract(v));
-    if (!onScreen(q, 2) || !above(q)) return;
+    if (!onScreen(q, 2) || !above(q) || behind(q)) return;
     const r = point({}, mag + (opts.atmosphere ? extinction(Math.asin(Math.max(-1, Math.min(1, v[2]))) / R) : 0), bvRGB(bv), q);
     if (r) objects.push(new FaintHit(i, q.x, q.y, r));
   }, { v: rotation.slice(6, 9), radius: 2 * Math.atan(Math.hypot(W, H) / 2 / radius) + 0.03 });
@@ -154,18 +166,18 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (minor && !opts.minor && o.name !== view.selected) continue;
     const q = xy(o);
     if (!onScreen(q, 60) || !above(q)) continue;
-    const pxPerRad = radius / 2 / Math.cos(Math.acos(Math.max(-1, Math.min(1, q.z))) / 2) ** 2;
+    const pxPerRad = pxPerRadAt(q);
     let r;
     if (o.body === 'sun') {
       const reddening = opts.atmosphere ? Math.exp(-Math.max(0, o.alt) / 4) : 0, rgb = [255, Math.round(246 - 90 * reddening), Math.round(228 - 170 * reddening)];
-      r = Math.max(5, Math.asin(695700 / o.dist) * pxPerRad);
+      r = diskOf(o, pxPerRad);
       const s = r * 9;
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = 0.9; ctx.drawImage(glow(rgb), q.x - s, q.y - s, 2 * s, 2 * s);
       ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
       ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
     } else if (o.body === 'moon') {
-      r = Math.max(6, Math.asin(1737.4 / o.dist) * pxPerRad);
+      r = diskOf(o, pxPerRad);
       drawMoon(ctx, o, q, r, xy(o.light), xy(o.north), light, opts.atmosphere);
     } else {
       r = point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), BODY_RGB[o.body], q);
@@ -188,8 +200,9 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     labels.push({ ...q, name: m.name, color: '#ffd9b0', r: Math.max(mr, 2), priority: m.name === view.selected ? 0 : 2, mag: m.mag });
   }
   if (bg.ground) ctx.drawImage(bg.ground, 0, bg.groundY, bg.w, bg.h, 0, 0, bg.width, bg.height);
-  // Cardinal points on the horizon, then labels over everything.
-  for (const [name, az, size, color] of [['N', 0, 17, '#ff8a6b'], ['NE', 45, 12, '#ffb49e'], ['E', 90, 17, '#ff8a6b'], ['SE', 135, 12, '#ffb49e'], ['S', 180, 17, '#ff8a6b'], ['SW', 225, 12, '#ffb49e'], ['W', 270, 17, '#ff8a6b'], ['NW', 315, 12, '#ffb49e']]) {
+  // Cardinal points on the horizon (with the ground), then labels over
+  // everything.
+  if (opts.ground) for (const [name, az, size, color] of [['N', 0, 17, '#ff8a6b'], ['NE', 45, 12, '#ffb49e'], ['E', 90, 17, '#ff8a6b'], ['SE', 135, 12, '#ffb49e'], ['S', 180, 17, '#ff8a6b'], ['SW', 225, 12, '#ffb49e'], ['W', 270, 17, '#ff8a6b'], ['NW', 315, 12, '#ffb49e']]) {
     const q = proj(pointVector({ alt: -1.2, az }));
     if (onScreen(q, 20)) { ctx.font = fontFor(size, 700); ctx.textAlign = 'center'; ctx.fillStyle = color; ctx.shadowColor = '#000a'; ctx.shadowBlur = 4; ctx.fillText(name, q.x, q.y + size / 2); ctx.shadowBlur = 0; }
   }

@@ -26,6 +26,8 @@ const BANDS = {
   uranus: [[-90, [182, 222, 228]], [-40, [170, 213, 222]], [40, [182, 222, 228]]],
   neptune: [[-90, [86, 124, 222]], [-40, [72, 106, 204]], [-20, [86, 124, 222]]],
   mars: [[-90, [236, 232, 226]], [-82, [196, 108, 68]], [82, [236, 232, 226]]],
+  mercury: [[-90, [168, 160, 150]]],
+  venus: [[-90, [240, 228, 196]]],
 };
 
 // the color at a latitude, the bands blended over 1.5°
@@ -184,8 +186,9 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 
 // The moons, their names, the scale and the directions over a view of
 // W × H centered on (cx, cy) (planet radii), s pixels per radius: SVG; the
-// moons' names in full, or their first two letters
-function overlaySVG(sky, W, H, cx, cy, s, full = false) {
+// moons' names in full, or their first two letters; the scale unless bar
+// is false; the directions top pixels lower (under controls)
+function overlaySVG(sky, W, H, cx, cy, s, full = false, bar = true, top = 0) {
   const f1 = (x) => x.toFixed(1);
   const X = (x) => W / 2 + (x - cx) * s, Y = (y) => H / 2 - (y - cy) * s;
   let svg = "";
@@ -209,9 +212,11 @@ function overlaySVG(sky, W, H, cx, cy, s, full = false) {
   });
   // the scale and the directions
   // the scale at the bottom, in the middle; north and east at the top right
-  const bar = scaleBar(sky.radius / s, W), bx = W / 2 - bar.px / 2, by = H - 10;
-  svg += `<path class="sky-scale" d="M${f1(bx)} ${by - 4}v4h${f1(bar.px)}v-4"/><text class="sky-label" x="${f1(W / 2)}" y="${by - 7}" text-anchor="middle">${bar.text}</text>`;
-  svg += `<path class="sky-scale" d="M${W - 14} 16v18h-18"/><text class="sky-label" x="${W - 14}" y="12" text-anchor="middle">N</text><text class="sky-label" x="${W - 38}" y="37" text-anchor="middle">E</text>`;
+  if (bar) {
+    const b = scaleBar(sky.radius / s, W), bx = W / 2 - b.px / 2, by = H - 10;
+    svg += `<path class="sky-scale" d="M${f1(bx)} ${by - 4}v4h${f1(b.px)}v-4"/><text class="sky-label" x="${f1(W / 2)}" y="${by - 7}" text-anchor="middle">${b.text}</text>`;
+  }
+  svg += `<path class="sky-scale" d="M${W - 14} ${16 + top}v18h-18"/><text class="sky-label" x="${W - 14}" y="${12 + top}" text-anchor="middle">N</text><text class="sky-label" x="${W - 38}" y="${37 + top}" text-anchor="middle">E</text>`;
   return svg;
 }
 
@@ -236,8 +241,9 @@ function fitView(sky, W, H) {
 // a canvas under the moons: while the view moves it is only moved and
 // scaled, then drawn again sharp. size(W, H) lays it out; set(sky, quick)
 // shows the moons at another time, the planet three times a second if
-// quick
-function moonsView(stage, sky, { onTap = null } = {}) {
+// quick. Without a bar, onScale(arcseconds per pixel) gives the scale;
+// top moves the directions down
+function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top = 0 } = {}) {
   const svg = stage.querySelector(".sky-svg"), canvas = stage.querySelector(".sky-canvas");
   let W = 320, H = 400, v = null, drawn = null, idle = 0, quick = false, planetAt = 0;
   const k = () => Math.min(2, window.devicePixelRatio || 1);
@@ -253,7 +259,7 @@ function moonsView(stage, sky, { onTap = null } = {}) {
     const tx = W / 2 + (drawn.cx - v.cx) * v.s - (W / 2) * m, ty = H / 2 - (drawn.cy - v.cy) * v.s - (H / 2) * m;
     canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${m})`;
   };
-  const overlay = () => { svg.innerHTML = overlaySVG(sky, W, H, v.cx, v.cy, v.s, true); };
+  const overlay = () => { svg.innerHTML = overlaySVG(sky, W, H, v.cx, v.cy, v.s, true, bar, top); onScale?.(sky.radius / v.s); };
   const moved = () => {
     overlay();
     follow();

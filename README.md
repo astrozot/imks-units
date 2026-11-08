@@ -111,7 +111,11 @@ which search also finds; zoomed in, the major moons of Mars, Jupiter,
 Saturn, Uranus and Neptune appear around their planets, and the planets
 become disks with their phases (Saturn with its rings); the card of a
 planet with moons opens their view as in `moons()` (shared code in
-`js/skyview.js`) over the whole screen, at the chart's time. A star's card
+`js/skyview.js`) over the whole screen, at the chart's time, with the
+planet's phase, size, magnitude and distance; Mercury and Venus have a
+close-up too, for their phases. Cards give apparent diameters (the Sun,
+the Moon, the planets and their moons) and the sizes of deep-sky objects
+(OpenNGC's axes). A star's card
 shows its B−V colour index, an estimated temperature and spectral type,
 and a black-body spectrum. On phones the orientation button makes the
 view follow where the phone points. Both views zoom to the same largest
@@ -120,8 +124,8 @@ horizon level with the zenith up; equatorial keeps RA and Dec of date fixed
 on the screen with the celestial pole up, as a telescope's equatorial mount
 does (the views keep their cameras in the mount's frame and turn them to
 the horizon's to draw). The lock button holds the selected object where it
-is on the screen as time runs, in either mount; drags and zooms move it,
-and it stays where they leave it. The bottom bar shows a ruler, a round
+is on the screen as time runs, in either mount; drags move it, and it
+stays where they leave it; zooms keep it in place. The bottom bar shows a ruler, a round
 angle at the center of the view, and the play button points backward when
 time runs backward.
 

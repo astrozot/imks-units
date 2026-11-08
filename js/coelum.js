@@ -6,7 +6,7 @@
 import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { CHART_STARS } from './stardata.js';
 import { DEEP } from './catalog.js';
-import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf } from './astro.js';
+import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS } from './astro.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
 
@@ -186,7 +186,7 @@ export function skyFrame(t, place) {
     return { ...catalog(ra, dec, pmra, pmdec), name, designations, mag, bv: bv ?? undefined, type: 'star', named: Boolean(proper), parallax, pmra, pmdec, spect, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
   });
   const bodies = solarBodies(t, place, hor);
-  const deep = DEEP.map(([names, ra, dec, mag, type]) => ({ ...catalog(ra, dec), name: names[0], description: names.slice(1).join(' · '), mag, type }));
+  const deep = DEEP.map(([names, ra, dec, mag, type, major, minor]) => ({ ...catalog(ra, dec), name: names[0], description: names.slice(1).join(' · '), mag, size: major ? [major, minor ?? major] : null, type }));
   const constellations = CONSTELLATIONS.map(([name, ra, dec, lines]) => ({ name, type: 'constellation', ...catalog(ra, dec), lines: lines.map((line) => line.map(([a, d]) => catalog(a, d))) }));
   const ecliptic = ECLIPTIC.map(([a, d]) => catalog(a, d));
   const boundaries = BOUNDARY_POINTS.map((line) => line.map(([a, d]) => catalog(a, d)));
@@ -636,6 +636,7 @@ export function planetMoons(frame, planet) {
     return {
       ...p, ...frame.hor(p), name: m.name, type: `moon of ${planet.name}`, planet: planet.name, color: planet.color,
       mag: MOON_MAG[m.name] + planet.mag - OPPOSITION_MAG[planet.body], separation: Math.hypot(m.east, m.north), hidden: m.occulted,
+      diameter: 2 * Math.asin(MOON_RADIUS[m.name] / planet.dist) / R,
     };
   }));
 }
@@ -707,9 +708,10 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     } else p.raw(`<path class="coelum-ground" d="${groundShape(W, H, radius, rotation)}" fill="${c.ground}"/>`);
   }
   p.raw('<g font-family="system-ui, sans-serif">');
-  line(Array.from({ length: 181 }, (_, i) => ({ alt: 0, az: i * 2 })), { stroke: opts.ground ? c.horizon : '#52647d', width: 1.2 });
-  // The local horizon (terrain), when it has been computed for the place.
-  if (opts.terrain) {
+  // The horizon, the local one (terrain, when computed for the place) and
+  // the cardinal points belong to the ground: without it, none.
+  if (opts.ground) line(Array.from({ length: 181 }, (_, i) => ({ alt: 0, az: i * 2 })), { stroke: c.horizon, width: 1.2 });
+  if (opts.ground && opts.terrain) {
     let d = '';
     for (let i = 0; i <= 720; i++) {
       const az = i / 2, q = xy({ alt: opts.terrain(az), az }), prev = i && xy({ alt: opts.terrain(az - 0.5), az: az - 0.5 });
@@ -822,7 +824,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
       leader: (l, x, y) => p.path(`M${f(l.x)},${f(l.y)}L${f(x)},${f(y)}`, { stroke: l.color, width: 0.7 }),
     }).filter((l) => names.has(l.name));
   }
-  for (const [name, az, size, color] of [['N', 0, 15, '#eef3fa'], ['NE', 45, 11, '#a9bccf'], ['E', 90, 15, '#eef3fa'], ['SE', 135, 11, '#a9bccf'], ['S', 180, 15, '#eef3fa'], ['SW', 225, 11, '#a9bccf'], ['W', 270, 15, '#eef3fa'], ['NW', 315, 11, '#a9bccf']]) {
+  if (opts.ground) for (const [name, az, size, color] of [['N', 0, 15, '#eef3fa'], ['NE', 45, 11, '#a9bccf'], ['E', 90, 15, '#eef3fa'], ['SE', 135, 11, '#a9bccf'], ['S', 180, 15, '#eef3fa'], ['SW', 225, 11, '#a9bccf'], ['W', 270, 15, '#eef3fa'], ['NW', 315, 11, '#a9bccf']]) {
     const q = xy({ alt: -6.5, az }); p.text(q.x, q.y + size / 3, name, color, size, 'middle', c.ground, 700);
   }
   const chosen = findObject(frame, view.selected);
@@ -928,6 +930,15 @@ const sexagesimal = (value, hours = false, signed = false) => {
     : `${sign}${a}° ${String(b).padStart(2, '0')}′ ${String(c).padStart(2, '0')}″`;
 };
 
+// An angle (degrees) as arcminutes and arcseconds, or arcseconds alone
+const angleText = (deg) => {
+  const s = deg * 3600;
+  if (s >= 60) { const r = Math.round(s); return `${Math.floor(r / 60)}′ ${String(r % 60).padStart(2, '0')}″`; }
+  return `${s.toFixed(s < 10 ? 2 : 1)}″`;
+};
+// The apparent diameter (degrees) of a body or a planet's moon: the Sun,
+// the Moon, a planet's equator, a moon of MOON_RADIUS
+const apparentDiameter = (o) => (o.body === 'sun' ? 2 * Math.asin(695700 / o.dist) / R : o.body === 'moon' ? 2 * Math.asin(1737.4 / o.dist) / R : o.body ? 2 * diskRadius(o) : o.diameter) || 0;
 // A distance in parsecs, and in light years
 const distanceText = (pc) => {
   const f = (x) => (x < 100 ? x.toFixed(x < 10 ? 2 : 1) : Math.round(x).toLocaleString('en'));
@@ -942,8 +953,9 @@ const motionText = (pmra, pmdec) => {
 export function objectDetails(o) {
   const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`;
   const notes = [o.double && 'double or multiple', o.variable && 'variable'].filter(Boolean);
-  // a planet with moons, or one of them: a button for the moons' view
-  const system = hasMoons(o) ? o.body : o.planet ? planetOf(o.name) : null;
+  // a planet, or a planet's moon: a button for the close-up of the planet
+  // (with its moons)
+  const system = hasMoons(o) || o.body === 'mercury' || o.body === 'venus' ? o.body : o.planet ? planetOf(o.name) : null;
   return `<div class="coelum-object-head"><h3>${esc(o.name)}</h3><span>${esc(o.type)}</span></div>
     ${o.description ? `<p>${esc(o.description)}</p>` : ''}<dl>
     ${row('Right ascension (RA)', sexagesimal(o.ra / 15, true))}
@@ -952,6 +964,8 @@ export function objectDetails(o) {
     ${Number.isFinite(o.apparentAlt) ? row('Apparent altitude', sexagesimal(o.apparentAlt, false, true)) : ''}
     ${row('Azimuth (Az)', sexagesimal(o.az))}
     ${o.type === 'constellation' ? '' : row('Visual magnitude', Number.isFinite(o.mag) ? o.mag.toFixed(2) : 'Not available')}
+    ${apparentDiameter(o) > 0 ? row(o.body === 'saturn' ? 'Apparent diameter (globe)' : 'Apparent diameter', angleText(apparentDiameter(o))) : ''}
+    ${o.size ? row('Apparent size', o.size.map((x) => `${x < 10 ? Number(x.toFixed(1)) : Math.round(x)}′`).filter((x, i, all) => !i || x !== all[0]).join(' × ')) : ''}
     ${notes.length ? row('Hipparcos', notes.join(', ')) : ''}
     ${o.designations?.length ? row('Designations', o.designations.join(' · ')) : ''}
     ${o.spect ? row('Spectral type', o.spect) : ''}
@@ -959,7 +973,7 @@ export function objectDetails(o) {
     ${Number.isFinite(o.pmra) && (o.pmra || o.pmdec) ? row('Proper motion', motionText(o.pmra, o.pmdec)) : ''}
     ${o.body && Number.isFinite(o.dist) ? row('Distance', o.dist > 1e7 ? `${(o.dist / 149597870.7).toFixed(3)} au` : `${Math.round(o.dist).toLocaleString('en')} km`) : ''}
     ${o.body === 'moon' ? row('Illuminated', `${((1 + Math.cos(o.phase * R)) * 50).toFixed(1)} %`) : ''}
-    </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">Moons of ${esc(hasMoons(o) ? o.name : o.planet)}</button>` : ''}<p class="coelum-coordinate-note">Equatorial coordinates of date · ${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
+    </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">Equatorial coordinates of date · ${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
 }
 
 // A star's colour index as a temperature (Ballesteros 2012), a rough
