@@ -124,9 +124,10 @@ horizon level with the zenith up; equatorial keeps RA and Dec of date fixed
 on the screen with the celestial pole up, as a telescope's equatorial mount
 does (the views keep their cameras in the mount's frame and turn them to
 the horizon's to draw). The lock button holds the selected object where it
-is on the screen as time runs, in either mount; drags move it, and it
-stays where they leave it; zooms keep it in place. The bottom bar shows a ruler, a round
-angle at the center of the view, and the play button points backward when
+is on the screen as time runs, in either mount; a drag moves it (and the
+sky with it) under the finger, and it keeps tracking from there; zooms
+keep it in place. The bottom bar shows a ruler under the
+speed, a round angle at the center of the view, and the play button points backward when
 time runs backward.
 
 The chart's stars, built in and downloadable, come from one catalog,

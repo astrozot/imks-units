@@ -240,7 +240,7 @@ function fitView(sky, W, H) {
 // zoom, double-tap to fit, onTap(moon) for a tap on a moon. The planet is
 // a canvas under the moons: while the view moves it is only moved and
 // scaled, then drawn again sharp. size(W, H) lays it out; set(sky, quick)
-// shows the moons at another time, the planet three times a second if
+// shows the moons at another time, the planet ten times a second if
 // quick. Without a bar, onScale(arcseconds per pixel) gives the scale;
 // top moves the directions down
 function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top = 0 } = {}) {
@@ -346,7 +346,7 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
       if (!v) return;
       overlay();
       const now = performance.now();
-      if (!fast || now - planetAt > 300) { planetAt = now; sharp(); }
+      if (!fast || now - planetAt > 100) { planetAt = now; sharp(); }
     },
     fit() { v = fitView(sky, W, H); moved(); },
     get sky() { return sky; },

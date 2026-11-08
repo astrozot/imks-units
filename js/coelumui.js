@@ -212,7 +212,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       </div>
     </div>
     <div class="coelum-timebar coelum-hud">
-      <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button> · <button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"></button><span class="coelum-condition"></span></p><span class="coelum-ruler" title="Angular scale at the center of the view"><i></i><b></b></span><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output></div>
+      <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button> · <button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"></button><span class="coelum-condition"></span></p><span class="coelum-clock-side"><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output><span class="coelum-ruler" title="Angular scale at the center of the view"><i></i><b></b></span></span></div>
       <div class="coelum-controls" role="toolbar" aria-label="Time">
         <button type="button" class="coelum-btn coelum-btn-text" data-action="back" aria-label="One hour earlier" title="One hour earlier">−1 h</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="slower" aria-label="Halve playback speed" title="Halve playback speed">÷2</button>
@@ -296,7 +296,6 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       // unchanged, the card stays (a tap on its button is not lost)
       if (html && html !== detailHTML) detail.innerHTML = detailHTML = html;
     }
-    followMoons();
   };
   const currentView = () => (mode === 'sky' ? skyView() : views.chart);
   // The view's state, also as attributes (for tests and snapshots).
@@ -353,7 +352,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       frame = animator(t);
     }
     // the planet's close-up covers the view: the sky is not drawn
-    if (moons) { updateUI(!playing); return; }
+    if (moons) { followMoons(); updateUI(!playing); return; }
     applyLock();
     const view = mark(), F = mountMatrix();
     // the camera in the horizon's frame, for drawing
@@ -929,9 +928,24 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     interact();
     if (orient && pointers.size < 2) stopOrientation();
     if (orient) { currentView().scale = scale; requestDraw(); return; }
-    // locked, two fingers only zoom (the object stays), one moves it
-    if (lock && distance) { const v = currentView(); zoomLock(v.scale, scale); v.scale = scale; v.auto = false; requestDraw(); return; }
-    if (lock) lock.spot = null;
+    // Locked, the view follows the object: one finger moves the object's
+    // place on the screen (and the sky with it), which it keeps as time
+    // runs; two fingers only zoom, leaving it where it is.
+    if (lock) {
+      const v = currentView(), prev = gesture.lockPrev || gesture;
+      if (distance) { zoomLock(v.scale, scale); v.scale = scale; v.auto = false; }
+      else if (lock.spot?.mode === mode) {
+        const dx = x - prev.x, dy = y - prev.y;
+        if (mode === 'sky') { const r = skyRadius(size, height, v.scale); lock.spot.x += dx / r; lock.spot.y += dy / r; }
+        else {
+          const r = chartRadius(size, height, v.scale), p = projectVector(lock.spot.c, SKY_IDENTITY), u = p.x + dx / r, w = p.y + dy / r, k = Math.min(1, 1.6 / Math.hypot(u, w));
+          lock.spot.c = unprojectSky(u * k, w * k);
+        }
+      }
+      gesture.lockPrev = { x, y };
+      requestDraw();
+      return;
+    }
     if (mode === 'sky') {
       const v = skyView(), r0 = skyRadius(size, height, gesture.scale), r1 = skyRadius(size, height, scale);
       gesture.grab ||= unprojectSky((gesture.x - size / 2) / r0, (gesture.y - height / 2) / r0, lookAt(gesture.az, gesture.alt), true);

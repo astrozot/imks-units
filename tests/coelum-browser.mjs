@@ -689,6 +689,13 @@ try {
   for (let i = 0; i < 6; i++) await page.locator('[data-action="slower"]').click();
   const j2 = await jupiterPlace();
   assert.ok(j2 && Math.hypot(j2[0] - j1[0], j2[1] - j1[1]) < 2, `Locked Vega after a zoom while playing ${j1} → ${j2}`);
+  // a drag moves it by as much, and it stays there as time runs
+  await page.mouse.move(mid0.x + mid0.width / 2, mid0.y + mid0.height / 2); await page.mouse.down();
+  for (let i = 1; i <= 8; i++) await page.mouse.move(mid0.x + mid0.width / 2 + 5 * i, mid0.y + mid0.height / 2 - 3 * i);
+  await page.mouse.up(); await page.waitForTimeout(300);
+  await page.locator('[data-action="forward"]').click();
+  const j3 = await jupiterPlace(), scaleX = mid0.width / (await page.locator('.coelum-full').evaluate((e) => e.viewBox.baseVal.width));
+  assert.ok(j3 && Math.hypot(j3[0] - j2[0] - 40 / scaleX, j3[1] - j2[1] + 24 / scaleX) < 2, `Locked Vega dragged by (40, −24) ${j2} → ${j3}`);
   await page.locator('[data-action="lock"]').click();
   assert.equal(await page.locator('[data-action="lock"]').getAttribute('aria-pressed'), 'false');
   await page.locator('[data-action="deselect"]').click();

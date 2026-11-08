@@ -466,7 +466,9 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-clock { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 2px 8px; }
 .coelum-status { margin: 0; color: var(--c-muted); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
 .coelum-status b { color: var(--c-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
-.coelum-ruler { flex: none; display: flex; flex-direction: column; align-items: center; gap: 1px; align-self: center; color: var(--c-muted); font: 600 11px/1 system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; }
+/* the speed with the ruler under it */
+.coelum-clock-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.coelum-ruler { display: flex; flex-direction: column; align-items: center; gap: 1px; color: var(--c-muted); font: 600 11px/1 system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; }
 .coelum-ruler i { display: block; height: 4px; border: 1.5px solid currentColor; border-top: 0; }
 .coelum-ruler b { font-weight: inherit; }
 .coelum-speed { flex: none; padding: 2px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: var(--c-ink); font: 600 12px/1.6 system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; }
