@@ -56,7 +56,7 @@ try {
   assert.equal(await page.locator('.coelum-immersive').count(), 0);
   assert.equal(await page.locator('.coelum-full').count(), 1, 'Escape first exits full screen');
   assert.equal(await page.locator('.coelum-full').getAttribute('data-rotation'), fullRotation);
-  await page.locator('[data-action="fit"]').click();
+  await page.locator('.coelum-full').press('Home');
   const baseline = await page.locator('.coelum-full').innerHTML();
   const layersPanel = () => page.locator('[data-action="layers"]').click();
   await layersPanel();
@@ -115,7 +115,7 @@ try {
   await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 + 50, box.y + box.height / 2 + 30, { steps: 5 }); await page.mouse.up();
   assert.notEqual(await page.locator('.coelum-full').innerHTML(), zoomed, 'Drag rotates the sky');
   assert.notEqual(await page.locator('.coelum-full').getAttribute('data-rotation'), oldRotation, 'Drag changes camera orientation');
-  await page.locator('[data-action="fit"]').click();
+  await page.locator('.coelum-full').press('Home');
   const beforePinch = await page.locator('.coelum-full').innerHTML();
   // Pinch with two simultaneous pointers, then cancel both: no object tap.
   await page.locator('.coelum-full').evaluate((svg) => {
@@ -126,7 +126,7 @@ try {
     for (const [type, id, dx] of [['pointerdown', 10, -25], ['pointerdown', 11, 25], ['pointermove', 11, 70], ['pointercancel', 10, -25], ['pointercancel', 11, 70]]) svg.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x + dx, clientY: y, bubbles: true }));
   });
   assert.notEqual(await page.locator('.coelum-full').innerHTML(), beforePinch, 'Pinch changes scale');
-  await page.locator('[data-action="fit"]').click();
+  await page.locator('.coelum-full').press('Home');
   await page.locator('[data-action="forward"]').click(); assert.notEqual(await status(), original);
   await page.locator('[data-action="back"]').click(); assert.equal(await status(), original);
   assert.equal(await page.locator('[data-speed]').getAttribute('data-rate'), '60', 'Gentler default speed');
@@ -272,7 +272,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.coelum-full').viewBox.baseVal.width >= 1199);
   const desktopBox = await page.locator('.coelum-full').boundingBox();
   assert.ok(desktopBox.width >= 1199 && desktopBox.height >= 899);
-  await page.locator('[data-action="fit"]').click();
+  await page.locator('.coelum-full').press('Home');
   const fullscreenTarget = await page.evaluate(async () => {
     const { skyFrame, skyChart } = await import('./js/coelum.js');
     const svg = document.querySelector('.coelum-full');
@@ -398,7 +398,7 @@ try {
   assert.match(await page.locator('.coelum-status').textContent(), /2026\.08\.12/);
   // Chart drags move on the canvas and settle as SVG over the same canvas,
   // which keeps the sky and the Milky Way (no image to decode, no flicker).
-  await page.locator('[data-action="fit"]').click();
+  await page.locator('.coelum-full').press('Home');
   assert.equal(await page.locator('.coelum-full image').count(), 0);
   assert.equal(await page.locator('.coelum-canvas').getAttribute('data-content'), 'backdrop');
   assert.ok(await page.locator('.coelum-canvas').evaluate((c) => {
@@ -459,7 +459,7 @@ try {
   assert.ok(Math.abs(chartAgain.alt - back.alt) < 0.01 && (back.alt > 89.9 || Math.abs(((chartAgain.az - back.az + 540) % 360) - 180) < 0.01), `Sky → chart: ${JSON.stringify({ back, chartAgain })}`);
   // Dragging the chart from the zenith toward the horizon levels it, with
   // the zenith up (or down, past it): no tilted or vertical horizon.
-  await page.locator('[data-action="fit"]').click();
+  await page.locator('.coelum-full').press('Home');
   await page.mouse.move(centre.x + 30, centre.y - 20); await page.mouse.down();
   await page.mouse.move(centre.x + 90, centre.y - 170, { steps: 10 }); await page.mouse.up();
   const level = await page.locator('.coelum-full').evaluate((svg) => {
@@ -549,7 +549,7 @@ try {
   // pointerup is forgotten at the next first touch, so a tap still selects;
   // a chart dragged toward its edge at the smallest zoom turns smoothly.
   await page.locator('[data-view="chart"]').click();
-  await page.locator('[data-action="fit"]').click();
+  await page.locator('.coelum-full').press('Home');
   assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.coelum-viewport')).touchAction), 'none');
   assert.ok(await page.evaluate(async () => {
     const svg = document.querySelector('.coelum-full'), b = svg.getBoundingClientRect();
@@ -585,7 +585,7 @@ try {
     return (chartRadius(w, h, c) / 90) / (skyRadius(w, h, k) / 2 * Math.PI / 180);
   }, [chartMost, skyMost]);
   assert.ok(skyMost === 400 && Math.abs(ratio - 1) < 0.01, `Largest zooms ${chartMost} / ${skyMost}: ${ratio}`);
-  await page.locator('[data-action="fit"]').click();
+  await page.locator('.coelum-full').press('Home');
   // Date and time panel: the day's events; the place panel: coordinates.
   await page.locator('[data-action="time"]').click();
   await page.waitForSelector('[data-time-event]');
@@ -604,20 +604,76 @@ try {
   await page.waitForFunction(() => /minor planet/.test(document.querySelector('.coelum-detail').textContent));
   await page.locator('.coelum-search input').fill('Io'); await page.keyboard.press('Enter');
   await page.waitForFunction(() => /moon of Jupiter/i.test(document.querySelector('.coelum-detail').textContent));
-  // The moons' view from the card: it follows the chart's time, and a tap
-  // on a moon selects it.
+  // The moons from the card, over the whole view in full screen: they
+  // follow the chart's time; Escape closes them as the view was; a moon
+  // tapped is found in the sky.
+  const wasFull = await page.locator('.coelum-explorer').evaluate((e) => e.classList.contains('coelum-immersive'));
   await page.locator('.coelum-moons-button').click();
   assert.equal(await page.locator('.coelum-moons-title').textContent(), 'Moons of Jupiter');
   assert.equal(await page.locator('.coelum-moons-stage .sky-moon').count(), 4);
+  const cover = await page.evaluate(() => [document.querySelector('.coelum-moons-stage').getBoundingClientRect().width, document.querySelector('.coelum-viewport').getBoundingClientRect().width, document.querySelector('.coelum-explorer').classList.contains('coelum-immersive')]);
+  assert.ok(cover[0] === cover[1] && cover[2], `Moons over the whole view in full screen: ${cover}`);
   const moonsBefore = await page.locator('.coelum-moons-stage svg').innerHTML();
   await page.locator('[data-action="forward"]').click();
   await page.waitForFunction((before) => document.querySelector('.coelum-moons-stage svg').innerHTML !== before, moonsBefore);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.coelum-moonsview').isVisible(), false);
+  assert.equal(await page.locator('.coelum-explorer').evaluate((e) => e.classList.contains('coelum-immersive')), wasFull);
+  await page.locator('.coelum-moons-button').click();
   const moon = await page.locator('.coelum-moons-stage circle.sky-moon:not(.off)').first().boundingBox();
   await page.mouse.click(moon.x + moon.width / 2, moon.y + moon.height / 2);
   await page.waitForFunction(() => /^(Io|Europa|Ganymede|Callisto)$/.test(document.querySelector('.coelum-object-head h3')?.textContent));
-  assert.equal(await page.locator('.coelum-moonspanel').isVisible(), true);
-  await page.locator('.coelum-moonspanel [data-action="close-panel"]').click();
-  assert.equal(await page.locator('.coelum-moonspanel').isVisible(), false);
+  assert.equal(await page.locator('.coelum-moonsview').isVisible(), false);
+  // Backward, the play button points left.
+  await page.locator('[data-action="reverse"]').click();
+  assert.equal(await page.locator('[data-action="play"]').getAttribute('aria-label'), 'Play backward');
+  assert.ok(await page.locator('[data-action="play"]').evaluate((b) => getComputedStyle(b.querySelector('svg')).transform !== 'none'));
+  await page.locator('[data-action="reverse"]').click();
+  assert.equal(await page.locator('[data-action="play"]').getAttribute('aria-label'), 'Play');
+  // The ruler: a round angle, smaller as the view zooms in.
+  const rulerText = () => page.locator('.coelum-ruler b').textContent();
+  const degrees = (r) => (r.endsWith('°') ? 60 : 1) * parseFloat(r);
+  const ruler0 = await rulerText();
+  assert.match(ruler0, /^\d+[′°]$/);
+  for (let i = 0; i < 3; i++) await page.locator('[data-action="in"]').click();
+  assert.ok(degrees(await rulerText()) < degrees(ruler0), `Ruler ${ruler0} → ${await rulerText()}`);
+  // The mount: equatorial, a star keeps its place as an hour passes;
+  // alt-az, it moves.
+  await page.locator('[data-action="deselect"]').click();
+  await page.locator('[data-view="chart"]').click();
+  await page.locator('.coelum-full').press('Home');
+  const starPlace = () => page.evaluate(() => {
+    const names = ['Vega', 'Deneb', 'Altair', 'Capella', 'Aldebaran', 'Sirius', 'Betelgeuse', 'Rigel', 'Arcturus', 'Polaris'];
+    const text = [...document.querySelectorAll('.coelum-full text')].find((e) => names.includes(e.textContent));
+    return text && { name: text.textContent, x: Number(text.getAttribute('x')), y: Number(text.getAttribute('y')) };
+  });
+  const hourMoves = async () => {
+    const a = await starPlace();
+    await page.locator('[data-action="forward"]').click();
+    const b = await page.waitForFunction((name) => { const e = [...document.querySelectorAll('.coelum-full text')].find((x) => x.textContent === name); return e && { x: Number(e.getAttribute('x')), y: Number(e.getAttribute('y')) }; }, a.name).then((h) => h.jsonValue());
+    return Math.hypot(b.x - a.x, b.y - a.y);
+  };
+  await page.locator('[data-action="mount"]').click();
+  assert.equal(await page.locator('[data-action="mount"]').textContent(), 'EQ');
+  assert.ok(await hourMoves() < 1.5, 'Equatorial: the stars stay');
+  await page.locator('[data-action="mount"]').click();
+  assert.equal(await page.locator('[data-action="mount"]').textContent(), 'AZ');
+  assert.ok(await hourMoves() > 10, 'Alt-az: the stars turn');
+  // The lock: a star stays where it is as the hours pass (it turns in
+  // alt-az); without a selection, a hint.
+  await page.locator('[data-action="lock"]').click();
+  assert.match(await page.locator('.coelum-toast').textContent(), /Select an object/);
+  await page.locator('.coelum-search input').fill('Vega'); await page.keyboard.press('Enter'); await page.waitForTimeout(900);
+  await page.locator('[data-action="lock"]').click();
+  assert.equal(await page.locator('[data-action="lock"]').getAttribute('aria-pressed'), 'true');
+  const jupiterPlace = () => page.evaluate(() => { const e = [...document.querySelectorAll('.coelum-full text')].find((x) => x.textContent === 'Vega'); return e && [Number(e.getAttribute('x')), Number(e.getAttribute('y'))]; });
+  const j0 = await jupiterPlace();
+  for (let i = 0; i < 2; i++) await page.locator('[data-action="forward"]').click();
+  const j1 = await jupiterPlace();
+  assert.ok(j0 && j1 && Math.hypot(j1[0] - j0[0], j1[1] - j0[1]) < 1.5, `Locked Vega ${j0} → ${j1}`);
+  await page.locator('[data-action="lock"]').click();
+  assert.equal(await page.locator('[data-action="lock"]').getAttribute('aria-pressed'), 'false');
+  await page.locator('[data-action="deselect"]').click();
   // No page zoom by pinching the controls.
   for (const s of ['.coelum-topbar', '.coelum-timebar', '.coelum-toolbar']) assert.equal(await page.locator(s).evaluate((e) => getComputedStyle(e).touchAction), 'pan-y');
   await page.locator('.coelum-search input').fill('Vega'); await page.keyboard.press('Enter');
@@ -652,7 +708,7 @@ try {
   if (shader) for (const s of shader) assert.ok(s.mean < 1 && s.big < 0.01, `WebGL sky differs: ${JSON.stringify(s)}`);
   else console.log('WebGL2 unavailable: the shader was not compared');
   assert.deepEqual(errors, []);
-  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars with parallaxes and proper motions, the local horizon, the WebGL sky, stale touches, edge drags, equal zooms, time and place panels, minor planets, moons, the moons view and spectra');
+  console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars with parallaxes and proper motions, the local horizon, the WebGL sky, stale touches, edge drags, equal zooms, time and place panels, minor planets, moons, the moons view, the backward play button, the ruler, the mounts, the lock and spectra');
 } finally {
   if (browser) await browser.close();
   await new Promise((r) => server.close(r));

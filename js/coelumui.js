@@ -1,8 +1,8 @@
 // The coelum explorer: two views of the same sky (a map-like chart and a
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
-import { skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons } from './coelum.js';
-import { riseSet, planetOf } from './astro.js';
+import { skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector } from './coelum.js';
+import { riseSet, planetOf, siderealTime } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
 import { storedHorizon, computeHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
@@ -126,7 +126,6 @@ const ICONS = {
   shrink: icon('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
   plus: icon('<path d="M12 5v14M5 12h14"/>'),
   minus: icon('<path d="M5 12h14"/>'),
-  fit: icon('<circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/>'),
   layers: icon('<path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="m2.5 12.5 9.5 5 9.5-5"/><path d="m2.5 16.5 9.5 5 9.5-5"/>'),
   legend: icon('<circle cx="5" cy="6" r="1.6"/><path d="M10 6h10"/><path d="M3.4 12h3.2"/><path d="M10 12h10"/><rect x="3.4" y="16.4" width="3.2" height="3.2"/><path d="M10 18h10"/>'),
   play: icon('<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>'),
@@ -137,6 +136,8 @@ const ICONS = {
   reset: icon('<path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/>'),
   close: icon('<path d="M6 6l12 12M18 6 6 18"/>'),
   orient: icon('<rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 18.5h3"/><path d="M12 6.5l2 4.5h-4z" fill="currentColor"/>'),
+  lock: icon('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.3" fill="currentColor"/>'),
+  unlock: icon('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 7.6-1.8"/><circle cx="12" cy="15.5" r="1.3" fill="currentColor"/>'),
 };
 const LAYERS = [
   ['ground', 'Ground', 'chart sky'], ['atmosphere', 'Atmosphere', 'sky'], ['milkyway', 'Milky Way', 'chart sky'],
@@ -170,7 +171,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       <div class="coelum-rail coelum-hud" role="toolbar" aria-label="View" aria-orientation="vertical">
         <button type="button" class="coelum-btn" data-action="in" aria-label="Zoom in" title="Zoom in">${ICONS.plus}</button>
         <button type="button" class="coelum-btn" data-action="out" aria-label="Zoom out" title="Zoom out">${ICONS.minus}</button>
-        <button type="button" class="coelum-btn" data-action="fit" aria-label="Reset view" title="Reset view">${ICONS.fit}</button>
+        <button type="button" class="coelum-btn" data-action="lock" aria-pressed="false" aria-label="Lock the selected object in place" title="Lock the selected object in place">${ICONS.unlock}</button>
+        <button type="button" class="coelum-btn coelum-btn-text coelum-mount" data-action="mount" aria-pressed="false" aria-label="Equatorial mount" title="Alt-az: the horizon level (tap for equatorial)">AZ</button>
         <span class="coelum-rail-gap" aria-hidden="true"></span>
         <button type="button" class="coelum-btn" data-action="layers" aria-expanded="false" aria-controls="${id}-layers" aria-label="Layers and labels" title="Layers and labels">${ICONS.layers}</button>
         <button type="button" class="coelum-btn" data-action="legend" data-modes="chart" aria-expanded="false" aria-controls="${id}-legend" aria-label="Legend" title="Legend">${ICONS.legend}</button>
@@ -199,10 +201,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <p class="coelum-panel-note coelum-place-status" role="status" aria-live="polite"></p>
         <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button><button type="button" class="coelum-chip" data-place="original">Original place</button></div>
       </div>
-      <div class="coelum-panel coelum-moonspanel" id="${id}-moons" role="group" aria-label="Moons" hidden>
-        <div class="coelum-panel-head"><h3 class="coelum-moons-title">Moons</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close moons">${ICONS.close}</button></div>
+      <div class="coelum-moonsview" role="group" aria-label="Moons" hidden>
         <div class="sky-stage coelum-moons-stage"></div>
-        <p class="coelum-panel-note">As in a telescope (north up, east left), at the chart's time. Drag, pinch or double-tap to fit; tap a moon to select it.</p>
+        <div class="coelum-moons-head"><h3 class="coelum-moons-title">Moons</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-moons" aria-label="Close the moons">${ICONS.close}</button></div>
+        <p class="coelum-moons-note">As in a telescope (north up, east left), at the chart's time. Drag, pinch or double-tap to fit; tap a moon to find it in the sky.</p>
       </div>
       <p class="coelum-toast" role="status" aria-live="polite" hidden></p>
       <div class="coelum-panel coelum-legend" id="${id}-legend" role="group" aria-label="Legend" hidden>
@@ -210,7 +212,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       </div>
     </div>
     <div class="coelum-timebar coelum-hud">
-      <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button> · <button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"></button><span class="coelum-condition"></span></p><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output></div>
+      <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button> · <button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"></button><span class="coelum-condition"></span></p><span class="coelum-ruler" title="Angular scale at the center of the view"><i></i><b></b></span><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output></div>
       <div class="coelum-controls" role="toolbar" aria-label="Time">
         <button type="button" class="coelum-btn coelum-btn-text" data-action="back" aria-label="One hour earlier" title="One hour earlier">−1 h</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="slower" aria-label="Halve playback speed" title="Halve playback speed">÷2</button>
@@ -246,7 +248,31 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     layers.chart.terrain = horizon === 'terrain' ? terrain : null;
   };
   applyHorizon();
-  const skyView = () => views.sky || (views.sky = defaultSkyView(frame, size, height));
+  // The mount: alt-az (the horizon's frame: the zenith up) or equatorial
+  // (RA and Dec of date: the pole up, the stars fixed on the screen). The
+  // views keep their cameras in the mount's frame, and gestures, flights
+  // and levelling work there; the drawing turns them to the horizon's.
+  let mount = 'altaz';
+  try { if (localStorage.getItem('imks-coelum-mount') === 'equatorial') mount = 'equatorial'; } catch { /* private mode */ }
+  // From horizontal [east, north, up] to the mount's frame, F[3k + j]
+  const mountMatrix = () => {
+    if (mount !== 'equatorial') return null;
+    const lst = siderealTime(frame.t, place[1]) * R, lat = place[0] * R, sl = Math.sin(lst), cl = Math.cos(lst), sp = Math.sin(lat), cp = Math.cos(lat);
+    return [-sl, -sp * cl, cp * cl, cl, -sp * sl, cp * sl, 0, cp, sp];
+  };
+  const toMount = (h, F = mountMatrix()) => (F ? [0, 1, 2].map((k) => F[3 * k] * h[0] + F[3 * k + 1] * h[1] + F[3 * k + 2] * h[2]) : h);
+  const fromMount = (m, F = mountMatrix()) => (F ? [0, 1, 2].map((j) => F[j] * m[0] + F[3 + j] * m[1] + F[6 + j] * m[2]) : m);
+  // a camera (rows: its axes) of the mount's frame in the horizon's, and back
+  const horizonCamera = (r, F = mountMatrix()) => (F ? [0, 1, 2].flatMap((i) => [0, 1, 2].map((j) => r[3 * i] * F[j] + r[3 * i + 1] * F[3 + j] + r[3 * i + 2] * F[6 + j])) : r);
+  const mountCamera = (r, F = mountMatrix()) => (F ? [0, 1, 2].flatMap((i) => [0, 1, 2].map((k) => r[3 * i] * F[3 * k] + r[3 * i + 1] * F[3 * k + 1] + r[3 * i + 2] * F[3 * k + 2])) : r);
+  const lookOf = (d) => ({ az: (Math.atan2(d[0], d[1]) / R + 360) % 360, alt: Math.asin(Math.max(-1, Math.min(1, d[2]))) / R });
+  // the chart's home: the zenith at the center
+  const chartHome = () => (mount === 'equatorial' ? (({ az, alt }) => lookAt(az, alt))(lookOf(toMount([0, 0, 1]))) : [...SKY_IDENTITY]);
+  if (mount === 'equatorial') views.chart.rotation = chartHome();
+  const skyView = () => {
+    if (!views.sky) { const v = defaultSkyView(frame, size, height); views.sky = { ...v, ...lookOf(toMount(horizontalVector(v.alt, v.az))) }; }
+    return views.sky;
+  };
 
   const setSpeed = (value) => {
     speed = value; last = performance.now();
@@ -255,6 +281,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     output.textContent = `${speed < 0 ? '−' : ''}${Number(Math.abs(speed).toFixed(6))}×`;
     output.title = `${Number(Math.abs(speed).toFixed(6))} simulated seconds per second, ${speed < 0 ? 'backward' : 'forward'}`;
     $('[data-action="reverse"]').setAttribute('aria-pressed', String(speed < 0));
+    setPlay(playing);
   };
   const updateUI = (force = false) => {
     const now = performance.now();
@@ -280,16 +307,55 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     return view;
   };
   let pending = 0;
+  // The lock: the object stays where it is on the screen as time runs (the
+  // view turns with it); gestures move it, and it stays where they leave it
+  // (its place in the camera's frame, or on the sky view's projection).
+  let lock = null;
+  const applyLock = () => {
+    const o = lock && findObject(frame, lock.name);
+    if (!o) return;
+    const v = currentView(), m = toMount(mode === 'sky' && layers.sky.atmosphere ? refractVector(pointVector(o), place[2] || 0) : pointVector(o));
+    const renew = !lock.spot || lock.spot.mode !== mode || interacting;
+    if (mode === 'sky') {
+      if (renew) { const q = projectVector(m, lookAt(v.az, v.alt), true); lock.spot = { mode, x: q.x, y: q.y }; return; }
+      const look = solveLook(m, lock.spot.x, lock.spot.y, v.az, v.alt);
+      if (Number.isFinite(look.az) && Number.isFinite(look.alt)) Object.assign(v, look, { auto: false });
+    } else {
+      const now = [0, 1, 2].map((i) => dot3(v.rotation.slice(3 * i, 3 * i + 3), m));
+      if (renew) { lock.spot = { mode, c: now }; return; }
+      const r = rotateSky(v.rotation, now, lock.spot.c), rotation = levelChart(r, zenithSide(v.rotation) || zenithSide(r), lock.spot.c);
+      if (rotation.every(Number.isFinite)) v.rotation = rotation;
+    }
+  };
+  const setLock = (name) => {
+    lock = name ? { name, spot: null } : null;
+    const b = $('[data-action="lock"]'), label = lock ? `Unlock ${name}` : 'Lock the selected object in place';
+    b.innerHTML = lock ? ICONS.lock : ICONS.unlock; b.setAttribute('aria-pressed', String(Boolean(lock)));
+    b.setAttribute('aria-label', label); b.title = label;
+  };
+  // The ruler: a round angle 90 px long or less, at the center of the view
+  const RULER = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200, 1800, 2700, 5400];
+  const ruler = $('.coelum-ruler');
+  const showRuler = (view) => {
+    const perDeg = mode === 'sky' ? skyRadius(size, height, view.scale) * R / 2 : chartRadius(size, height, view.scale) / 90;
+    const arcmin = [...RULER].reverse().find((a) => a / 60 * perDeg <= 90) ?? RULER[0], text = arcmin < 60 ? `${arcmin}′` : `${arcmin / 60}°`;
+    ruler.firstChild.style.width = `${Math.round(arcmin / 60 * perDeg)}px`;
+    if (ruler.lastChild.textContent !== text) ruler.lastChild.textContent = text;
+  };
   const draw = (recompute = false) => {
     cancelAnimationFrame(pending); pending = 0;
     if (recompute) { animator = null; frame = skyFrame(t, place); }
     svg.setAttribute('viewBox', `0 0 ${size} ${height}`);
-    const view = mark();
     svg.dataset.time = String(t);
     if (playing) {
       if (!animator) animator = createSkyAnimator(t, place, layers[mode]);
       frame = animator(t);
     }
+    applyLock();
+    const view = mark(), F = mountMatrix();
+    // the camera in the horizon's frame, for drawing
+    const shown = { ...view, selected, rotation: mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
+    showRuler(view);
     // One canvas under the SVG. The chart moves on it (playback, drags,
     // flights) and settles as SVG over its sky and Milky Way.
     const onCanvas = playing || mode === 'sky' || interacting;
@@ -297,11 +363,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (onCanvas) {
-      drawn = mode === 'sky' ? skyScene(frame, size, height, layers.sky, { ...view, selected, moving: interacting }, ctx) : skyChart(frame, size, height, layers.chart, { ...view, selected }, ctx);
+      drawn = mode === 'sky' ? skyScene(frame, size, height, layers.sky, { ...shown, moving: interacting }, ctx) : skyChart(frame, size, height, layers.chart, shown, ctx);
       canvas.dataset.frame = String(++frameNumber);
       if (svg.childElementCount) svg.innerHTML = '';
     } else {
-      drawn = skyChart(frame, size, height, layers.chart, { ...view, selected, backdrop: ctx });
+      drawn = skyChart(frame, size, height, layers.chart, { ...shown, backdrop: ctx });
       svg.innerHTML = drawn.svg;
     }
     canvas.dataset.content = onCanvas ? 'scene' : 'backdrop';
@@ -323,10 +389,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     last = now;
     animation = requestAnimationFrame(tick);
   };
+  // the play button points the way time runs
   const setPlay = (on) => {
-    const button = $('[data-action="play"]');
+    const button = $('[data-action="play"]'), label = on ? 'Pause' : speed < 0 ? 'Play backward' : 'Play';
     button.innerHTML = on ? ICONS.pause : ICONS.play;
-    button.setAttribute('aria-label', on ? 'Pause' : 'Play'); button.title = on ? 'Pause' : 'Play';
+    button.classList.toggle('coelum-backward', speed < 0);
+    button.setAttribute('aria-label', label); button.title = label;
     button.setAttribute('aria-pressed', String(on));
   };
   const pause = () => {
@@ -353,8 +421,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
   const fit = () => {
     stopFlight();
-    if (mode === 'sky') views.sky = defaultSkyView(frame, size, height);
-    else Object.assign(views.chart, { scale: 1, rotation: [...SKY_IDENTITY] });
+    if (mode === 'sky') { views.sky = null; skyView(); }
+    else Object.assign(views.chart, { scale: 1, rotation: chartHome() });
+    if (lock) lock.spot = null;
     draw();
   };
   // Fly to an object: the chart turns along a great circle (levelling its
@@ -366,12 +435,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     let step;
     if (mode === 'sky') {
       const v = skyView(), from = { ...v }; v.auto = false;
-      const a = layers.sky.atmosphere ? refractVector(pointVector(o), place[2] || 0) : pointVector(o), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
+      const a = toMount(layers.sky.atmosphere ? refractVector(pointVector(o), place[2] || 0) : pointVector(o)), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
       const daz = ((oAz - v.az + 540) % 360) - 180, alt = Math.max(-30, Math.min(80, oAlt)), scale = Math.min(SKY_MAX, Math.max(v.scale, o.planet ? 80 / (o.separation * skyRadius(size, height, 1) / 2 * R) : 2.5));
       step = (e) => Object.assign(v, { az: (from.az + daz * e + 360) % 360, alt: from.alt + (alt - from.alt) * e, scale: from.scale + (scale - from.scale) * e });
     } else {
       const v = views.chart, rotation = [...v.rotation], fromScale = v.scale, scale = Math.min(chartMax(), Math.max(v.scale, o.planet ? 80 / (o.separation * chartRadius(size, height, 1) / 90) : 2.5));
-      const w = pointVector(o), p = [0, 1, 2].map((i) => dot3(rotation.slice(i * 3, i * 3 + 3), w)), angle = Math.acos(Math.max(-1, Math.min(1, p[2])));
+      const w = toMount(pointVector(o)), p = [0, 1, 2].map((i) => dot3(rotation.slice(i * 3, i * 3 + 3), w)), angle = Math.acos(Math.max(-1, Math.min(1, p[2])));
       const axis = unit3(p[0] || p[1] ? [p[0], p[1], 0] : [1, 0, 0]);
       const side = zenithSide(rotation) || zenithSide(rotateSky(rotation, p, [0, 0, 1])) || 1;
       step = (e) => {
@@ -399,7 +468,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
 
   // Panels: one at a time; they keep the full-screen controls awake.
-  const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel'), moons: $('.coelum-moonspanel') };
+  const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel') };
   const panelOpen = () => Object.values(panels).some((panel) => !panel.hidden);
   const showPanel = (name) => {
     for (const [key, panel] of Object.entries(panels)) {
@@ -410,22 +479,32 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     root.classList.toggle('coelum-show-options', panelOpen() && panels.legend.hidden);
     if (name === 'time' && !panels.time.hidden) showTime();
     if (name === 'place' && !panels.place.hidden) { placeInput.value = ''; showPlaces(''); }
-    if (panels.moons.hidden) moons = null;
     wake();
   };
-  // A planet and its moons as in the moons() view, at the chart's time; a
-  // fresh stage for each planet.
+  // A planet and its moons as in the moons() view, at the chart's time,
+  // over the whole view (in full screen, left as it was on closing); a fresh
+  // stage for each planet. A moon tapped is found in the sky.
   let moons = null;
+  const moonsLayer = $('.coelum-moonsview');
+  const sizeMoons = () => { if (moons) moons.view.size(Math.max(200, viewport.clientWidth), Math.max(200, viewport.clientHeight)); };
+  const closeMoons = () => {
+    if (!moons) return;
+    const restore = !moons.wasImmersive;
+    moons = null; moonsLayer.hidden = true; root.classList.remove('coelum-moons-open');
+    if (restore) fullscreen(false);
+  };
   const showMoons = (planet) => {
     const stage = $('.coelum-moons-stage');
     stage.innerHTML = '<canvas class="sky-canvas"></canvas><svg class="sky-svg sky-full" role="img"></svg>';
     const sky = moonSystem(planet, t), name = planet[0].toUpperCase() + planet.slice(1);
     stage.querySelector('svg').setAttribute('aria-label', `${name} and its moons`);
     $('.coelum-moons-title').textContent = `Moons of ${name}`;
-    if (panels.moons.hidden) showPanel('moons');
-    moons = { planet, t, view: moonsView(stage, sky, { onTap: (m) => { select(m.name); draw(); } }) };
-    const W = Math.max(200, Math.round(stage.clientWidth));
-    moons.view.size(W, Math.round(Math.max(150, Math.min(W * 0.8, viewport.clientHeight - 190))));
+    showPanel(null);
+    const wasImmersive = moons ? moons.wasImmersive : immersive();
+    if (!immersive()) fullscreen(true);
+    moonsLayer.hidden = false; root.classList.add('coelum-moons-open');
+    moons = { planet, t, wasImmersive, view: moonsView(stage, sky, { onTap: (m) => { closeMoons(); select(m.name); const o = findObject(frame, m.name); if (o) goTo(o); draw(); } }) };
+    sizeMoons();
   };
   const followMoons = () => {
     if (!moons || moons.t === t) return;
@@ -568,6 +647,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     catch { say('Motion and orientation access is not available.'); return; }
     const event = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation';
     const state = { event, v: null, offset: null, relative: false };
+    setLock(null);
     state.on = (ev) => {
       if (ev.alpha === null || ev.beta === null || ev.gamma === null) return;
       let alpha = ev.alpha;
@@ -580,7 +660,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       } else if (event === 'deviceorientation' && !ev.absolute) state.relative = true;
       const d = backDirection(alpha, ev.beta, ev.gamma);
       state.v = state.v ? unit3(state.v.map((x, i) => x + 0.35 * (d[i] - x))) : d;
-      const az = (Math.atan2(state.v[0], state.v[1]) / R + 360) % 360, alt = Math.asin(Math.max(-1, Math.min(1, state.v[2]))) / R;
+      const { az, alt } = lookOf(toMount(state.v));
       if (!Number.isFinite(az) || !Number.isFinite(alt)) return;
       clearTimeout(state.timer);
       if (mode === 'sky') Object.assign(skyView(), { az, alt, auto: false });
@@ -595,6 +675,26 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     setTimeout(() => { if (orient === state && state.relative) say('No compass: directions are relative to where the phone first pointed.'); }, 1500);
   };
 
+  // Another mount keeps the direction at the center; the chart then levels
+  // its new up (the zenith or the pole).
+  const mountButton = $('[data-action="mount"]');
+  const showMount = () => {
+    const eq = mount === 'equatorial';
+    mountButton.textContent = eq ? 'EQ' : 'AZ'; mountButton.setAttribute('aria-pressed', String(eq));
+    mountButton.title = eq ? 'Equatorial: RA and Dec fixed, the pole up (tap for alt-az)' : 'Alt-az: the horizon level (tap for equatorial)';
+  };
+  const setMount = (m) => {
+    const F0 = mountMatrix(), chart = horizonCamera(views.chart.rotation, F0), sky = views.sky && fromMount(horizontalVector(views.sky.alt, views.sky.az), F0);
+    mount = m;
+    try { localStorage.setItem('imks-coelum-mount', m); } catch { /* private mode */ }
+    const F1 = mountMatrix(), r = mountCamera(chart, F1);
+    views.chart.rotation = levelChart(r, zenithSide(r) || 1);
+    if (sky) Object.assign(views.sky, lookOf(toMount(sky, F1)));
+    if (lock) lock.spot = null;
+    stopFlight(); showMount(); draw();
+    say(m === 'equatorial' ? 'Equatorial mount: the stars stay fixed, the celestial pole up.' : 'Alt-az mount: the horizon stays level, the zenith up.');
+  };
+  showMount();
   const setMode = (m) => {
     if (m === mode) return;
     // Keep the two views roughly in step: the same direction at the center
@@ -673,7 +773,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
 
   root.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
-    if (panelOpen()) { ev.preventDefault(); ev.stopPropagation(); showPanel(null); }
+    if (moons) { ev.preventDefault(); ev.stopPropagation(); closeMoons(); }
+    else if (panelOpen()) { ev.preventDefault(); ev.stopPropagation(); showPanel(null); }
     else if (immersive()) { ev.preventDefault(); ev.stopPropagation(); fullscreen(false); }
   });
   root.addEventListener('change', (ev) => {
@@ -725,11 +826,17 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (action === 'fullscreen') fullscreen(!immersive());
     else if (action === 'layers' || action === 'legend' || action === 'time' || action === 'place') showPanel(action);
     else if (action === 'moons') showMoons(button.dataset.planet);
+    else if (action === 'close-moons') closeMoons();
+    else if (action === 'lock') {
+      if (lock) setLock(null);
+      else if (selected && findObject(frame, selected)) { stopOrientation(); setLock(selected); say(`${selected} stays in place on the screen.`); }
+      else say('Select an object to lock it in place.');
+      draw();
+    } else if (action === 'mount') setMount(mount === 'equatorial' ? 'altaz' : 'equatorial');
     else if (action === 'orient') { if (orient) stopOrientation(); else startOrientation(); }
     else if (action === 'close-panel') showPanel(null);
     else if (action === 'deselect') { select(null); draw(); }
     else if (action === 'in' || action === 'out') zoom(action === 'in' ? 1.5 : 1 / 1.5);
-    else if (action === 'fit') fit();
     else if (action === 'slower' || action === 'faster') setSpeed(Math.sign(speed) * Math.max(1 / 64, Math.min(1048576, Math.abs(speed) * (action === 'faster' ? 2 : 0.5))));
     else if (action === 'reverse') setSpeed(-speed);
     else if (action === 'play') {
@@ -737,7 +844,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       else { playing = true; last = performance.now(); lastUI = -Infinity; setPlay(true); draw(); animation = requestAnimationFrame(tick); }
     } else {
       if (action === 'reset') {
-        stopOrientation();
+        stopOrientation(); setLock(null); closeMoons();
         if (place.some((x, i) => x !== (model.place[i] ?? 0))) await setPlace({ lat: model.place[0], lon: model.place[1], h: model.place[2] || 0, name: model.label });
         t = model.t; setSpeed(60); pause(); fit();
       }
@@ -870,6 +977,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const resize = new ResizeObserver(() => {
     root.style.setProperty('--coelum-controls-height', `${Math.ceil($('.coelum-timebar').getBoundingClientRect().height) + 16}px`);
     const box = svg.getBoundingClientRect(), width = Math.round(box.width), high = Math.round(box.height);
+    sizeMoons();
     if (width > 0 && high > 0 && (width !== size || high !== height)) {
       // A fresh realistic view keeps its horizon low in the new shape.
       if (views.sky?.auto) views.sky = null;
@@ -889,7 +997,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       // Export the current frame as SVG even while the canvas is moving;
       // the realistic view is a picture of its canvas.
       if (mode === 'sky') svg.innerHTML = `<image href="${canvas.toDataURL('image/png')}" width="${size}" height="${height}"/>`;
-      else svg.innerHTML = skyChart(frame, size, height, layers.chart, { ...views.chart, selected }).svg;
+      else svg.innerHTML = skyChart(frame, size, height, layers.chart, { ...views.chart, rotation: horizonCamera(views.chart.rotation), selected }).svg;
       updateUI(true);
       return svg;
     },

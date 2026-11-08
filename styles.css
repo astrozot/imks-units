@@ -403,6 +403,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-play { width: 50px; height: 50px; border-radius: 50%; border-color: transparent; background: var(--c-accent); color: #08111f; box-shadow: 0 4px 14px rgba(140, 184, 255, 0.3); }
 .coelum-play:hover { background: #a9caff; }
 .coelum-play[aria-pressed="true"] { background: #ffd27a; border-color: transparent; color: #241600; box-shadow: 0 4px 14px rgba(255, 210, 122, 0.3); }
+.coelum-play.coelum-backward svg { transform: scaleX(-1); }
 .coelum-search { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; height: 40px; box-sizing: border-box; padding-left: 10px; border: 1px solid var(--c-line); border-radius: 12px; background: rgba(255, 255, 255, 0.06); color: var(--c-muted); }
 .coelum-search:focus-within { border-color: rgba(140, 184, 255, 0.65); background: rgba(255, 255, 255, 0.1); }
 .coelum-search > svg { flex: none; width: 18px; height: 18px; }
@@ -465,6 +466,9 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-clock { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 2px 8px; }
 .coelum-status { margin: 0; color: var(--c-muted); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
 .coelum-status b { color: var(--c-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.coelum-ruler { flex: none; display: flex; flex-direction: column; align-items: center; gap: 1px; align-self: center; color: var(--c-muted); font: 600 11px/1 system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; }
+.coelum-ruler i { display: block; height: 4px; border: 1.5px solid currentColor; border-top: 0; }
+.coelum-ruler b { font-weight: inherit; }
 .coelum-speed { flex: none; padding: 2px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: var(--c-ink); font: 600 12px/1.6 system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; }
 .coelum-controls { display: flex; align-items: center; justify-content: space-between; gap: 2px; max-width: 420px; margin: 0 auto; }
 .coelum-controls .coelum-btn { width: 36px; height: 36px; border-radius: 10px; font-size: 13px; }
@@ -492,7 +496,16 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-spectrum { margin: 10px 0 0; }
 .coelum-detail .coelum-moons-button { display: block; margin: 10px 0 0; border-color: var(--line); background: transparent; color: inherit; }
 .coelum-immersive .coelum-detail .coelum-moons-button { border-color: var(--c-line); }
-.coelum-moons-stage { margin: 4px 0 0; }
+.coelum-rail .coelum-mount { font: 700 11px system-ui, -apple-system, sans-serif; letter-spacing: 0.04em; }
+.coelum-rail .coelum-btn[aria-pressed="true"] { background: rgba(140, 184, 255, 0.24); }
+/* the moons over the whole view (in full screen), the controls on top */
+.coelum-moonsview { position: absolute; inset: 0; z-index: 3; background: #0b0f1a; }
+.coelum-moonsview[hidden] { display: none; }
+.coelum-moonsview .coelum-moons-stage { position: absolute; inset: 0; border-radius: 0; }
+.coelum-moons-head { position: absolute; z-index: 1; top: calc(max(10px, env(safe-area-inset-top)) + 66px); left: max(12px, env(safe-area-inset-left)); display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border: 1px solid var(--c-line); border-radius: 12px; background: var(--c-glass); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); color: var(--c-ink); }
+.coelum-moons-head h3 { margin: 0; font-size: 14px; }
+.coelum-moons-note { position: absolute; z-index: 1; left: 50%; bottom: calc(var(--coelum-controls-height, 130px) + 8px); width: min(420px, calc(100% - 32px)); margin: 0; padding: 6px 10px; border-radius: 10px; background: rgba(12, 20, 38, 0.8); color: var(--c-muted); font-size: 12px; line-height: 1.4; text-align: center; transform: translateX(-50%); pointer-events: none; }
+.coelum-moons-open .coelum-rail, .coelum-moons-open .coelum-detail { display: none !important; }
 .coelum-spectrum svg { display: block; width: 100%; height: 32px; }
 .coelum-spectrum figcaption { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .coelum-spectrum figcaption span:nth-child(2) { color: inherit; text-align: center; }

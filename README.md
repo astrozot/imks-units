@@ -111,11 +111,19 @@ which search also finds; zoomed in, the major moons of Mars, Jupiter,
 Saturn, Uranus and Neptune appear around their planets, and the planets
 become disks with their phases (Saturn with its rings); the card of a
 planet with moons opens their view as in `moons()` (shared code in
-`js/skyview.js`), at the chart's time. A star's card
+`js/skyview.js`) over the whole screen, at the chart's time. A star's card
 shows its B−V colour index, an estimated temperature and spectral type,
 and a black-body spectrum. On phones the orientation button makes the
 view follow where the phone points. Both views zoom to the same largest
-magnification.
+magnification. The AZ/EQ button chooses the mount: alt-az keeps the
+horizon level with the zenith up; equatorial keeps RA and Dec of date fixed
+on the screen with the celestial pole up, as a telescope's equatorial mount
+does (the views keep their cameras in the mount's frame and turn them to
+the horizon's to draw). The lock button holds the selected object where it
+is on the screen as time runs, in either mount; drags and zooms move it,
+and it stays where they leave it. The bottom bar shows a ruler, a round
+angle at the center of the view, and the play button points backward when
+time runs backward.
 
 The chart's stars, built in and downloadable, come from one catalog,
 [AT-HYG](https://codeberg.org/astronexus/athyg) v4.0 (David Nash): Tycho-2,

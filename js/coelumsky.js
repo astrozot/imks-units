@@ -52,8 +52,10 @@ export const moonTexture = typeof Image === 'undefined' ? Promise.resolve(null) 
 // Extinction (mag) at an altitude (degrees), with a plain airmass.
 const extinction = (alt) => { const s = Math.sin(Math.max(alt, 0) * R); return 0.22 * (1 / (s + 0.025 * Math.exp(-11 * s)) - 1); };
 
+// view: az, alt and scale; a rotation (rows: the camera axes in horizontal
+// coordinates), when given, turns the camera (the equatorial mount).
 export function skyScene(frame, W, H, layers, view, ctx) {
-  const opts = { ...SKY_LAYERS, ...layers }, radius = skyRadius(W, H, view.scale), rotation = lookAt(view.az, view.alt);
+  const opts = { ...SKY_LAYERS, ...layers }, radius = skyRadius(W, H, view.scale), rotation = view.rotation || lookAt(view.az, view.alt);
   const cx = W / 2, cy = H / 2, p = pen(ctx), f = (x) => x.toFixed(2);
   const sun = frame.bodies[0], moon = frame.bodies[1];
   const illum = (1 + Math.cos(moon.phase * R)) / 2;
