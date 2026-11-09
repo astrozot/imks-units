@@ -3,14 +3,14 @@
 // mode whose controls fade away while the sky is left alone.
 import { PhoneOrientation } from './phoneorientation.js';
 import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, satelliteList, satelliteStatus } from './satellites.js';
-import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
+import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
 import { riseSet, planetOf, siderealTime } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
 import { storedHorizon, computeHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
 import { skyView as moonSystem } from './sky.js';
 import { moonsView, planetMap } from './skyview.js';
-import { pickLunarFeature, lunarFeatureDetails } from './lunarfeatures.js';
+import { pickLunarFeature, lunarFeatureDetails, findLunarFeature, lunarFeatureTarget, LUNAR_MIN_RADIUS } from './lunarfeatures.js';
 
 // Optional fainter stars, from AT-HYG like the built-in ones
 // (tools/stars.mjs): files of the app downloaded when asked, kept in a
@@ -146,7 +146,7 @@ const MODES = { chart: 'Chart', sky: 'Sky' };
 // The largest zoom of the sky view (the chart's matches it): enough to
 // separate Jupiter's inner moons and show the planets' disks.
 const SKY_MAX = 400;
-const TYPE_ORDER = { star: 'Star', planet: 'Planet', moon: 'Moon', constellation: 'Constellation' };
+const TYPE_ORDER = { 'lunar feature': 'Moon feature', star: 'Star', planet: 'Planet', moon: 'Moon', constellation: 'Constellation' };
 let explorers = 0;
 
 // Ask the controlling worker, rather than guessing from old cache names.
@@ -222,7 +222,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   try { if (localStorage.getItem('imks-coelum-mode') === 'sky') mode = 'sky'; } catch { /* private mode */ }
   root.dataset.mode = mode;
   root.innerHTML = `<div class="coelum-topbar coelum-hud">
-      <div class="coelum-search">${ICONS.search}<input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="Search" aria-label="Search stars, planets and deep-sky objects" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><ul class="coelum-results" id="${id}-results" role="listbox" aria-label="Matches" hidden></ul></div>
+      <div class="coelum-search">${ICONS.search}<input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="Search" aria-label="Search stars, planets, deep-sky objects and lunar features" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><ul class="coelum-results" id="${id}-results" role="listbox" aria-label="Matches" hidden></ul></div>
       <div class="coelum-seg" role="group" aria-label="View">${Object.entries(MODES).map(([m, label]) => `<button type="button" data-view="${m}" aria-pressed="${m === mode}" title="${m === 'chart' ? 'Map-like star chart' : 'Realistic sky'}">${ICONS[m]}<span>${label}</span></button>`).join('')}</div>
       ${options.standalone ? '' : `<button type="button" class="coelum-btn" data-action="fullscreen" aria-pressed="false" aria-label="Full screen" title="Full screen">${ICONS.expand}</button>`}
     </div>
@@ -532,18 +532,30 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // Fly to an object: the chart turns along a great circle (levelling its
   // horizon), the sky view pans in azimuth and altitude; both zoom in a
   // little.
-  const goTo = (o) => {
+  const goTo = (o, { fit = false, onArrival = null } = {}) => {
     stopOrientation();
     cancelAnimationFrame(flight);
     const start = performance.now(), duration = 650, ease = (u) => (u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2);
     let step;
+    const [lo, hi] = scaleLimits();
+    const searchScale = () => {
+      if (o.feature) {
+        // Resolve the feature while keeping the Moon's feature layer active.
+        const pixels = Math.min(130, Math.min(size, height) * 0.22);
+        const radius = Math.max(LUNAR_MIN_RADIUS * 1.3, pixels * 1737.4 / Math.max(0.01, o.feature.diameter) / Math.sqrt(Math.max(0.06, o.lunarState.v[2])));
+        return Math.max(lo, Math.min(hi, radius / (o.moonRadius * skyRadius(size, height, 1) / 2 * R)));
+      }
+      const field = searchAngularField(o), span = Math.min(size, height);
+      const scale = mode === 'sky' ? span / (2 * skyRadius(size, height, 1) * Math.tan(field * R / 4)) : span / (chartRadius(size, height, 1) * field / 90);
+      return Math.max(lo, Math.min(hi, scale));
+    };
     if (mode === 'sky') {
       const v = skyView(), from = { ...v }; v.auto = false;
       const a = toMount(atmosphereOn() ? refractVector(pointVector(o), place[2] || 0) : pointVector(o)), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
-      const daz = ((oAz - v.az + 540) % 360) - 180, alt = Math.max(-30, Math.min(80, oAlt)), scale = Math.min(SKY_MAX, Math.max(v.scale, o.planet ? 80 / (o.separation * skyRadius(size, height, 1) / 2 * R) : 2.5));
+      const daz = ((oAz - v.az + 540) % 360) - 180, alt = Math.max(-89.9, Math.min(89.9, oAlt)), scale = fit ? searchScale() : Math.min(SKY_MAX, Math.max(v.scale, o.planet ? 80 / (o.separation * skyRadius(size, height, 1) / 2 * R) : 2.5));
       step = (e) => Object.assign(v, { az: (from.az + daz * e + 360) % 360, alt: from.alt + (alt - from.alt) * e, scale: from.scale + (scale - from.scale) * e });
     } else {
-      const v = views.chart, rotation = [...v.rotation], fromScale = v.scale, scale = Math.min(chartMax(), Math.max(v.scale, o.planet ? 80 / (o.separation * chartRadius(size, height, 1) / 90) : 2.5));
+      const v = views.chart, rotation = [...v.rotation], fromScale = v.scale, scale = fit ? searchScale() : Math.min(chartMax(), Math.max(v.scale, o.planet ? 80 / (o.separation * chartRadius(size, height, 1) / 90) : 2.5));
       const w = toMount(pointVector(o)), p = [0, 1, 2].map((i) => dot3(rotation.slice(i * 3, i * 3 + 3), w)), angle = Math.acos(Math.max(-1, Math.min(1, p[2])));
       const axis = unit3(p[0] || p[1] ? [p[0], p[1], 0] : [1, 0, 0]);
       const side = zenithSide(rotation) || zenithSide(rotateSky(rotation, p, [0, 0, 1])) || 1;
@@ -558,7 +570,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       if (u < 1) interact();
       step(ease(u));
       if (lock) lock.spot = null;
-      if (u < 1) draw(); else { interacting = true; settle(); }
+      if (u < 1) draw(); else { onArrival?.(); interacting = true; settle(); }
       flight = u < 1 && root.isConnected ? requestAnimationFrame(frameStep) : 0;
     };
     flight = requestAnimationFrame(frameStep);
@@ -952,16 +964,32 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const showResults = () => {
     results.hidden = !matches.length;
     input.setAttribute('aria-expanded', String(!results.hidden));
-    results.innerHTML = matches.map((m, i) => `<li role="option" id="${id}-r${i}" data-index="${i}" aria-selected="${i === active}"><span class="coelum-result-dot coelum-type-${esc(m.type.split(' ').at(-1))}"></span><span class="coelum-result-name">${esc(m.name)}${m.alias ? ` <small>${esc(m.alias)}</small>` : ''}</span><span class="coelum-result-meta">${esc(TYPE_ORDER[m.type] || m.type)}${m.alt < 0 ? ' · below horizon' : ''}</span></li>`).join('');
+    results.innerHTML = matches.map((m, i) => `<li role="option" id="${id}-r${i}" data-index="${i}" aria-selected="${i === active}"><span class="coelum-result-dot coelum-type-${esc(m.type.split(' ').at(-1))}"></span><span class="coelum-result-name">${esc(m.name)}${m.alias ? ` <small>${esc(m.alias)}</small>` : ''}</span><span class="coelum-result-meta">${esc(TYPE_ORDER[m.type] || m.type)}${m.availability ? ` · ${esc(m.availability)}` : ''}${m.alt < 0 ? ' · below horizon' : ''}</span></li>`).join('');
     if (active >= 0) input.setAttribute('aria-activedescendant', `${id}-r${active}`); else input.removeAttribute('aria-activedescendant');
   };
-  const choose = (i) => {
+  let searchChoice = 0;
+  const choose = async (i) => {
     const m = matches[i];
     if (!m) return;
-    const o = findObject(frame, m.name);
+    const ticket = ++searchChoice, feature = m.key && findLunarFeature(m.key);
     input.value = m.name; matches = []; active = -1; showResults();
-    input.blur();
-    select(o.name); goTo(o);
+    input.blur(); pause(); setLock(null);
+    if (moons) closeMoons();
+    if (feature) {
+      if (mode !== 'sky') setMode('sky');
+      select(null);
+      await planetMap('moon')?.ready;
+      if (ticket !== searchChoice || !root.isConnected) return;
+      const target = lunarFeatureTarget(frame, feature), available = target.lunarState.visible && target.lunarState.sunlit;
+      goTo(available ? target : findObject(frame, 'Moon'), { fit: true, onArrival: () => {
+        select(available ? feature.key : 'Moon');
+        if (!target.lunarState.visible) say(`${feature.name} is on the far side of the Moon.`);
+        else if (!target.lunarState.sunlit) say(`${feature.name} is not currently illuminated.`);
+      } });
+    } else {
+      const o = findObject(frame, m.name);
+      if (o) { select(o.name); goTo(o, { fit: true }); }
+    }
   };
   input.addEventListener('input', () => { matches = searchSky(frame, input.value); active = matches.length ? 0 : -1; showResults(); });
   input.addEventListener('focus', () => { if (input.value) { matches = searchSky(frame, input.value); active = matches.length ? 0 : -1; showResults(); } });

@@ -306,6 +306,13 @@ it (numpy and Pillow).
 
 At high zoom in Sky, sunlit lunar features appear in blue when Labels is on.
 Tap a feature (also with Labels off) for its name, type, size and coordinates.
+The selected feature is outlined by an ellipse projected onto the lunar surface;
+its size follows the catalogue diameter/extent, rather than a surveyed boundary.
+Lunar names also appear in Search, distinguished from stars with the same name.
+Selecting one opens Sky, centers the feature and sets a useful zoom. Far-side
+and unlit features are identified in the search results; selecting them frames
+the Moon without highlighting the unavailable feature. Other search results
+also reset the zoom to suit the object's angular size or surrounding field.
 The feature layer starts when the Moon is 240 CSS pixels across; smaller
 features become selectable as their apparent size grows. Features beyond the
 limb, on the night side or inside Earth's umbra are excluded. The detailed

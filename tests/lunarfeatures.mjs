@@ -1,7 +1,8 @@
 // Catalogue, surface alignment and illumination: node tests/lunarfeatures.mjs
 import assert from 'node:assert/strict';
 import { LUNAR_FEATURES } from '../js/lunardata.js';
-import { projectLunarFeatures, pickLunarFeature, lunarFeatureDetails, LUNAR_MIN_RADIUS } from '../js/lunarfeatures.js';
+import { projectLunarFeatures, pickLunarFeature, lunarFeatureDetails, LUNAR_MIN_RADIUS, lunarFeatureEllipse, searchLunarFeatures, findLunarFeature, lunarFeatureTarget } from '../js/lunarfeatures.js';
+import { skyFrame, searchSky, searchAngularField, findObject } from '../js/coelum.js';
 import { surfaceVector } from '../js/skyview.js';
 import { moonDisk, equatorial, nextPhase, topocentric } from '../js/astro.js';
 const R = Math.PI / 180;
@@ -47,3 +48,37 @@ for (const phase of [0, 90, 180, 270]) {
   assert.deepEqual(projectLunarFeatures(hiddenSun, center, 500, north, 1200, 1200), [], 'Earthshine never reveals unilluminated features');
 }
 console.log('Lunar feature checks passed: catalogue, texture alignment, libration, zoom, sunlight, eclipse and picking');
+
+// The projection is an ellipse, verified against points on the actual
+// spherical circle, including rotation and the shifted center near the limb.
+for (const north of [0, 0.7, 1.9]) {
+  for (const v of [[0, 0, 1], [0.8, 0, 0.6], [0, -Math.sqrt(0.99), 0.1]]) {
+    const radius = 500, diameter = 300, center = { x: 600, y: 600 };
+    const e = lunarFeatureEllipse(v, diameter, center, radius, north);
+    assert.ok(Math.abs(e.ry / e.rx - v[2]) < 1e-12, 'Foreshortening follows surface angle');
+    const E = v[0] === 0 && v[1] === 0 ? [1, 0, 0] : [-v[1], v[0], 0].map((x) => x / Math.hypot(v[0], v[1]));
+    const N = [v[1] * E[2] - v[2] * E[1], v[2] * E[0] - v[0] * E[2], v[0] * E[1] - v[1] * E[0]];
+    const a = diameter / (2 * 1737.4);
+    for (let k = 0; k < 32; k++) {
+      const theta = k * Math.PI / 16;
+      const p = v.map((x, i) => x * Math.cos(a) + Math.sin(a) * (E[i] * Math.cos(theta) + N[i] * Math.sin(theta)));
+      const x = center.x + radius * (p[0] * Math.cos(north) + p[1] * Math.sin(north)), y = center.y + radius * (p[0] * Math.sin(north) - p[1] * Math.cos(north));
+      const dx = x - e.x, dy = y - e.y, c = Math.cos(e.angle), s = Math.sin(e.angle);
+      assert.ok(Math.abs(((dx * c + dy * s) / e.rx) ** 2 + ((-dx * s + dy * c) / e.ry) ** 2 - 1) < 1e-10, 'Ellipse matches projected spherical boundary');
+    }
+  }
+}
+const f = skyFrame(Date.UTC(2026, 10, 24, 21) / 1000, [41.892, 12.511, 20]);
+const sameName = searchSky(f, 'Copernicus');
+assert.ok(sameName.some((o) => o.name === 'Copernicus' && o.type === 'star' && !o.key));
+assert.ok(sameName.some((o) => o.name === 'Copernicus' && o.type === 'lunar feature' && o.key === 'lunar:1296'));
+assert.equal(searchSky(f, 'moon Copernicus')[0].key, 'lunar:1296');
+assert.equal(searchLunarFeatures('COPÉRNICUS')[0].key, 'lunar:1296');
+assert.equal(searchSky(f, 'Tsiolkovskiy')[0].availability, 'far side');
+const target = lunarFeatureTarget(f, findLunarFeature('lunar:1296'));
+assert.ok(target.lunarState.sunlit && target.lunarState.visible);
+assert.ok(Math.hypot(target.alt - f.bodies[1].alt, target.az - f.bodies[1].az) > 0.01, 'Fly to the surface feature rather than Moon center');
+assert.ok(searchAngularField(findObject(f, 'Moon')) < searchAngularField(findObject(f, 'M31')));
+assert.ok(searchAngularField(findObject(f, 'Jupiter')) < searchAngularField(findObject(f, 'Moon')));
+assert.ok(searchAngularField(findObject(f, 'Sirius')) > searchAngularField(findObject(f, 'M31')));
+console.log('Lunar search, target direction, object framing and projected ellipse checks passed');

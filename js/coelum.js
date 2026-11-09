@@ -6,10 +6,11 @@
 import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { CHART_STARS } from './stardata.js';
 import { DEEP } from './catalog.js';
-import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow } from './astro.js';
+import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
 import { satelliteLight } from './satellites.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
+import { searchLunarFeatures, lunarFeatureState } from './lunarfeatures.js';
 
 export const R = Math.PI / 180;
 const clamp = (x) => Math.max(-1, Math.min(1, x));
@@ -1007,10 +1008,26 @@ const keysOf = (o) => {
   }
   return keys;
 };
+// Useful angular field for a search selection, independent of the old zoom.
+// Catalog deep-sky sizes are arcminutes; solar-system diameters are degrees.
+export function searchAngularField(o) {
+  if (o.type === 'constellation' && o.lines?.length) {
+    const center = pointVector(o);
+    const reach = Math.max(...o.lines.flat().map((p) => Math.acos(clamp(dot3(center, pointVector(p)))) / R));
+    return Math.min(170, Math.max(10, reach * 2.5));
+  }
+  if (o.size?.[0]) return Math.max(0.1, o.size[0] / 60 * 2);
+  if (o.body === 'moon' || o.body === 'sun') return 2 * Math.asin((o.body === 'moon' ? 1737.4 : 695700) / o.dist) / R * 1.8;
+  if (o.planet) return Math.max(o.separation * 3, (o.diameter || 0) * 6, 0.01);
+  const radius = diskRadius(o);
+  if (radius) return radius * 2 * (o.body === 'saturn' ? 2.3 : 1) * 4;
+  return 25; // a star or unresolved body, with its surrounding sky
+}
+
 export function searchSky(frame, query, limit = 8) {
   const q = fold(query), qc = q.replace(/ /g, '');
   if (!qc) return [];
-  const order = { moon: 0, planet: 0, constellation: 2, star: 1, 'minor planet': 1.2, comet: 1.2, satellite: 1.3 }, rank = (o) => order[o.type] ?? (o.planet ? 0.5 : 1.5);
+  const order = { 'lunar feature': 0.5, moon: 0, planet: 0, constellation: 2, star: 1, 'minor planet': 1.2, comet: 1.2, satellite: 1.3 }, rank = (o) => order[o.type] ?? (o.planet ? 0.5 : 1.5);
   const entries = [
     ...frame.bodies.map((o) => ({ o, keys: o.satellite ? [o.name, ...o.satellite.keys] : o.number ? [o.name, String(o.number)] : [o.name] })),
     ...frame.bodies.filter(hasMoons).flatMap((planet) => planetMoons(frame, planet).map((o) => ({ o, keys: [o.name] }))),
@@ -1028,13 +1045,22 @@ export function searchSky(frame, query, limit = 8) {
     }
     if (best) out.push({ ...best, object: o });
   }
+  const lunar = searchLunarFeatures(query, limit), moon = frame.bodies.find((o) => o.body === 'moon');
+  if (lunar.length && moon) {
+    const disk = moonDisk(frame.t, moon);
+    for (const feature of lunar) {
+      const state = lunarFeatureState(disk, feature);
+      out.push({ score: feature.score, alias: null, object: { ...feature, type: 'lunar feature', alt: moon.alt,
+        availability: !state.visible ? 'far side' : !state.sunlit ? 'not sunlit' : null } });
+    }
+  }
   // downloaded stars by number: HIP 12345, HD 12345, TYC 1234-567-1
   const number = /^(hip|hd)(\d+)$/.exec(qc), tyc = /^tyc ?(\d+) (\d+) (\d+)$/.exec(q);
   const id = number ? `${number[1].toUpperCase()} ${Number(number[2])}` : tyc && `TYC ${Number(tyc[1])}-${Number(tyc[2])}-${Number(tyc[3])}`;
   const extra = id && !out.some((r) => r.object.name === id || r.object.designations?.includes(id)) && findFaint(frame, id);
   if (extra) out.push({ score: 0, alias: null, object: extra });
   return out.sort((a, b) => a.score - b.score || rank(a.object) - rank(b.object) || (a.object.mag ?? 99) - (b.object.mag ?? 99)).slice(0, limit)
-    .map(({ object, alias }) => ({ name: object.name, alias, type: object.type, alt: object.alt, mag: object.mag }));
+    .map(({ object, alias }) => ({ name: object.name, alias, type: object.type, alt: object.alt, mag: object.mag, ...(object.key ? { key: object.key, availability: object.availability } : {}) }));
 }
 
 export function coelumPreview(model) {

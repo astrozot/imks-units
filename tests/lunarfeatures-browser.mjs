@@ -103,6 +103,59 @@ try {
   await page.waitForFunction(() => document.querySelector('.coelum-explorer').classList.contains('coelum-has-selection'));
   await page.evaluate(() => { for (let n = 0; n < 15; n++) document.querySelector('[data-action="out"]').click(); });
   await page.waitForFunction(() => !document.querySelector('.coelum-explorer').classList.contains('coelum-has-selection'));
+  // Search results distinguish same-named stars and features, fly to the
+  // surface point, and replace the previous zoom for every target class.
+  const search = page.locator('.coelum-search input');
+  const chooseSearch = async (query, lunar = false) => {
+    await search.fill(query);
+    const results = page.locator('.coelum-results [role="option"]');
+    await (lunar ? results.filter({ hasText: 'Moon feature' }).first() : results.first()).click();
+    await page.waitForTimeout(900);
+    return Number(await page.locator('.coelum-full').getAttribute('data-scale'));
+  };
+  await search.fill('Copernicus');
+  assert.equal((await page.locator('.coelum-result-name').allTextContents()).filter((name) => name === 'Copernicus').length, 2, 'Star and crater both searchable');
+  const lunarScale = await chooseSearch('Copernicus', true);
+  await page.waitForFunction(() => document.querySelector('.coelum-lunar-head h3')?.textContent === 'Copernicus');
+  assert.ok(lunarScale > 60, 'Feature search chooses a useful lunar zoom');
+  const centered = await page.evaluate(() => {
+    const { t, place, skyFrame, skyScene } = window.lunarTest;
+    const svg = document.querySelector('.coelum-full'), box = svg.getBoundingClientRect(), canvas = document.createElement('canvas');
+    canvas.width = box.width; canvas.height = box.height;
+    const scene = skyScene(skyFrame(t, place), box.width, box.height, { atmosphere: false, ground: false, labels: false },
+      { az: Number(svg.dataset.az), alt: Number(svg.dataset.alt), scale: Number(svg.dataset.scale), selected: 'lunar:1296' }, canvas.getContext('2d'));
+    const feature = scene.lunarFeatures.find((f) => f.key === 'lunar:1296');
+    return { distance: Math.hypot(feature.x - box.width / 2, feature.y - box.height / 2), ratio: feature.ellipse.ry / feature.ellipse.rx };
+  });
+  assert.ok(centered.distance < 15, 'Selected feature centered rather than the Moon');
+  const starScale = await chooseSearch('Sirius');
+  assert.ok(starScale < 20 && starScale < lunarScale / 4, 'Star search zooms out from lunar detail');
+  const moonScale = await chooseSearch('Moon');
+  assert.ok(moonScale > starScale && moonScale < lunarScale, 'Moon fits in the viewport');
+  const galaxyScale = await chooseSearch('M31');
+  assert.ok(galaxyScale > starScale && galaxyScale < moonScale, 'Extended deep-sky object gets its own framing');
+  const planetScale = await chooseSearch('Jupiter');
+  assert.ok(planetScale > moonScale, 'Planet search increases zoom for its smaller disk');
+  // Searching a lunar feature from Chart enters Sky and preserves its name
+  // after the flight, even when automatic labels are off.
+  await page.locator('[data-view="chart"]').click();
+  const chartStarScale = await chooseSearch('Sirius');
+  const chartMoonScale = await chooseSearch('Moon');
+  assert.ok(chartMoonScale > chartStarScale, 'Search framing also works in Chart');
+  await chooseSearch('moon Grimaldi', true);
+  assert.equal(await page.locator('.coelum-explorer').getAttribute('data-mode'), 'sky');
+  await page.waitForFunction(() => document.querySelector('.coelum-lunar-head h3')?.textContent === 'Grimaldi');
+  if (process.env.LUNAR_ELLIPSE_SCREENSHOT) await page.screenshot({ path: process.env.LUNAR_ELLIPSE_SCREENSHOT });
+  await search.fill('Tsiolkovskiy');
+  assert.match(await page.locator('.coelum-results').innerText(), /far side/);
+  const farSideScale = await chooseSearch('Tsiolkovskiy', true);
+  assert.ok(farSideScale < lunarScale, 'Unavailable feature frames the whole Moon');
+  assert.equal(await page.locator('.coelum-lunar-head').count(), 0, 'Far-side feature is never highlighted');
+  await page.evaluate(() => window.lunarTest.explorer.setTime(Date.parse('2026-11-09T21:00:00Z') / 1000));
+  await search.fill('Copernicus');
+  assert.match(await page.locator('.coelum-results').innerText(), /not sunlit/);
+  await chooseSearch('Copernicus', true);
+  assert.equal(await page.locator('.coelum-lunar-head').count(), 0, 'Unlit search result is never highlighted');
   assert.deepEqual(errors, []);
   console.log('Lunar feature browser checks passed:', JSON.stringify({ ...summary, tapped: tap.name }));
 } finally {

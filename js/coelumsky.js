@@ -216,7 +216,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       // Surface positions are transformed exactly like the GPU texture.
       // The fallback near-side photograph has no libration, so needs no labels.
       if (textured) lunarFeatures = projectLunarFeatures(disk, q, r, north, W, H,
-        shadowPoint && { ...shadowPoint, umbra: o.shadow.umbra }).filter((f) => {
+        shadowPoint && { ...shadowPoint, umbra: o.shadow.umbra }, view.selected).filter((f) => {
           if (!opts.ground) return true;
           const v = unprojectSky((f.x - cx) / radius, (f.y - cy) / radius, rotation, true);
           return above({ alt: Math.asin(v[2]) / R, az: (Math.atan2(v[0], v[1]) / R + 360) % 360 });
@@ -292,7 +292,9 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const selectedFeature = lunarFeatures.find((f) => f.key === view.selected);
   if (selectedFeature) {
     ctx.save(); ctx.shadowColor = '#08162b'; ctx.shadowBlur = 3;
-    reticle(p, selectedFeature.x, selectedFeature.y, Math.min(20, selectedFeature.radius), LUNAR_COLOR);
+    const e = selectedFeature.ellipse;
+    p.ellipse(e.x, e.y, e.rx, e.ry, e.angle / R, { stroke: '#08162b', width: 3.5 });
+    p.ellipse(e.x, e.y, e.rx, e.ry, e.angle / R, { stroke: LUNAR_COLOR, width: 1.5 });
     ctx.restore();
   }
   return { objects, radius, hitLabels, light, lunarFeatures };
