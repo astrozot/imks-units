@@ -148,37 +148,63 @@ const SKY_MAX = 400;
 const TYPE_ORDER = { star: 'Star', planet: 'Planet', moon: 'Moon', constellation: 'Constellation' };
 let explorers = 0;
 
-// Refresh only this app's shell; downloaded catalogs and user data survive.
-// Fetch everything first so an offline/failed request leaves the cache intact.
-export async function forceAppUpdate(reload = () => location.reload()) {
+// Ask the controlling worker, rather than guessing from old cache names.
+const workerVersion = (worker) => new Promise((resolve) => {
+  if (!worker) return resolve(null);
+  const channel = new MessageChannel();
+  const finish = (version) => { clearTimeout(timer); channel.port1.close(); resolve(version); };
+  const timer = setTimeout(() => finish(null), 1500);
+  channel.port1.onmessage = (event) => finish(event.data);
+  worker.postMessage('version', [channel.port2]);
+});
+const updateReceipt = 'imks-coelum-app-update';
+
+// The worker installs the complete new shell atomically, preserving user data
+// and downloaded catalogs. An unchanged version needs no cache writes/reload.
+export async function forceAppUpdate(reload = () => location.reload(), report = () => {}) {
   const registration = await navigator.serviceWorker?.getRegistration();
   if (!registration) throw new Error('App updates are unavailable in this browser.');
-  await registration.update();
-  const worker = registration.installing || registration.waiting;
-  if (worker && worker.state !== 'activated') await new Promise((resolve, reject) => {
-    const finish = (error) => {
-      clearTimeout(timer); worker.removeEventListener('statechange', check);
-      if (error) reject(error); else resolve();
-    };
-    const check = () => {
-      if (worker.state === 'activated') finish();
-      else if (worker.state === 'redundant') finish(new Error('App update failed.'));
-    };
-    const timer = setTimeout(() => finish(new Error('App update timed out.')), 60000);
-    worker.addEventListener('statechange', check); check();
-  });
+  const current = await workerVersion(navigator.serviceWorker.controller || registration.active);
+  report(`Current version: ${current || 'unknown'}. Checking for updates…`);
+  const response = await fetch(registration.active?.scriptURL || registration.installing?.scriptURL, { cache: 'no-store' });
+  if (!response.ok) throw new Error('Cannot check for updates. Try again when online.');
+  const source = await response.text();
+  // The shared worker derives its cache name from its registration scope.
+  const build = /const CACHE = `\$\{APP\}-v(\d+)`/.exec(source)?.[1];
+  if (!build || !current) throw new Error('Cannot determine the app version. Try again when online.');
   const prefix = new URL(registration.scope).pathname.endsWith('/coelum/') ? 'coelum-v' : 'imks-v';
-  const names = (await caches.keys()).filter((name) => name.startsWith(prefix));
-  for (const name of names) {
-    const cache = await caches.open(name), requests = await cache.keys();
-    const fresh = await Promise.all(requests.map(async (request) => {
-      const response = await fetch(request, { cache: 'no-store' });
-      if (!response.ok) throw new Error('Cannot update the app. Try again when online.');
-      return response;
-    }));
-    await Promise.all(requests.map((request, i) => cache.put(request, fresh[i])));
+  const latest = prefix + build;
+  if (latest === current) {
+    report(`Current version: ${current}. Up to date; no update required.`);
+    return;
   }
-  reload();
+  report(`Current version: ${current}. Update required: ${latest}. Downloading…`);
+  // Keep the result across a reload, including hosts that reload on activation.
+  try { sessionStorage.setItem(updateReceipt, JSON.stringify({ current, latest })); } catch { /* private mode */ }
+  try {
+    await registration.update();
+    const worker = registration.installing || registration.waiting;
+    if (worker && worker.state !== 'activated') await new Promise((resolve, reject) => {
+      const finish = (error) => {
+        clearTimeout(timer); worker.removeEventListener('statechange', check);
+        if (error) reject(error); else resolve();
+      };
+      const check = () => {
+        if (worker.state === 'activated') finish();
+        else if (worker.state === 'redundant') finish(new Error('App update failed.'));
+      };
+      const timer = setTimeout(() => finish(new Error('App update timed out.')), 60000);
+      worker.addEventListener('statechange', check); check();
+    });
+    const installed = await workerVersion(registration.active);
+    if (installed !== latest) throw new Error('App update did not install. Try again when online.');
+    report(`Updated from ${current}. New version: ${installed}. Restarting…`);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    reload();
+  } catch (error) {
+    try { sessionStorage.removeItem(updateReceipt); } catch { /* private mode */ }
+    throw error;
+  }
 }
 
 // Kept separate from calculator state: exploring never changes the saved
@@ -266,7 +292,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <button type="button" class="coelum-btn coelum-btn-text" data-action="faster" aria-label="Increase playback speed (about double)" title="Increase playback speed (about double)">×2</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="forward" aria-label="One hour later" title="One hour later">+1 h</button>
         <button type="button" class="coelum-btn" data-action="reverse" aria-pressed="false" aria-label="Reverse playback direction" title="Reverse playback direction">${ICONS.reverse}</button>
-        <button type="button" class="coelum-btn" data-action="reset" aria-label="Back to the original time, place and view" title="Back to the original time, place and view · Hold to update the app">${ICONS.reset}</button>
+        <button type="button" class="coelum-btn" data-action="reset" aria-label="Back to the original time, place and view" title="Back to the original time, place and view · Hold to check for app updates">${ICONS.reset}</button>
         <button type="button" class="coelum-btn" data-action="orient" aria-pressed="false" aria-label="Follow the phone's orientation" title="Follow the phone's orientation"${orientationSupported() ? '' : ' hidden'}>${ICONS.orient}</button>
       </div>
     </div>
@@ -735,7 +761,16 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // updates only change attitude; rendering stays on requestAnimationFrame.
   const toast = $('.coelum-toast');
   let toastTimer = 0;
-  const say = (text) => { toast.textContent = text; toast.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.hidden = true; }, 4000); };
+  const say = (text, ms = 4000) => { toast.textContent = text; toast.hidden = false; clearTimeout(toastTimer); if (ms) toastTimer = setTimeout(() => { toast.hidden = true; }, ms); };
+  try {
+    const receipt = JSON.parse(sessionStorage.getItem(updateReceipt) || 'null');
+    if (receipt) {
+      sessionStorage.removeItem(updateReceipt);
+      workerVersion(navigator.serviceWorker?.controller).then((version) => {
+        if (version === receipt.latest) say(`Updated from ${receipt.current}. New version: ${version}.`, 10000);
+      });
+    }
+  } catch { /* storage unavailable */ }
   let orient = null, orientationRequest = 0, phoneLevel = false;
   try { phoneLevel = localStorage.getItem('imks-phone-level') === 'true'; } catch { /* private mode */ }
   $('[data-orient-level]').checked = phoneLevel;
@@ -959,8 +994,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     resetTimer = setTimeout(async () => {
       resetHeld = true; cancelResetHold();
       if (updating || !root.isConnected) return;
-      updating = true; say('Updating the app…');
-      try { await (options.updateApp || forceAppUpdate)(); }
+      updating = true; say('Checking for app updates…', 0);
+      try { await (options.updateApp || forceAppUpdate)(undefined, (message) => say(message, /Checking|Downloading/.test(message) ? 0 : 10000)); }
       catch (error) { say(error.message || 'Cannot update the app. Try again when online.'); }
       finally { updating = false; }
     }, 800);

@@ -856,19 +856,16 @@ try {
   const appRefresh = await page.evaluate(async () => {
     const { forceAppUpdate } = await import('./js/coelumui.js');
     const reg = await navigator.serviceWorker.ready;
-    const name = (await caches.keys()).find((key) => key.startsWith('imks-v'));
-    const cache = await caches.open(name), request = new Request(new URL('js/coelumui.js', location.href));
-    await cache.put(request, new Response('stale test content'));
     const data = await caches.open('imks-data-update-test');
     await data.put(new Request(new URL('saved-catalog', location.href)), new Response('keep me'));
     let reloads = 0;
-    await forceAppUpdate(() => reloads++);
-    const refreshed = await (await cache.match(request)).text();
+    const reports = [];
+    await forceAppUpdate(() => reloads++, (message) => reports.push(message));
     const saved = await (await data.match(new URL('saved-catalog', location.href))).text();
     await caches.delete('imks-data-update-test');
-    return { reloads, refreshed: refreshed.includes('export async function forceAppUpdate'), saved };
+    return { reloads, upToDate: /Current version: imks-v\d+.*no update required/.test(reports.at(-1)), saved };
   });
-  assert.deepEqual(appRefresh, { reloads: 1, refreshed: true, saved: 'keep me' });
+  assert.deepEqual(appRefresh, { reloads: 0, upToDate: true, saved: 'keep me' });
   // Atmosphere suppression respects both directions, the exact day/s
   // boundary, pausing, slowing down and the user's disabled preference.
   const atmosphere = await page.evaluate(async () => {
