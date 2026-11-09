@@ -6,7 +6,7 @@
 // working offline. Caches named imks-data… hold downloads the user asked
 // for (coelum's fainter stars) and survive updates.
 const APP = new URL(self.registration.scope).pathname.endsWith("/coelum/") ? "coelum" : "imks";
-const CACHE = `${APP}-v101`;
+const CACHE = `${APP}-v102`;
 const FILES = ["./", "index.html", "styles.css", "js/data.js", "js/unum.js", "js/units.js", "js/interp.js", "js/defs.js", "js/dates.js", "js/calendars.js", "js/sensors.js", "js/vsop87.js", "js/moons.js", "js/moonseries.js", "js/astro.js", "js/skyview.js", "js/coelum.js", "js/coelumsky.js", "js/coelumui.js", "js/phoneorientation.js", "js/skyraster.js", "js/skyhorizon.js", "js/skydata.js", "js/stardata.js", "js/eclipsemap.js", "js/osmmap.js", "js/snapshot.js", "js/coast.js", "js/catalog.js", "js/minorplanets.js", "js/sgp4.js", "js/lookup.js", "js/sky.js", "js/app.js", "js/functionhelp.js", "js/diagnostics.js", "js/eventview.js", "js/eventspanel.js", "js/coelumapp.js", "js/satellites.js", "js/satmags.js", "js/occultations.js", "coelum/", "coelum/index.html", "coelum/manifest.webmanifest", "coelum/icon-180.png", "coelum/icon-192.png", "coelum/icon-512.png", "coelum/icon-maskable-512.png", "img/moon.webp", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "favicon.ico", "favicon-16.png", "favicon-32.png"];
 
 self.addEventListener("install", (ev) => {

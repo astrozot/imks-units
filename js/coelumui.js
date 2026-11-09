@@ -250,7 +250,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       <div class="coelum-moonsview" role="group" aria-label="Moons" hidden>
         <div class="sky-stage coelum-moons-stage"></div>
         <div class="coelum-moons-head"><div><h3 class="coelum-moons-title">Moons</h3><p class="coelum-moons-data"></p></div><button type="button" class="coelum-btn coelum-btn-small" data-action="close-moons" aria-label="Close the moons">${ICONS.close}</button></div>
-        <p class="coelum-moons-note">As in a telescope (north up, east left), at the chart's time. Drag, pinch or double-tap to fit; tap a moon to find it in the sky.</p>
+        <p class="coelum-moons-note">As in a telescope (north up, east left), at the chart's time. Drag, pinch or double-tap to fit<span class="coelum-moons-tap" hidden>; tap a moon to find it in the sky</span>.</p>
       </div>
       <p class="coelum-toast" role="status" aria-live="polite" hidden></p>
       <div class="coelum-panel coelum-legend" id="${id}-legend" role="group" aria-label="Legend" hidden>
@@ -278,6 +278,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results');
   const layers = { chart: { ...DEFAULT_LAYERS }, sky: { ...SKY_LAYERS } };
   const views = { chart: { scale: 1, rotation: [...SKY_IDENTITY] }, sky: null };
+  const labelHistory = { chart: new Map(), sky: new Map() }, gridHistory = { chart: new Map(), sky: new Map() };
   let size = 360, height = 360;
   let place = [...model.place], placeLabel = model.label;
   setMinorBodies(options.minorBodies?.() || []);
@@ -408,7 +409,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     applyLock();
     const view = mark(), F = mountMatrix();
     // the camera in the horizon's frame, for drawing
-    const shown = { ...view, selected, rotation: orient?.tracker.filtered ? phoneCamera() : mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
+    const shown = { ...view, selected, labelHistory: labelHistory[mode], gridHistory: gridHistory[mode], rotation: orient?.tracker.filtered ? phoneCamera() : mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
     if (orient?.tracker.filtered) svg.dataset.rotation = shown.rotation.join(',');
     showRuler(3600 / (mode === 'sky' ? skyRadius(size, height, view.scale) * R / 2 : chartRadius(size, height, view.scale) / 90));
     // One canvas under the SVG. The chart moves on it (playback, drags,
@@ -579,6 +580,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const stage = $('.coelum-moons-stage');
     stage.innerHTML = '<canvas class="sky-canvas"></canvas><svg class="sky-svg sky-full" role="img"></svg>';
     const sky = moonSystem(planet, t), name = planet[0].toUpperCase() + planet.slice(1);
+    $('.coelum-moons-tap').hidden = planet === 'mars' || !sky.moons.length;
     stage.querySelector('svg').setAttribute('aria-label', `${name} and its moons`);
     $('.coelum-moons-title').textContent = hasMoons({ body: planet }) ? `Moons of ${name}` : name;
     showPanel(null);

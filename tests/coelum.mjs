@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createCalculator } from '../js/defs.js';
-import { PLAYBACK_SPEEDS, stepPlaybackSpeed, formatPlaybackSpeed, playbackBodyVisible, SOLAR_BODIES, skyFrame, createSkyAnimator, skyChart, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
+import { PLAYBACK_SPEEDS, stepPlaybackSpeed, formatPlaybackSpeed, playbackBodyVisible, SOLAR_BODIES, lookAt, skyFrame, createSkyAnimator, skyChart, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
 import { horizontal, siderealTime } from '../js/astro.js';
 import { STARS } from '../js/catalog.js';
 import { CONSTELLATIONS } from '../js/skydata.js';
@@ -108,19 +108,31 @@ for (const [rate, label] of [[1, '1×'], [0.025, '0.025×'], [14000, '14k×'], [
 assert.equal(playbackBodyVisible('moon', 27.32 * 86400 - 1), true);
 assert.equal(playbackBodyVisible('moon', 27.32 * 86400), false);
 assert.equal(playbackBodyVisible('moon', -27.32 * 86400), false);
+assert.equal(playbackBodyVisible('sun', 365.256 * 86400 - 1), true);
+assert.equal(playbackBodyVisible('sun', 365.256 * 86400), false);
 let previous = Infinity;
 for (const rate of [60, 3e6, 1e7, 2e7, 6e7, 4e8, 1e9, 3e9, 6e9, 1e11]) {
   for (const sign of [1, -1]) {
     const animate = createSkyAnimator(origin, model.coelum.place, {}, sign * rate);
     for (const offset of [0, sign * 123456]) {
-      const frame = animate(origin + offset), names = frame.bodies.map((o) => o.body);
+      const frame = animate(origin + offset), names = frame.bodies.filter((o) => !o.hidden).map((o) => o.body);
       assert.deepEqual(names.filter((b) => SOLAR_BODIES.includes(b)), SOLAR_BODIES.filter((b) => playbackBodyVisible(b, rate)));
       assert.ok(names.length <= previous || sign < 0);
       const chart = skyChart(frame, 360, 360);
       assert.ok(!/NaN|Infinity|undefined/.test(chart.svg));
     }
   }
-  previous = createSkyAnimator(origin, model.coelum.place, {}, rate)(origin).bodies.length;
+  previous = createSkyAnimator(origin, model.coelum.place, {}, rate)(origin).bodies.filter((o) => !o.hidden).length;
+}
+// A Sun centered on the chart has no disk, label or hit target above
+// the threshold, and returns when slowed/paused, also in reverse.
+for (const rate of [0, 365.256 * 86400 - 1, 365.256 * 86400, -365.256 * 86400, 1e11]) {
+  const frame = createSkyAnimator(origin, model.coelum.place, {}, rate)(origin);
+  const sun = frame.bodies[0];
+  const chart = skyChart(frame, 360, 360, { ground: false }, { rotation: lookAt(sun.az, sun.alt), selected: 'Sun' });
+  assert.equal(chart.objects.some((o) => o.body === 'sun'), playbackBodyVisible('sun', rate));
+  assert.equal(chart.hitLabels.some((o) => o.name === 'Sun'), playbackBodyVisible('sun', rate));
+  assert.equal(chart.svg.includes('#ffcf5a'), playbackBodyVisible('sun', rate), 'The selection marker is hidden too');
 }
 assert.deepEqual(createSkyAnimator(origin, model.coelum.place)(origin).bodies.slice(0, 9).map((o) => o.body), SOLAR_BODIES, 'Normal/paused calculations restore all bodies');
 assert.match(coelumPreview(model.coelum), /Open interactive sky chart/);
@@ -326,5 +338,47 @@ for (const phase of [0, 45, 90, 135, 180]) {
   assert.equal(at('2026-11-24T15:00:00Z'), null);
   const t = Date.parse('2029-12-20T22:42:00Z') / 1000, live = createSkyAnimator(t, milan, {})(t + 30).bodies[1].shadow;
   assert.ok(live && live.d + 1 < live.umbra);
+}
+
+
+// Animation labels retain a collision-free side after a neighbor moves away.
+// Small motions around a collision boundary must not make them switch back.
+{
+  const { placeLabels, gridLabelAt } = await import('../js/coelum.js');
+  const history = new Map();
+  const layout = (block) => {
+    let position;
+    placeLabels([{ name: 'Alcyone', x: 100, y: 100, r: 2, priority: 2 }], {
+      W: 400, H: 300, size: 14, history,
+      symbols: block ? [{ x: 125, y: 82, radius: 5 }] : [],
+      draw: (_, x, y) => { position = [x, y]; },
+    });
+    return position;
+  };
+  const displaced = layout(true);
+  assert.ok(displaced[1] > 100);
+  for (let i = 0; i < 40; i++) assert.deepEqual(layout(i % 2 === 0), displaced, 'No alternating sides at a collision');
+  // A real obstruction still forces a new placement.
+  let moved;
+  placeLabels([{ name: 'Alcyone', x: 100, y: 100, r: 2, priority: 2 }], {
+    W: 400, H: 300, size: 14, history, symbols: [{ x: 125, y: 118, radius: 5 }],
+    draw: (_, x, y) => { moved = [x, y]; },
+  });
+  assert.ok(moved && moved[1] < 100);
+  const visible = () => true;
+  let previous = null;
+  for (let i = 0; i < 40; i++) {
+    const delta = i % 2 ? 0.01 : -0.01;
+    // Two branches, each with vertices straddling the label band.
+    const points = [{ x: 100, y: 220 + delta }, { x: 110, y: 248 + delta },
+      { x: 300, y: 248 - delta }, { x: 310, y: 220 - delta }];
+    const q = gridLabelAt({ parallel: false, points }, 400, 300, visible, previous);
+    assert.ok(Math.abs(q.y - 234) < 1e-9, 'RA label interpolates to its band');
+    assert.ok(q.x < 120, 'RA label stays on the same branch');
+    previous = q;
+  }
+  const q = gridLabelAt({ parallel: true, points: [{ x: -10, y: 80 }, { x: 30, y: 100 }] }, 400, 300, visible);
+  assert.equal(q.x, 6, 'Parallel label slides along the viewport edge');
+  assert.equal(q.y, 88);
 }
 console.log('Coelum geometry, catalogs and calculator checks passed');

@@ -34,7 +34,7 @@ export function formatPlaybackSpeed(rate) {
 // Sun for daylight; omit minor bodies/satellites with the Moon rather
 // than evaluating their many short or uncertain orbits at extreme rates.
 const ORBIT_DAYS = { moon: 27.32, mercury: 87.97, venus: 224.7, mars: 686.98, jupiter: 4332.59, saturn: 10759.22, uranus: 30688.5, neptune: 60182 };
-export const playbackBodyVisible = (body, rate) => body === 'sun' || Math.abs(rate) < (ORBIT_DAYS[body] ?? ORBIT_DAYS.moon) * 86400;
+export const playbackBodyVisible = (body, rate) => Math.abs(rate) < (body === 'sun' ? 365.256 : ORBIT_DAYS[body] ?? ORBIT_DAYS.moon) * 86400;
 export const DEFAULT_LAYERS = { ground: true, milkyway: true, constellations: true, boundaries: false, ecliptic: true, horizontal: false, equatorial: false, deep: false, minor: false, satellites: true, labels: true, magnitude: 6, labelSize: 14 };
 export const SKY_IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 export const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -152,6 +152,9 @@ function solarBodies(t, place, hor, rate = 0) {
     return { ...p, ...h, name: body[0].toUpperCase() + body.slice(1), body, mag: magnitude(body, t), type: body === 'sun' ? 'star' : body === 'moon' ? 'moon' : 'planet', color: BODY_COLORS[body] };
   });
   bodies[0].bv = 0.65;
+  // Retain the Sun's coordinates for lighting/status, but suppress its
+  // disk, label and selection target once Earth's orbit is too fast.
+  bodies[0].hidden = !playbackBodyVisible('sun', rate);
   for (const m of playbackBodyVisible('minor', rate) ? minorBodies : []) {
     let p, mag;
     try { p = topocentric(m, t, place); mag = magnitude(m, t); } catch { continue; }
@@ -390,14 +393,33 @@ export function skyGrid(kind, frame, center, fov, pxPerDeg) {
 // Where a grid line's label goes: parallels at their leftmost visible
 // point, meridians where they cross a band low in the view (clear of the
 // full-screen controls at the edges).
-export function gridLabelAt(screen, W, H, visible) {
-  let best = null, score = -Infinity;
-  for (const q of screen.points) {
-    if (q.x < 6 || q.x > W - 48 || q.y < 16 || q.y > H - 6 || (!screen.parallel && Math.abs(q.y - 0.78 * H) > 0.1 * H) || !visible(q)) continue;
-    const s = screen.parallel ? -q.x : -Math.abs(q.y - 0.78 * H);
-    if (s > score) { score = s; best = q; }
+export function gridLabelAt(screen, W, H, visible, previous = null) {
+  const candidates = [...screen.points], target = 0.78 * H;
+  // Interpolate crossings instead of snapping to the closest mesh vertex.
+  // Include the viewport edges so labels slide smoothly as lines enter it.
+  for (let i = 1; i < screen.points.length; i++) {
+    const a = screen.points[i - 1], b = screen.points[i];
+    if (Math.hypot(b.x - a.x, b.y - a.y) > Math.max(W, H)) continue;
+    for (const [axis, value] of [['x', 6], ['x', W - 48], ['y', 16], ['y', H - 6], ['y', target]]) {
+      const t = (value - a[axis]) / (b[axis] - a[axis]);
+      if (!(t >= 0 && t <= 1)) continue;
+      const q = { ...a };
+      for (const key of Object.keys(a)) if (typeof a[key] === 'number' && typeof b[key] === 'number') {
+        // Azimuth wraps at north.
+        const d = key === 'az' ? ((b[key] - a[key] + 540) % 360) - 180 : b[key] - a[key];
+        q[key] = a[key] + t * d;
+      }
+      q[axis] = value;
+      candidates.push(q);
+    }
   }
-  return best;
+  const valid = candidates.filter((q) => q.x >= 6 && q.x <= W - 48 && q.y >= 16 && q.y <= H - 6 && (screen.parallel || Math.abs(q.y - target) <= 0.1 * H) && visible(q));
+  const score = (q) => screen.parallel ? q.x : Math.abs(q.y - target);
+  valid.sort((a, b) => score(a) - score(b));
+  if (!valid.length) return null;
+  // A curved meridian can cross the band twice. Keep the same branch.
+  if (previous) return valid.filter((q) => score(q) <= score(valid[0]) + 1e-6).sort((a, b) => Math.hypot(a.x - previous.x, a.y - previous.y) - Math.hypot(b.x - previous.x, b.y - previous.y))[0];
+  return valid[0];
 }
 
 // Optional fainter stars (downloaded by the explorer): an ArrayBuffer of
@@ -589,8 +611,8 @@ export function pen(ctx) {
 
 // Labels in priority order, each at the first free place around its point
 // (important ones further away, with a leader line); returns hit boxes.
-export function placeLabels(labels, { W, H, size, symbols, draw, leader }) {
-  const boxes = [], placed = [];
+export function placeLabels(labels, { W, H, size, symbols, draw, leader, history }) {
+  const boxes = [], placed = [], next = new Map();
   const overlap = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
   for (const l of labels.sort((a, b) => a.priority - b.priority || (a.mag || 0) - (b.mag || 0))) {
     const font = l.size || size, width = measureLabel(l.name, font, l.weight), gap = l.r + 5;
@@ -603,13 +625,23 @@ export function placeLabels(labels, { W, H, size, symbols, draw, leader }) {
     if (l.important) for (let distance = 25; distance <= 100; distance += 25) {
       for (const side of [-1, 1]) candidates.push([l.x + gap, l.y + side * distance], [l.x - gap - width, l.y + side * distance]);
     }
+    const prior = history?.get(l.name);
+    const order = candidates.map((_, i) => i);
+    if (prior !== undefined && prior < candidates.length) {
+      order.splice(order.indexOf(prior), 1); order.unshift(prior);
+    }
     let placement = null;
-    for (const [px, py] of candidates) {
+    for (const index of order) {
+      const [px, py] = candidates[index];
       const x = Math.min(W - width - 6, Math.max(6, px)), y = Math.max(font + 4, Math.min(H - 6, py));
       const box = [x - 3, y - font - 2, x + width + 3, y + 5];
-      if (boxes.some((b) => overlap(box, b))) continue;
-      if (symbols.some((o) => overlap(box, [o.x - o.radius - 2, o.y - o.radius - 2, o.x + o.radius + 2, o.y + o.radius + 2]))) continue;
-      placement = { x, y, box }; break;
+      // New positions need extra clearance; a retained one can approach
+      // its neighbors normally. This prevents toggling at collision edges.
+      const margin = history && index !== prior ? 3 : 0;
+      const clearance = [box[0] - margin, box[1] - margin, box[2] + margin, box[3] + margin];
+      if (boxes.some((b) => overlap(clearance, b))) continue;
+      if (symbols.some((o) => overlap(clearance, [o.x - o.radius - 2, o.y - o.radius - 2, o.x + o.radius + 2, o.y + o.radius + 2]))) continue;
+      placement = { x, y, box }; next.set(l.name, index); break;
     }
     if (!placement) continue;
     const { x, y, box } = placement;
@@ -619,6 +651,7 @@ export function placeLabels(labels, { W, H, size, symbols, draw, leader }) {
     boxes.push(box); draw(l, x, y);
     placed.push({ name: l.name, box });
   }
+  if (history) { history.clear(); for (const [name, index] of next) history.set(name, index); }
   return placed;
 }
 
@@ -804,7 +837,9 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     for (const g of skyGrid(kind, frame, rotation.slice(6, 9), Math.hypot(W, H) / 2 / radius * 90, radius / 90)) {
       if (kind === 'horizontal' && g.parallel && g.value === 0) continue;
       line(g.points, { stroke, width: 0.65 });
-      const q = gridLabelAt({ parallel: g.parallel, points: g.points.map((o) => ({ ...xy(o), alt: o.alt })) }, W, H, (o) => !opts.ground || o.alt >= 0);
+      const key = `${kind}:${g.parallel}:${g.label}`;
+      const q = gridLabelAt({ parallel: g.parallel, points: g.points.map((o) => ({ ...xy(o), alt: o.alt })) }, W, H, (o) => !opts.ground || o.alt >= 0, view.gridHistory?.get(key));
+      if (view.gridHistory) { if (q) view.gridHistory.set(key, q); else view.gridHistory.delete(key); }
       if (q) p.text(q.x + 3, q.y - 4, g.label, ink, 11);
     }
   }
@@ -863,6 +898,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   // Planets; zoomed in, their moons; minor planets and comets on request.
   const pxPerDeg = radius / 90;
   for (const o of frame.bodies) {
+    if (o.hidden) continue;
     const minor = o.body === 'minor' || o.body === 'comet';
     if (o.body === 'satellite' || minor && !opts.minor && o.name !== view.selected) continue;
     const r = o.body === 'sun' || o.body === 'moon' ? 7 : minor ? Math.max(1.6, 3 - o.mag * 0.12) : Math.max(2.2, 4 - o.mag * 0.3), q = add(o, r);
@@ -890,6 +926,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   // Satellites: sunlit, by their magnitude; in the shadow, a ring. The
   // stations are named, and the others brighter than magnitude 1.
   for (const o of frame.bodies) {
+    if (o.hidden) continue;
     if (o.body !== 'satellite' || !opts.satellites && o.name !== view.selected) continue;
     const r = o.lit ? Math.max(1.8, Math.min(3.6, 2.8 - o.mag * 0.3)) : 1.8, q = add(o, r);
     if (!q) continue;
@@ -901,7 +938,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   let hitLabels = [];
   if (opts.labels) {
     hitLabels = placeLabels(labels, {
-      W, H, size: opts.labelSize, symbols,
+      W, H, size: opts.labelSize, symbols, history: view.labelHistory,
       draw: (l, x, y) => p.text(x, y, l.name, l.color, l.size || opts.labelSize),
       leader: (l, x, y) => p.path(`M${f(l.x)},${f(l.y)}L${f(x)},${f(y)}`, { stroke: l.color, width: 0.7 }),
     }).filter((l) => names.has(l.name));
@@ -910,7 +947,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     const q = xy({ alt: -6.5, az }); p.text(q.x, q.y + size / 3, name, color, size, 'middle', c.ground, 700);
   }
   const chosen = findObject(frame, view.selected);
-  if (chosen) {
+  if (chosen && !(chosen.body === 'sun' && chosen.hidden)) {
     const o = objects.find((x) => x.name === chosen.name), q = o || xy(chosen);
     if (Number.isFinite(q.x)) reticle(p, q.x, q.y, o ? o.radius : 3, '#ffcf5a');
   }
@@ -1075,7 +1112,8 @@ export function objectDetails(o) {
     ${o.parallax > 0 ? row('Parallax', `${o.parallax.toFixed(o.parallax < 10 ? 3 : 2)} mas`) + row('Distance', distanceText(1000 / o.parallax)) : ''}
     ${Number.isFinite(o.pmra) && (o.pmra || o.pmdec) ? row('Proper motion', motionText(o.pmra, o.pmdec)) : ''}
     ${o.body && Number.isFinite(o.dist) ? row('Distance', o.dist > 1e7 ? `${(o.dist / 149597870.7).toFixed(3)} au` : `${Math.round(o.dist).toLocaleString('en')} km`) : ''}
-    ${o.body === 'moon' ? row('Illuminated', `${((1 + Math.cos(o.phase * R)) * 50).toFixed(1)} %`) : ''}
+    ${(o.body === 'moon' || o.type === 'planet') && Number.isFinite(o.phase) ? row('Illuminated', `${((1 + Math.cos(o.phase * R)) * 50).toFixed(1)} %`) : ''}
+    ${o.type === 'planet' && Number.isFinite(o.phase) ? row('Phase angle', `${o.phase.toFixed(1)}°`) : ''}
     </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">Equatorial coordinates of date · ${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
 }
 

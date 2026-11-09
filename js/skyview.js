@@ -11,6 +11,9 @@
 // JavaScript, a ray a pixel, after the view stops.
 
 const FLAT = { mars: 0.00589, jupiter: 0.06487, saturn: 0.09796, uranus: 0.02293, neptune: 0.01708 };
+// Keep the inner planets' dark silhouettes to show their crescent phases;
+// blend the other planets' dark limbs into the sky behind them.
+const skyBlend = (planet) => planet === 'venus' || planet === 'mercury' ? 'normal' : 'screen';
 
 // Saturn's rings (planet radii): from, to, opacity, color (C, B, the
 // Cassini division, A)
@@ -656,7 +659,7 @@ function planetImage(sky, W, H, cx, cy, s, k) {
     const ctx = canvas.getContext("2d");
     ctx.putImageData(planetPixels(ctx, sky, x0, y0, w, h, s * k), 0, 0);
   }
-  return `<image href="${canvas.toDataURL()}" x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${(w / k).toFixed(1)}" height="${(h / k).toFixed(1)}"/>`;
+  return `<image style="mix-blend-mode:${skyBlend(sky.planet)}" href="${canvas.toDataURL()}" x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${(w / k).toFixed(1)}" height="${(h / k).toFixed(1)}"/>`;
 }
 
 // a round length for the scale, about a fifth of the width, in arcseconds
@@ -736,6 +739,7 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
   // the planet sharp for the view, and the canvas back in place
   const sharp = () => {
     const was = gpu;
+    canvas.style.mixBlendMode = skyBlend(sky.planet);
     gpu = drawPlanet(canvas, sky, W, H, v.cx, v.cy, v.s, quick && !gpu ? 1 : k());
     // the moons are traced too: their circles go
     if (gpu !== was) overlay();

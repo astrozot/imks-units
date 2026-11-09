@@ -151,7 +151,7 @@ try {
   await page.locator('[data-action="reverse"]').click();
   // Exercise the complete rounded ladder through the actual controls.
   const speedSteps = await page.evaluate(async () => {
-    const { PLAYBACK_SPEEDS, skyFrame } = await import('./js/coelum.js');
+    const { PLAYBACK_SPEEDS, skyFrame, lookAt } = await import('./js/coelum.js');
     const { skyScene } = await import('./js/coelumsky.js');
     const click = (action) => document.querySelector(`[data-action="${action}"]`).click();
     const rate = () => Number(document.querySelector('[data-speed]').dataset.rate);
@@ -162,7 +162,11 @@ try {
     // The realistic sky can render without a Moon or any planets.
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = 360;
     const f = skyFrame(Date.parse('2026-11-06T21:00:00Z') / 1000, [41.892, 12.511, 20], rate());
-    skyScene(f, 360, 360, {}, { az: 180, alt: 40, scale: 1 }, canvas.getContext('2d'));
+    const sun = f.bodies[0], view = { rotation: lookAt(sun.az, sun.alt), scale: 1, selected: 'Sun' };
+    const fast = skyScene(f, 360, 360, { ground: false, atmosphere: false }, view, canvas.getContext('2d'));
+    if (fast.objects.some((o) => o.body === 'sun') || fast.hitLabels.some((o) => o.name === 'Sun')) throw new Error('Sun drawn at extreme speed');
+    const paused = skyScene(skyFrame(f.t, f.place), 360, 360, { ground: false, atmosphere: false }, view, canvas.getContext('2d'));
+    if (!paused.objects.some((o) => o.body === 'sun')) throw new Error('Sun not restored when paused');
     while (rate() > 60) click('slower');
     return { down, up, label, expected: PLAYBACK_SPEEDS.slice(1) };
   });
@@ -656,9 +660,14 @@ try {
   assert.equal(await page.locator('.coelum-moonsview').isVisible(), false);
   assert.equal(await page.locator('.coelum-explorer').evaluate((e) => e.classList.contains('coelum-immersive')), wasFull);
   // Wake the controls before requesting another close-up.
-  await page.locator('.coelum-moons-button').focus();
+  await page.locator('.coelum-explorer').dispatchEvent('pointermove', { pointerType: 'mouse' });
   await page.locator('.coelum-moons-button').click();
-  const moon = await page.locator('.coelum-moons-stage circle.sky-moon:not(.off)').first().boundingBox();
+  await page.waitForFunction(() => !document.querySelector('.coelum-moonsview').hidden);
+  // Once textures load, the GPU draws the moons and removes their SVG
+  // circles. The adjacent label remains a stable point within tap range.
+  const ioLabel = page.locator('.coelum-moons-stage .sky-label').filter({ hasText: /^Io$/ });
+  await ioLabel.waitFor({ state: 'visible' });
+  const moon = await ioLabel.boundingBox();
   await page.mouse.click(moon.x + moon.width / 2, moon.y + moon.height / 2);
   await page.waitForFunction(() => /^(Io|Europa|Ganymede|Callisto)$/.test(document.querySelector('.coelum-object-head h3')?.textContent));
   assert.equal(await page.locator('.coelum-moonsview').isVisible(), false);
