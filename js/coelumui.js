@@ -9,7 +9,8 @@ import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
 import { storedHorizon, computeHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
 import { skyView as moonSystem } from './sky.js';
-import { moonsView } from './skyview.js';
+import { moonsView, planetMap } from './skyview.js';
+import { pickLunarFeature, lunarFeatureDetails } from './lunarfeatures.js';
 
 // Optional fainter stars, from AT-HYG like the built-in ones
 // (tools/stars.mjs): files of the app downloaded when asked, kept in a
@@ -365,12 +366,15 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     syncOrientationUI();
     if (!force && now - lastUI < 200) return;
     lastUI = now;
+    // A feature selection disappears with its illumination, visibility or zoom.
+    const feature = drawn?.lunarFeatures?.find((f) => f.key === selected);
+    if (selected?.startsWith('lunar:') && !feature) { selected = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; }
     root.classList.toggle('coelum-has-selection', Boolean(selected));
     const sun = frame.bodies[0].alt, condition = sun >= 0 ? 'Daylight' : sun >= -6 ? 'Civil twilight' : sun >= -12 ? 'Nautical twilight' : sun >= -18 ? 'Astr. twilight' : 'Night';
     statusTime.textContent = formatTime(t); statusPlace.textContent = placeLabel; statusCondition.textContent = ` · ${condition} · Sun ${sun.toFixed(1)}°`;
     if (selected) {
       const o = findObject(frame, selected);
-      const html = o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
+      const html = feature ? lunarFeatureDetails(feature) : o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
       // unchanged, the card stays (a tap on its button is not lost)
       if (html && html !== detailHTML) detail.innerHTML = detailHTML = html;
     }
@@ -383,7 +387,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (mode === 'sky') { svg.dataset.az = view.az.toFixed(3); svg.dataset.alt = view.alt.toFixed(3); }
     return view;
   };
-  let pending = 0;
+  let pending = 0, moonMapWatched = false;
   // The lock: the object stays where it is on the screen as time runs (the
   // view turns with it); drags and flights move it, and it stays where they
   // leave it (its place in the camera's frame, or on the sky view's
@@ -451,6 +455,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     } else {
       drawn = skyChart(frame, size, height, layers.chart, { ...shown, backdrop: ctx });
       svg.innerHTML = drawn.svg;
+    }
+    if (mode === 'sky' && view.scale > 20 && !moonMapWatched) {
+      moonMapWatched = true;
+      planetMap('moon')?.ready.then(() => { if (root.isConnected && mode === 'sky' && !playing) draw(); });
     }
     canvas.dataset.content = onCanvas ? 'scene' : 'backdrop';
     canvas.dataset.atmosphere = String(mode === 'sky' && atmosphereOn());
@@ -1194,7 +1202,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         const label = drawn.hitLabels.find(({ box }) => p.x >= box[0] && p.x <= box[2] && p.y >= box[1] && p.y <= box[3]);
         // A symbol right under the finger wins over a label lying on it.
         const direct = nearby[0] && nearby[0].d <= nearby[0].o.radius + 2 ? nearby[0].o.name : null;
-        select(direct || label?.name || nearby[0]?.o.name || null);
+        const lunarDisk = drawn.objects.find((o) => o.body === 'moon');
+        const onMoon = lunarDisk && Math.hypot(p.x - lunarDisk.x, p.y - lunarDisk.y) <= lunarDisk.radius;
+        const feature = label?.name.startsWith('lunar:') ? label.name : onMoon && pickLunarFeature(drawn.lunarFeatures, p.x, p.y)?.key;
+        select(feature || direct || label?.name || nearby[0]?.o.name || null);
         lastTap = { time: performance.now(), x: p.x, y: p.y };
         draw();
       }

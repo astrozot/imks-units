@@ -2,10 +2,11 @@
 // sky's colour with the time of day, stars dimmed by twilight, moonlight and
 // extinction, the Milky Way, the Sun's glare, the textured Moon with its
 // phase, and a landscape in front. Always drawn on a canvas.
-import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
+import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
-import { covered, tracePlanet, planetMap } from './skyview.js';
+import { covered, tracePlanet, planetMap, earthshineBrightness } from './skyview.js';
 import { moonDisk } from './astro.js';
+import { projectLunarFeatures, LUNAR_COLOR } from './lunarfeatures.js';
 
 const SOLID = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const FLAT = () => 0;
@@ -175,6 +176,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (r) objects.push(new FaintHit(i, q.x, q.y, r));
   }, { v: rotation.slice(6, 9), radius: 2 * Math.atan(Math.hypot(W, H) / 2 / radius) + 0.03 });
   const moonsOf = [];
+  let lunarFeatures = [];
   for (const o of frame.bodies) {
     if (o.hidden) continue;
     const minor = o.body === 'minor' || o.body === 'comet';
@@ -208,7 +210,17 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       ctx.restore();
     } else if (o.body === 'moon') {
       r = diskOf(o, pxPerRad);
-      drawMoon(ctx, o, q, r, xy(o.light), xy(o.north), light, opts.atmosphere, o.shadow && xy(o.shadow.center), { t: frame.t, W, H });
+      const northPoint = xy(o.north), shadowPoint = o.shadow && xy(o.shadow.center);
+      const disk = moonDisk(frame.t, o), north = Math.atan2(northPoint.y - q.y, northPoint.x - q.x) + Math.PI / 2;
+      const textured = drawMoon(ctx, o, q, r, xy(o.light), northPoint, light, opts.atmosphere, shadowPoint, { t: frame.t, W, H }, disk);
+      // Surface positions are transformed exactly like the GPU texture.
+      // The fallback near-side photograph has no libration, so needs no labels.
+      if (textured) lunarFeatures = projectLunarFeatures(disk, q, r, north, W, H,
+        shadowPoint && { ...shadowPoint, umbra: o.shadow.umbra }).filter((f) => {
+          if (!opts.ground) return true;
+          const v = unprojectSky((f.x - cx) / radius, (f.y - cy) / radius, rotation, true);
+          return above({ alt: Math.asin(v[2]) / R, az: (Math.atan2(v[0], v[1]) / R + 360) % 360 });
+        });
     } else {
       r = point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), BODY_RGB[o.body], q);
       if (!r) continue;
@@ -254,13 +266,20 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   ctx.font = fontFor(11); ctx.textAlign = 'left'; ctx.shadowColor = '#000c'; ctx.shadowBlur = 3;
   for (const [q, text, color, alpha] of gridLabels) { ctx.globalAlpha = Math.min(1, 1.8 * alpha); ctx.fillStyle = color; ctx.fillText(text, q.x + 3, q.y - 4); }
   ctx.globalAlpha = 1; ctx.shadowBlur = 0;
-  const symbols = objects.filter((o) => o.body), names = new Set(objects.map((o) => o.name));
+  for (const feature of lunarFeatures) if (feature.label || feature.key === view.selected) {
+    labels.push({ ...feature, size: opts.labelSize, color: LUNAR_COLOR, r: 2, priority: feature.key === view.selected ? -1 : 2, mag: -feature.diameter, key: feature.key });
+  }
+  const symbols = objects.filter((o) => o.body && !(o.body === 'moon' && lunarFeatures.length)), names = new Set([...objects.map((o) => o.name), ...lunarFeatures.map((f) => f.key)]);
   let hitLabels = [];
-  if (opts.labels) {
+  if (opts.labels || lunarFeatures.some((f) => f.key === view.selected)) {
     ctx.shadowColor = '#000c'; ctx.shadowBlur = 3;
-    hitLabels = placeLabels(labels, {
+    hitLabels = placeLabels(opts.labels ? labels : labels.filter((l) => l.key === view.selected), {
       W, H, size: opts.labelSize, symbols, history: view.labelHistory,
-      draw: (l, x, y) => { ctx.font = fontFor(l.size || opts.labelSize); ctx.textAlign = 'left'; ctx.fillStyle = l.color; ctx.fillText(l.name, x, y); },
+      draw: (l, x, y) => {
+        ctx.font = fontFor(l.size || opts.labelSize); ctx.textAlign = 'left';
+        if (l.key?.startsWith('lunar:')) { ctx.strokeStyle = '#08162b'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeText(l.name, x, y); }
+        ctx.fillStyle = l.color; ctx.fillText(l.name, x, y);
+      },
       leader: (l, x, y) => { ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(x, y); ctx.strokeStyle = l.color; ctx.globalAlpha = 0.6; ctx.lineWidth = 0.7; ctx.stroke(); ctx.globalAlpha = 1; },
     }).filter((l) => names.has(l.name));
     ctx.shadowBlur = 0;
@@ -270,7 +289,13 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     const o = objects.find((x) => x.name === chosen.name), q = o || xy(chosen);
     if (o || q.z > -0.2) reticle(p, q.x, q.y, o ? o.radius : 3, '#ffe9a8');
   }
-  return { objects, radius, hitLabels, light };
+  const selectedFeature = lunarFeatures.find((f) => f.key === view.selected);
+  if (selectedFeature) {
+    ctx.save(); ctx.shadowColor = '#08162b'; ctx.shadowBlur = 3;
+    reticle(p, selectedFeature.x, selectedFeature.y, Math.min(20, selectedFeature.radius), LUNAR_COLOR);
+    ctx.restore();
+  }
+  return { objects, radius, hitLabels, light, lunarFeatures };
 }
 
 // A planet's disk with its phase (the night side faint), darker toward the
@@ -315,7 +340,7 @@ function moonDim(o) {
 // screen, turned with celestial north, its light added to the sky's.
 // False without WebGL (or before its map is loaded).
 const moonCanvas = typeof document === 'undefined' ? null : document.createElement('canvas');
-function traceMoon(ctx, o, q, r, north, { t, W, H }, earthshine, alpha) {
+function traceMoon(ctx, disk, q, r, north, { W, H }, alpha) {
   if (!moonCanvas || r < 10 || !planetMap('moon')?.img) return false;
   // the screen's corners in the Moon's frame (north up)
   const c = Math.cos(north), s = Math.sin(north), xs = [], ys = [];
@@ -323,7 +348,7 @@ function traceMoon(ctx, o, q, r, north, { t, W, H }, earthshine, alpha) {
   const L = Math.max(-r, Math.min(...xs)), Rt = Math.min(r, Math.max(...xs)), T = Math.max(-r, Math.min(...ys)), B = Math.min(r, Math.max(...ys));
   if (Rt <= L || B <= T) return true;
   const k = Math.min(2, window.devicePixelRatio || 1), w = Math.ceil((Rt - L) * k), h = Math.ceil((B - T) * k);
-  if (!tracePlanet(moonCanvas, { ...moonDisk(t, o), earthshine }, L / r, -T / r, w, h, r * k)) return false;
+  if (!tracePlanet(moonCanvas, disk, L / r, -T / r, w, h, r * k)) return false;
   ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(north);
   ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha;
   ctx.drawImage(moonCanvas, 0, 0, w, h, L, T, w / k, h / k);
@@ -335,7 +360,7 @@ function traceMoon(ctx, o, q, r, north, { t, W, H }, earthshine, alpha) {
 // and the rest faint with earthshine; paler by day; in a lunar eclipse,
 // the Earth's shadow on it, centered at shadowPoint: the penumbra darker
 // inward, the umbra dark red.
-function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere, shadowPoint = null, screen = null) {
+function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere, shadowPoint = null, screen, disk) {
   const k = Math.cos(o.phase * R), angle = Math.atan2(lightPoint.y - q.y, lightPoint.x - q.x), north = Math.atan2(northPoint.y - q.y, northPoint.x - q.x) + Math.PI / 2;
   const illum = (1 + k) / 2 * moonDim(o), night = 1 - light.day;
   if (atmosphere) {
@@ -344,7 +369,8 @@ function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere, shado
     ctx.drawImage(glow([200, 210, 230]), q.x - s, q.y - s, 2 * s, 2 * s);
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
   }
-  if (!(screen && traceMoon(ctx, o, q, r, north, screen, atmosphere ? 0.03 + 0.04 * night : 0.06, atmosphere ? 0.75 + 0.25 * night : 1))) {
+  const textured = traceMoon(ctx, disk, q, r, north, screen, atmosphere ? 0.75 + 0.25 * night : 1);
+  if (!textured) {
     const lit = new Path2D();
     for (let i = 0; i <= 32; i++) { const a = -Math.PI / 2 + i * Math.PI / 32; lit[i ? 'lineTo' : 'moveTo'](r * Math.cos(a), r * Math.sin(a)); }
     for (let i = 0; i <= 32; i++) { const a = Math.PI / 2 - i * Math.PI / 32; lit.lineTo(-k * r * Math.cos(a), r * Math.sin(a)); }
@@ -356,12 +382,14 @@ function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere, shado
     };
     ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(angle);
     ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.clip();
-    face(atmosphere ? 0.06 + 0.06 * night : 0.1);
+    // Low-resolution fallback uses the same phase/distance brightness;
+    // the detailed shader also lights individual slopes toward Earth.
+    face(Math.min(1, 1.3 * earthshineBrightness(disk)) * (atmosphere ? 0.75 + 0.25 * night : 1));
     ctx.clip(lit);
     face(atmosphere ? 0.75 + 0.25 * night : 1);
     ctx.restore(); ctx.globalAlpha = 1;
   }
-  if (!shadowPoint) return;
+  if (!shadowPoint) return textured;
   const s = o.shadow, P = s.penumbra * r, u = s.umbra / s.penumbra;
   const g = ctx.createRadialGradient(shadowPoint.x, shadowPoint.y, 0, shadowPoint.x, shadowPoint.y, P);
   g.addColorStop(0, 'rgb(62, 20, 10)'); g.addColorStop(u * 0.85, 'rgb(92, 32, 16)'); g.addColorStop(u, 'rgb(122, 52, 30)');
@@ -369,5 +397,6 @@ function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere, shado
   ctx.save(); ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.clip();
   ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = g; ctx.fillRect(q.x - r, q.y - r, 2 * r, 2 * r);
   ctx.restore();
+  return textured;
 }
 

@@ -1668,3 +1668,6 @@ body.coelum-app { background: #000; }
 .coelum-event small { color: var(--c-muted); font-size: 12px; }
 .coelum-event-list > .coelum-chip { justify-self: start; }
 .coelum-sheet-when { margin: 0 0 8px; color: var(--muted); font-size: 14px; }
+
+.coelum-lunar-head h3 { color: #2580c3; }
+.coelum-immersive .coelum-lunar-head h3 { color: #65b9ff; }

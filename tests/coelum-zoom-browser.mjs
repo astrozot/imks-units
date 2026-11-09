@@ -26,7 +26,8 @@ try {
   const result = await page.evaluate(async () => {
     const { skyFrame, lookAt, R } = await import('/js/coelum.js');
     const { skyScene } = await import('/js/coelumsky.js');
-    const { planetMap, moonsView, skySVG } = await import('/js/skyview.js');
+    const { planetMap, moonsView, skySVG, tracePlanet } = await import('/js/skyview.js');
+    const { moonDisk, equatorial, nextPhase } = await import('/js/astro.js');
     const { skyView } = await import('/js/sky.js');
     const check = (ok, message) => { if (!ok) throw new Error(message); };
     const frame = skyFrame(Date.parse('2026-11-24T21:00:00Z') / 1000, [41.892, 12.511, 20]);
@@ -37,6 +38,33 @@ try {
     const layers = { ground: false, atmosphere: false, milkyway: false };
     const lunarFrame = { ...frame, bodies: [frame.bodies[0], moon], stars: [] };
     check(await planetMap('moon').ready, 'Moon texture loaded');
+    // Compare real shader pixels with identical geometry and different
+    // Earth phases/light directions, so sunlight and texture cancel out.
+    const earthCanvas = document.createElement('canvas'), side = 160;
+    const start = Date.UTC(2026, 10, 1) / 1000;
+    const phaseDisk = (phase) => {
+      const t = nextPhase(start, phase);
+      return moonDisk(t, equatorial('moon', t));
+    };
+    const fullEarth = phaseDisk(0), quarterEarth = phaseDisk(90), newEarth = phaseDisk(180);
+    const base = { ...fullEarth, sun: [1, 0, 0], earth: [0, 0, 1] };
+    const pixelsFor = (earthshine, earth = base.earth) => {
+      check(tracePlanet(earthCanvas, { ...base, earthshine, earth }, -1, 1, side, side, side / 2), 'Moon shader compiles and draws');
+      const gl = earthCanvas.getContext('webgl'), pixels = new Uint8Array(side * side * 4);
+      gl.readPixels(0, 0, side, side, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      check(gl.getError() === gl.NO_ERROR, 'Moon shader has no WebGL errors');
+      let sum = 0;
+      for (let y = 48; y < 112; y++) for (let x = 48; x < 112; x++) {
+        const i = (y * side + x) * 4;
+        sum += pixels[i] + pixels[i + 1] + pixels[i + 2];
+      }
+      return sum;
+    };
+    const dark = pixelsFor(0), bright = pixelsFor(fullEarth.earthshine), quarter = pixelsFor(quarterEarth.earthshine), faint = pixelsFor(newEarth.earthshine);
+    check(bright > quarter && quarter > faint && faint >= dark, 'Earthshine pixels follow Earth phase');
+    check(bright - dark > 1000, 'Earthshine is visibly rendered');
+    check(pixelsFor(fullEarth.earthshine, [0, 0, -1]) === dark, 'Slopes facing away from Earth receive no earthlight');
+    const earthlight = { dark, bright, quarter, faint };
     let scene = skyScene(lunarFrame, W, H, layers, { rotation: lookAt(moon.az, moon.alt), scale: 20 }, ctx);
     check(scene.hitLabels.some((l) => l.name === 'Moon'), 'Small Moon retains its label');
     scene = skyScene(lunarFrame, W, H, layers, { rotation: lookAt(moon.az, moon.alt), scale: 100, selected: 'Moon' }, ctx);
@@ -78,7 +106,7 @@ try {
       check(getComputedStyle(stage.querySelector('.sky-canvas')).mixBlendMode === 'normal', `${planet} keeps its silhouette`);
       check(skySVG(inner, W, H, 0, 0, 100).includes('mix-blend-mode:normal'), `${planet} SVG keeps its silhouette`);
     }
-    return { edges };
+    return { edges, earthlight };
   });
   assert.equal(result.edges.length, 4);
   console.log('Coelum high-zoom checks passed:', JSON.stringify(result));

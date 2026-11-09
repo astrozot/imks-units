@@ -73,6 +73,14 @@ function axes(p) {
   const e2 = [p[1] * e1[2] - p[2] * e1[1], p[2] * e1[0] - p[0] * e1[2], p[0] * e1[1] - p[1] * e1[0]];
   return [e1, e2, p];
 }
+// A geographic surface point in the same celestial view frame as the
+// texture shader: west, north, toward observer. This is the inverse of mapAt.
+function surfaceVector(sky, lon, lat) {
+  const [e1, e2, pole] = axes(sky.pole), R = Math.PI / 180;
+  const a = Math.atan2(e2[2], e1[2]) + (lon - sky.facing.lon) * R;
+  const x = Math.cos(lat * R) * Math.cos(a), y = Math.cos(lat * R) * Math.sin(a), z = Math.sin(lat * R);
+  return pole.map((p, k) => x * e1[k] + y * e2[k] + z * p);
+}
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 // The first hit of the ray from o along d (planet axes) on the globe, of
@@ -188,6 +196,12 @@ function planetModel(sky, s) {
   return { planet, f, e1, e2, p, toP, view, light, shadows, bodies, map, sunAngle: SUN_ANGLE[planet] || 0, sat: planet === "saturn", litFace: Math.sign(light[2]) === Math.sign(view[2]) };
 }
 
+// Display exposure for faint earthlight, separate from the physical
+// irradiance returned by moonDisk. Approximates low-light visual adaptation;
+// phase/distance ratios are preserved, with no constant night-side floor.
+const EARTHSHINE_EXPOSURE = 500;
+const earthshineBrightness = (sky) => EARTHSHINE_EXPOSURE * (sky.earthshine ?? 0);
+
 // The pixels of the planet, for the context ctx: the part of the sky from
 // (x0, y0) (the top left corner, planet radii) over w × h pixels of scale s
 // (pixels per radius)
@@ -295,6 +309,7 @@ uniform vec2 ringEdges[4];
 uniform sampler2D surface, heights;
 uniform bool mapped, zones, lunar, relief;
 uniform float earthshine;
+uniform vec3 earth;
 uniform vec2 lon0, u0;
 
 vec2 hitGlobe(vec3 o, vec3 d, out bool hit) {
@@ -366,7 +381,11 @@ vec3 lunarColor(vec3 q) {
     }
     lit *= mix(1.0, clamp(0.5 + 0.5 * seen, 0.0, 1.0), edge);
   }
-  return albedo * (lit + earthshine);
+  // The Earth is a second, directional light source, using the same lunar
+  // scattering law as sunlight. Slopes facing away from Earth receive none.
+  float muE = dot(n, earth);
+  float earthlit = muE > 0.0 ? min(1.6, 2.6 * muE / (muE + mu + 1e-4)) : 0.0;
+  return albedo * (lit + earthshine * earthlit);
 }
 vec3 bandColor(float lat) {
   vec3 c = bands[0].yzw;
@@ -492,7 +511,7 @@ function planetProgram(gl) {
   gl.enableVertexAttribArray(at);
   gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
   const u = {};
-  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "relief", "earthshine", "moonsAt", "moonsLook", "nMoons", "near"]) u[name] = gl.getUniformLocation(prog, name);
+  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "relief", "earthshine", "earth", "moonsAt", "moonsLook", "nMoons", "near"]) u[name] = gl.getUniformLocation(prog, name);
   gl.uniform4fv(u.rings, RINGS.flatMap(([, , a, c]) => [...c.map((x) => x / 255), a]));
   gl.uniform2fv(u.ringEdges, RINGS.flatMap(([a, b]) => [a, b]));
   return u;
@@ -598,7 +617,8 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s) {
   const lunar = m.planet === "moon" && Boolean(m.map), hm = lunar && m.map.e.heights;
   gl.uniform1i(u.lunar, lunar ? 1 : 0);
   gl.uniform1i(u.relief, hm ? 1 : 0);
-  gl.uniform1f(u.earthshine, sky.earthshine ?? 0.03);
+  gl.uniform1f(u.earthshine, earthshineBrightness(sky));
+  gl.uniform3fv(u.earth, sky.earth ? m.toP(sky.earth) : m.view);
   if (hm) {
     gl.activeTexture(gl.TEXTURE1);
     let tex = r.textures.get("moon:heights");
@@ -851,4 +871,4 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
   };
 }
 
-export { skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap };
+export { surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap };

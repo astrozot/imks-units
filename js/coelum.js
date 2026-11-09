@@ -615,6 +615,7 @@ export function placeLabels(labels, { W, H, size, symbols, draw, leader, history
   const boxes = [], placed = [], next = new Map();
   const overlap = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
   for (const l of labels.sort((a, b) => a.priority - b.priority || (a.mag || 0) - (b.mag || 0))) {
+    const key = l.key || l.name;
     const font = l.size || size, width = measureLabel(l.name, font, l.weight), gap = l.r + 5;
     const candidates = [
       [l.x + gap, l.y - gap], [l.x + gap, l.y + gap + font],
@@ -625,7 +626,7 @@ export function placeLabels(labels, { W, H, size, symbols, draw, leader, history
     if (l.important) for (let distance = 25; distance <= 100; distance += 25) {
       for (const side of [-1, 1]) candidates.push([l.x + gap, l.y + side * distance], [l.x - gap - width, l.y + side * distance]);
     }
-    const prior = history?.get(l.name);
+    const prior = history?.get(key);
     const order = candidates.map((_, i) => i);
     if (prior !== undefined && prior < candidates.length) {
       order.splice(order.indexOf(prior), 1); order.unshift(prior);
@@ -641,7 +642,7 @@ export function placeLabels(labels, { W, H, size, symbols, draw, leader, history
       const clearance = [box[0] - margin, box[1] - margin, box[2] + margin, box[3] + margin];
       if (boxes.some((b) => overlap(clearance, b))) continue;
       if (symbols.some((o) => overlap(clearance, [o.x - o.radius - 2, o.y - o.radius - 2, o.x + o.radius + 2, o.y + o.radius + 2]))) continue;
-      placement = { x, y, box }; next.set(l.name, index); break;
+      placement = { x, y, box }; next.set(key, index); break;
     }
     if (!placement) continue;
     const { x, y, box } = placement;
@@ -649,7 +650,7 @@ export function placeLabels(labels, { W, H, size, symbols, draw, leader, history
       leader(l, Math.max(box[0], Math.min(box[2], l.x)), Math.max(box[1], Math.min(box[3], l.y)));
     }
     boxes.push(box); draw(l, x, y);
-    placed.push({ name: l.name, box });
+    placed.push({ name: key, box });
   }
   if (history) { history.clear(); for (const [name, index] of next) history.set(name, index); }
   return placed;

@@ -802,7 +802,21 @@ function moonDisk(t, P) {
   const toView = (v) => [-dot(v, east), dot(v, north), -dot(v, u)];
   const sv = unit(S.ra, S.dec).map((x) => x * S.dist), toSun = u.map((x, k) => sv[k] - x * P.dist), n = Math.hypot(...toSun);
   const pole = unit(a0, d0);
-  return { planet: "moon", t, moons: [], radius: Math.asin(1737.4 / P.dist) / RAD, pole: toView(precessVector(pole, T)), sun: toView(toSun.map((x) => x / n)), facing: { lon: lonBelow(pole, W, P, T) } };
+  // Earthlight: Earth's phase is seen from the Moon, independent of the
+  // observer's location. A Lambert phase curve includes foreshortening of
+  // both illuminated and visible terrain; illuminated fraction alone does not.
+  const M = equatorial("moon", t), em = unit(M.ra, M.dec), es = unit(S.ra, S.dec);
+  const alpha = Math.acos(Math.max(-1, Math.min(1, dot(em, es))));
+  const phase = Math.max(0, (Math.sin(alpha) + (Math.PI - alpha) * Math.cos(alpha)) / Math.PI);
+  const moonSun = Math.hypot(...sv.map((x, k) => x - em[k] * M.dist));
+  // Irradiance relative to direct sunlight at the Moon. Mean Earth radius
+  // (km), geometric albedo (NASA Earth Fact Sheet), inverse-square dilution.
+  // Fixed mean reflectivity: clouds, continents and ocean glint are not resolved.
+  // https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html
+  // Lambert phase: https://doi.org/10.1088/0004-637X/747/1/25
+  const earthshine = 0.434 * phase * (6371 / M.dist) ** 2 * (moonSun / S.dist) ** 2;
+  return { planet: "moon", t, moons: [], radius: Math.asin(1737.4 / P.dist) / RAD, pole: toView(precessVector(pole, T)), sun: toView(toSun.map((x) => x / n)),
+    earth: toView(em.map((x) => -x)), earthshine, facing: { lon: lonBelow(pole, W, P, T) } };
 }
 
 // The planet of a moon, or undefined

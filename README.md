@@ -304,6 +304,20 @@ from NASA's LRO colour map (Scientific Visualization Studio, CGI Moon Kit,
 public domain): `python3 tools/moondisk.py lroc_color_poles_1k.jpg` writes
 it (numpy and Pillow).
 
+At high zoom in Sky, sunlit lunar features appear in blue when Labels is on.
+Tap a feature (also with Labels off) for its name, type, size and coordinates.
+The feature layer starts when the Moon is 240 CSS pixels across; smaller
+features become selectable as their apparent size grows. Features beyond the
+limb, on the night side or inside Earth's umbra are excluded. The detailed
+Moon texture and WebGL renderer are required for surface alignment.
+
+`js/lunardata.js` bundles 9,087 approved IAU/USGS lunar names, including
+lettered craters, from the [Gazetteer of Planetary Nomenclature](https://planetarynames.wr.usgs.gov/Page/MOON/target)
+(LOLA 2011 coordinates). `python3 tools/lunar-features.py <official KMZ>`
+regenerates it. `node tests/lunarfeatures.mjs` checks surface alignment,
+illumination and feature selection; the high-zoom browser tests cover labels
+and taps on the rendered Moon (`node tests/lunarfeatures-browser.mjs`).
+
 `node tests/coelum-app.mjs` checks the Coelum app: its place at the start,
 full screen, the eclipses from a place and anywhere, their sheets and the
 sky then, the satellites and their passes, the occultations, and offline
