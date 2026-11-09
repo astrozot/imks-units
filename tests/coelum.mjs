@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createCalculator } from '../js/defs.js';
-import { skyFrame, createSkyAnimator, skyChart, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
+import { PLAYBACK_SPEEDS, stepPlaybackSpeed, formatPlaybackSpeed, playbackBodyVisible, SOLAR_BODIES, skyFrame, createSkyAnimator, skyChart, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
 import { horizontal, siderealTime } from '../js/astro.js';
 import { STARS } from '../js/catalog.js';
 import { CONSTELLATIONS } from '../js/skydata.js';
@@ -95,6 +95,34 @@ for (const offset of [0, 30, 59.5, 60.1, 3600, 86390, 86430, -600]) {
     assert.ok(Math.hypot(x.x - y.x, x.y - y.y) < 0.00002, `Live ${a.name} at ${offset}s agrees within a fraction of a chart pixel`);
   }
 }
+// Speed steps are reversible, including the rounded transitions and limits.
+assert.deepEqual(PLAYBACK_SPEEDS.slice(0, 22), [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 60, 120, 240, 480, 900, 1800, 3600, 7200, 14000, 28000]);
+for (const [i, speed] of PLAYBACK_SPEEDS.entries()) {
+  for (const sign of [1, -1]) {
+    assert.equal(stepPlaybackSpeed(sign * speed, true), sign * PLAYBACK_SPEEDS[Math.min(i + 1, PLAYBACK_SPEEDS.length - 1)]);
+    assert.equal(stepPlaybackSpeed(sign * speed, false), sign * PLAYBACK_SPEEDS[Math.max(i - 1, 0)]);
+  }
+}
+for (const [rate, label] of [[1, '1×'], [0.025, '0.025×'], [14000, '14k×'], [-28000, '−28k×'], [1800, '1.8k×'], [1.4e6, '1.4M×'], [2.8e9, '2.8G×']]) assert.equal(formatPlaybackSpeed(rate), label);
+// Fast bodies disappear before slower ones, in both time directions.
+assert.equal(playbackBodyVisible('moon', 27.32 * 86400 - 1), true);
+assert.equal(playbackBodyVisible('moon', 27.32 * 86400), false);
+assert.equal(playbackBodyVisible('moon', -27.32 * 86400), false);
+let previous = Infinity;
+for (const rate of [60, 3e6, 1e7, 2e7, 6e7, 4e8, 1e9, 3e9, 6e9, 1e11]) {
+  for (const sign of [1, -1]) {
+    const animate = createSkyAnimator(origin, model.coelum.place, {}, sign * rate);
+    for (const offset of [0, sign * 123456]) {
+      const frame = animate(origin + offset), names = frame.bodies.map((o) => o.body);
+      assert.deepEqual(names.filter((b) => SOLAR_BODIES.includes(b)), SOLAR_BODIES.filter((b) => playbackBodyVisible(b, rate)));
+      assert.ok(names.length <= previous || sign < 0);
+      const chart = skyChart(frame, 360, 360);
+      assert.ok(!/NaN|Infinity|undefined/.test(chart.svg));
+    }
+  }
+  previous = createSkyAnimator(origin, model.coelum.place, {}, rate)(origin).bodies.length;
+}
+assert.deepEqual(createSkyAnimator(origin, model.coelum.place)(origin).bodies.slice(0, 9).map((o) => o.body), SOLAR_BODIES, 'Normal/paused calculations restore all bodies');
 assert.match(coelumPreview(model.coelum), /Open interactive sky chart/);
 // Jupiter and Mars at the reported local time must both have labels, even
 // on a phone and with the optional layers enabled.

@@ -17,6 +17,24 @@ export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 export const vec = (a, d) => [Math.cos(d * R) * Math.cos(a * R), Math.cos(d * R) * Math.sin(a * R), Math.sin(d * R)];
 export const horizontalVector = (alt, az) => [Math.cos(alt * R) * Math.sin(az * R), Math.cos(alt * R) * Math.cos(az * R), Math.sin(alt * R)];
 export const SOLAR_BODIES = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
+// Rounded, reversible playback steps. Beyond two hours/s, keep two
+// significant digits; 100 billion × spans millennia in a second.
+export const PLAYBACK_SPEEDS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 60, 120, 240, 480, 900, 1800, 3600, 7200];
+while (PLAYBACK_SPEEDS.at(-1) < 1e11) PLAYBACK_SPEEDS.push(Math.min(1e11, Number((PLAYBACK_SPEEDS.at(-1) * 2).toPrecision(2))));
+export function stepPlaybackSpeed(rate, faster) {
+  const value = Math.abs(rate), steps = faster ? PLAYBACK_SPEEDS : [...PLAYBACK_SPEEDS].reverse();
+  return Math.sign(rate) * (steps.find((x) => faster ? x > value : x < value) ?? steps.at(-1));
+}
+export function formatPlaybackSpeed(rate) {
+  const value = Math.abs(rate), unit = value >= 1e9 ? 1e9 : value >= 1e6 ? 1e6 : value >= 1e3 ? 1e3 : 1;
+  const suffix = unit === 1e9 ? 'G' : unit === 1e6 ? 'M' : unit === 1e3 ? 'k' : '';
+  return `${rate < 0 ? '−' : ''}${unit === 1 ? value : Number((value / unit).toPrecision(2))}${suffix}×`;
+}
+// Hide bodies completing an orbit in one real second or less. Keep the
+// Sun for daylight; omit minor bodies/satellites with the Moon rather
+// than evaluating their many short or uncertain orbits at extreme rates.
+const ORBIT_DAYS = { moon: 27.32, mercury: 87.97, venus: 224.7, mars: 686.98, jupiter: 4332.59, saturn: 10759.22, uranus: 30688.5, neptune: 60182 };
+export const playbackBodyVisible = (body, rate) => body === 'sun' || Math.abs(rate) < (ORBIT_DAYS[body] ?? ORBIT_DAYS.moon) * 86400;
 export const DEFAULT_LAYERS = { ground: true, milkyway: true, constellations: true, boundaries: false, ecliptic: true, horizontal: false, equatorial: false, deep: false, minor: false, satellites: true, labels: true, magnitude: 6, labelSize: 14 };
 export const SKY_IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 export const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -128,23 +146,25 @@ export function setMinorBodies(extra = []) {
 }
 const isComet = (m) => m.M1 !== undefined;
 
-function solarBodies(t, place, hor) {
-  const bodies = SOLAR_BODIES.map((body) => {
+function solarBodies(t, place, hor, rate = 0) {
+  const bodies = SOLAR_BODIES.filter((body) => body === 'sun' || playbackBodyVisible(body, rate)).map((body) => {
     const p = topocentric(body, t, place), h = hor(p);
     return { ...p, ...h, name: body[0].toUpperCase() + body.slice(1), body, mag: magnitude(body, t), type: body === 'sun' ? 'star' : body === 'moon' ? 'moon' : 'planet', color: BODY_COLORS[body] };
   });
   bodies[0].bv = 0.65;
-  for (const m of minorBodies) {
+  for (const m of playbackBodyVisible('minor', rate) ? minorBodies : []) {
     let p, mag;
     try { p = topocentric(m, t, place); mag = magnitude(m, t); } catch { continue; }
     if (!Number.isFinite(p.ra) || !Number.isFinite(p.dec)) continue;
     const comet = isComet(m);
     bodies.push({ ...p, ...hor(p), name: m.name, number: m.number, body: comet ? 'comet' : 'minor', mag, type: comet ? 'comet' : 'minor planet', color: BODY_COLORS[comet ? 'comet' : 'minor'] });
   }
-  const moon = bodies[1], sun = bodies[0];
-  for (const o of bodies.slice(1, SOLAR_BODIES.length)) { o.phase = aspect(o.body, t).phase; o.light = hor(towardSun(o, sun)); }
-  moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
-  moon.shadow = shadowOnMoon(moon, t, hor);
+  const moon = bodies.find((o) => o.body === 'moon'), sun = bodies[0];
+  for (const o of bodies.filter((o) => ORBIT_DAYS[o.body])) { o.phase = aspect(o.body, t).phase; o.light = hor(towardSun(o, sun)); }
+  if (moon) {
+    moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
+    moon.shadow = shadowOnMoon(moon, t, hor);
+  }
   return bodies;
 }
 // The Earth's shadow on the Moon, near the full moon: its center where the
@@ -210,7 +230,7 @@ const BOUNDARY_POINTS = BOUNDARIES.map((line) => {
   return out;
 });
 
-export function skyFrame(t, place) {
+export function skyFrame(t, place, rate = 0) {
   const matrix = dateRotation(t), lst = siderealTime(t, place[1]);
   const eq = (ra, dec, pmra = 0, pmdec = 0) => {
     const v = vec(ra, dec), years = centuries(t) * 100, mas = R / 3600000;
@@ -226,7 +246,7 @@ export function skyFrame(t, place) {
     const designations = [...names ? names.split('|') : [], ...hip ? [`HIP ${hip}`] : []], name = proper || designations.shift() || 'Star';
     return { ...catalog(ra, dec, pmra, pmdec), name, designations, mag, bv: bv ?? undefined, type: 'star', named: Boolean(proper), parallax, pmra, pmdec, spect, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
   });
-  const bodies = [...solarBodies(t, place, hor), ...satelliteBodies(t, place, hor)];
+  const bodies = [...solarBodies(t, place, hor, rate), ...(playbackBodyVisible('satellite', rate) ? satelliteBodies(t, place, hor) : [])];
   const deep = DEEP.map(([names, ra, dec, mag, type, major, minor]) => ({ ...catalog(ra, dec), name: names[0], description: names.slice(1).join(' · '), mag, size: major ? [major, minor ?? major] : null, type }));
   const constellations = CONSTELLATIONS.map(([name, ra, dec, lines]) => ({ name, type: 'constellation', ...catalog(ra, dec), lines: lines.map((line) => line.map(([a, d]) => catalog(a, d))) }));
   const ecliptic = ECLIPTIC.map(([a, d]) => catalog(a, d));
@@ -237,7 +257,7 @@ export function skyFrame(t, place) {
 // Keep catalog reductions fixed for a day, rotate their equatorial vectors
 // with sidereal time each frame, and interpolate solar-system positions
 // between exact one-minute samples. No catalog rebuilds in the frame loop.
-export function createSkyAnimator(t, place, layers = { deep: true, constellations: true, equatorial: true, ecliptic: true, boundaries: true }) {
+export function createSkyAnimator(t, place, layers = { deep: true, constellations: true, equatorial: true, ecliptic: true, boundaries: true }, rate = 0) {
   let frame, catalogTime = -Infinity, sampleTime = -Infinity, left, right;
   const lat = place[0] * R, sp = Math.sin(lat), cp = Math.cos(lat);
   let sl = 0, cl = 1;
@@ -261,7 +281,7 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
   };
   return (time) => {
     if (!frame || Math.abs(time - catalogTime) >= 86400) {
-      frame = skyFrame(time, place); catalogTime = time;
+      frame = skyFrame(time, place, rate); catalogTime = time;
       for (const c of frame.constellations) c.curves = c.lines.map(curve);
     }
     const lst = siderealTime(time, place[1]) * R; sl = Math.sin(lst); cl = Math.cos(lst);
@@ -274,8 +294,8 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
     const sample = Math.floor(time / 60) * 60;
     if (sample !== sampleTime) {
       const exactHor = (p) => horizonPoint(p.ra, p.dec, place[0], siderealTime(sample, place[1]));
-      left = sample === sampleTime + 60 ? right : solarBodies(sample, place, exactHor);
-      right = solarBodies(sample + 60, place, exactHor); sampleTime = sample;
+      left = sample === sampleTime + 60 ? right : solarBodies(sample, place, exactHor, rate);
+      right = solarBodies(sample + 60, place, exactHor, rate); sampleTime = sample;
     }
     const fraction = (time - sampleTime) / 60;
     frame.bodies = left.map((a, i) => {
@@ -283,11 +303,13 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
       for (const key of ['dec', 'dist', 'mag', 'phase']) if (Number.isFinite(a[key])) p[key] = a[key] + (b[key] - a[key]) * fraction;
       return Object.assign(p, hor(p));
     });
-    const moon = frame.bodies[1], sun = frame.bodies[0];
-    for (const o of frame.bodies.slice(1, SOLAR_BODIES.length)) o.light = hor(towardSun(o, sun));
-    moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
-    moon.shadow = shadowOnMoon(moon, time, hor);
-    frame.bodies.push(...satelliteBodies(time, place, hor));
+    const moon = frame.bodies.find((o) => o.body === 'moon'), sun = frame.bodies[0];
+    for (const o of frame.bodies.filter((o) => ORBIT_DAYS[o.body])) o.light = hor(towardSun(o, sun));
+    if (moon) {
+      moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
+      moon.shadow = shadowOnMoon(moon, time, hor);
+    }
+    if (playbackBodyVisible('satellite', rate)) frame.bodies.push(...satelliteBodies(time, place, hor));
     return frame;
   };
 }

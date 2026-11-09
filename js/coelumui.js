@@ -1,8 +1,9 @@
 // The coelum explorer: two views of the same sky (a map-like chart and a
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
+import { PhoneOrientation } from './phoneorientation.js';
 import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, satelliteList, satelliteStatus } from './satellites.js';
-import { setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
+import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
 import { riseSet, planetOf, siderealTime } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
@@ -111,13 +112,6 @@ function levelChart(r, side, axis = null, t0 = null) {
   return axis && bestMiss > 1e-4 ? levelChart(r, side, null, t0) : best;
 }
 
-// Where the back of the phone points, as a horizontal unit vector [east,
-// north, up], from the orientation angles (degrees; alpha from north,
-// counterclockwise): the device's −z axis turned by Rz(α) Rx(β) Ry(γ).
-function backDirection(alpha, beta, gamma) {
-  const a = alpha * R, b = beta * R, g = gamma * R;
-  return [-Math.sin(g) * Math.cos(a) - Math.cos(g) * Math.sin(b) * Math.sin(a), -Math.sin(g) * Math.sin(a) + Math.cos(g) * Math.sin(b) * Math.cos(a), -Math.cos(b) * Math.cos(g)];
-}
 const orientationSupported = () => typeof window !== 'undefined' && 'DeviceOrientationEvent' in window && matchMedia('(any-pointer: coarse)').matches;
 
 const icon = (d, extra = '') => `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${d}${extra}</svg>`;
@@ -154,6 +148,39 @@ const SKY_MAX = 400;
 const TYPE_ORDER = { star: 'Star', planet: 'Planet', moon: 'Moon', constellation: 'Constellation' };
 let explorers = 0;
 
+// Refresh only this app's shell; downloaded catalogs and user data survive.
+// Fetch everything first so an offline/failed request leaves the cache intact.
+export async function forceAppUpdate(reload = () => location.reload()) {
+  const registration = await navigator.serviceWorker?.getRegistration();
+  if (!registration) throw new Error('App updates are unavailable in this browser.');
+  await registration.update();
+  const worker = registration.installing || registration.waiting;
+  if (worker && worker.state !== 'activated') await new Promise((resolve, reject) => {
+    const finish = (error) => {
+      clearTimeout(timer); worker.removeEventListener('statechange', check);
+      if (error) reject(error); else resolve();
+    };
+    const check = () => {
+      if (worker.state === 'activated') finish();
+      else if (worker.state === 'redundant') finish(new Error('App update failed.'));
+    };
+    const timer = setTimeout(() => finish(new Error('App update timed out.')), 60000);
+    worker.addEventListener('statechange', check); check();
+  });
+  const prefix = new URL(registration.scope).pathname.endsWith('/coelum/') ? 'coelum-v' : 'imks-v';
+  const names = (await caches.keys()).filter((name) => name.startsWith(prefix));
+  for (const name of names) {
+    const cache = await caches.open(name), requests = await cache.keys();
+    const fresh = await Promise.all(requests.map(async (request) => {
+      const response = await fetch(request, { cache: 'no-store' });
+      if (!response.ok) throw new Error('Cannot update the app. Try again when online.');
+      return response;
+    }));
+    await Promise.all(requests.map((request, i) => cache.put(request, fresh[i])));
+  }
+  reload();
+}
+
 // Kept separate from calculator state: exploring never changes the saved
 // calculation. Timers end automatically when the sheet's root is removed.
 // options (from the app): places() and rememberPlace(key, place), the
@@ -188,6 +215,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-panel-head"><h3>Layers</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close layers">${ICONS.close}</button></div>
         <div class="coelum-switches">${LAYERS.map(([key, label, modes]) => `<label data-modes="${modes}"><input type="checkbox" role="switch" data-layer="${key}"><span>${label}</span></label>`).join('')}</div>
         <div class="coelum-selects"><label data-modes="chart">Stars to magnitude <select data-limit>${[3, 4, 5, 6, 7, 8, 9, 10, 11].map((n) => `<option value="${n}" ${n === 6 ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label>Horizon <select data-horizon><option value="landscape">Landscape</option><option value="terrain">Local terrain</option><option value="flat">Flat</option></select></label><label>Text size <select data-label-size><option value="14">Normal</option><option value="17">Large</option><option value="20">Larger</option></select></label></div>
+        <div class="coelum-downloads" data-phone-options${orientationSupported() ? '' : ' hidden'}><h3>Phone orientation</h3>
+          <p class="coelum-panel-note" data-orient-quality>Turn on following with the phone button. Pan to align the sky; pinch to zoom.</p>
+          <div class="coelum-switches"><label><input type="checkbox" role="switch" data-orient-level><span>Keep the horizon level</span></label></div>
+          <p class="coelum-panel-note">For accurate pointing, select a known star or planet, point the back of the phone at it, then align. This also corrects magnetic north to the sky’s geographic north. Avoid objects near the zenith.</p>
+          <button type="button" class="coelum-chip" data-action="orient-align" disabled>Align with selected object</button>
+        </div>
         <p class="coelum-panel-note coelum-terrain-note" hidden></p>
         <p class="coelum-panel-note" data-modes="sky">Stars fade with twilight, moonlight and toward the horizon; zoom in to see fainter ones. With the atmosphere, positions include refraction.</p>
         <div class="coelum-downloads coelum-satellites"><h3>Satellites</h3>
@@ -228,12 +261,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button> · <button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"></button><span class="coelum-condition"></span></p><span class="coelum-clock-side"><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output><span class="coelum-ruler" title="Angular scale at the center of the view"><i></i><b></b></span></span></div>
       <div class="coelum-controls" role="toolbar" aria-label="Time">
         <button type="button" class="coelum-btn coelum-btn-text" data-action="back" aria-label="One hour earlier" title="One hour earlier">−1 h</button>
-        <button type="button" class="coelum-btn coelum-btn-text" data-action="slower" aria-label="Halve playback speed" title="Halve playback speed">÷2</button>
+        <button type="button" class="coelum-btn coelum-btn-text" data-action="slower" aria-label="Decrease playback speed (about half)" title="Decrease playback speed (about half)">÷2</button>
         <button type="button" class="coelum-btn coelum-play" data-action="play" aria-label="Play" title="Play">${ICONS.play}</button>
-        <button type="button" class="coelum-btn coelum-btn-text" data-action="faster" aria-label="Double playback speed" title="Double playback speed">×2</button>
+        <button type="button" class="coelum-btn coelum-btn-text" data-action="faster" aria-label="Increase playback speed (about double)" title="Increase playback speed (about double)">×2</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="forward" aria-label="One hour later" title="One hour later">+1 h</button>
         <button type="button" class="coelum-btn" data-action="reverse" aria-pressed="false" aria-label="Reverse playback direction" title="Reverse playback direction">${ICONS.reverse}</button>
-        <button type="button" class="coelum-btn" data-action="reset" aria-label="Back to the original time, place and view" title="Back to the original time, place and view">${ICONS.reset}</button>
+        <button type="button" class="coelum-btn" data-action="reset" aria-label="Back to the original time, place and view" title="Back to the original time, place and view · Hold to update the app">${ICONS.reset}</button>
         <button type="button" class="coelum-btn" data-action="orient" aria-pressed="false" aria-label="Follow the phone's orientation" title="Follow the phone's orientation"${orientationSupported() ? '' : ' hidden'}>${ICONS.orient}</button>
       </div>
     </div>
@@ -251,6 +284,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   setSatellites(satelliteList());
   let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null, detailHTML = '';
   let animator = null, animation = 0, lastUI = -Infinity, frameNumber = 0, speed = 60, flight = 0, interacting = false, settleTimer = 0;
+  // Suppress daylight and refraction once a day passes in a real second,
+  // without changing the atmosphere preference saved in the layer controls.
+  const atmosphereOn = () => layers.sky.atmosphere && (!playing || Math.abs(speed) < 86400);
   // The horizon (shared by both views): the terrain's profile, if computed.
   let horizon = 'landscape', terrain = null;
   try { horizon = localStorage.getItem('imks-coelum-horizon') || 'landscape'; } catch { /* private mode */ }
@@ -289,16 +325,17 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
 
   const setSpeed = (value) => {
-    speed = value; last = performance.now();
+    speed = value; last = performance.now(); animator = null;
     const output = $('[data-speed]');
     output.dataset.rate = String(speed);
-    output.textContent = `${speed < 0 ? '−' : ''}${Number(Math.abs(speed).toFixed(6))}×`;
+    output.textContent = formatPlaybackSpeed(speed);
     output.title = `${Number(Math.abs(speed).toFixed(6))} simulated seconds per second, ${speed < 0 ? 'backward' : 'forward'}`;
     $('[data-action="reverse"]').setAttribute('aria-pressed', String(speed < 0));
     setPlay(playing);
   };
   const updateUI = (force = false) => {
     const now = performance.now();
+    syncOrientationUI();
     if (!force && now - lastUI < 200) return;
     lastUI = now;
     root.classList.toggle('coelum-has-selection', Boolean(selected));
@@ -306,7 +343,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     statusTime.textContent = formatTime(t); statusPlace.textContent = placeLabel; statusCondition.textContent = ` · ${condition} · Sun ${sun.toFixed(1)}°`;
     if (selected) {
       const o = findObject(frame, selected);
-      const html = o && objectDetails(mode === 'sky' && layers.sky.atmosphere ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
+      const html = o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
       // unchanged, the card stays (a tap on its button is not lost)
       if (html && html !== detailHTML) detail.innerHTML = detailHTML = html;
     }
@@ -315,7 +352,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // The view's state, also as attributes (for tests and snapshots).
   const mark = () => {
     const view = currentView();
-    svg.dataset.rotation = (view.rotation || []).join(','); svg.dataset.scale = String(view.scale);
+    svg.dataset.rotation = (orient?.tracker.filtered ? phoneCamera() : view.rotation || []).join(','); svg.dataset.scale = String(view.scale);
     if (mode === 'sky') { svg.dataset.az = view.az.toFixed(3); svg.dataset.alt = view.alt.toFixed(3); }
     return view;
   };
@@ -328,7 +365,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const applyLock = () => {
     const o = lock && findObject(frame, lock.name);
     if (!o) return;
-    const v = currentView(), m = toMount(mode === 'sky' && layers.sky.atmosphere ? refractVector(pointVector(o), place[2] || 0) : pointVector(o));
+    const v = currentView(), m = toMount(mode === 'sky' && atmosphereOn() ? refractVector(pointVector(o), place[2] || 0) : pointVector(o));
     const renew = !lock.spot || lock.spot.mode !== mode;
     if (mode === 'sky') {
       if (renew) { const q = projectVector(m, lookAt(v.az, v.alt), true); lock.spot = { mode, x: q.x, y: q.y }; return; }
@@ -357,12 +394,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (ruler.lastChild.textContent !== text) ruler.lastChild.textContent = text;
   };
   const draw = (recompute = false) => {
+    const drawStart = performance.now();
     cancelAnimationFrame(pending); pending = 0;
     if (recompute) { animator = null; frame = skyFrame(t, place); }
     svg.setAttribute('viewBox', `0 0 ${size} ${height}`);
     svg.dataset.time = String(t);
     if (playing) {
-      if (!animator) animator = createSkyAnimator(t, place, layers[mode]);
+      if (!animator) animator = createSkyAnimator(t, place, layers[mode], speed);
       frame = animator(t);
     }
     // the planet's close-up covers the view: the sky is not drawn
@@ -370,7 +408,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     applyLock();
     const view = mark(), F = mountMatrix();
     // the camera in the horizon's frame, for drawing
-    const shown = { ...view, selected, rotation: mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
+    const shown = { ...view, selected, rotation: orient?.tracker.filtered ? phoneCamera() : mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
+    if (orient?.tracker.filtered) svg.dataset.rotation = shown.rotation.join(',');
     showRuler(3600 / (mode === 'sky' ? skyRadius(size, height, view.scale) * R / 2 : chartRadius(size, height, view.scale) / 90));
     // One canvas under the SVG. The chart moves on it (playback, drags,
     // flights) and settles as SVG over its sky and Milky Way.
@@ -379,7 +418,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (onCanvas) {
-      drawn = mode === 'sky' ? skyScene(frame, size, height, layers.sky, { ...shown, moving: interacting }, ctx) : skyChart(frame, size, height, layers.chart, shown, ctx);
+      drawn = mode === 'sky' ? skyScene(frame, size, height, { ...layers.sky, atmosphere: atmosphereOn() }, { ...shown, moving: interacting }, ctx) : skyChart(frame, size, height, layers.chart, shown, ctx);
       canvas.dataset.frame = String(++frameNumber);
       if (svg.childElementCount) svg.innerHTML = '';
     } else {
@@ -387,7 +426,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       svg.innerHTML = drawn.svg;
     }
     canvas.dataset.content = onCanvas ? 'scene' : 'backdrop';
+    canvas.dataset.atmosphere = String(mode === 'sky' && atmosphereOn());
     updateUI(!playing && !interacting);
+    orient?.tracker.drawn(performance.now() - drawStart);
   };
   // Gestures redraw at most once per display frame (two fingers send twice
   // the events); the state is already up to date.
@@ -399,7 +440,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     animation = 0;
     if (!root.isConnected || !playing) return;
     if (!document.hidden) {
-      t = limitTime(t + Math.min(0.1, Math.max(0, (now - last) / 1000)) * speed);
+      const next = t + Math.min(0.1, Math.max(0, (now - last) / 1000)) * speed;
+      t = limitTime(next);
+      if (t !== next) { pause(); return; }
       draw();
     }
     last = now;
@@ -455,12 +498,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // horizon), the sky view pans in azimuth and altitude; both zoom in a
   // little.
   const goTo = (o) => {
+    stopOrientation();
     cancelAnimationFrame(flight);
     const start = performance.now(), duration = 650, ease = (u) => (u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2);
     let step;
     if (mode === 'sky') {
       const v = skyView(), from = { ...v }; v.auto = false;
-      const a = toMount(layers.sky.atmosphere ? refractVector(pointVector(o), place[2] || 0) : pointVector(o)), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
+      const a = toMount(atmosphereOn() ? refractVector(pointVector(o), place[2] || 0) : pointVector(o)), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
       const daz = ((oAz - v.az + 540) % 360) - 180, alt = Math.max(-30, Math.min(80, oAlt)), scale = Math.min(SKY_MAX, Math.max(v.scale, o.planet ? 80 / (o.separation * skyRadius(size, height, 1) / 2 * R) : 2.5));
       step = (e) => Object.assign(v, { az: (from.az + daz * e + 360) % 360, alt: from.alt + (alt - from.alt) * e, scale: from.scale + (scale - from.scale) * e });
     } else {
@@ -685,51 +729,90 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     navigator.geolocation.getCurrentPosition((pos) => resolve(pos.coords), (e) => reject(new Error(e.message || 'Location not available')), { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 });
   });
 
-  // The phone's orientation: the view looks where the back of the phone
-  // points (the chart with its horizon level). A drag ends it.
+  // Phone following belongs to the explorer, shared by both apps. Sensor
+  // updates only change attitude; rendering stays on requestAnimationFrame.
   const toast = $('.coelum-toast');
   let toastTimer = 0;
   const say = (text) => { toast.textContent = text; toast.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.hidden = true; }, 4000); };
-  let orient = null;
+  let orient = null, orientationRequest = 0, phoneLevel = false;
+  try { phoneLevel = localStorage.getItem('imks-phone-level') === 'true'; } catch { /* private mode */ }
+  $('[data-orient-level]').checked = phoneLevel;
+  const screenAngle = () => screen.orientation?.angle ?? window.orientation ?? 0;
+  const syncOrientationUI = () => {
+    const b = $('[data-action="orient-align"]');
+    const disabled = !orient?.tracker.filtered || !selected, label = selected ? `Align with ${selected}` : 'Align with selected object';
+    if (b.disabled !== disabled) b.disabled = disabled;
+    if (b.textContent !== label) b.textContent = label;
+    const status = orient?.tracker.filtered && performance.now()-orient.tracker.last > 2500 ? 'Waiting for sensor updates · holding the view' : orient?.tracker.quality;
+    const note = $('[data-orient-quality]'), text = orient ? `${status}. Pan to align; pinch to zoom.` : 'Turn on following with the phone button. Pan to align the sky; pinch to zoom.';
+    if (note.textContent !== text) note.textContent = text;
+  };
+  const phoneCamera = () => {
+    let r = orient.tracker.rotation(screenAngle());
+    if (phoneLevel) {
+      // Fade levelling out near the zenith/nadir rather than choosing an
+      // arbitrary azimuth there; the full attitude remains continuous.
+      const side = zenithSide(r);
+      r = levelChart(r, side);
+    }
+    return r;
+  };
+  const applyPhone = () => {
+    if (!orient?.tracker.filtered) return;
+    const r = phoneCamera(), m = mountCamera(r, mountMatrix()), d = r.slice(6);
+    if (mode === 'sky') Object.assign(skyView(), lookOf(toMount(d)), { auto: false });
+    else views.chart.rotation = m;
+    interact(500); requestDraw();
+  };
   const stopOrientation = (message) => {
+    orientationRequest++;
     if (!orient) return;
-    removeEventListener(orient.event, orient.on); clearTimeout(orient.timer); orient = null;
+    // Keep the last complete camera when following stops. Manual sky gestures
+    // use az/alt again, so the sky view returns to its level mount.
+    for (const [target,event,on] of orient.listeners) target.removeEventListener(event,on);
+    clearInterval(orient.timer); orient = null;
     $('[data-action="orient"]').setAttribute('aria-pressed', 'false');
+    syncOrientationUI();
     if (message) say(message);
     settle();
   };
   const startOrientation = async () => {
-    const E = window.DeviceOrientationEvent;
-    try { if (typeof E.requestPermission === 'function' && await E.requestPermission() !== 'granted') { say('Motion and orientation access was not allowed.'); return; } }
-    catch { say('Motion and orientation access is not available.'); return; }
-    const event = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation';
-    const state = { event, v: null, offset: null, relative: false };
-    setLock(null);
-    state.on = (ev) => {
-      if (ev.alpha === null || ev.beta === null || ev.gamma === null) return;
-      let alpha = ev.alpha;
-      // iOS: alpha starts anywhere; the compass heading (of the phone's top,
-      // or of its back when upright) is 360° − alpha from north.
-      if (Number.isFinite(ev.webkitCompassHeading) && ev.webkitCompassHeading >= 0) {
-        const offset = 360 - ev.webkitCompassHeading - alpha;
-        state.offset = state.offset === null ? offset : state.offset + 0.08 * ((((offset - state.offset) % 360) + 540) % 360 - 180);
-        alpha += state.offset;
-      } else if (event === 'deviceorientation' && !ev.absolute) state.relative = true;
-      const d = backDirection(alpha, ev.beta, ev.gamma);
-      state.v = state.v ? unit3(state.v.map((x, i) => x + 0.35 * (d[i] - x))) : d;
-      const { az, alt } = lookOf(toMount(state.v));
-      if (!Number.isFinite(az) || !Number.isFinite(alt)) return;
-      clearTimeout(state.timer);
-      if (mode === 'sky') Object.assign(skyView(), { az, alt, auto: false });
-      else views.chart.rotation = lookAt(az, alt);
-      interact(500); requestDraw();
-    };
-    state.timer = setTimeout(() => { if (orient === state && !state.v) stopOrientation('No orientation data from this device.'); }, 2500);
-    addEventListener(event, state.on);
+    const request = ++orientationRequest, E = window.DeviceOrientationEvent, M = window.DeviceMotionEvent;
+    // Both permission requests must originate in the same user gesture on iOS.
+    try {
+      const orientationPermission = typeof E?.requestPermission === 'function' ? E.requestPermission() : Promise.resolve('granted');
+      const motionPermission = typeof M?.requestPermission === 'function' ? M.requestPermission().catch(() => 'denied') : Promise.resolve('granted');
+      const [allowed] = await Promise.all([orientationPermission, motionPermission]);
+      if (request !== orientationRequest || !root.isConnected) return;
+      if (allowed !== 'granted') { say('Motion and orientation access was not allowed.'); return; }
+    } catch { say('Motion and orientation access is not available.'); return; }
+    stopFlight(); setLock(null);
+    const state = { tracker: new PhoneOrientation(), listeners: [], started: performance.now() };
+    const on = (event, fn, target = window) => { state.listeners.push([target,event,fn]); target.addEventListener(event,fn); };
+    for (const event of ['deviceorientation', 'deviceorientationabsolute']) on(event, (ev) => {
+      if (document.hidden || orient !== state) return;
+      if (state.tracker.update(ev,performance.now(),event === 'deviceorientationabsolute')) applyPhone();
+    });
+    on('devicemotion', (ev) => { if (!document.hidden) state.tracker.motion(ev,performance.now()); });
+    const screenChanged = () => { if (orient === state) applyPhone(); };
+    on('orientationchange', screenChanged);
+    if (screen.orientation?.addEventListener) on('change',screenChanged,screen.orientation);
+    state.timer = setInterval(() => {
+      if (orient !== state || document.hidden) return;
+      const age = performance.now() - (state.tracker.filtered ? state.tracker.last : state.started);
+      if (age > 2500 && !state.tracker.filtered) stopOrientation('No orientation data from this device.');
+      else if (age > 2500) syncOrientationUI();
+    }, 1000);
     orient = state;
-    $('[data-action="orient"]').setAttribute('aria-pressed', 'true');
-    say('The view follows the phone; drag to stop.');
-    setTimeout(() => { if (orient === state && state.relative) say('No compass: directions are relative to where the phone first pointed.'); }, 1500);
+    $('[data-action="orient"]').setAttribute('aria-pressed', 'true'); syncOrientationUI();
+    say('The sky follows the phone. Pan to align; pinch to zoom.');
+  };
+  const alignPhone = () => {
+    const o = selected && findObject(frame,selected);
+    if (!orient || !o) return;
+    const direction = mode === 'sky' && atmosphereOn() ? refractVector(pointVector(o),place[2] || 0) : pointVector(o);
+    if (!orient.tracker.align(direction)) { say('Choose an object farther from the zenith, and point the phone at it.'); return; }
+    applyPhone(); syncOrientationUI(); say(`Heading aligned with ${selected}.`);
   };
 
   // Another mount keeps the direction at the center; the chart then levels
@@ -795,7 +878,25 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       if (immersive() && !busy && root.isConnected) root.classList.add('coelum-idle');
     }, 3500);
   };
-  for (const ev of ['pointermove', 'pointerdown', 'keydown', 'wheel', 'focusin']) root.addEventListener(ev, wake, { passive: true });
+  // Capture before wake() or the sky's pointer handler clears the idle flag.
+  const wakePointers = new Set();
+  root.addEventListener('pointerdown', (ev) => {
+    if (ev.isPrimary) wakePointers.clear();
+    if (root.classList.contains('coelum-idle') || wakePointers.size) {
+      wakePointers.add(ev.pointerId); lastTap = null;
+      wake(); ev.preventDefault(); ev.stopPropagation();
+    }
+  }, { capture: true });
+  for (const type of ['pointermove', 'pointerup', 'pointercancel']) root.addEventListener(type, (ev) => {
+    if (!wakePointers.has(ev.pointerId)) return;
+    if (type !== 'pointermove') wakePointers.delete(ev.pointerId);
+    wake(); ev.preventDefault(); ev.stopPropagation();
+  }, { capture: true });
+  for (const ev of ['pointermove', 'pointerdown', 'keydown', 'wheel', 'focusin']) root.addEventListener(ev, (event) => {
+    // Touch devices can send a hover-like move immediately before down.
+    if (event.type === 'pointermove' && event.pointerType === 'touch' && !event.buttons) return;
+    wake();
+  }, { passive: true });
   for (const hud of root.querySelectorAll('.coelum-hud')) {
     hud.addEventListener('pointerenter', (ev) => { if (ev.pointerType === 'mouse') hudHover = true; });
     hud.addEventListener('pointerleave', () => { hudHover = false; wake(); });
@@ -838,6 +939,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   });
   root.addEventListener('change', (ev) => {
     const L = layers[mode];
+    if (ev.target.matches('[data-orient-level]')) { phoneLevel = ev.target.checked; try { localStorage.setItem('imks-phone-level', String(phoneLevel)); } catch { /* private mode */ } if (orient) applyPhone(); }
     if (ev.target.dataset.layer) L[ev.target.dataset.layer] = ev.target.checked;
     if (ev.target.matches('[data-limit]')) layers.chart.magnitude = Number(ev.target.value);
     if (ev.target.matches('[data-label-size]')) layers.chart.labelSize = layers.sky.labelSize = Number(ev.target.value);
@@ -845,6 +947,27 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (ev.target.matches('[data-satellite-group]')) { chooseGroups([...root.querySelectorAll('[data-satellite-group]:checked')].map((b) => b.dataset.satelliteGroup)); return; }
     draw();
   });
+  const resetButton = $('[data-action="reset"]');
+  let resetTimer = 0, resetPointer = null, resetStart = null, resetHeld = false, updating = false;
+  const cancelResetHold = () => { clearTimeout(resetTimer); resetTimer = 0; resetPointer = null; };
+  resetButton.addEventListener('pointerdown', (ev) => {
+    if (!ev.isPrimary || ev.button !== 0) return;
+    cancelResetHold(); resetHeld = false; resetPointer = ev.pointerId;
+    resetStart = { x: ev.clientX, y: ev.clientY };
+    resetTimer = setTimeout(async () => {
+      resetHeld = true; cancelResetHold();
+      if (updating || !root.isConnected) return;
+      updating = true; say('Updating the app…');
+      try { await (options.updateApp || forceAppUpdate)(); }
+      catch (error) { say(error.message || 'Cannot update the app. Try again when online.'); }
+      finally { updating = false; }
+    }, 800);
+  });
+  resetButton.addEventListener('pointermove', (ev) => {
+    if (ev.pointerId === resetPointer && Math.hypot(ev.clientX - resetStart.x, ev.clientY - resetStart.y) > 10) cancelResetHold();
+  });
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture']) resetButton.addEventListener(type, cancelResetHold);
+  resetButton.addEventListener('contextmenu', (ev) => { ev.preventDefault(); });
   root.addEventListener('click', async (ev) => {
     const download = ev.target.closest('[data-download]')?.dataset.download;
     if (download) {
@@ -884,6 +1007,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (viewButton) { setMode(viewButton.dataset.view); return; }
     const button = ev.target.closest('[data-action]'), action = button?.dataset.action;
     if (!action) return;
+    if (action === 'reset' && resetHeld) { resetHeld = false; ev.preventDefault(); return; }
     if (action === 'fullscreen') fullscreen(!immersive());
     else if (action === 'layers' || action === 'legend' || action === 'time' || action === 'place' || action in panels) showPanel(action);
     else if (action === 'moons') showMoons(button.dataset.planet);
@@ -894,11 +1018,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       else say('Select an object to lock it in place.');
       draw();
     } else if (action === 'mount') setMount(mount === 'equatorial' ? 'altaz' : 'equatorial');
+    else if (action === 'orient-align') alignPhone();
     else if (action === 'orient') { if (orient) stopOrientation(); else startOrientation(); }
     else if (action === 'close-panel') showPanel(null);
     else if (action === 'deselect') { select(null); draw(); }
     else if (action === 'in' || action === 'out') zoom(action === 'in' ? 1.5 : 1 / 1.5);
-    else if (action === 'slower' || action === 'faster') setSpeed(Math.sign(speed) * Math.max(1 / 64, Math.min(1048576, Math.abs(speed) * (action === 'faster' ? 2 : 0.5))));
+    else if (action === 'slower' || action === 'faster') setSpeed(stepPlaybackSpeed(speed, action === 'faster'));
     else if (action === 'reverse') setSpeed(-speed);
     else if (action === 'play') {
       if (playing) pause();
@@ -963,10 +1088,23 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     lastTap = null;
     const [lo, hi] = scaleLimits(), scale = Math.max(lo, Math.min(hi, gesture.scale * (gesture.distance ? distance / gesture.distance : 1)));
     // The sky point grabbed at the start stays under the finger(s); while
-    // the view follows the phone, two fingers only zoom.
+    // following, drags calibrate the attitude and two fingers zoom.
     interact();
-    if (orient && pointers.size < 2) stopOrientation();
-    if (orient) { currentView().scale = scale; requestDraw(); return; }
+    if (orient?.tracker.filtered) {
+      currentView().scale = scale;
+      if (pointers.size < 2) {
+        const radius = mode === 'sky' ? skyRadius(size,height,gesture.scale) : chartRadius(size,height,gesture.scale);
+        const from = unprojectSky((gesture.x-size/2)/radius,(gesture.y-height/2)/radius,SKY_IDENTITY,mode === 'sky');
+        const to = unprojectSky((x-size/2)/radius,(y-height/2)/radius,SKY_IDENTITY,mode === 'sky');
+        const current = phoneCamera(), target = rotateSky(current,from,to);
+        orient.tracker.calibrate(current,target);
+        // Rebase after each move so sensor motion between pointer events is
+        // preserved and repeated drags do not compound an old calibration.
+        applyPhone();
+        gesture = { ...baseline(), moved: true };
+      } else requestDraw();
+      return;
+    }
     // Locked, the view follows the object: one finger moves the object's
     // place on the screen (and the sky with it), which it keeps as time
     // runs; two fingers only zoom, leaving it where it is.
@@ -1036,6 +1174,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     else if (ev.key.startsWith('Arrow')) {
       ev.preventDefault();
       const dx = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0, dy = ev.key === 'ArrowDown' ? 1 : ev.key === 'ArrowUp' ? -1 : 0;
+      if (orient?.tracker.filtered) {
+        const r = phoneCamera(), amount = .08 / currentView().scale;
+        orient.tracker.calibrate(r,rotateSky(r,[0,0,1],unprojectSky(-dx*amount,-dy*amount)));
+        applyPhone(); return;
+      }
       if (mode === 'sky') {
         const v = skyView(), step = 5 / v.scale;
         v.auto = false;
@@ -1069,13 +1212,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   const explorer = {
     // Center an object on opening (an eclipse's Sun, an occultation's Moon).
     focus(name) { const o = findObject(frame, name); if (o) { select(o.name); goTo(o); } return Boolean(o); },
     // the time and the place shown, and to change them (the app's panels)
+    get orientationDiagnostics() { return orient?.tracker.diagnostics(performance.now()) || null; },
     get time() { return t; },
     get place() { return [...place]; },
     get placeLabel() { return placeLabel; },

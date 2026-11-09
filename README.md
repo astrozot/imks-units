@@ -243,6 +243,24 @@ search, layers, legend, fading full-screen controls, the eclipse link,
 history and offline reuse in Chromium, using the Playwright options
 described below.
 
+`node tests/phoneorientation.mjs` checks phone tracking response at different
+sample rates, compass rejection, stationary noise, zenith continuity, screen
+rotation and manual alignment. `node tests/phoneorientation-browser.mjs` checks
+panning as calibration and zooming while following in both apps, using the
+same Playwright options. The explorer's `orientationDiagnostics` getter reports
+sample rate, sample age, filtering error and the 95th-percentile draw duration
+while following. Physical-device tests are still needed to measure sensor-to-screen
+latency and compass accuracy.
+
+Phone following uses relative attitude when available, with time-based adaptive
+quaternion filtering. The compass establishes magnetic north; on iOS its initial
+reliable heading is held because Safari does not expose a compass timestamp.
+Panning calibrates alignment without stopping following. For accurate north,
+select a known object, point the phone at it and use **Layers → Phone orientation
+→ Align**. This heading correction also accounts for magnetic declination without
+assuming a fixed declination for every observing place. Alignment lasts until
+following is turned off. The horizon-level option is remembered across sessions.
+
 `node tests/functionhelp.mjs` checks function-help coverage and calling forms.
 
 `node tests/diagnostics.mjs` checks error guidance and expression locations.

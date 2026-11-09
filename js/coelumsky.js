@@ -60,16 +60,17 @@ const extinction = (alt) => { const s = Math.sin(Math.max(alt, 0) * R); return 0
 export function skyScene(frame, W, H, layers, view, ctx) {
   const opts = { ...SKY_LAYERS, ...layers }, radius = skyRadius(W, H, view.scale), rotation = view.rotation || lookAt(view.az, view.alt);
   const cx = W / 2, cy = H / 2, p = pen(ctx), f = (x) => x.toFixed(2);
-  const sun = frame.bodies[0], moon = frame.bodies[1];
+  const sun = frame.bodies[0], moon = frame.bodies.find((o) => o.body === 'moon');
   // Eclipses: the part of the Sun covered by the Moon darkens the sky as
   // the Sun lower in the sky would (at totality, as 8° below the horizon);
   // the Moon in the Earth's shadow gives less light
-  const sunV = pointVector(sun), moonV = pointVector(moon), sunR = Math.asin(695700 / sun.dist), moonR = Math.asin(1737.4 / moon.dist);
+  const sunV = pointVector(sun), moonV = moon ? pointVector(moon) : sunV, sunR = Math.asin(695700 / sun.dist), moonR = moon ? Math.asin(1737.4 / moon.dist) : 0;
   const apart = Math.acos(Math.max(-1, Math.min(1, sunV[0] * moonV[0] + sunV[1] * moonV[1] + sunV[2] * moonV[2])));
-  const eclipsed = apart < sunR + moonR ? covered(sunR, moonR, apart) : 0, total = apart <= moonR - sunR;
+  const eclipsed = moon && apart < sunR + moonR ? covered(sunR, moonR, apart) : 0, total = moon && apart <= moonR - sunR;
   const sunAlt = eclipsed > 0.5 ? Math.min(sun.alt, 15 + (Math.log10(Math.max(1 - eclipsed, 1e-3)) + 0.5) * 9.2) : sun.alt;
-  const illum = (1 + Math.cos(moon.phase * R)) / 2 * moonDim(moon);
-  const light = skyLight(sunAlt, { alt: moon.alt, illum }, opts.atmosphere);
+  const illum = moon ? (1 + Math.cos(moon.phase * R)) / 2 * moonDim(moon) : 0;
+  const moonAlt = moon?.alt ?? -90;
+  const light = skyLight(sunAlt, { alt: moonAlt, illum }, opts.atmosphere);
   const proj = (v) => { const q = projectVector(v, rotation, true); return { x: cx + q.x * radius, y: cy + q.y * radius, z: q.z }; };
   // With the atmosphere, objects are seen raised by the refraction (for the
   // pressure at the place's height); the horizontal grid is not.
@@ -81,7 +82,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const bg = skyRaster(ctx, {
     W, H, radius, camera: { rotation, stereographic: true }, samples: view.moving ? 22000 : 45000, toJ2000: horizonToJ2000(frame), kind: 'sky',
     milkyWay: opts.milkyway, ground: opts.ground, atmosphere: opts.atmosphere, hill,
-    sun: { alt: sunAlt, vector: refract(pointVector(sun)) }, moon: { alt: moon.alt, illum, vector: refract(pointVector(moon)) },
+    sun: { alt: sunAlt, vector: refract(pointVector(sun)) }, moon: { alt: moonAlt, illum, vector: moon ? refract(pointVector(moon)) : [0, 0, -1] },
   });
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(bg.sky, 0, 0, bg.w, bg.h, 0, 0, bg.width, bg.height);

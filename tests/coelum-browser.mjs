@@ -84,6 +84,13 @@ try {
   const detailText = await page.locator('.coelum-detail').textContent();
   for (const label of ['Saturn', 'planet', 'Altitude', 'Azimuth', 'Right ascension', 'Declination', 'Visual magnitude', 'Distance']) assert.ok(detailText.includes(label), label);
   assert.equal(await page.locator('.coelum-detail h3').textContent(), 'Saturn');
+  await page.locator('[data-action="deselect"]').click();
+  await page.locator('.coelum-explorer').evaluate((el) => el.classList.add('coelum-idle'));
+  await page.touchscreen.tap(saturn.x, saturn.y);
+  assert.equal(await page.locator('.coelum-explorer.coelum-idle').count(), 0, 'A touch wakes the controls');
+  assert.equal(await page.locator('.coelum-detail h3').count(), 0, 'The wake touch does not select');
+  await page.touchscreen.tap(saturn.x, saturn.y);
+  assert.equal(await page.locator('.coelum-detail h3').textContent(), 'Saturn', 'The next touch can select');
   // Labels are selection targets too, including star and deep-sky labels.
   for (const kind of ['star', 'deep']) {
     await page.locator('.coelum-full').scrollIntoViewIfNeeded();
@@ -142,6 +149,26 @@ try {
   assert.equal(await page.locator('[data-speed]').getAttribute('data-rate'), '-120');
   await page.locator('[data-action="slower"]').click();
   await page.locator('[data-action="reverse"]').click();
+  // Exercise the complete rounded ladder through the actual controls.
+  const speedSteps = await page.evaluate(async () => {
+    const { PLAYBACK_SPEEDS, skyFrame } = await import('./js/coelum.js');
+    const { skyScene } = await import('./js/coelumsky.js');
+    const click = (action) => document.querySelector(`[data-action="${action}"]`).click();
+    const rate = () => Number(document.querySelector('[data-speed]').dataset.rate);
+    const down = [], up = [];
+    while (rate() > 0.01) { click('slower'); down.push(rate()); }
+    for (let i = 1; i < PLAYBACK_SPEEDS.length; i++) { click('faster'); up.push(rate()); }
+    const label = document.querySelector('[data-speed]').textContent;
+    // The realistic sky can render without a Moon or any planets.
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 360;
+    const f = skyFrame(Date.parse('2026-11-06T21:00:00Z') / 1000, [41.892, 12.511, 20], rate());
+    skyScene(f, 360, 360, {}, { az: 180, alt: 40, scale: 1 }, canvas.getContext('2d'));
+    while (rate() > 60) click('slower');
+    return { down, up, label, expected: PLAYBACK_SPEEDS.slice(1) };
+  });
+  assert.deepEqual(speedSteps.down, [30, 15, 8, 4, 2, 1, 0.5, 0.25, 0.1, 0.05, 0.025, 0.01]);
+  assert.deepEqual(speedSteps.up, speedSteps.expected);
+  assert.equal(speedSteps.label, '100G×');
   const typography = await page.evaluate(async () => {
     const { skyFrame, skyChart } = await import('./js/coelum.js');
     const f = skyFrame(Date.parse('2026-11-11T02:32:00+01:00') / 1000, [41.892, 12.511, 20]);
@@ -289,7 +316,7 @@ try {
   if (process.env.COELUM_SCREENSHOT) await page.screenshot({ path: process.env.COELUM_SCREENSHOT.replace('.png', '-fullscreen.png'), fullPage: true });
   // Measure the rectangular full-screen canvas too, at the faster 1 h/s.
   for (let i = 0; i < 6; i++) await page.locator('[data-action="faster"]').click();
-  assert.equal(await page.locator('[data-speed]').getAttribute('data-rate'), '3840');
+  assert.equal(await page.locator('[data-speed]').getAttribute('data-rate'), '3600');
   await page.evaluate(() => {
     window.fullSkyTimes = [];
     window.fullSkyObserver = new MutationObserver(() => window.fullSkyTimes.push(performance.now()));
@@ -628,6 +655,8 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.coelum-moonsview').isVisible(), false);
   assert.equal(await page.locator('.coelum-explorer').evaluate((e) => e.classList.contains('coelum-immersive')), wasFull);
+  // Wake the controls before requesting another close-up.
+  await page.locator('.coelum-moons-button').focus();
   await page.locator('.coelum-moons-button').click();
   const moon = await page.locator('.coelum-moons-stage circle.sky-moon:not(.off)').first().boundingBox();
   await page.mouse.click(moon.x + moon.width / 2, moon.y + moon.height / 2);
@@ -797,6 +826,66 @@ try {
     assert.match(entry, /limits .*disappears \(dark limb\)/, 'With its map');
     await p2.close();
   }
+  const resetHold = await page.evaluate(async () => {
+    const { mountCoelum } = await import('./js/coelumui.js');
+    const host = document.createElement('div'); document.body.appendChild(host);
+    let updates = 0;
+    const explorer = mountCoelum(host, { t: 1793998800, place: [41.892, 12.511, 20], label: 'Rome' }, String, { updateApp: async () => { updates++; } });
+    const button = host.querySelector('[data-action="reset"]');
+    const pointer = (type) => button.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 20, isPrimary: true, button: 0, clientX: 10, clientY: 10 }));
+    explorer.setTime(1794002400);
+    pointer('pointerdown'); await new Promise((r) => setTimeout(r, 900)); pointer('pointerup'); button.click();
+    const heldTime = explorer.time;
+    pointer('pointerdown'); pointer('pointerup'); button.click();
+    const shortTime = explorer.time;
+    pointer('pointerdown'); pointer('pointercancel');
+    await new Promise((r) => setTimeout(r, 900));
+    host.remove();
+    return { updates, heldTime, shortTime };
+  });
+  assert.deepEqual(resetHold, { updates: 1, heldTime: 1794002400, shortTime: 1793998800 });
+  const appRefresh = await page.evaluate(async () => {
+    const { forceAppUpdate } = await import('./js/coelumui.js');
+    const reg = await navigator.serviceWorker.ready;
+    const name = (await caches.keys()).find((key) => key.startsWith('imks-v'));
+    const cache = await caches.open(name), request = new Request(new URL('js/coelumui.js', location.href));
+    await cache.put(request, new Response('stale test content'));
+    const data = await caches.open('imks-data-update-test');
+    await data.put(new Request(new URL('saved-catalog', location.href)), new Response('keep me'));
+    let reloads = 0;
+    await forceAppUpdate(() => reloads++);
+    const refreshed = await (await cache.match(request)).text();
+    const saved = await (await data.match(new URL('saved-catalog', location.href))).text();
+    await caches.delete('imks-data-update-test');
+    return { reloads, refreshed: refreshed.includes('export async function forceAppUpdate'), saved };
+  });
+  assert.deepEqual(appRefresh, { reloads: 1, refreshed: true, saved: 'keep me' });
+  // Atmosphere suppression respects both directions, the exact day/s
+  // boundary, pausing, slowing down and the user's disabled preference.
+  const atmosphere = await page.evaluate(async () => {
+    const { mountCoelum } = await import('./js/coelumui.js');
+    const host = document.createElement('div'); document.body.appendChild(host);
+    const explorer = mountCoelum(host, { t: Date.parse('2026-11-06T21:00:00Z') / 1000, place: [41.892, 12.511, 20], label: 'Rome' }, String);
+    const click = (action) => host.querySelector(`[data-action="${action}"]`).click();
+    const drawn = () => host.querySelector('.coelum-canvas').dataset.atmosphere;
+    const states = [];
+    host.querySelector('[data-view="sky"]').click();
+    for (const rate of [86399, 86400, -86400]) {
+      explorer.setSpeed(rate); click('play'); states.push(drawn());
+      click('play'); states.push(drawn());
+    }
+    explorer.setSpeed(86400); click('play');
+    explorer.setSpeed(60);
+    await new Promise(requestAnimationFrame); states.push(drawn());
+    click('play');
+    const toggle = host.querySelector('[data-layer="atmosphere"]');
+    const preferred = toggle.checked;
+    toggle.click(); explorer.setSpeed(86400); click('play'); states.push(drawn());
+    click('play'); states.push(drawn());
+    host.remove();
+    return { states, preferred };
+  });
+  assert.deepEqual(atmosphere, { states: ['true', 'true', 'false', 'true', 'false', 'true', 'true', 'false', 'false'], preferred: true });
   assert.deepEqual(errors, []);
   console.log('Coelum browser checks passed: full-screen portrait/landscape, rolling, ground, label sizes, object/label selection, zoom, pinch, time, export, history and offline reuse, legend, realistic view, search, fading controls and the eclipse link, smooth chart drags, grab-dragging at the zenith, sky pinch, level chart horizon, view sync, fainter stars with parallaxes and proper motions, the local horizon, the WebGL sky, stale touches, edge drags, equal zooms, time and place panels, minor planets, moons, the moons view, the backward play button, the ruler, the mounts, the lock and spectra, the planets traced on the GPU, the Events panel in iMKS');
 } finally {
