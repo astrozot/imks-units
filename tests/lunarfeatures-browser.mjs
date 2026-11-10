@@ -152,8 +152,25 @@ try {
   await page.evaluate(() => window.lunarTest.explorer.setTime(Date.parse('2026-11-09T21:00:00Z') / 1000));
   await search.fill('Copernicus');
   assert.match(await page.locator('.coelum-results [aria-label*="Moon feature"]').first().getAttribute('aria-label'), /not sunlit/);
-  await chooseSearch('Copernicus', true);
-  assert.equal(await page.locator('.coelum-lunar-head').count(), 0, 'Unlit search result is never highlighted');
+  const darkMoonScale = await chooseSearch('Moon');
+  const darkFeatureScale = await chooseSearch('moon Copernicus', true);
+  await page.waitForFunction(() => document.querySelector('.coelum-lunar-head h3')?.textContent === 'Copernicus');
+  assert.ok(Math.abs(darkFeatureScale - darkMoonScale) < 1e-8, 'Unlit feature uses whole-Moon framing');
+  assert.match(await page.locator('.coelum-detail').innerText(), /Not currently illuminated/);
+  const darkMarker = await page.evaluate(() => {
+    const { place, skyFrame, skyScene } = window.lunarTest;
+    const svg = document.querySelector('.coelum-full'), box = svg.getBoundingClientRect(), c = document.createElement('canvas');
+    c.width = box.width; c.height = box.height;
+    const scene = skyScene(skyFrame(Date.parse('2026-11-09T21:00:00Z') / 1000, place), box.width, box.height,
+      { atmosphere: false, ground: false, labels: false },
+      { az: Number(svg.dataset.az), alt: Number(svg.dataset.alt), scale: Number(svg.dataset.scale), selected: 'lunar:1296', unlitLunar: 'lunar:1296' }, c.getContext('2d'));
+    const moon = scene.objects.find((o) => o.body === 'moon'), feature = scene.lunarFeatures.find((f) => f.key === 'lunar:1296');
+    return { marked: !!feature && feature.sunlight <= 0.005, named: scene.hitLabels.some((l) => l.name === 'lunar:1296'),
+      moonFits: moon.x - moon.radius > 0 && moon.x + moon.radius < box.width && moon.y - moon.radius > 0 && moon.y + moon.radius < box.height,
+      moonCentered: Math.hypot(moon.x - box.width / 2, moon.y - box.height / 2) < 1 };
+  });
+  assert.ok(darkMarker.marked && darkMarker.named && darkMarker.moonFits && darkMarker.moonCentered, JSON.stringify(darkMarker));
+  if (process.env.LUNAR_UNLIT_SCREENSHOT) await page.screenshot({ path: process.env.LUNAR_UNLIT_SCREENSHOT });
   // Status icons keep a long surface name readable on a narrow phone.
   await page.setViewportSize({ width: 320, height: 760 });
   await page.evaluate(() => window.lunarTest.explorer.setTime(Date.parse('2026-11-09T00:00:00Z') / 1000));
@@ -173,6 +190,11 @@ try {
   if (process.env.SEARCH_ICONS_SCREENSHOT) await page.screenshot({ path: process.env.SEARCH_ICONS_SCREENSHOT });
   await search.press('Escape');
   assert.ok(await page.locator('.coelum-search-dropdown').isHidden());
+  const phoneMoonScale = await chooseSearch('Moon');
+  const phoneUnlitScale = await chooseSearch('moon Montes Apenninus', true);
+  await page.waitForFunction(() => document.querySelector('.coelum-lunar-head h3')?.textContent === 'Montes Apenninus');
+  assert.ok(Math.abs(phoneUnlitScale - phoneMoonScale) < 1e-8, 'Unlit selection keeps whole-Moon framing on phones');
+  assert.match(await page.locator('.coelum-detail').innerText(), /Not currently illuminated/);
   assert.deepEqual(errors, []);
   console.log('Lunar feature browser checks passed:', JSON.stringify({ ...summary, tapped: tap.name }));
 } finally {

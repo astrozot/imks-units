@@ -325,7 +325,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   let place = [...model.place], placeLabel = model.label;
   setMinorBodies(options.minorBodies?.() || []);
   setSatellites(satelliteList());
-  let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null, detailHTML = '';
+  let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null, unlitLunar = null, detailHTML = '';
   let animator = null, animation = 0, lastUI = -Infinity, frameNumber = 0, speed = 60, flight = 0, interacting = false, settleTimer = 0;
   // Suppress daylight and refraction once a day passes in a real second,
   // without changing the atmosphere preference saved in the layer controls.
@@ -381,9 +381,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     syncOrientationUI();
     if (!force && now - lastUI < 200) return;
     lastUI = now;
-    // A feature selection disappears with its illumination, visibility or zoom.
+    // Retire selections that leave the projected layer (search may allow unlit).
     const feature = drawn?.lunarFeatures?.find((f) => f.key === selected);
-    if (selected?.startsWith('lunar:') && !feature) { selected = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; }
+    if (selected?.startsWith('lunar:') && !feature) { selected = null; unlitLunar = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; }
     root.classList.toggle('coelum-has-selection', Boolean(selected));
     const sun = frame.bodies[0].alt, condition = sun >= 0 ? 'Daylight' : sun >= -6 ? 'Civil twilight' : sun >= -12 ? 'Nautical twilight' : sun >= -18 ? 'Astr. twilight' : 'Night';
     statusTime.textContent = formatTime(t); statusPlace.textContent = placeLabel; statusCondition.textContent = ` · ${condition} · Sun ${sun.toFixed(1)}°`;
@@ -455,7 +455,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     applyLock();
     const view = mark(), F = mountMatrix();
     // the camera in the horizon's frame, for drawing
-    const shown = { ...view, selected, labelHistory: labelHistory[mode], gridHistory: gridHistory[mode], rotation: orient?.tracker.filtered ? phoneCamera() : mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
+    const shown = { ...view, selected, unlitLunar, labelHistory: labelHistory[mode], gridHistory: gridHistory[mode], rotation: orient?.tracker.filtered ? phoneCamera() : mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
     if (orient?.tracker.filtered) svg.dataset.rotation = shown.rotation.join(',');
     showRuler(3600 / (mode === 'sky' ? skyRadius(size, height, view.scale) * R / 2 : chartRadius(size, height, view.scale) / 90));
     // One canvas under the SVG. The chart moves on it (playback, drags,
@@ -549,7 +549,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // Fly to an object: the chart turns along a great circle (levelling its
   // horizon), the sky view pans in azimuth and altitude; both zoom in a
   // little.
-  const goTo = (o, { fit = false, onArrival = null } = {}) => {
+  const goTo = (o, { fit = false, field = null, apparent = false, onArrival = null } = {}) => {
     stopOrientation();
     cancelAnimationFrame(flight);
     const start = performance.now(), duration = 650, ease = (u) => (u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2);
@@ -562,13 +562,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         const radius = Math.max(LUNAR_MIN_RADIUS * 1.3, pixels * 1737.4 / Math.max(0.01, o.feature.diameter) / Math.sqrt(Math.max(0.06, o.lunarState.v[2])));
         return Math.max(lo, Math.min(hi, radius / (o.moonRadius * skyRadius(size, height, 1) / 2 * R)));
       }
-      const field = searchAngularField(o), span = Math.min(size, height);
-      const scale = mode === 'sky' ? span / (2 * skyRadius(size, height, 1) * Math.tan(field * R / 4)) : span / (chartRadius(size, height, 1) * field / 90);
+      const angularField = field ?? searchAngularField(o), span = Math.min(size, height);
+      const scale = mode === 'sky' ? span / (2 * skyRadius(size, height, 1) * Math.tan(angularField * R / 4)) : span / (chartRadius(size, height, 1) * angularField / 90);
       return Math.max(lo, Math.min(hi, scale));
     };
     if (mode === 'sky') {
       const v = skyView(), from = { ...v }; v.auto = false;
-      const a = toMount(atmosphereOn() ? refractVector(pointVector(o), place[2] || 0) : pointVector(o)), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
+      const a = toMount(atmosphereOn() && !apparent ? refractVector(pointVector(o), place[2] || 0) : pointVector(o)), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
       const daz = ((oAz - v.az + 540) % 360) - 180, alt = Math.max(-89.9, Math.min(89.9, oAlt)), scale = fit ? searchScale() : Math.min(SKY_MAX, Math.max(v.scale, o.planet ? 80 / (o.separation * skyRadius(size, height, 1) / 2 * R) : 2.5));
       step = (e) => Object.assign(v, { az: (from.az + daz * e + 360) % 360, alt: from.alt + (alt - from.alt) * e, scale: from.scale + (scale - from.scale) * e });
     } else {
@@ -592,7 +592,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     };
     flight = requestAnimationFrame(frameStep);
   };
-  const select = (name) => {
+  const select = (name, { allowUnlit } = {}) => {
+    if (name !== selected || allowUnlit !== undefined) unlitLunar = allowUnlit ? name : null;
     selected = name;
     if (!selected) { detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; detailHTML = ''; }
     // the moons' view, open, turns to the system of the object chosen
@@ -1069,7 +1070,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       if (ticket !== searchChoice || !root.isConnected) return;
       const target = lunarFeatureTarget(frame, feature), state = target.lunarState, available = state.visible && state.sunlit;
       goTo(available ? target : findObject(frame, 'Moon'), { fit: true, onArrival: () => {
-        select(available ? feature.key : 'Moon');
+        select(state.visible ? feature.key : 'Moon', { allowUnlit: state.visible && !state.sunlit });
         if (!state.visible) say(`${feature.name} is currently beyond the Moon's visible limb.`);
         else if (!state.sunlit) say(`${feature.name} is not currently illuminated.`);
       } });
@@ -1392,7 +1393,22 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   const explorer = {
     // Center an object on opening (an eclipse's Sun, an occultation's Moon).
-    focus(name) { const o = findObject(frame, name); if (o) { select(o.name); goTo(o); } return Boolean(o); },
+    focus(name, options) { const o = findObject(frame, name); if (o) { select(o.name); goTo(o, options); } return Boolean(o); },
+    // Frame a conjunction around the spherical midpoint, with room for
+    // both disks and their labels, independently of the previous zoom.
+    focusPair(first, second) {
+      const objects = [first, second].map((name) => findObject(frame, name));
+      if (objects.some((o) => !o)) return false;
+      const apparent = mode === 'sky' && atmosphereOn();
+      const vectors = objects.map((o) => apparent ? refractVector(pointVector(o), place[2] || 0) : pointVector(o));
+      const vector = unit3(vectors[0].map((x, i) => x + vectors[1][i]));
+      const separation = Math.acos(Math.max(-1, Math.min(1, dot3(...vectors)))) / R;
+      const field = Math.max(1, separation * 1.6 + Math.max(...objects.map((o) => diskRadius(o) || 0)) * 4);
+      setLock(null);
+      select(null);
+      goTo({ vector }, { fit: true, field, apparent });
+      return true;
+    },
     // the time and the place shown, and to change them (the app's panels)
     get orientationDiagnostics() { return orient?.tracker.diagnostics(performance.now()) || null; },
     get time() { return t; },

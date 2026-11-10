@@ -1,6 +1,7 @@
 // Lunar surface labels/picking. Features share the texture's exact rotation,
 // including libration and observer parallax. Earthshine does not qualify as
-// illumination: only features whose centers receive direct sunlight are shown.
+// illumination: automatic labels require direct sunlight. A feature explicitly
+// searched on the night side can remain marked in the whole-Moon view.
 import { LUNAR_FEATURES } from './lunardata.js';
 import { surfaceVector } from './skyview.js';
 import { moonDisk } from './astro.js';
@@ -69,21 +70,25 @@ export function lunarFeatureEllipse(v, diameter, center, radius, north) {
     rx, ry: rx * Math.max(0, v[2]), angle: Math.atan2(y, x) + Math.PI / 2 };
 }
 
-export function projectLunarFeatures(disk, center, radius, north, W, H, shadow = null, selected = null) {
-  if (radius < LUNAR_MIN_RADIUS) return [];
+export function projectLunarFeatures(disk, center, radius, north, W, H, shadow = null, selected = null, allowUnlitSelected = false) {
+  const fullLayer = radius >= LUNAR_MIN_RADIUS;
+  // Keep explicit markers at whole-Moon zoom, retiring them at sky overview.
+  if (!fullLayer && !(allowUnlitSelected && selected && radius >= 24)) return [];
   const X = surfaceVector(disk, 0, 0), Y = surfaceVector(disk, 90, 0), Z = surfaceVector(disk, 0, 90);
   const c = Math.cos(north), s = Math.sin(north), result = [];
   for (const feature of catalogue) {
+    const searched = allowUnlitSelected && feature.key === selected;
+    if (!fullLayer && !searched) continue;
     // Ignore features too small to identify at this zoom; lettered craters
     // are available to taps but never generate automatic labels.
     const diameterPx = radius * feature.diameter / MOON_KM;
     if (diameterPx < 4 && feature.key !== selected) continue;
     const v = X.map((x, k) => x * feature.v[0] + Y[k] * feature.v[1] + Z[k] * feature.v[2]);
     const sunlight = v.reduce((sum, x, k) => sum + x * disk.sun[k], 0);
-    if (v[2] < 0.06 || sunlight <= 0.005) continue;
+    if (v[2] < 0.06 || (sunlight <= 0.005 && !searched)) continue;
     const x = center.x + radius * (v[0] * c + v[1] * s), y = center.y + radius * (v[0] * s - v[1] * c);
     if (x < 0 || x > W || y < 0 || y > H) continue;
-    if (shadow && Math.hypot(x - shadow.x, y - shadow.y) < shadow.umbra * radius) continue;
+    if (shadow && Math.hypot(x - shadow.x, y - shadow.y) < shadow.umbra * radius && !searched) continue;
     const size = diameterPx * Math.sqrt(v[2]);
     if (size < 4 && feature.key !== selected) continue;
     result.push({ ...feature, x, y, ellipse: lunarFeatureEllipse(v, feature.diameter, center, radius, north), radius: Math.min(35, size / 2), size, sunlight, limb: v[2], label: feature.major && size >= (feature.code === 'AA' ? 10 : 18) });
@@ -110,5 +115,5 @@ export function lunarFeatureDetails(feature) {
   return `<div class="coelum-object-head coelum-lunar-head"><h3>${esc(feature.name)}</h3><span>Moon · ${esc(TYPES[feature.code] || 'Surface feature')}</span></div>
     <dl><div><dt>Diameter / extent</dt><dd>${feature.diameter.toLocaleString(undefined, { maximumFractionDigits: 1 })} km</dd></div>
     <div><dt>Latitude</dt><dd>${coordinate(feature.lat, 'N', 'S')}</dd></div><div><dt>Longitude</dt><dd>${coordinate(lon, 'E', 'W')}</dd></div></dl>
-    <p class="coelum-coordinate-note">Sunlit lunar surface · <a href="https://planetarynames.wr.usgs.gov/Feature/${feature.id}" target="_blank" rel="noopener">IAU/USGS nomenclature</a></p>`;
+    <p class="coelum-coordinate-note">${feature.sunlight <= 0.005 ? 'Lunar surface · Not currently illuminated' : 'Sunlit lunar surface'} · <a href="https://planetarynames.wr.usgs.gov/Feature/${feature.id}" target="_blank" rel="noopener">IAU/USGS nomenclature</a></p>`;
 }

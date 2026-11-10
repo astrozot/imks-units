@@ -93,3 +93,20 @@ assert.ok(searchAngularField(findObject(f, 'Moon')) < searchAngularField(findObj
 assert.ok(searchAngularField(findObject(f, 'Jupiter')) < searchAngularField(findObject(f, 'Moon')));
 assert.ok(searchAngularField(findObject(f, 'Sirius')) > searchAngularField(findObject(f, 'M31')));
 console.log('Lunar search, target direction, object framing and projected ellipse checks passed');
+
+// An explicit night-side search is the only exception to automatic sunlight
+// and zoom gating; it must not expose the rest of the dark catalogue.
+const darkFrame = skyFrame(Date.UTC(2026, 10, 9, 21) / 1000, [41.892, 12.511, 20]);
+const darkTarget = lunarFeatureTarget(darkFrame, findLunarFeature('lunar:1296'));
+assert.ok(darkTarget.lunarState.visible && !darkTarget.lunarState.sunlit);
+const darkDisk = moonDisk(darkFrame.t, darkFrame.bodies.find((o) => o.body === 'moon'));
+assert.deepEqual(projectLunarFeatures(darkDisk, center, 80, 0, 1200, 1200, null, 'lunar:1296'), []);
+const marked = projectLunarFeatures(darkDisk, center, 80, 0, 1200, 1200, null, 'lunar:1296', true);
+assert.equal(marked.length, 1);
+assert.equal(marked[0].name, 'Copernicus');
+assert.ok(marked[0].sunlight <= 0.005);
+assert.match(lunarFeatureDetails(marked[0]), /Not currently illuminated/);
+const farKey = `lunar:${LUNAR_FEATURES.find((f) => f[1] === 'Tsiolkovskiy')[0]}`;
+assert.deepEqual(projectLunarFeatures(darkDisk, center, 80, 0, 1200, 1200, null, farKey, true), [], 'Search never marks a center behind the limb');
+assert.deepEqual(projectLunarFeatures(darkDisk, center, 20, 0, 1200, 1200, null, 'lunar:1296', true), [], 'Night-side marker retires at sky overview zoom');
+console.log('Unlit lunar search marker checks passed');

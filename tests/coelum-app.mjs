@@ -74,6 +74,57 @@ try {
   await page.click('[data-more="solar"]');
   assert.equal((await rows(page)).filter(([k]) => k === 'solar').length, 8, 'More finds four more');
 
+  // New events open at their time, centered on a body or a whole pair,
+  // in both views, even after the previous event left a tight zoom.
+  for (const mode of ['chart', 'sky']) {
+    for (const event of ['phases', 'oppositions', 'conjunctions', 'planet-pair']) {
+      const kind = event === 'planet-pair' ? 'conjunctions' : event;
+      await page.click('[data-action="time"]');
+      await page.click('[data-set-time="now"]');
+      await page.click(`[data-view="${mode}"]`);
+      await page.click('[data-action="events"]');
+      await page.waitForSelector(`[data-event="${kind}"]`);
+      const candidates = page.locator(`[data-event="${kind}"]`);
+      const row = (event === 'planet-pair' ? candidates.filter({ hasText: 'Mars–Jupiter' }) : candidates).first();
+      const title = await row.locator('b').textContent();
+      const names = kind === 'phases' ? ['Moon'] : kind === 'oppositions' ? [title.split(' ')[0]] : title.replace(' conjunction', '').split('–');
+      if (kind !== 'conjunctions') {
+        const count = await page.locator(`[data-event="${kind}"]`).count();
+        assert.ok(count >= 4);
+        await page.click(`[data-more="${kind}"]`);
+        assert.equal(await page.locator(`[data-event="${kind}"]`).count(), count + 4);
+      }
+      await row.click();
+      await page.waitForTimeout(900);
+      const framing = await page.evaluate(async ({ names, mode }) => {
+        const { skyFrame, findObject, pointVector, refractVector, unit3, dot3, lookAt, projectVector, chartRadius } = await import('/js/coelum.js');
+        const { skyRadius } = await import('/js/coelumsky.js');
+        const svg = document.querySelector('.coelum-full'), d = svg.dataset;
+        const frame = skyFrame(Number(d.time), [45.4642, 9.19, 120]);
+        const apparent = mode === 'sky' && document.querySelector('.coelum-canvas').dataset.atmosphere === 'true';
+        const vectors = names.map((name) => {
+          const v = pointVector(findObject(frame, name));
+          return apparent ? refractVector(v, 120) : v;
+        });
+        const midpoint = vectors.length === 1 ? vectors[0] : unit3(vectors[0].map((x, i) => x + vectors[1][i]));
+        const rotation = mode === 'sky' ? lookAt(Number(d.az), Number(d.alt)) : d.rotation.split(',').map(Number);
+        const centerError = Math.acos(Math.min(1, dot3(midpoint, rotation.slice(6)))) * 180 / Math.PI;
+        const [, , w, h] = svg.getAttribute('viewBox').split(' ').map(Number);
+        const radius = (mode === 'sky' ? skyRadius : chartRadius)(w, h, Number(d.scale));
+        const visible = vectors.every((v) => {
+          const p = projectVector(v, rotation, mode === 'sky');
+          return p.z > 0 && Math.abs(p.x * radius) < w * 0.45 && Math.abs(p.y * radius) < h * 0.45;
+        });
+        return { centerError, visible };
+      }, { names, mode });
+      assert.ok(framing.centerError < 0.002, `${kind} ${mode}: centered (${framing.centerError}°)`);
+      assert.ok(framing.visible, `${kind} ${mode}: bodies fit in the viewport`);
+    }
+  }
+  await page.click('[data-action="time"]');
+  await page.click('[data-set-time="now"]');
+  await page.click('[data-action="events"]');
+
   // A solar eclipse: its map from the place, then the sky then, at the Sun
   await page.click('.coelum-event[data-event="solar"]');
   await page.waitForSelector('.map-svg.map-full path');
@@ -90,7 +141,7 @@ try {
   await page.click('[data-scope="anywhere"]');
   await page.waitForSelector('.coelum-event[data-event="lunar"]');
   list = await rows(page);
-  assert.match(list[0][1], /^Total solar eclipse \| Aug 2, 2027, 12:06 PM \| magnitude 1\.080$/, 'From the time of the sky');
+  assert.match(list.find(([k]) => k === 'solar')[1], /^Total solar eclipse \| Aug 2, 2027, 12:06 PM \| magnitude 1\.080$/, 'From the time of the sky');
   await page.click('.coelum-event[data-event="lunar"]');
   await page.waitForSelector('.lunar-sim .lunar-full .lunar-body');
   assert.equal(await page.locator('[data-lunar-sky]').count(), 0, 'Anywhere: no place to see it from');
@@ -158,7 +209,7 @@ try {
   await page.waitForSelector('.coelum-event');
   await context.setOffline(false);
   assert.deepEqual(errors, []);
-  console.log('Coelum app checks passed: places at the start, full screen, eclipses from a place and anywhere, More, the map and the sky then, the lunar eclipse, satellites fetched and kept, their passes, card and search, occultations by the Moon with their map and the sky, the place kept, offline');
+  console.log('Coelum app checks passed: phases, oppositions and conjunctions centered in both views, More, eclipses and occultations with their maps, satellite passes, places and offline');
 } finally {
   await browser?.close();
   server.close();

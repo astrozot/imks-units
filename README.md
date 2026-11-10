@@ -230,6 +230,11 @@ the planets and of the stars to magnitude 5 in the next month
 computed as `occultation` does; from the place, those seen there, with the
 limbs and the contacts not seen), and the next solar and lunar eclipses
 seen from the place, or anywhere on the Earth, after the time of the sky.
+It also lists the four Moon phases, conjunctions between planets and
+between a planet and the Moon, and planetary oppositions to the Sun.
+These use geocentric ecliptic longitudes and show local altitudes when a
+place is selected. Tap a phase or opposition to center its body in the
+sky, or a conjunction to frame both bodies together. More extends each list.
 Each occultation or eclipse opens the same map or drawing as
 `occultation`, `solareclipse` and `lunareclipse` in iMKS, and Show in the
 sky goes to it. Both apps load the same modules from `js/`
@@ -321,7 +326,9 @@ Selecting one opens Sky, centers the feature and sets a useful zoom. Permanently
 hidden lunar centers are excluded from Search using a conservative libration
 envelope (±10° longitude, ±8° latitude); potentially observable limb features
 remain searchable. Temporarily hidden or unlit features are identified in the
-results; selecting them frames the Moon without highlighting the feature. Other search results
+results. Selecting an unlit feature on the visible hemisphere keeps the entire
+Moon in view and marks the searched location, even below the automatic label
+zoom threshold. Features beyond the limb frame the Moon without a highlight. Other search results
 also reset the zoom to suit the object's angular size or surrounding field.
 The feature layer starts when the Moon is 240 CSS pixels across; smaller
 features become selectable as their apparent size grows. Features beyond the
@@ -357,11 +364,16 @@ and taps on the rendered Moon (`node tests/lunarfeatures-browser.mjs`).
 
 `node tests/coelum-app.mjs` checks the Coelum app: its place at the start,
 full screen, the eclipses from a place and anywhere, their sheets and the
-sky then, the satellites and their passes, the occultations, and offline
+sky then, phases and oppositions centered on their bodies, conjunctions
+framed around both bodies in both views, the satellites and their passes,
+the occultations, and offline
 use, with the same
 Playwright options. CelesTrak is not reached by the tests: this one serves
 `tests/fixtures/celestrak.json` (some satellites of November 2026), the
 others an empty list.
+
+`node tests/eventspanel.mjs` checks the new event searches, their longitude
+conditions, chronological order, pagination and cancellation.
 
 `node tests/browser.mjs` checks the app in Chromium at phone size, with
 simulated sensors (position, motion, compass, microphone). It needs
