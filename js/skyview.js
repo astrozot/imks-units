@@ -872,18 +872,18 @@ function fitView(sky, W, H) {
 // it, while the view moves it is only moved and scaled, then drawn again
 // sharp. size(W, H) lays it out; set(sky, quick) shows the moons at
 // another time, the planet (without the GPU) ten times a second if quick. Without a bar, onScale(arcseconds per pixel) gives the scale;
-// top moves the directions down
-function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top = 0 } = {}) {
+// top moves the directions down. Optional onOverlay/onPoint hooks add surface
+// labels and picking in the dedicated view; focus uses planet-radius units.
+function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top = 0, onOverlay = null, onPoint = null } = {}) {
   const svg = stage.querySelector(".sky-svg"), canvas = stage.querySelector(".sky-canvas");
   let W = 320, H = 400, v = null, drawn = null, idle = 0, quick = false, planetAt = 0, gpu = false;
   const k = () => Math.min(gpu ? 3 : 2, window.devicePixelRatio || 1);
   // the planet sharp for the view, and the canvas back in place
   const sharp = () => {
-    const was = gpu;
     canvas.style.mixBlendMode = skyBlend(sky.planet);
     gpu = drawPlanet(canvas, sky, W, H, v.cx, v.cy, v.s, quick && !gpu ? 1 : k());
     // the moons are traced too: their circles go
-    if (gpu !== was) overlay();
+    overlay();
     drawn = { ...v };
     canvas.style.transform = "";
   };
@@ -896,7 +896,7 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
   // the planet's map, drawn when it arrives
   const awaitMap = () => planetMap(sky.planet)?.ready.then((e) => { if (e && v && canvas.isConnected) sharp(); });
   awaitMap();
-  const overlay = () => { svg.innerHTML = overlaySVG(sky, W, H, v.cx, v.cy, v.s, true, bar, top, gpu); onScale?.(sky.radius / v.s); };
+  const overlay = () => { svg.innerHTML = overlaySVG(sky, W, H, v.cx, v.cy, v.s, true, bar, top, gpu) + (onOverlay?.({ sky, W, H, ...v, gpu }) || ""); onScale?.(sky.radius / v.s); };
   const moved = () => {
     overlay();
     if (gpu) { sharp(); return; }
@@ -952,6 +952,7 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
     if (ev.type === "pointerup" && !dragged && !pts.size) {
       // a moon under the finger
       const p = local(ev), X = (x) => W / 2 + (x - v.cx) * v.s, Y = (y) => H / 2 - (y - v.cy) * v.s;
+      if (onPoint?.(p)) { lastTap = 0; return; }
       const near = onTap && sky.t !== undefined ? sky.moons.find((m) => Math.hypot(X(m.x) - p.x, Y(m.y) - p.y) < 16) : null;
       if (near) { onTap(near); return; }
       if (ev.timeStamp - lastTap < 350) { v = fitView(sky, W, H); moved(); lastTap = 0; } else lastTap = ev.timeStamp;
@@ -988,6 +989,8 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
       if (gpu || !fast || now - planetAt > 100) { planetAt = now; sharp(); }
     },
     fit() { v = fitView(sky, W, H); moved(); },
+    focus(x, y, radius) { v = { cx: x, cy: y, s: clampS(radius) }; moved(); },
+    redraw() { if (v) overlay(); },
     get sky() { return sky; },
   };
 }

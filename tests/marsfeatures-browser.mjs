@@ -26,123 +26,107 @@ try {
   await page.goto(`http://localhost:${server.address().port}/coelum/`);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const summary = await page.evaluate(async () => {
-    const { skyFrame, lookAt } = await import('/js/coelum.js');
-    const { skyScene, skyRadius } = await import('/js/coelumsky.js');
-    const { planetMap } = await import('/js/skyview.js');
-    const { marsDisk, pickMarsFeature } = await import('/js/marsfeatures.js');
-    const check = (ok, message) => { if (!ok) throw new Error(message); };
-    await planetMap('mars').ready;
-    const t = Date.parse('2026-11-25T07:00:00Z') / 1000, place = [41.892, 12.511, 20];
-    const frame = skyFrame(t, place), mars = frame.bodies.find((o) => o.body === 'mars');
-    const W = 900, H = 900, canvas = document.createElement('canvas');
-    canvas.width = W; canvas.height = H;
-    const ctx = canvas.getContext('2d'), layers = { ground: false, atmosphere: false, labels: true, milkyway: false };
-    const scale = 310 / (marsDisk(t).radius * Math.PI / 180 * skyRadius(W, H, 1) / 2);
-    const view = { rotation: lookAt(mars.az, mars.alt), scale };
-    check(!skyScene(frame, W, H, layers, { ...view, scale: 20 }, ctx).marsFeatures.length, 'Low zoom hides features');
-    const scene = skyScene(frame, W, H, layers, view, ctx);
-    const pixel = ctx.getImageData(W / 2, H / 2, 1, 1).data;
-    check(!(pixel[0] > 250 && pixel[1] > 230), 'Resolved surface has no bright point at its center');
-    const labels = scene.hitLabels.filter((l) => l.name.startsWith('mars:'));
-    check(scene.marsFeatures.length >= 3 && labels.length >= 3, 'Mars has surface labels');
-    const noLabels = skyScene(frame, W, H, { ...layers, labels: false }, view, ctx);
-    check(!noLabels.hitLabels.length, 'Labels toggle hides automatic labels');
-    const feature = scene.marsFeatures.find((f) => f.name === 'Sinus Meridiani');
-    check(feature && pickMarsFeature(noLabels.marsFeatures, feature.x, feature.y) === noLabels.marsFeatures.find((f) => f.key === feature.key), 'Center pick works with labels off');
-    const highlighted = skyScene(frame, W, H, { ...layers, labels: false }, { ...view, selected: feature.key }, ctx);
-    check(highlighted.hitLabels.some((l) => l.name === feature.key), 'Selection named with labels off');
-    skyScene(frame, W, H, layers, view, ctx);
-    document.body.replaceChildren(canvas);
-    window.marsTest = { t, place, skyFrame, skyScene, scale, feature };
-    return { features: scene.marsFeatures.length, labels: labels.length, selected: feature.name };
-  });
-  if (process.env.MARS_SCREENSHOT) await page.screenshot({ path: process.env.MARS_SCREENSHOT });
   await page.evaluate(async () => {
+    const { skyFrame, lookAt } = await import('/js/coelum.js');
+    const { skyScene } = await import('/js/coelumsky.js');
+    const { planetMap } = await import('/js/skyview.js');
     const { mountCoelum } = await import('/js/coelumui.js');
+    const t = Date.parse('2026-11-25T07:00:00Z') / 1000, place = [41.892, 12.511, 20];
+    await planetMap('mars').ready;
+    const frame = skyFrame(t, place), mars = frame.bodies.find((o) => o.body === 'mars');
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 900;
+    const scene = skyScene(frame, 900, 900, { ground: false, atmosphere: false, labels: true },
+      { rotation: lookAt(mars.az, mars.alt), scale: 20000 }, canvas.getContext('2d'));
+    if (scene.marsFeatures?.length || scene.hitLabels.some((l) => l.name.startsWith('mars:'))) throw new Error('Mars features leaked into the standard sky');
     localStorage.setItem('imks-coelum-mode', 'sky');
     localStorage.setItem('imks-coelum-mount', 'altaz');
     const host = document.createElement('div'); host.className = 'coelum-explorer'; host.style.cssText = 'position:fixed;inset:0';
     document.body.replaceChildren(host);
-    const { t, place } = window.marsTest;
-    window.marsTest.explorer = mountCoelum(host, { t, place, label: 'Rome' }, String, { standalone: true });
-    for (const layer of ['atmosphere', 'ground', 'labels']) {
-      const toggle = host.querySelector(`[data-layer="${layer}"]`);
-      if (toggle.checked) toggle.click();
+    const explorer = mountCoelum(host, { t, place, label: 'Rome' }, String, { standalone: true });
+    window.marsTest = { t, explorer };
+    for (const layer of ['ground', 'atmosphere']) {
+      const toggle = host.querySelector(`[data-layer="${layer}"]`); if (toggle.checked) toggle.click();
     }
+    explorer.focus('Mars');
   });
+  await page.waitForTimeout(900);
+  await page.locator('.coelum-detail [data-action="moons"]').click();
+  const view = page.locator('.coelum-moonsview');
+  await page.waitForFunction(() => !document.querySelector('.coelum-moonsview').hidden);
+  assert.equal(await page.locator('.coelum-moons-title').innerText(), 'Moons of Mars');
+  // Zoom the telescope view until the surface becomes readable.
+  await page.mouse.move(450, 450);
+  for (let i = 0; i < 8 && await page.locator('.coelum-mars-label').count() < 2; i++) {
+    await page.mouse.wheel(0, -250); await page.waitForTimeout(120);
+  }
+  assert.ok(await page.locator('.coelum-mars-label').count() >= 2, 'Surface labels appear in the telescope view');
+  const label = await page.locator('.coelum-mars-label').evaluateAll((labels) => labels.map((el) => {
+    const b = el.getBoundingClientRect(); return { name: el.textContent, x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  }).find((p) => p.y > 200 && p.y < 650));
+  assert.ok(label, 'An unobstructed feature can be tapped');
+  await page.mouse.click(label.x, label.y);
+  await page.waitForFunction((name) => document.querySelector('.coelum-mars-detail h3')?.textContent === name && !document.querySelector('.coelum-mars-detail').hidden, label.name);
+  assert.ok(await view.isVisible(), 'A surface tap stays in the telescope view');
+  await page.locator('[data-action="close-mars-feature"]').click();
+  assert.ok(await page.locator('.coelum-mars-detail').isHidden());
   const search = page.locator('.coelum-search input');
-  await search.fill(`Mars ${summary.selected}`);
-  assert.match(await page.locator('.coelum-results').innerText(), /Mars feature/);
-  await page.locator('.coelum-results [role="option"]').first().click();
-  await page.waitForFunction((name) => document.querySelector('.coelum-mars-head h3')?.textContent === name, summary.selected);
-  await page.waitForTimeout(200);
-  const centered = await page.evaluate(() => {
-    const { t, place, skyFrame, skyScene, feature } = window.marsTest;
-    const svg = document.querySelector('.coelum-full'), box = svg.getBoundingClientRect(), c = document.createElement('canvas');
-    c.width = box.width; c.height = box.height;
-    const scene = skyScene(skyFrame(t, place), box.width, box.height, { ground: false, atmosphere: false, labels: false },
-      { az: Number(svg.dataset.az), alt: Number(svg.dataset.alt), scale: Number(svg.dataset.scale), selected: feature.key }, c.getContext('2d'));
-    const f = scene.marsFeatures.find((f) => f.key === feature.key);
-    const another = scene.marsFeatures.find((f) => f.key !== feature.key && f.x > 100 && f.x < box.width - 100 && f.y > 150 && f.y < 550);
-    if (!another) throw new Error('No second feature for tap');
-    return { distance: Math.hypot(f.x - box.width / 2, f.y - box.height / 2), scale: Number(svg.dataset.scale), tap: { x: box.x + another.x, y: box.y + another.y, name: another.name } };
-  });
-  assert.ok(centered.distance < 10, 'Search centers the surface point');
-  assert.ok(centered.scale > 400, 'Search exceeds old planetary zoom limit');
-  await page.mouse.click(centered.tap.x, centered.tap.y);
-  await page.waitForFunction((name) => document.querySelector('.coelum-mars-head h3')?.textContent === name, centered.tap.name);
-  assert.match(await page.locator('.coelum-detail').innerText(), /Latitude.*Longitude/s);
-  if (process.env.MARS_DETAIL_SCREENSHOT) await page.screenshot({ path: process.env.MARS_DETAIL_SCREENSHOT });
-  // Rotation must retire the old surface selection, even at fixed sky direction.
+  const choose = async (name) => {
+    await search.fill(`Mars ${name}`);
+    await page.locator('.coelum-results [role="option"]').first().click();
+  };
+  await choose('Sinus Meridiani');
+  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Sinus Meridiani');
+  assert.ok(await view.isVisible(), 'Search opens the dedicated view');
+  assert.equal(await page.locator('.coelum-explorer').getAttribute('data-mode'), 'sky');
+  if (process.env.MARS_SCREENSHOT) await page.screenshot({ path: process.env.MARS_SCREENSHOT });
+  // Rotation updates the same surface, retiring unavailable selections.
   await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t + 12 * 3600));
-  await page.waitForFunction(() => !document.querySelector('.coelum-explorer').classList.contains('coelum-has-selection'));
-  await search.fill(`Mars ${centered.tap.name}`);
-  assert.match(await page.locator('.coelum-results').innerText(), /far side|not sunlit/);
+  await page.waitForFunction(() => document.querySelector('.coelum-mars-detail').hidden);
+  await choose('Sinus Meridiani');
+  assert.ok(await view.isVisible());
+  assert.ok(await page.locator('.coelum-mars-detail').isHidden(), 'Unavailable search result does not highlight a feature');
+  await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t));
+  await page.locator('[data-action="close-moons"]').click();
+  await page.locator('[data-view="chart"]').click();
+  await choose('Sinus Meridiani');
+  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden);
+  assert.ok(await view.isVisible());
+  assert.equal(await page.locator('.coelum-explorer').getAttribute('data-mode'), 'chart', 'Search uses the telescope overlay without changing the standard mode');
+  await page.locator('[data-action="close-moons"]').click();
+  await page.locator('[data-view="sky"]').click();
+  await page.evaluate(() => { for (let i = 0; i < 70; i++) document.querySelector('[data-action="in"]').click(); });
+  assert.equal(Number(await page.locator('.coelum-full').getAttribute('data-scale')), 400, 'Standard sky zoom is restored to 400');
+  assert.equal(await page.locator('.coelum-mars-label:visible').count(), 0, 'No surface labels in the standard view');
+  // Size outlines and search work in the dedicated view on a phone as well.
+  await page.setViewportSize({ width: 360, height: 760 });
+  await page.evaluate(() => window.marsTest.explorer.setTime(Date.parse('2026-11-24T21:00:00Z') / 1000));
+  await choose('Olympus Mons');
+  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Olympus Mons');
+  assert.match(await page.locator('.coelum-mars-detail').innerText(), /Diameter \/ extent.*610/s);
+  assert.ok(await page.locator('.coelum-mars-outline').count(), 'Selected extent is drawn');
+  if (process.env.MARS_SIZE_SCREENSHOT) await page.screenshot({ path: process.env.MARS_SIZE_SCREENSHOT });
+  await page.locator('[data-action="close-moons"]').click();
+  // Other planet systems retain their existing view.
+  await search.fill('Jupiter');
   await page.locator('.coelum-results [role="option"]').first().click();
   await page.waitForTimeout(900);
-  assert.equal(await page.locator('.coelum-mars-head').count(), 0, 'Unavailable feature is not highlighted');
-  await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t));
-  await page.locator('[data-view="chart"]').click();
-  await search.fill(`Mars ${summary.selected}`);
-  await page.locator('.coelum-results [role="option"]').first().click();
-  await page.waitForFunction((name) => document.querySelector('.coelum-mars-head h3')?.textContent === name, summary.selected);
-  assert.equal(await page.locator('.coelum-explorer').getAttribute('data-mode'), 'sky');
-  await page.evaluate(() => { for (let n = 0; n < 20; n++) document.querySelector('[data-action="out"]').click(); });
-  await page.waitForFunction(() => !document.querySelector('.coelum-explorer').classList.contains('coelum-has-selection'));
-  await page.setViewportSize({ width: 360, height: 640 });
-  const distantFeature = await page.evaluate(async () => {
-    const { marsDisk, projectMarsFeatures } = await import('/js/marsfeatures.js');
-    const t = Date.parse('2028-01-01T00:00:00Z') / 1000;
-    window.marsTest.explorer.setTime(t);
-    return projectMarsFeatures(marsDisk(t), { x: 500, y: 500 }, 300, 0, 1000, 1000)[0].name;
+  await page.locator('.coelum-detail [data-action="moons"]').click();
+  assert.equal(await page.locator('.coelum-moons-title').innerText(), 'Moons of Jupiter');
+  assert.equal(await page.locator('.coelum-mars-label').count(), 0);
+  assert.ok(await page.locator('.coelum-mars-detail').isHidden());
+  const io = await page.evaluate(async () => {
+    const { skyView } = await import('/js/sky.js');
+    const { fitView } = await import('/js/skyview.js');
+    const stage = document.querySelector('.coelum-moons-stage'), b = stage.getBoundingClientRect();
+    const sky = skyView('jupiter', Date.parse('2026-11-24T21:00:00Z') / 1000), v = fitView(sky, b.width, b.height);
+    const m = sky.moons.find((m) => m.name === 'Io');
+    return { x: b.x + b.width / 2 + (m.x - v.cx) * v.s, y: b.y + b.height / 2 - (m.y - v.cy) * v.s };
   });
-  await search.fill(`Mars ${distantFeature}`);
-  await page.locator('.coelum-results [role="option"]').first().click();
-  await page.waitForFunction((name) => document.querySelector('.coelum-mars-head h3')?.textContent === name, distantFeature);
-  await page.setViewportSize({ width: 900, height: 900 });
-  await page.evaluate(() => window.marsTest.explorer.setTime(Date.parse('2026-11-24T21:00:00Z') / 1000));
-  await search.fill('Mars Olympus Mons');
-  await page.locator('.coelum-results [role="option"]').first().click();
-  await page.waitForFunction(() => document.querySelector('.coelum-mars-head h3')?.textContent === 'Olympus Mons');
-  assert.match(await page.locator('.coelum-detail').innerText(), /Diameter \/ extent.*610/s);
-  await page.evaluate(() => {
-    const { skyFrame, skyScene, place } = window.marsTest;
-    const svg = document.querySelector('.coelum-full'), box = svg.getBoundingClientRect(), canvas = document.createElement('canvas');
-    canvas.width = box.width; canvas.height = box.height;
-    const ctx = canvas.getContext('2d');
-    const scene = skyScene(skyFrame(Date.parse('2026-11-24T21:00:00Z') / 1000, place), box.width, box.height,
-      { ground: false, atmosphere: false, labels: false },
-      { az: Number(svg.dataset.az), alt: Number(svg.dataset.alt), scale: Number(svg.dataset.scale), selected: 'mars:4453' }, ctx);
-    const feature = scene.marsFeatures.find((f) => f.key === 'mars:4453');
-    const point = feature?.outline?.find((p) => p.visible && p.x > 5 && p.x < box.width - 5 && p.y > 5 && p.y < box.height - 5);
-    if (!point) throw new Error('No visible Olympus extent outline');
-    const pixels = ctx.getImageData(Math.floor(point.x) - 2, Math.floor(point.y) - 2, 5, 5).data;
-    if (!Array.from({ length: 25 }, (_, i) => pixels[i * 4] > 220 && pixels[i * 4 + 1] > 150 && pixels[i * 4 + 2] > 80).some(Boolean)) throw new Error('Extent outline not drawn in amber');
-  });
-  if (process.env.MARS_SIZE_SCREENSHOT) await page.screenshot({ path: process.env.MARS_SIZE_SCREENSHOT });
+  await page.mouse.click(io.x, io.y);
+  await page.waitForFunction(() => document.querySelector('.coelum-moonsview').hidden);
+  await page.waitForFunction(() => document.querySelector('.coelum-detail h3')?.textContent === 'Io');
   assert.deepEqual(errors, []);
-  console.log('Mars feature browser checks passed:', JSON.stringify(summary));
+  console.log('Mars telescope checks passed: standard sky exclusion, button entry, zoom, taps, search from Sky/Chart, rotation, size outlines, mobile and Jupiter regression');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));

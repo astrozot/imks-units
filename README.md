@@ -331,17 +331,20 @@ Moon texture and WebGL renderer are required for surface alignment.
 Mars has a small surface catalogue in `js/marsfeatures.js`: eight classical
 albedo regions, Olympus Mons and Valles Marineris, with approved centers from
 the [IAU/USGS Gazetteer](https://planetarynames.wr.usgs.gov/Page/MARS/target).
-At a disk diameter of 240 CSS pixels, sunlit centers appear in amber. Tap a
-center or label, or search by name (optionally prefixed with Mars), to show its
-type and coordinates. Surface features follow all ordinary sky objects in Search;
-use a Moon/Mars prefix to search them directly. Olympus Mons (610.13 km) and
-Valles Marineris (3,761.28 km) have catalogue size outlines projected onto the
-oblate globe, clipped at the limb and terminator, and selectable by their
-footprint. As with the Moon, these indicate diameter/longest extent rather
-than surveyed boundaries. The albedo names have no catalogue extents and
-retain center markers with an explicit note in the detail card.
-The Mars texture rotates with the same orientation as the labels; the sky zoom
-limit accommodates Mars's small angular size. Polar caps are unchanged.
+Mars surface features are available only in **Moons of Mars**, opened from
+Mars's detail card. Zoom into the globe: at a diameter of 240 CSS pixels,
+sunlit features appear in amber. Tap a center, footprint or label for its
+type and coordinates. Searching a Mars feature opens this telescope view
+and centers it; unavailable features frame Mars without a highlight. Closing
+the view restores the standard sky/chart, whose maximum zoom is 400.
+Surface features follow ordinary objects in Search; use a Moon/Mars prefix
+to search them directly. Search uses status icons with a key containing only
+symbols in the current results; tap or hover an icon for its meaning.
+Olympus Mons (610.13 km) and Valles Marineris (3,761.28 km) have catalogue
+size outlines projected onto the oblate globe and clipped at the limb and
+terminator. These indicate diameter/longest extent rather than surveyed
+boundaries. Albedo names have no catalogue extents and retain center markers.
+Polar caps are unchanged.
 `node tests/marsfeatures.mjs` checks geometry and search;
 `node tests/marsfeatures-browser.mjs` checks rendering, taps and search flights.
 

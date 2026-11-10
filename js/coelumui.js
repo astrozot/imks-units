@@ -3,7 +3,7 @@
 // mode whose controls fade away while the sky is left alone.
 import { PhoneOrientation } from './phoneorientation.js';
 import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, satelliteList, satelliteStatus } from './satellites.js';
-import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
+import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
 import { riseSet, planetOf, siderealTime } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
@@ -11,7 +11,7 @@ import { storedHorizon, computeHorizon, forgetHorizon, horizonAt } from './skyho
 import { skyView as moonSystem } from './sky.js';
 import { moonsView, planetMap } from './skyview.js';
 import { pickLunarFeature, lunarFeatureDetails, findLunarFeature, lunarFeatureTarget, LUNAR_MIN_RADIUS } from './lunarfeatures.js';
-import { pickMarsFeature, marsFeatureDetails, findMarsFeature, marsFeatureTarget, MARS_MIN_RADIUS } from './marsfeatures.js';
+import { pickMarsFeature, marsFeatureDetails, findMarsFeature, marsFeatureState, projectMarsFeatures, MARS_MIN_RADIUS } from './marsfeatures.js';
 
 // Optional fainter stars, from AT-HYG like the built-in ones
 // (tools/stars.mjs): files of the app downloaded when asked, kept in a
@@ -144,10 +144,23 @@ const LAYERS = [
   ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['satellites', 'Satellites', 'chart sky'], ['labels', 'Labels', 'chart sky'],
 ];
 const MODES = { chart: 'Chart', sky: 'Sky' };
-// The chart's maximum matches Sky: resolve Mars even when its apparent
-// disk is only a few arcseconds across.
-const SKY_MAX = 150000;
+// The chart's maximum matches Sky; planetary detail has its own view.
+const SKY_MAX = 400;
 const TYPE_ORDER = { 'lunar feature': 'Moon feature', 'Mars feature': 'Mars feature', star: 'Star', planet: 'Planet', moon: 'Moon', constellation: 'Constellation' };
+// Search status symbols share their shapes with the key and tap/hover hints.
+const searchIcon = (body) => `<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const SEARCH_ICONS = {
+  moon: searchIcon('<path fill="currentColor" stroke="none" d="M10 2A8 8 0 0 1 10 18A4.5 8 0 0 0 10 2Z"/>'),
+  mars: searchIcon('<circle cx="8" cy="12" r="5"/><path d="m11.5 8.5 6-6M12 2h6v6"/>'),
+  unlit: searchIcon('<circle cx="10" cy="10" r="4"/><path d="M10 1v2m0 14v2M1 10h2m14 0h2M3 3l2 2m10 10 2 2M3 17 17 3"/>'),
+  far: searchIcon('<circle cx="10" cy="10" r="8"/><path fill="currentColor" stroke="none" d="M10 2a8 8 0 0 0 0 16Z"/>'),
+  below: searchIcon('<path d="M2 14h16M10 2v9m-4-4 4 4 4-4m-7 11h6"/>'),
+};
+const searchStatus = (m) => [
+  ...(m.key?.startsWith('lunar:') ? [['moon', 'Moon feature']] : m.key?.startsWith('mars:') ? [['mars', 'Mars feature']] : []),
+  ...(m.availability ? [[m.availability === 'not sunlit' ? 'unlit' : 'far', m.availability === 'not sunlit' ? 'Not sunlit' : m.availability === 'beyond limb' ? 'Beyond limb' : 'Far side']] : []),
+  ...(m.alt < 0 ? [['below', 'Below horizon']] : []),
+];
 let explorers = 0;
 
 // Ask the controlling worker, rather than guessing from old cache names.
@@ -223,7 +236,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   try { if (localStorage.getItem('imks-coelum-mode') === 'sky') mode = 'sky'; } catch { /* private mode */ }
   root.dataset.mode = mode;
   root.innerHTML = `<div class="coelum-topbar coelum-hud">
-      <div class="coelum-search">${ICONS.search}<input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="Search" aria-label="Search stars, planets, deep-sky objects and surface features" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><ul class="coelum-results" id="${id}-results" role="listbox" aria-label="Matches" hidden></ul></div>
+      <div class="coelum-search">${ICONS.search}<input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="Search" aria-label="Search stars, planets, deep-sky objects and surface features" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><div class="coelum-search-dropdown" hidden><ul class="coelum-results" id="${id}-results" role="listbox" aria-label="Matches" hidden></ul><div class="coelum-search-key"></div><div class="coelum-search-hint" role="status" hidden></div></div></div>
       <div class="coelum-seg" role="group" aria-label="View">${Object.entries(MODES).map(([m, label]) => `<button type="button" data-view="${m}" aria-pressed="${m === mode}" title="${m === 'chart' ? 'Map-like star chart' : 'Realistic sky'}">${ICONS[m]}<span>${label}</span></button>`).join('')}</div>
       ${options.standalone ? '' : `<button type="button" class="coelum-btn" data-action="fullscreen" aria-pressed="false" aria-label="Full screen" title="Full screen">${ICONS.expand}</button>`}
     </div>
@@ -278,7 +291,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       <div class="coelum-moonsview" role="group" aria-label="Moons" hidden>
         <div class="sky-stage coelum-moons-stage"></div>
         <div class="coelum-moons-head"><div><h3 class="coelum-moons-title">Moons</h3><p class="coelum-moons-data"></p></div><button type="button" class="coelum-btn coelum-btn-small" data-action="close-moons" aria-label="Close the moons">${ICONS.close}</button></div>
-        <p class="coelum-moons-note">As in a telescope (north up, east left), at the chart's time. Drag, pinch or double-tap to fit<span class="coelum-moons-tap" hidden>; tap a moon to find it in the sky</span>.</p>
+        <div class="coelum-mars-detail" hidden></div>
+        <p class="coelum-moons-note">As in a telescope (north up, east left), at the chart's time. Drag, pinch or double-tap to fit<span class="coelum-mars-tap" hidden>; zoom in and tap a surface feature for details</span><span class="coelum-moons-tap" hidden>; tap a moon to find it in the sky</span>.</p>
       </div>
       <p class="coelum-toast" role="status" aria-live="polite" hidden></p>
       <div class="coelum-panel coelum-legend" id="${id}-legend" role="group" aria-label="Legend" hidden>
@@ -303,7 +317,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars and deep-sky objects: the app’s IAU / HYG / OpenNGC catalogs. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('.coelum-detail-body'), viewport = $('.coelum-viewport');
-  const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results');
+  const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results'), searchDropdown = $('.coelum-search-dropdown'), searchKey = $('.coelum-search-key'), searchHint = $('.coelum-search-hint');
   const layers = { chart: { ...DEFAULT_LAYERS }, sky: { ...SKY_LAYERS } };
   const views = { chart: { scale: 1, rotation: [...SKY_IDENTITY] }, sky: null };
   const labelHistory = { chart: new Map(), sky: new Map() }, gridHistory = { chart: new Map(), sky: new Map() };
@@ -368,14 +382,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (!force && now - lastUI < 200) return;
     lastUI = now;
     // A feature selection disappears with its illumination, visibility or zoom.
-    const feature = [...(drawn?.lunarFeatures || []), ...(drawn?.marsFeatures || [])].find((f) => f.key === selected);
-    if (/^(lunar|mars):/.test(selected || '') && !feature) { selected = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; }
+    const feature = drawn?.lunarFeatures?.find((f) => f.key === selected);
+    if (selected?.startsWith('lunar:') && !feature) { selected = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; }
     root.classList.toggle('coelum-has-selection', Boolean(selected));
     const sun = frame.bodies[0].alt, condition = sun >= 0 ? 'Daylight' : sun >= -6 ? 'Civil twilight' : sun >= -12 ? 'Nautical twilight' : sun >= -18 ? 'Astr. twilight' : 'Night';
     statusTime.textContent = formatTime(t); statusPlace.textContent = placeLabel; statusCondition.textContent = ` · ${condition} · Sun ${sun.toFixed(1)}°`;
     if (selected) {
       const o = findObject(frame, selected);
-      const html = feature ? (feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
+      const html = feature ? lunarFeatureDetails(feature) : o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
       // unchanged, the card stays (a tap on its button is not lost)
       if (html && html !== detailHTML) detail.innerHTML = detailHTML = html;
     }
@@ -458,7 +472,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       drawn = skyChart(frame, size, height, layers.chart, { ...shown, backdrop: ctx });
       svg.innerHTML = drawn.svg;
     }
-    if (mode === 'sky' && view.scale > 20) for (const body of ['moon', 'mars']) {
+    if (mode === 'sky' && view.scale > 20) for (const body of ['moon']) {
       if (surfaceMapsWatched.has(body)) continue;
       surfaceMapsWatched.add(body);
       planetMap(body)?.ready.then(() => { if (root.isConnected && mode === 'sky' && !playing) draw(); });
@@ -542,10 +556,6 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     let step;
     const [lo, hi] = scaleLimits();
     const searchScale = () => {
-      if (o.marsState) {
-        const radius = Math.max(MARS_MIN_RADIUS * 1.3, Math.min(size, height) * 0.35);
-        return Math.max(lo, Math.min(hi, radius / (o.marsRadius * skyRadius(size, height, 1) / 2 * R)));
-      }
       if (o.feature) {
         // Resolve the feature while keeping the Moon's feature layer active.
         const pixels = Math.min(130, Math.min(size, height) * 0.22);
@@ -629,19 +639,71 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const lit = (1 + Math.cos(o.phase * R)) * 50, diameter = 2 * diskRadius(o) * 3600;
     $('.coelum-moons-data').textContent = `${lit.toFixed(0)} % lit · ${diameter.toFixed(1)}″ · mag ${o.mag.toFixed(1).replace('-', '−')} · ${(o.dist / 149597870.7).toFixed(2)} au`;
   };
-  const showMoons = (planet) => {
+  // Mars surface interaction belongs to the telescope view, not the sky.
+  const marsSurface = () => {
+    let features = [], labels = [], chosen = null, html = '';
+    const card = $('.coelum-mars-detail');
+    const clear = () => { chosen = null; card.hidden = true; moons?.view.redraw(); };
+    return {
+      clear,
+      overlay({ sky, W, H, cx, cy, s, gpu }) {
+        features = gpu && planetMap('mars')?.img ? projectMarsFeatures(sky, { x: W / 2 - cx * s, y: H / 2 + cy * s }, s, 0, W, H) : [];
+        const selected = features.find((f) => f.key === chosen);
+        if (!selected) { chosen = null; card.hidden = true; }
+        else {
+          const next = `<button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="close-mars-feature" aria-label="Close feature details">${ICONS.close}</button>${marsFeatureDetails(selected)}`;
+          if (next !== html) card.innerHTML = html = next;
+          card.hidden = false;
+        }
+        let svg = '';
+        if (selected?.outline) {
+          let path = '', previous = null;
+          for (const p of selected.outline) {
+            if (p.visible) path += `${previous?.visible ? 'L' : 'M'}${p.x.toFixed(2)},${p.y.toFixed(2)}`;
+            previous = p;
+          }
+          svg += `<path class="coelum-mars-outline" d="${path}"/>`;
+        } else if (selected) svg += `<circle class="coelum-mars-outline" cx="${selected.x}" cy="${selected.y}" r="7"/>`;
+        labels = placeLabels(features.map((f) => ({ ...f, r: 2, priority: f.key === chosen ? -1 : 2 })), {
+          W, H, size: 14, symbols: [],
+          draw: (f, x, y) => { svg += `<text class="coelum-mars-label" data-mars-feature="${f.key}" x="${x}" y="${y}">${esc(f.name)}</text>`; },
+        });
+        return svg;
+      },
+      pick(p) {
+        const label = labels.find(({ box }) => p.x >= box[0] && p.x <= box[2] && p.y >= box[1] && p.y <= box[3]);
+        const feature = label ? features.find((f) => f.key === label.name) : pickMarsFeature(features, p.x, p.y);
+        if (!feature) return false;
+        chosen = feature.key; moons.view.redraw(); return true;
+      },
+      focus(feature) {
+        const state = marsFeatureState(moons.view.sky, feature), radius = Math.max(MARS_MIN_RADIUS * 1.3, Math.min(viewport.clientWidth, viewport.clientHeight) * 0.35);
+        if (state.visible && state.sunlit) {
+          chosen = feature.key; moons.view.focus(state.v[0], state.v[1], radius);
+        } else {
+          moons.view.focus(0, 0, radius);
+          say(!state.visible ? `${feature.name} is on the far side of Mars.` : `${feature.name} is not currently illuminated.`);
+        }
+      },
+    };
+  };
+  const showMoons = (planet, feature = null) => {
     const stage = $('.coelum-moons-stage');
     stage.innerHTML = '<canvas class="sky-canvas"></canvas><svg class="sky-svg sky-full" role="img"></svg>';
     const sky = moonSystem(planet, t), name = planet[0].toUpperCase() + planet.slice(1);
-    $('.coelum-moons-tap').hidden = planet === 'mars' || !sky.moons.length;
+    $('.coelum-moons-tap').hidden = !sky.moons.length;
+    $('.coelum-mars-tap').hidden = planet !== 'mars';
+    const surface = planet === 'mars' ? marsSurface() : null;
+    $('.coelum-mars-detail').hidden = true;
     stage.querySelector('svg').setAttribute('aria-label', `${name} and its moons`);
     $('.coelum-moons-title').textContent = hasMoons({ body: planet }) ? `Moons of ${name}` : name;
     showPanel(null);
     const wasImmersive = moons ? moons.wasImmersive : immersive();
     if (!immersive()) fullscreen(true);
     moonsLayer.hidden = false; root.classList.add('coelum-moons-open');
-    moons = { planet, t, wasImmersive, view: moonsView(stage, sky, { onTap: (m) => { closeMoons(); select(m.name); const o = findObject(frame, m.name); if (o) goTo(o); draw(); }, bar: false, onScale: showRuler, top: 64 }) };
+    moons = { planet, t, wasImmersive, view: moonsView(stage, sky, { onTap: (m) => { closeMoons(); select(m.name); const o = findObject(frame, m.name); if (o) goTo(o); draw(); }, bar: false, onScale: showRuler, top: 64, onOverlay: surface?.overlay, onPoint: surface?.pick }), surface };
     sizeMoons(); moonsData();
+    if (feature) surface?.focus(feature);
   };
   const followMoons = () => {
     if (!moons || moons.t === t) return;
@@ -969,9 +1031,22 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // Search: matches as you type; Enter or a tap flies to the object.
   let matches = [], active = -1;
   const showResults = () => {
-    results.hidden = !matches.length;
+    results.hidden = searchDropdown.hidden = !matches.length;
+    searchHint.hidden = true;
     input.setAttribute('aria-expanded', String(!results.hidden));
-    results.innerHTML = matches.map((m, i) => `<li role="option" id="${id}-r${i}" data-index="${i}" aria-selected="${i === active}"><span class="coelum-result-dot coelum-type-${m.key?.startsWith('mars:') ? 'mars-feature' : esc(m.type.split(' ').at(-1))}"></span><span class="coelum-result-name">${esc(m.name)}${m.alias ? ` <small>${esc(m.alias)}</small>` : ''}</span><span class="coelum-result-meta">${esc(TYPE_ORDER[m.type] || m.type)}${m.availability ? ` · ${esc(m.availability)}` : ''}${m.alt < 0 ? ' · below horizon' : ''}</span></li>`).join('');
+    results.innerHTML = matches.map((m, i) => {
+      const type = TYPE_ORDER[m.type] || m.type, statuses = searchStatus(m);
+      const label = [m.name, m.alias, type, m.availability, m.alt < 0 && 'below horizon'].filter(Boolean).join(' · ');
+      const symbols = statuses.map(([key, text]) => `<span class="coelum-search-symbol" title="${esc(text)}" data-search-hint="${esc(text)}">${SEARCH_ICONS[key]}</span>`).join('');
+      return `<li role="option" id="${id}-r${i}" data-index="${i}" aria-label="${esc(label)}" aria-selected="${i === active}"><span class="coelum-result-dot coelum-type-${m.key?.startsWith('mars:') ? 'mars-feature' : esc(m.type.split(' ').at(-1))}" aria-hidden="true"></span><span class="coelum-result-name">${esc(m.name)}${m.alias ? ` <small>${esc(m.alias)}</small>` : ''}</span><span class="coelum-result-meta" aria-hidden="true">${m.key ? '' : `<span class="coelum-result-type" title="${esc(type)}">${esc(type)}</span>`}${symbols}</span></li>`;
+    }).join('');
+    const used = new Set(matches.flatMap((m) => searchStatus(m).map(([symbol]) => symbol)));
+    const farSide = matches.some((m) => m.availability === 'far side'), limb = matches.some((m) => m.availability === 'beyond limb');
+    const key = [['moon', 'Moon'], ['mars', 'Mars'], ['unlit', 'Unlit'],
+      ['far', farSide && limb ? 'Far side / beyond limb' : limb ? 'Beyond limb' : 'Far side'], ['below', 'Below horizon']]
+      .filter(([symbol]) => used.has(symbol));
+    searchKey.hidden = !key.length;
+    searchKey.innerHTML = key.map(([symbol, text]) => `<span>${SEARCH_ICONS[symbol]}${text}</span>`).join('');
     if (active >= 0) input.setAttribute('aria-activedescendant', `${id}-r${active}`); else input.removeAttribute('aria-activedescendant');
   };
   let searchChoice = 0;
@@ -982,17 +1057,20 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     input.value = m.name; matches = []; active = -1; showResults();
     input.blur(); pause(); setLock(null);
     if (moons) closeMoons();
-    if (feature) {
+    if (feature?.key.startsWith('mars:')) {
+      await planetMap('mars')?.ready;
+      if (ticket !== searchChoice || !root.isConnected) return;
+      select('Mars');
+      showMoons('mars', feature);
+    } else if (feature) {
       if (mode !== 'sky') setMode('sky');
       select(null);
-      const martian = feature.key.startsWith('mars:'), body = martian ? 'Mars' : 'Moon';
-      await planetMap(body.toLowerCase())?.ready;
+      await planetMap('moon')?.ready;
       if (ticket !== searchChoice || !root.isConnected) return;
-      const target = martian ? marsFeatureTarget(frame, feature) : lunarFeatureTarget(frame, feature);
-      const state = martian ? target.marsState : target.lunarState, available = state.visible && state.sunlit;
-      goTo(available ? target : findObject(frame, body), { fit: true, onArrival: () => {
-        select(available ? feature.key : body);
-        if (!state.visible) say(martian ? `${feature.name} is on the far side of Mars.` : `${feature.name} is currently beyond the Moon's visible limb.`);
+      const target = lunarFeatureTarget(frame, feature), state = target.lunarState, available = state.visible && state.sunlit;
+      goTo(available ? target : findObject(frame, 'Moon'), { fit: true, onArrival: () => {
+        select(available ? feature.key : 'Moon');
+        if (!state.visible) say(`${feature.name} is currently beyond the Moon's visible limb.`);
         else if (!state.sunlit) say(`${feature.name} is not currently illuminated.`);
       } });
     } else {
@@ -1011,7 +1089,18 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     else if (ev.key === 'Escape' && (input.value || matches.length)) { ev.preventDefault(); ev.stopPropagation(); input.value = ''; matches = []; showResults(); }
   });
   results.addEventListener('pointerdown', (ev) => ev.preventDefault());
-  results.addEventListener('click', (ev) => { const li = ev.target.closest('[data-index]'); if (li) choose(Number(li.dataset.index)); });
+  const searchSymbolHint = (symbol) => {
+    searchHint.textContent = symbol.dataset.searchHint; searchHint.hidden = false;
+  };
+  results.addEventListener('pointerover', (ev) => {
+    const symbol = ev.target.closest('[data-search-hint]');
+    if (symbol) searchSymbolHint(symbol);
+  });
+  results.addEventListener('click', (ev) => {
+    const symbol = ev.target.closest('[data-search-hint]');
+    if (symbol) { searchSymbolHint(symbol); return; }
+    const li = ev.target.closest('[data-index]'); if (li) choose(Number(li.dataset.index));
+  });
 
   root.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
@@ -1094,6 +1183,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     else if (action === 'layers' || action === 'legend' || action === 'time' || action === 'place' || action in panels) showPanel(action);
     else if (action === 'moons') showMoons(button.dataset.planet);
     else if (action === 'close-moons') closeMoons();
+    else if (action === 'close-mars-feature') moons?.surface?.clear();
     else if (action === 'lock') {
       if (lock) setLock(null);
       else if (selected && findObject(frame, selected)) { stopOrientation(); setLock(selected); say(`${selected} stays in place on the screen.`); }
@@ -1241,10 +1331,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         const direct = nearby[0] && nearby[0].d <= nearby[0].o.radius + 2 ? nearby[0].o.name : null;
         const lunarDisk = drawn.objects.find((o) => o.body === 'moon');
         const onMoon = lunarDisk && Math.hypot(p.x - lunarDisk.x, p.y - lunarDisk.y) <= lunarDisk.radius;
-        const marsDisk = drawn.objects.find((o) => o.body === 'mars');
-        const onMars = marsDisk && Math.hypot(p.x - marsDisk.x, p.y - marsDisk.y) <= marsDisk.radius;
-        const feature = /^(lunar|mars):/.test(label?.name || '') ? label.name
-          : onMoon && pickLunarFeature(drawn.lunarFeatures, p.x, p.y)?.key || onMars && pickMarsFeature(drawn.marsFeatures, p.x, p.y)?.key;
+        const feature = label?.name.startsWith('lunar:') ? label.name : onMoon && pickLunarFeature(drawn.lunarFeatures, p.x, p.y)?.key;
         select(feature || direct || label?.name || nearby[0]?.o.name || null);
         lastTap = { time: performance.now(), x: p.x, y: p.y };
         draw();

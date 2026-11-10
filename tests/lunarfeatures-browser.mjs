@@ -109,7 +109,7 @@ try {
   const chooseSearch = async (query, lunar = false) => {
     await search.fill(query);
     const results = page.locator('.coelum-results [role="option"]');
-    await (lunar ? results.filter({ hasText: 'Moon feature' }).first() : results.first()).click();
+    await (lunar ? page.locator('.coelum-results [role="option"][aria-label*="Moon feature"]').first() : results.first()).click();
     await page.waitForTimeout(900);
     return Number(await page.locator('.coelum-full').getAttribute('data-scale'));
   };
@@ -151,9 +151,28 @@ try {
   assert.equal(await page.locator('.coelum-results [role="option"]').count(), 0, 'Permanently hidden lunar feature is not searchable');
   await page.evaluate(() => window.lunarTest.explorer.setTime(Date.parse('2026-11-09T21:00:00Z') / 1000));
   await search.fill('Copernicus');
-  assert.match(await page.locator('.coelum-results').innerText(), /not sunlit/);
+  assert.match(await page.locator('.coelum-results [aria-label*="Moon feature"]').first().getAttribute('aria-label'), /not sunlit/);
   await chooseSearch('Copernicus', true);
   assert.equal(await page.locator('.coelum-lunar-head').count(), 0, 'Unlit search result is never highlighted');
+  // Status icons keep a long surface name readable on a narrow phone.
+  await page.setViewportSize({ width: 320, height: 760 });
+  await page.evaluate(() => window.lunarTest.explorer.setTime(Date.parse('2026-11-09T00:00:00Z') / 1000));
+  await search.fill('moon Montes Apenninus');
+  const row = page.locator('.coelum-results [role="option"]').first();
+  assert.match(await row.getAttribute('aria-label'), /Moon feature.*not sunlit.*below horizon/);
+  const layout = await row.evaluate((el) => {
+    const name = el.querySelector('.coelum-result-name'), meta = el.querySelector('.coelum-result-meta');
+    const n = name.getBoundingClientRect(), m = meta.getBoundingClientRect();
+    return { nameFits: name.scrollWidth <= name.clientWidth, singleRow: Math.abs((n.top + n.bottom) / 2 - (m.top + m.bottom) / 2) < 2, icons: meta.querySelectorAll('svg').length };
+  });
+  assert.ok(layout.nameFits && layout.singleRow && layout.icons === 3, JSON.stringify(layout));
+  assert.deepEqual(await page.locator('.coelum-search-key > span').allTextContents(), ['Moon', 'Unlit', 'Below horizon'], 'Legend contains exactly the symbols used in the list');
+  await row.locator('[data-search-hint="Not sunlit"]').click();
+  assert.equal(await page.locator('.coelum-search-hint').innerText(), 'Not sunlit');
+  assert.ok(await page.locator('.coelum-search-dropdown').isVisible(), 'Tapping an icon explains it without choosing the result');
+  if (process.env.SEARCH_ICONS_SCREENSHOT) await page.screenshot({ path: process.env.SEARCH_ICONS_SCREENSHOT });
+  await search.press('Escape');
+  assert.ok(await page.locator('.coelum-search-dropdown').isHidden());
   assert.deepEqual(errors, []);
   console.log('Lunar feature browser checks passed:', JSON.stringify({ ...summary, tapped: tap.name }));
 } finally {
