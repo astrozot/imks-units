@@ -317,14 +317,33 @@ Tap a feature (also with Labels off) for its name, type, size and coordinates.
 The selected feature is outlined by an ellipse projected onto the lunar surface;
 its size follows the catalogue diameter/extent, rather than a surveyed boundary.
 Lunar names also appear in Search, distinguished from stars with the same name.
-Selecting one opens Sky, centers the feature and sets a useful zoom. Far-side
-and unlit features are identified in the search results; selecting them frames
-the Moon without highlighting the unavailable feature. Other search results
+Selecting one opens Sky, centers the feature and sets a useful zoom. Permanently
+hidden lunar centers are excluded from Search using a conservative libration
+envelope (±10° longitude, ±8° latitude); potentially observable limb features
+remain searchable. Temporarily hidden or unlit features are identified in the
+results; selecting them frames the Moon without highlighting the feature. Other search results
 also reset the zoom to suit the object's angular size or surrounding field.
 The feature layer starts when the Moon is 240 CSS pixels across; smaller
 features become selectable as their apparent size grows. Features beyond the
 limb, on the night side or inside Earth's umbra are excluded. The detailed
 Moon texture and WebGL renderer are required for surface alignment.
+
+Mars has a small surface catalogue in `js/marsfeatures.js`: eight classical
+albedo regions, Olympus Mons and Valles Marineris, with approved centers from
+the [IAU/USGS Gazetteer](https://planetarynames.wr.usgs.gov/Page/MARS/target).
+At a disk diameter of 240 CSS pixels, sunlit centers appear in amber. Tap a
+center or label, or search by name (optionally prefixed with Mars), to show its
+type and coordinates. Surface features follow all ordinary sky objects in Search;
+use a Moon/Mars prefix to search them directly. Olympus Mons (610.13 km) and
+Valles Marineris (3,761.28 km) have catalogue size outlines projected onto the
+oblate globe, clipped at the limb and terminator, and selectable by their
+footprint. As with the Moon, these indicate diameter/longest extent rather
+than surveyed boundaries. The albedo names have no catalogue extents and
+retain center markers with an explicit note in the detail card.
+The Mars texture rotates with the same orientation as the labels; the sky zoom
+limit accommodates Mars's small angular size. Polar caps are unchanged.
+`node tests/marsfeatures.mjs` checks geometry and search;
+`node tests/marsfeatures-browser.mjs` checks rendering, taps and search flights.
 
 `js/lunardata.js` bundles 9,087 approved IAU/USGS lunar names, including
 lettered craters, from the [Gazetteer of Planetary Nomenclature](https://planetarynames.wr.usgs.gov/Page/MOON/target)

@@ -1,7 +1,7 @@
 // Catalogue, surface alignment and illumination: node tests/lunarfeatures.mjs
 import assert from 'node:assert/strict';
 import { LUNAR_FEATURES } from '../js/lunardata.js';
-import { projectLunarFeatures, pickLunarFeature, lunarFeatureDetails, LUNAR_MIN_RADIUS, lunarFeatureEllipse, searchLunarFeatures, findLunarFeature, lunarFeatureTarget } from '../js/lunarfeatures.js';
+import { projectLunarFeatures, pickLunarFeature, lunarFeatureDetails, LUNAR_MIN_RADIUS, lunarFeatureEllipse, searchLunarFeatures, findLunarFeature, lunarFeatureTarget, earthObservableLunarFeature } from '../js/lunarfeatures.js';
 import { skyFrame, searchSky, searchAngularField, findObject } from '../js/coelum.js';
 import { surfaceVector } from '../js/skyview.js';
 import { moonDisk, equatorial, nextPhase, topocentric } from '../js/astro.js';
@@ -74,7 +74,18 @@ assert.ok(sameName.some((o) => o.name === 'Copernicus' && o.type === 'star' && !
 assert.ok(sameName.some((o) => o.name === 'Copernicus' && o.type === 'lunar feature' && o.key === 'lunar:1296'));
 assert.equal(searchSky(f, 'moon Copernicus')[0].key, 'lunar:1296');
 assert.equal(searchLunarFeatures('COPÉRNICUS')[0].key, 'lunar:1296');
-assert.equal(searchSky(f, 'Tsiolkovskiy')[0].availability, 'far side');
+assert.deepEqual(searchSky(f, 'Tsiolkovskiy'), [], 'Permanently hidden lunar names are excluded');
+assert.deepEqual(searchLunarFeatures('moon Tsiolkovskiy'), [], 'Prefixes do not bypass Earth observability');
+assert.ok(searchLunarFeatures('Al-Biruni').length, 'Libration-zone features stay searchable');
+assert.ok(!earthObservableLunarFeature({ lon: 180, lat: 0 }));
+assert.ok(earthObservableLunarFeature({ lon: 180, lat: 86 }), 'Polar libration is considered');
+assert.equal(sameName[0].type, 'star', 'Star precedes its namesake lunar feature');
+const companion = { ...f.stars[0], name: 'Copernicus companion' };
+assert.equal(searchSky({ ...f, stars: [companion] }, 'Copernicus')[0].name, companion.name, 'Ordinary prefix match precedes exact feature');
+for (const query of ['a', 'mar', 'co']) {
+  const matches = searchSky(f, query, 40), firstFeature = matches.findIndex((m) => m.key);
+  assert.ok(firstFeature < 0 || matches.slice(firstFeature).every((m) => m.key), 'Surface names follow all ordinary results');
+}
 const target = lunarFeatureTarget(f, findLunarFeature('lunar:1296'));
 assert.ok(target.lunarState.sunlit && target.lunarState.visible);
 assert.ok(Math.hypot(target.alt - f.bodies[1].alt, target.az - f.bodies[1].az) > 0.01, 'Fly to the surface feature rather than Moon center');

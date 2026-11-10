@@ -18,7 +18,17 @@ const catalogue = LUNAR_FEATURES.map(([id, name, lon, lat, diameter, code]) => (
 const byKey = new Map(catalogue.map((feature) => [feature.key, feature]));
 export const findLunarFeature = (key) => byKey.get(key) || null;
 const fold = (s) => s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-const searchable = catalogue.map((feature) => ({ feature, name: fold(feature.name) }));
+// Conservative envelope around optical libration (7.9° longitude, 6.7°
+// latitude), allowing physical/diurnal libration too. Keep potentially
+// observable limb centers; reject the permanently hidden hemisphere.
+// https://amt.copernicus.org/articles/16/1527/2023/
+export function earthObservableLunarFeature(feature) {
+  const lat = feature.lat * R, lon = Math.abs((feature.lon + 540) % 360 - 180);
+  const x = Math.cos(lat) * Math.cos(Math.max(0, lon - 10) * R), z = Math.sin(lat);
+  const observerLat = Math.max(-8 * R, Math.min(8 * R, Math.atan2(z, x)));
+  return x * Math.cos(observerLat) + z * Math.sin(observerLat) > 0;
+}
+const searchable = catalogue.filter(earthObservableLunarFeature).map((feature) => ({ feature, name: fold(feature.name) }));
 export function searchLunarFeatures(query, limit = 8) {
   const q = fold(query).replace(/^(moon|lunar) +/, '').replace(/ +(moon|lunar)$/, '');
   if (!q) return [];

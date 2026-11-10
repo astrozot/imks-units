@@ -11,6 +11,7 @@ import { satelliteLight } from './satellites.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
 import { searchLunarFeatures, lunarFeatureState } from './lunarfeatures.js';
+import { searchMarsFeatures, marsFeatureState, marsDisk } from './marsfeatures.js';
 
 export const R = Math.PI / 180;
 const clamp = (x) => Math.max(-1, Math.min(1, x));
@@ -1027,7 +1028,8 @@ export function searchAngularField(o) {
 export function searchSky(frame, query, limit = 8) {
   const q = fold(query), qc = q.replace(/ /g, '');
   if (!qc) return [];
-  const order = { 'lunar feature': 0.5, moon: 0, planet: 0, constellation: 2, star: 1, 'minor planet': 1.2, comet: 1.2, satellite: 1.3 }, rank = (o) => order[o.type] ?? (o.planet ? 0.5 : 1.5);
+  const surface = (o) => o.type === 'lunar feature' || o.type === 'Mars feature';
+  const order = { 'lunar feature': 3, 'Mars feature': 3, moon: 0, planet: 0, constellation: 2, star: 1, 'minor planet': 1.2, comet: 1.2, satellite: 1.3 }, rank = (o) => order[o.type] ?? (o.planet ? 0.5 : 1.5);
   const entries = [
     ...frame.bodies.map((o) => ({ o, keys: o.satellite ? [o.name, ...o.satellite.keys] : o.number ? [o.name, String(o.number)] : [o.name] })),
     ...frame.bodies.filter(hasMoons).flatMap((planet) => planetMoons(frame, planet).map((o) => ({ o, keys: [o.name] }))),
@@ -1051,6 +1053,15 @@ export function searchSky(frame, query, limit = 8) {
     for (const feature of lunar) {
       const state = lunarFeatureState(disk, feature);
       out.push({ score: feature.score, alias: null, object: { ...feature, type: 'lunar feature', alt: moon.alt,
+        availability: !state.visible ? 'beyond limb' : !state.sunlit ? 'not sunlit' : null } });
+    }
+  }
+  const martian = searchMarsFeatures(query, limit), mars = frame.bodies.find((o) => o.body === 'mars');
+  if (martian.length && mars) {
+    const disk = marsDisk(frame.t);
+    for (const feature of martian) {
+      const state = marsFeatureState(disk, feature);
+      out.push({ score: feature.score, alias: null, object: { ...feature, type: 'Mars feature', alt: mars.alt,
         availability: !state.visible ? 'far side' : !state.sunlit ? 'not sunlit' : null } });
     }
   }
@@ -1059,7 +1070,7 @@ export function searchSky(frame, query, limit = 8) {
   const id = number ? `${number[1].toUpperCase()} ${Number(number[2])}` : tyc && `TYC ${Number(tyc[1])}-${Number(tyc[2])}-${Number(tyc[3])}`;
   const extra = id && !out.some((r) => r.object.name === id || r.object.designations?.includes(id)) && findFaint(frame, id);
   if (extra) out.push({ score: 0, alias: null, object: extra });
-  return out.sort((a, b) => a.score - b.score || rank(a.object) - rank(b.object) || (a.object.mag ?? 99) - (b.object.mag ?? 99)).slice(0, limit)
+  return out.sort((a, b) => Number(surface(a.object)) - Number(surface(b.object)) || a.score - b.score || rank(a.object) - rank(b.object) || (a.object.mag ?? 99) - (b.object.mag ?? 99)).slice(0, limit)
     .map(({ object, alias }) => ({ name: object.name, alias, type: object.type, alt: object.alt, mag: object.mag, ...(object.key ? { key: object.key, availability: object.availability } : {}) }));
 }
 

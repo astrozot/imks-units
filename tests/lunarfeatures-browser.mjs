@@ -115,6 +115,7 @@ try {
   };
   await search.fill('Copernicus');
   assert.equal((await page.locator('.coelum-result-name').allTextContents()).filter((name) => name === 'Copernicus').length, 2, 'Star and crater both searchable');
+  assert.match(await page.locator('.coelum-results [role="option"]').first().innerText(), /Star/, 'Star precedes the lunar result');
   const lunarScale = await chooseSearch('Copernicus', true);
   await page.waitForFunction(() => document.querySelector('.coelum-lunar-head h3')?.textContent === 'Copernicus');
   assert.ok(lunarScale > 60, 'Feature search chooses a useful lunar zoom');
@@ -147,10 +148,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.coelum-lunar-head h3')?.textContent === 'Grimaldi');
   if (process.env.LUNAR_ELLIPSE_SCREENSHOT) await page.screenshot({ path: process.env.LUNAR_ELLIPSE_SCREENSHOT });
   await search.fill('Tsiolkovskiy');
-  assert.match(await page.locator('.coelum-results').innerText(), /far side/);
-  const farSideScale = await chooseSearch('Tsiolkovskiy', true);
-  assert.ok(farSideScale < lunarScale, 'Unavailable feature frames the whole Moon');
-  assert.equal(await page.locator('.coelum-lunar-head').count(), 0, 'Far-side feature is never highlighted');
+  assert.equal(await page.locator('.coelum-results [role="option"]').count(), 0, 'Permanently hidden lunar feature is not searchable');
   await page.evaluate(() => window.lunarTest.explorer.setTime(Date.parse('2026-11-09T21:00:00Z') / 1000));
   await search.fill('Copernicus');
   assert.match(await page.locator('.coelum-results').innerText(), /not sunlit/);

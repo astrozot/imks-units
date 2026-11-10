@@ -1669,7 +1669,10 @@ body.coelum-app { background: #000; }
 .coelum-event-list > .coelum-chip { justify-self: start; }
 .coelum-sheet-when { margin: 0 0 8px; color: var(--muted); font-size: 14px; }
 
+.coelum-mars-head h3 { color: #a44c26; }
+.coelum-immersive .coelum-mars-head h3 { color: #ffc98f; }
 .coelum-lunar-head h3 { color: #2580c3; }
 .coelum-immersive .coelum-lunar-head h3 { color: #65b9ff; }
 
 .coelum-type-feature { background: #65b9ff; }
+.coelum-type-mars-feature { background: #ffc98f; }
