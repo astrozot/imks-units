@@ -2,6 +2,7 @@
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
 import { PhoneOrientation } from './phoneorientation.js';
+import { moonEventsPanel } from './mooneventspanel.js';
 import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, satelliteList, satelliteStatus } from './satellites.js';
 import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
 import { riseSet, planetOf, siderealTime } from './astro.js';
@@ -290,7 +291,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       </div>
       <div class="coelum-moonsview" role="group" aria-label="Moons" hidden>
         <div class="sky-stage coelum-moons-stage"></div>
-        <div class="coelum-moons-head"><div><h3 class="coelum-moons-title">Moons</h3><p class="coelum-moons-data"></p></div><button type="button" class="coelum-btn coelum-btn-small" data-action="close-moons" aria-label="Close the moons">${ICONS.close}</button></div>
+        <div class="coelum-moons-head"><div><h3 class="coelum-moons-title">Moons</h3><p class="coelum-moons-data"></p></div><button type="button" class="coelum-chip" data-action="moon-events" aria-expanded="false" aria-controls="${id}-moon-events" hidden>Events</button><button type="button" class="coelum-btn coelum-btn-small" data-action="close-moons" aria-label="Close the moons">${ICONS.close}</button></div>
+        <div class="coelum-moon-events" id="${id}-moon-events" role="group" aria-label="Events of planetary moons" hidden></div>
         <div class="coelum-mars-detail" hidden></div>
         <p class="coelum-moons-note">As in a telescope (north up, east left), at the chart's time. Drag, pinch or double-tap to fit<span class="coelum-mars-tap" hidden>; zoom in and tap a surface feature for details</span><span class="coelum-moons-tap" hidden>; tap a moon to find it in the sky</span>.</p>
       </div>
@@ -626,9 +628,19 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // moon tapped is found in the sky.
   let moons = null;
   const moonsLayer = $('.coelum-moonsview');
+  const moonEventsList = moonEventsPanel($('.coelum-moon-events'), {
+    formatTime,
+    onClose: () => $('[data-action="moon-events"]').setAttribute('aria-expanded', 'false'),
+    onSelect: (event) => { setTime(event.t); moons?.view.fit(); },
+  });
+  const positionMoonEvents = () => {
+    const head = $('.coelum-moons-head');
+    $('.coelum-moon-events').style.top = `${head.offsetTop + head.offsetHeight + 8}px`;
+  };
   const sizeMoons = () => { if (moons) moons.view.size(Math.max(200, viewport.clientWidth), Math.max(200, viewport.clientHeight)); };
   const closeMoons = () => {
     if (!moons) return;
+    moonEventsList.close();
     const restore = !moons.wasImmersive;
     moons = null; moonsLayer.hidden = true; root.classList.remove('coelum-moons-open');
     if (restore) fullscreen(false);
@@ -689,10 +701,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     };
   };
   const showMoons = (planet, feature = null) => {
+    moonEventsList.close();
     const stage = $('.coelum-moons-stage');
     stage.innerHTML = '<canvas class="sky-canvas"></canvas><svg class="sky-svg sky-full" role="img"></svg>';
     const sky = moonSystem(planet, t), name = planet[0].toUpperCase() + planet.slice(1);
     $('.coelum-moons-tap').hidden = !sky.moons.length;
+    $('[data-action="moon-events"]').hidden = !sky.moons.length;
     $('.coelum-mars-tap').hidden = planet !== 'mars';
     const surface = planet === 'mars' ? marsSurface() : null;
     $('.coelum-mars-detail').hidden = true;
@@ -708,6 +722,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
   const followMoons = () => {
     if (!moons || moons.t === t) return;
+    moonEventsList.close();
     moons.t = t;
     moons.view.set(moonSystem(moons.planet, t), playing);
     moonsData();
@@ -1105,7 +1120,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
 
   root.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
-    if (moons) { ev.preventDefault(); ev.stopPropagation(); closeMoons(); }
+    if (moonEventsList.isOpen) { ev.preventDefault(); ev.stopPropagation(); moonEventsList.close(); $('[data-action="moon-events"]').focus(); }
+    else if (moons) { ev.preventDefault(); ev.stopPropagation(); closeMoons(); }
     else if (panelOpen()) { ev.preventDefault(); ev.stopPropagation(); showPanel(null); }
     else if (immersive() && !options.standalone) { ev.preventDefault(); ev.stopPropagation(); fullscreen(false); }
   });
@@ -1183,6 +1199,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (action === 'fullscreen') fullscreen(!immersive());
     else if (action === 'layers' || action === 'legend' || action === 'time' || action === 'place' || action in panels) showPanel(action);
     else if (action === 'moons') showMoons(button.dataset.planet);
+    else if (action === 'moon-events' && moons) {
+      if (moonEventsList.isOpen) moonEventsList.close();
+      else { if (playing) pause(); moonEventsList.open(moons.planet, t); positionMoonEvents(); button.setAttribute('aria-expanded', 'true'); }
+    }
     else if (action === 'close-moons') closeMoons();
     else if (action === 'close-mars-feature') moons?.surface?.clear();
     else if (action === 'lock') {
@@ -1379,6 +1399,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     root.style.setProperty('--coelum-controls-height', `${Math.ceil($('.coelum-timebar').getBoundingClientRect().height) + 16}px`);
     const box = svg.getBoundingClientRect(), width = Math.round(box.width), high = Math.round(box.height);
     sizeMoons();
+    if (moonEventsList.isOpen) positionMoonEvents();
     if (width > 0 && high > 0 && (width !== size || high !== height)) {
       // A fresh realistic view keeps its horizon low in the new shape.
       if (views.sky?.auto) views.sky = null;
@@ -1388,7 +1409,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   const explorer = {

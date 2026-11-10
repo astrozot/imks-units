@@ -144,7 +144,12 @@ their longitude 0 toward Jupiter); `python3 tools/planetmaps.py <dir>`
 writes Jónsson's (https://bjj.mmedia.is/data/planetary_maps.html), all
 fetched the first time a
 close-up shows them and kept in Cache Storage (`imks-data-planets`), so
-they are not part of the offline download. `facing` in `js/astro.js`
+they are not part of the offline download. Saturn's globe and rings cast
+finite-Sun penumbras on each other. Solar-disk sampling starts above
+256 rendering pixels per Saturn radius, and only where the estimated
+transition spans at least 0.75 pixels; smaller shadows use the single ray.
+The Sun's angular radius uses Saturn's mean distance, as for moon shadows.
+`facing` in `js/astro.js`
 gives the longitude below the Earth: the IAU prime meridians (checked
 against JPL Horizons; Venus's clouds turn in 4 days), Meeus's Systems I and II for
 Jupiter, whose equatorial zone turns on System I. Jupiter's clouds drift,
@@ -231,10 +236,21 @@ computed as `occultation` does; from the place, those seen there, with the
 limbs and the contacts not seen), and the next solar and lunar eclipses
 seen from the place, or anywhere on the Earth, after the time of the sky.
 It also lists the four Moon phases, conjunctions between planets and
-between a planet and the Moon, and planetary oppositions to the Sun.
+between a planet and the Moon, planetary oppositions to the Sun, and
+equinoxes and solstices (named by month for either hemisphere).
 These use geocentric ecliptic longitudes and show local altitudes when a
-place is selected. Tap a phase or opposition to center its body in the
+place is selected. Local conjunctions require both bodies above the
+horizon and show their average height; Moon conjunctions also show the
+Moon's illuminated fraction. Phases and oppositions remain listed even
+below the horizon. Tap a phase, opposition or seasonal event to center its body in the
 sky, or a conjunction to frame both bodies together. More extends each list.
+The telescope page for a planet with moons has its own Events button:
+transits, shadow transits, eclipses and occultations of that planet's
+moons, computed by the same engine as `moonevents()`. It searches a day
+at a time; More extends the list. Tap an event to show the system at its
+midpoint, keeping the telescope page open. Events already underway are
+included. The button disappears when the telescope page closes and is
+absent from Mercury and Venus close-ups.
 Each occultation or eclipse opens the same map or drawing as
 `occultation`, `solareclipse` and `lunareclipse` in iMKS, and Show in the
 sky goes to it. Both apps load the same modules from `js/`
@@ -372,8 +388,11 @@ Playwright options. CelesTrak is not reached by the tests: this one serves
 `tests/fixtures/celestrak.json` (some satellites of November 2026), the
 others an empty list.
 
-`node tests/eventspanel.mjs` checks the new event searches, their longitude
-conditions, chronological order, pagination and cancellation.
+`node tests/eventspanel.mjs` checks the event searches, their longitude
+conditions, local horizon filtering, average heights, Moon illumination,
+seasons, chronological order, pagination and cancellation.
+`node tests/mooneventspanel.mjs` checks planetary moon events, their
+midpoint states, chronological order, ongoing events and cancellation.
 
 `node tests/browser.mjs` checks the app in Chromium at phone size, with
 simulated sensors (position, motion, compass, microphone). It needs

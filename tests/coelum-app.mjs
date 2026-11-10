@@ -74,10 +74,32 @@ try {
   await page.click('[data-more="solar"]');
   assert.equal((await rows(page)).filter(([k]) => k === 'solar').length, 8, 'More finds four more');
 
+  // Scope filters conjunctions only; phases and oppositions retain events
+  // below the horizon, and seasonal events are the same worldwide.
+  await page.waitForSelector('[data-more="conjunctions"]');
+  const localConjunctions = await page.locator('[data-event="conjunctions"]').allTextContents();
+  assert.match(await page.locator('[data-event="conjunctions"] small').first().textContent(), /^5\.66° apart \(geocentric\) · 19° high · Moon 1% lit$/);
+  for (const text of localConjunctions) assert.doesNotMatch(text, /below the horizon|Moon \d+° high|Mercury \d+° high/);
+  const globalLists = {};
+  for (const kind of ['phases', 'oppositions', 'seasons']) {
+    globalLists[kind] = await page.locator(`[data-event="${kind}"]`).evaluateAll((rows) => rows.map((r) => r.querySelector('b').textContent + r.querySelector('span').textContent));
+    assert.equal(globalLists[kind].length, 4);
+    if (kind !== 'seasons') assert.match(await page.locator(`[data-list="${kind}"]`).textContent(), /below the horizon/);
+  }
+  assert.match(globalLists.seasons[0], /^December solstice/);
+  await page.click('[data-scope="anywhere"]');
+  await page.waitForSelector('[data-more="conjunctions"]');
+  assert.ok(await page.locator('[data-event="conjunctions"]').count() > localConjunctions.length);
+  assert.doesNotMatch(await page.locator('[data-list="conjunctions"]').textContent(), /\d+° high/);
+  assert.match(await page.locator('[data-event="conjunctions"] small').first().textContent(), /Moon 1% lit/);
+  for (const kind of Object.keys(globalLists)) assert.deepEqual(await page.locator(`[data-event="${kind}"]`).evaluateAll((rows) => rows.map((r) => r.querySelector('b').textContent + r.querySelector('span').textContent)), globalLists[kind]);
+  await page.click('[data-scope="here"]');
+  await page.waitForSelector('[data-more="conjunctions"]');
+
   // New events open at their time, centered on a body or a whole pair,
   // in both views, even after the previous event left a tight zoom.
   for (const mode of ['chart', 'sky']) {
-    for (const event of ['phases', 'oppositions', 'conjunctions', 'planet-pair']) {
+    for (const event of ['phases', 'oppositions', 'conjunctions', 'planet-pair', 'seasons']) {
       const kind = event === 'planet-pair' ? 'conjunctions' : event;
       await page.click('[data-action="time"]');
       await page.click('[data-set-time="now"]');
@@ -87,7 +109,7 @@ try {
       const candidates = page.locator(`[data-event="${kind}"]`);
       const row = (event === 'planet-pair' ? candidates.filter({ hasText: 'Mars–Jupiter' }) : candidates).first();
       const title = await row.locator('b').textContent();
-      const names = kind === 'phases' ? ['Moon'] : kind === 'oppositions' ? [title.split(' ')[0]] : title.replace(' conjunction', '').split('–');
+      const names = kind === 'phases' ? ['Moon'] : kind === 'seasons' ? ['Sun'] : kind === 'oppositions' ? [title.split(' ')[0]] : title.replace(' conjunction', '').split('–');
       if (kind !== 'conjunctions') {
         const count = await page.locator(`[data-event="${kind}"]`).count();
         assert.ok(count >= 4);
@@ -187,6 +209,58 @@ try {
   await page.waitForFunction(() => document.querySelector('.coelum-detail-body h3')?.textContent === '52 Sgr', null, { timeout: 5000 });
   assert.match(await status(), /^Nov 14, 2026, 07:\d\d PM/);
 
+  // Planetary moon events belong to the open planet's telescope page.
+  assert.equal(await page.locator('[data-action="moon-events"]').isVisible(), false);
+  await page.click('[data-action="time"]');
+  await page.click('[data-set-time="now"]');
+  await page.click('[data-action="time"]');
+  const telescope = async (name) => {
+    await page.fill('.coelum-search input', name);
+    await page.keyboard.press('Enter');
+    await page.waitForFunction((name) => document.querySelector('.coelum-detail-body h3')?.textContent === name, name);
+    await page.locator('.coelum-moons-button').click();
+  };
+  await telescope('Jupiter');
+  assert.equal(await page.locator('[data-action="moon-events"]').isVisible(), true);
+  const headBox = await page.locator('.coelum-moons-head').boundingBox();
+  assert.ok(headBox.x >= 0 && headBox.x + headBox.width <= 390, 'Moons header fits on a phone');
+  await page.click('[data-action="moon-events"]');
+  await page.waitForSelector('[data-moon-events-more]');
+  assert.match(await page.locator('.coelum-moon-events h3').textContent(), /Jupiter/);
+  const expectedMoons = await page.evaluate(async () => {
+    const { planetMoonEvents } = await import('/js/mooneventspanel.js');
+    return planetMoonEvents('jupiter', Number(document.querySelector('.coelum-full').dataset.time));
+  });
+  assert.equal(await page.locator('[data-moon-event]').count(), expectedMoons.length);
+  assert.match(await page.locator('[data-moon-event] b').first().textContent(), /Io eclipse/);
+  await page.click('[data-moon-events-more]');
+  await page.waitForSelector('[data-moon-events-more]');
+  const moonRows = await page.locator('[data-moon-event]').allTextContents();
+  assert.ok(moonRows.length > expectedMoons.length);
+  assert.equal(new Set(moonRows).size, moonRows.length, 'Daily pagination does not duplicate ongoing events');
+  await page.locator('[data-moon-event]').first().click();
+  assert.equal(await page.locator('.coelum-moon-events').isVisible(), false);
+  assert.equal(await page.locator('.coelum-moonsview').isVisible(), true, 'Event stays in the planet telescope view');
+  assert.ok(Math.abs(Number(await page.locator('.coelum-full').getAttribute('data-time')) - expectedMoons[0].t) < 1, 'Show the event at its midpoint');
+  await page.click('[data-action="moon-events"]');
+  await page.waitForSelector('[data-moon-events-more]');
+  assert.match(await page.locator('[data-moon-event] small').first().textContent(), /Already in progress/);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.coelum-moon-events').isVisible(), false);
+  assert.equal(await page.locator('.coelum-moonsview').isVisible(), true, 'Escape closes events first');
+  await page.click('[data-action="close-moons"]');
+  assert.equal(await page.locator('[data-action="moon-events"]').isVisible(), false);
+  await telescope('Saturn');
+  await page.click('[data-action="moon-events"]');
+  await page.waitForSelector('[data-moon-events-more]');
+  assert.match(await page.locator('.coelum-moon-events h3').textContent(), /Saturn/);
+  assert.doesNotMatch(await page.locator('.coelum-moon-events').textContent(), /Io |Europa |Ganymede |Callisto /);
+  await page.click('[data-action="close-moons"]');
+  assert.equal(await page.locator('.coelum-moon-events').isVisible(), false);
+  await telescope('Mercury');
+  assert.equal(await page.locator('[data-action="moon-events"]').isVisible(), false, 'No moon events for planets without moons');
+  await page.click('[data-action="close-moons"]');
+
   // The place chosen is kept for the next opening
   await page.evaluate(() => localStorage.setItem('imks.coelumPlace', JSON.stringify({ lat: 41.9, lon: 12.5, h: 20, name: 'Rome' })));
   await page.reload();
@@ -209,7 +283,7 @@ try {
   await page.waitForSelector('.coelum-event');
   await context.setOffline(false);
   assert.deepEqual(errors, []);
-  console.log('Coelum app checks passed: phases, oppositions and conjunctions centered in both views, More, eclipses and occultations with their maps, satellite passes, places and offline');
+  console.log('Coelum app checks passed: local conjunction filtering and details, phases, oppositions and seasons in both scopes, event centering in both views, More, eclipses and occultations with their maps, satellite passes, places and offline');
 } finally {
   await browser?.close();
   server.close();

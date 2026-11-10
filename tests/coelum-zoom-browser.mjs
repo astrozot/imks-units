@@ -26,7 +26,7 @@ try {
   const result = await page.evaluate(async () => {
     const { skyFrame, lookAt, R } = await import('/js/coelum.js');
     const { skyScene } = await import('/js/coelumsky.js');
-    const { planetMap, moonsView, skySVG, tracePlanet } = await import('/js/skyview.js');
+    const { planetMap, moonsView, skySVG, tracePlanet, drawPlanet } = await import('/js/skyview.js');
     const { moonDisk, equatorial, nextPhase } = await import('/js/astro.js');
     const { skyView } = await import('/js/sky.js');
     const check = (ok, message) => { if (!ok) throw new Error(message); };
@@ -106,7 +106,41 @@ try {
       check(getComputedStyle(stage.querySelector('.sky-canvas')).mixBlendMode === 'normal', `${planet} keeps its silhouette`);
       check(skySVG(inner, W, H, 0, 0, 100).includes('mix-blend-mode:normal'), `${planet} SVG keeps its silhouette`);
     }
-    return { edges, earthlight };
+    // Resolve the globe's shadow across the B ring: its physical penumbra
+    // is only a few pixels even at 12,000 pixels per planetary radius.
+    check((await planetMap('saturn').ready)?.rings, 'Saturn ring profiles loaded');
+    const saturn = { planet: 'saturn', pole: [0, Math.sqrt(0.84), 0.4], sun: [-1, 0, 0], moons: [], t: frame.t };
+    const crop = (cpu) => {
+      const c = document.createElement('canvas');
+      if (cpu) c.getContext('2d');
+      const gpu = drawPlanet(c, saturn, 100, 100, 1.4, -0.4, 12000, 1);
+      check(cpu || gpu, 'Saturn shader compiles');
+      const copy = document.createElement('canvas'); copy.width = 100; copy.height = 100;
+      const g = copy.getContext('2d'); g.drawImage(c, 0, 0);
+      return g.getImageData(0, 0, 100, 100).data;
+    };
+    const gpu = crop(false), cpu = crop(true);
+    const rows = Array.from({ length: 100 }, (_, y) => gpu[(100 * y + 50) * 4]);
+    const lo = Math.min(...rows), hi = Math.max(...rows);
+    check(hi > lo + 10, 'Resolved Saturn shadow has dark and lit sides');
+    check(rows.filter((v) => v > lo + (hi - lo) * 0.15 && v < lo + (hi - lo) * 0.85).length >= 3, 'Saturn shadow resolves a penumbra');
+    const mean = gpu.reduce((sum, v, i) => sum + Math.abs(v - cpu[i]), 0) / gpu.length;
+    check(mean < 2, `Saturn GPU/fallback penumbra agrees: ${mean}`);
+    // Exercise transmission through the ring texture onto the globe,
+    // including a close crop of its B-ring shadow edge.
+    const ringShadow = { ...saturn, pole: [0, 0, 1], sun: [Math.sqrt(0.84), 0, -0.4] };
+    const ringPixels = [];
+    for (const fallback of [false, true]) {
+      const c = document.createElement('canvas');
+      if (fallback) c.getContext('2d');
+      check(!drawPlanet(c, ringShadow, 100, 100, 0.962, 0, 12000, 1) === fallback, 'Saturn ring-shadow renderer selected');
+      const copy = document.createElement('canvas'); copy.width = 100; copy.height = 100;
+      const g = copy.getContext('2d'); g.drawImage(c, 0, 0);
+      ringPixels.push(g.getImageData(0, 0, 100, 100).data);
+    }
+    const ringMean = ringPixels[0].reduce((sum, v, i) => sum + Math.abs(v - ringPixels[1][i]), 0) / ringPixels[0].length;
+    check(ringMean < 2, `Saturn GPU/fallback ring shadow agrees: ${ringMean}`);
+    return { edges, earthlight, saturnPenumbra: { lo, hi, mean, ringMean } };
   });
   assert.equal(result.edges.length, 4);
   console.log('Coelum high-zoom checks passed:', JSON.stringify(result));

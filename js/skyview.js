@@ -116,6 +116,77 @@ function hitGlobe(o, d, f) {
   return [(-B - q) / A, (-B + q) / A];
 }
 
+// Fraction of a uniform solar disk on the covered side of a straight
+// limb, at signed distance x in solar radii. The Sun is small enough at
+// Saturn that the curvature of the limb across it is negligible.
+function solarSegment(x) {
+  x = Math.max(-1, Math.min(1, x));
+  return (Math.acos(-x) + x * Math.sqrt(Math.max(0, 1 - x * x))) / Math.PI;
+}
+
+// The oblate globe's shadow on the rings. Find the closest approach in
+// ellipsoid coordinates, then convert its clearance to physical distance
+// using the limb normal. A solar radius subtends angle * t at the limb.
+function globeCoverage(q, light, f, angle, scale = Infinity) {
+  const k2 = 1 / (1 - f) ** 2, b = [light[0], light[1], light[2] * k2];
+  const t = -dot(q, b) / dot(light, b);
+  if (t <= 0) return 0;
+  const p = q.map((v, i) => v + t * light[i]), n = [p[0], p[1], p[2] * k2];
+  if (6 * angle * scale < 0.75 || 2 * angle * t * scale < 0.75) return dot(p, n) < 1 ? 1 : 0;
+  const clearance = (dot(p, n) - 1) / (2 * Math.hypot(...n));
+  return solarSegment(-clearance / Math.max(angle * t, 1e-12));
+}
+
+// Integrate the ring transmission over the Sun, along the direction in
+// its disk that changes ring radius most. The perpendicular direction
+// changes radius only to second order in the Sun's small angular size.
+// Gauss–Chebyshev quadrature integrates the disk's semicircular profile,
+// rather than giving equal weight to points on a line across the Sun.
+const SOLAR_SAMPLES = Array.from({ length: 24 }, (_, i) => {
+  const a = (i + 1) * Math.PI / 25;
+  return [Math.cos(a), 2 / 25 * Math.sin(a) ** 2];
+});
+function ringSolarAxis(q, light) {
+  const z = light[2], t = Math.abs(z) > 1e-12 ? -q[2] / z : 0;
+  const p = [q[0] + t * light[0], q[1] + t * light[1]];
+  const rho = Math.max(Math.hypot(...p), 1e-12), r = p.map((v) => v / rho);
+  const v = [z * r[0], z * r[1], -r[0] * light[0] - r[1] * light[1]], n = Math.hypot(...v);
+  return n > 1e-12 ? v.map((x) => x / n) : [0, 0, 1];
+}
+function ringCoverage(q, light, angle, pixels, scale = Infinity) {
+  // Most pixels cannot see a ring toward any part of the solar disk.
+  // Keep the original single-ray cost until the penumbra is resolvable.
+  if (6 * angle * scale < 0.75) {
+    if (Math.abs(light[2]) < 1e-12) return 0;
+    const t = -q[2] / light[2];
+    if (t <= 0) return 0;
+    const r = ringsAt(pixels, Math.hypot(q[0] + t * light[0], q[1] + t * light[1]), true, Math.abs(light[2]));
+    return r ? 1 - r.clear : 0;
+  }
+  if (Math.abs(light[2]) > angle) {
+    const t = -q[2] / light[2];
+    if (t <= 0) return 0;
+    const rho = Math.hypot(q[0] + t * light[0], q[1] + t * light[1]);
+    const width = angle * t / (Math.abs(light[2]) - angle);
+    if (rho + width < RING_IN || rho - width > RING_OUT) return 0;
+    if (2 * width * scale < 0.75) {
+      const r = ringsAt(pixels, rho, true, Math.abs(light[2]));
+      return r ? 1 - r.clear : 0;
+    }
+  }
+  const axis = ringSolarAxis(q, light);
+  let blocked = 0;
+  for (const [x, weight] of SOLAR_SAMPLES) {
+    const d = light.map((v, i) => v + angle * x * axis[i]);
+    if (Math.abs(d[2]) < 1e-12) continue;
+    const t = -q[2] / d[2];
+    if (t <= 0) continue;
+    const r = ringsAt(pixels, Math.hypot(q[0] + t * d[0], q[1] + t * d[1]), true, Math.abs(d[2]) / Math.hypot(...d));
+    if (r) blocked += weight * (1 - r.clear);
+  }
+  return blocked;
+}
+
 // The maps of the surfaces (equirectangular, east to the right, from
 // −180° in the middle of the far side, but for Jónsson's from 0° at the
 // left edge; planetocentric latitudes) from
@@ -295,13 +366,7 @@ function planetPixels(ctx, sky, x0, y0, w, h, s) {
         const mu = -dot(n, d) / nn, lit = dot(n, light) / nn;
         let shade = lit > 0 ? Math.pow(lit, 0.75) * (0.7 + 0.3 * mu) : 0;
         // the rings' shadow on the globe
-        if (sat && shade > 0 && Math.abs(light[2]) > 1e-6) {
-          const t = -q[2] / light[2];
-          if (t > 0) {
-            const r = ringsAt(ringPixels, Math.hypot(q[0] + t * light[0], q[1] + t * light[1]), true, Math.abs(light[2]));
-            if (r) shade *= 1 - 0.85 * (1 - r.clear);
-          }
-        }
+        if (sat && shade > 0) shade *= 1 - 0.85 * ringCoverage(q, light, sunAngle, ringPixels, s);
         // the moons' shadows: the part of the Sun each covers, seen from
         // here (the Sun's radius and the moon's off its center, at the
         // moon's distance)
@@ -321,7 +386,7 @@ function planetPixels(ctx, sky, x0, y0, w, h, s) {
           const q = o.map((v, k) => v + d[k] * t), r = ringsAt(ringPixels, Math.hypot(q[0], q[1]), litFace, Math.abs(d[2]));
           if (r && r.clear < 1) {
             // the globe's shadow on the rings
-            const gs = hitGlobe(q, light, f), b = gs && gs[1] > 0 ? 0.06 : 1;
+            const b = 1 - 0.94 * globeCoverage(q, light, f, sunAngle, s);
             // (premultiplied, then not)
             const a = alpha * r.clear + 1 - r.clear;
             rgb = r.light.map((c, k) => (c * b + (rgb ? rgb[k] * alpha * r.clear : 0)) / a);
@@ -350,7 +415,7 @@ uniform vec2 origin, size;
 uniform float scale, flattening, reach, sunAngle;
 uniform mat3 toP;
 uniform vec3 view, light;
-uniform bool saturn, litFace;
+uniform bool saturn, litFace, softShadows;
 uniform vec4 shadows[${MAX_SHADOWS}];
 uniform int nShadows;
 uniform vec4 moonsAt[${MAX_SHADOWS}], moonsLook[${MAX_SHADOWS}];
@@ -401,6 +466,48 @@ vec4 ringsAt(float rho, bool lit, float mu) {
   if (u < 0.0 || u >= 1.0) return vec4(0.0, 0.0, 0.0, 1.0);
   float clear = pow(texture2D(ringMap, vec2(u, 5.0 / 6.0)).r, 1.0 / max(mu, 1e-3));
   return vec4(min(texture2D(ringMap, vec2(u, lit ? 1.0 / 6.0 : 0.5)).rgb, 1.0 - clear), clear);
+}
+// Finite-Sun shadows, as in the JavaScript fallback above.
+float globeCoverage(vec3 q) {
+  float k2 = 1.0 / ((1.0 - flattening) * (1.0 - flattening));
+  vec3 b = vec3(light.xy, light.z * k2);
+  float t = -dot(q, b) / dot(light, b);
+  if (t <= 0.0) return 0.0;
+  vec3 p = q + t * light, n = vec3(p.xy, p.z * k2);
+  if (!softShadows || 2.0 * sunAngle * t * scale < 0.75) return dot(p, n) < 1.0 ? 1.0 : 0.0;
+  float clearance = (dot(p, n) - 1.0) / (2.0 * max(length(n), 1e-12));
+  float x = clamp(-clearance / max(sunAngle * t, 1e-12), -1.0, 1.0);
+  return (acos(-x) + x * sqrt(max(0.0, 1.0 - x * x))) / 3.14159265;
+}
+float ringCoverage(vec3 q) {
+  if (!softShadows) {
+    if (abs(light.z) < 1e-12) return 0.0;
+    float t = -q.z / light.z;
+    return t > 0.0 ? 1.0 - ringsAt(length(q.xy + t * light.xy), true, abs(light.z)).a : 0.0;
+  }
+  if (abs(light.z) > sunAngle) {
+    float t = -q.z / light.z;
+    if (t <= 0.0) return 0.0;
+    float rho = length(q.xy + t * light.xy);
+    float width = sunAngle * t / (abs(light.z) - sunAngle);
+    if (rho + width < ${RING_IN} || rho - width > ${RING_OUT}) return 0.0;
+    if (2.0 * width * scale < 0.75) return 1.0 - ringsAt(rho, true, abs(light.z)).a;
+  }
+  float t0 = abs(light.z) > 1e-12 ? -q.z / light.z : 0.0;
+  vec2 p = q.xy + t0 * light.xy;
+  vec2 r = p / max(length(p), 1e-12);
+  vec3 v = vec3(light.z * r, -dot(r, light.xy));
+  vec3 axis = length(v) > 1e-12 ? normalize(v) : vec3(0.0, 0.0, 1.0);
+  float blocked = 0.0;
+  for (int i = 0; i < 24; i++) {
+    float a = float(i + 1) * 3.14159265 / 25.0;
+    vec3 d = light + sunAngle * cos(a) * axis;
+    if (abs(d.z) > 1e-12) {
+      float t = -q.z / d.z;
+      if (t > 0.0) blocked += (2.0 / 25.0) * sin(a) * sin(a) * (1.0 - ringsAt(length(q.xy + t * d.xy), true, abs(d.z) / length(d)).a);
+    }
+  }
+  return blocked;
 }
 // the map's color at a point q of the surface: its longitude east of the
 // one below the Earth (the seam of the map on the far side), its latitude
@@ -517,10 +624,7 @@ vec4 trace(vec2 xy) {
     float mu = -dot(n, d) / nn, lit = dot(n, light) / nn;
     float shade = lit > 0.0 ? pow(lit, 0.75) * (0.7 + 0.3 * mu) : 0.0;
     // the rings' shadow on the globe
-    if (saturn && shade > 0.0 && abs(light.z) > 1e-6) {
-      float t = -q.z / light.z;
-      if (t > 0.0) shade *= 1.0 - 0.85 * (1.0 - ringsAt(length(q.xy + t * light.xy), true, abs(light.z)).a);
-    }
+    if (saturn && shade > 0.0) shade *= 1.0 - 0.85 * ringCoverage(q);
     // the moons' shadows: the part of the Sun each covers, seen from here
     for (int i = 0; i < ${MAX_SHADOWS}; i++) {
       if (i >= nShadows) break;
@@ -544,9 +648,7 @@ vec4 trace(vec2 xy) {
       vec4 r = ringsAt(length(q.xy), litFace, abs(d.z));
       if (r.a < 1.0) {
         // the globe's shadow on the rings
-        bool shadowed;
-        vec2 gs = hitGlobe(q, light, shadowed);
-        c = vec4(r.rgb * (shadowed && gs.y > 0.0 ? 0.06 : 1.0), 1.0 - r.a) + c * r.a;
+        c = vec4(r.rgb * (1.0 - 0.94 * globeCoverage(q)), 1.0 - r.a) + c * r.a;
       }
     }
   }
@@ -585,7 +687,7 @@ function planetProgram(gl) {
   gl.enableVertexAttribArray(at);
   gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
   const u = {};
-  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "relief", "earthshine", "earth", "moonsAt", "moonsLook", "nMoons", "near"]) u[name] = gl.getUniformLocation(prog, name);
+  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "relief", "earthshine", "earth", "moonsAt", "moonsLook", "nMoons", "near"]) u[name] = gl.getUniformLocation(prog, name);
   gl.uniform4fv(u.rings, RINGS.flatMap(([, , a, c]) => [...c.map((x) => x / 255), a]));
   gl.uniform2fv(u.ringEdges, RINGS.flatMap(([a, b]) => [a, b]));
   return u;
@@ -633,6 +735,7 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s) {
   gl.uniform1f(u.flattening, m.f);
   gl.uniform1f(u.reach, m.sat ? RING_OUT : 1.02);
   gl.uniform1f(u.sunAngle, m.sunAngle);
+  gl.uniform1i(u.softShadows, 6 * m.sunAngle * s >= 0.75 ? 1 : 0);
   gl.uniformMatrix3fv(u.toP, false, [0, 1, 2].flatMap((k) => [m.e1[k], m.e2[k], m.p[k]]));
   gl.uniform3fv(u.view, m.view);
   gl.uniform3fv(u.light, m.light);
@@ -995,4 +1098,4 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
   };
 }
 
-export { surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap };
+export { surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap, solarSegment, globeCoverage, ringCoverage };

@@ -5,11 +5,12 @@
 // next solar and lunar eclipses, seen from there or anywhere on the Earth.
 // Moon phases, planetary conjunctions and oppositions use geocentric
 // times in either scope; a tap frames the body or pair in the local sky.
+// Equinoxes and solstices are worldwide events and frame the Sun.
 // A pass tapped is shown in the sky; the other events go to the app,
 // host.open(kind, event, place or null, explorer): Coelum draws them in a
 // sheet, iMKS computes them. host: { store, utc, formatTime, open, opens
 // (what a tap on those gives, for the note) }.
-import { solarEclipse, solarLocal, lunarEclipse, horizontal, satellitePasses, nextPhase, conjunction, opposition } from "./astro.js";
+import { solarEclipse, solarLocal, lunarEclipse, horizontal, satellitePasses, nextPhase, moonPhase, conjunction, opposition, season } from "./astro.js";
 import { satelliteList, satelliteMagnitude, satelliteStatus, onSatellites } from "./satellites.js";
 import { OCC_MAG, lunarOccultations } from "./occultations.js";
 
@@ -113,6 +114,17 @@ function lunarEclipses(u, place, n) {
 const KIND = (k) => k[0].toUpperCase() + k.slice(1);
 const PLANETS = ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
 const PHASES = ["New Moon", "First quarter Moon", "Full Moon", "Last quarter Moon"];
+const SEASONS = ["March equinox", "June solstice", "September equinox", "December solstice"];
+function equinoxesSolstices(u, place, n) {
+  const list = [];
+  for (let year = Math.max(-1000, new Date(u * 1000).getUTCFullYear()); year <= 3000 && list.length < n; year++) {
+    for (let k = 0; k < SEASONS.length && list.length < n; k++) {
+      const t = season(year, k);
+      if (t > u) list.push({ name: SEASONS[k], body: "sun", t });
+    }
+  }
+  return { list, next: list.length ? list.at(-1).t + 1 : u };
+}
 function moonPhases(u, place, n) {
   const list = [];
   for (let i = 0; i < n; i++) {
@@ -147,7 +159,14 @@ async function planetConjunctions(u, span, place, job) {
     while (start < end) {
       const e = conjunction(body, other, start, null, (end - start) / 31557600);
       if (!e || e.t >= end) break;
-      list.push({ body, other, name: `${KIND(body)}–${KIND(other)} conjunction`, t: e.t, sep: Math.abs(e.sep) });
+      const heights = place && [body, other].map((b) => horizontal(b, e.t, place).alt);
+      // Keep the global event time, but require both centers above the
+      // local geometric horizon for the "From here" list.
+      if (!heights || heights.every((alt) => alt >= 0)) {
+        list.push({ body, other, name: `${KIND(body)}–${KIND(other)} conjunction`, t: e.t, sep: Math.abs(e.sep),
+          ...(heights && { alt: (heights[0] + heights[1]) / 2 }),
+          ...((body === "moon" || other === "moon") && { lit: moonPhase(e.t).fraction }) });
+      }
       start = e.t + 1;
     }
     job.done = (i + 1) / pairs.length;
@@ -163,8 +182,9 @@ function skyEventRow(kind, x, i) {
     const alt = horizontal(body, x.t, at).alt;
     return `${KIND(body)} ${alt > 0 ? `${Math.round(alt)}° high` : "below the horizon"}`;
   };
-  const how = [kind === "conjunctions" && `${x.sep.toFixed(2)}° apart (geocentric)`,
-    at && altitude(x.body), at && x.other && altitude(x.other)].filter(Boolean).join(" · ");
+  const how = (kind === "conjunctions"
+    ? [`${x.sep.toFixed(2)}° apart (geocentric)`, at && `${Math.round(x.alt)}° high`, x.lit !== undefined && `Moon ${Math.round(x.lit * 100)}% lit`]
+    : [at && altitude(x.body)]).filter(Boolean).join(" · ");
   return `<button type="button" class="coelum-event" data-event="${kind}" data-index="${i}"><b>${esc(x.name)}</b><span>${esc(host.formatTime(x.t))}</span>${how ? `<small>${esc(how)}</small>` : ""}</button>`;
 }
 const percent = (x) => `${(x * 100).toFixed(x > 0.995 && x < 1 ? 1 : 0)}%`;
@@ -193,13 +213,14 @@ let found = null, renders = 0;
 const jobs = {};
 const SEARCHES = { solar: [solarEclipses, solarRow, "Solar eclipses"], lunar: [lunarEclipses, lunarRow, "Lunar eclipses"],
   phases: [moonPhases, (x, i) => skyEventRow("phases", x, i), "Moon phases"],
-  oppositions: [planetOppositions, (x, i) => skyEventRow("oppositions", x, i), "Planetary oppositions"] };
+  oppositions: [planetOppositions, (x, i) => skyEventRow("oppositions", x, i), "Planetary oppositions"],
+  seasons: [equinoxesSolstices, (x, i) => skyEventRow("seasons", x, i), "Equinoxes and solstices"] };
 const SLOW = {
   conjunctions: {
     head: "Conjunctions", span: 30 * DAY, row: (x, i) => skyEventRow("conjunctions", x, i),
     search: planetConjunctions, missing: () => null,
     none: (days) => `None within ${days} days.`,
-    note: "Planets with each other and with the Moon, at equal ecliptic longitude as seen from Earth's center. Tap one to see the sky then.",
+    note: "Planets with each other and with the Moon, at equal ecliptic longitude as seen from Earth's center. From here: both bodies above the horizon; height is their average. Tap one to see the sky then.",
   },
   passes: {
     head: "Satellite passes", span: DAY, here: true, row: passRow,
@@ -285,7 +306,7 @@ function renderEvents(body, explorer) {
     }
     const row = ev.target.closest("[data-event]"), kind = row?.dataset.event, x = row && found[kind].list[Number(row.dataset.index)];
     if (kind === "passes") showPass(x, explorer);
-    else if (["phases", "conjunctions", "oppositions"].includes(kind)) {
+    else if (["phases", "conjunctions", "oppositions", "seasons"].includes(kind)) {
       explorer.closePanel();
       explorer.setTime(x.t);
       if (kind === "conjunctions") explorer.focusPair(KIND(x.body), KIND(x.other));
@@ -318,4 +339,4 @@ onSatellites(() => {
   if (shown?.body.isConnected && panel && !panel.hidden && !jobs.passes) renderEvents(shown.body, shown.explorer);
 });
 
-export { eventsPanel, moonPhases, planetConjunctions, planetOppositions };
+export { eventsPanel, moonPhases, planetConjunctions, planetOppositions, equinoxesSolstices };
