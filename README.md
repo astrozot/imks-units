@@ -134,7 +134,15 @@ steep) and soft shadows marched toward the Sun near the terminator. The planets 
 maps of their surfaces or clouds (`img/planets/`, from Solar System
 Scope, CC BY 4.0, based on NASA's missions; Venus's clouds at a third of
 their contrast, Uranus and Neptune reduced to their bands, Neptune in the
-paler colour of Irwin et al. 2024), fetched the first time a
+paler colour of Irwin et al. 2024; Saturn's, created by Björn Jónsson
+from Cassini and Voyager 2 images), and so do Saturn's rings (Jónsson's
+profiles from Voyager and Cassini: the light of their lit and unlit
+faces and their transparency, more opaque seen more obliquely)
+and the Galilean moons (Jónsson's maps from Voyager and Galileo images,
+at the brightness of their albedos beside Jupiter's map, turned with
+their longitude 0 toward Jupiter); `python3 tools/planetmaps.py <dir>`
+writes Jónsson's (https://bjj.mmedia.is/data/planetary_maps.html), all
+fetched the first time a
 close-up shows them and kept in Cache Storage (`imks-data-planets`), so
 they are not part of the offline download. `facing` in `js/astro.js`
 gives the longitude below the Earth: the IAU prime meridians (checked

@@ -1,0 +1,5 @@
+- Add legend for Moon craters / maria...; possibly the same for Mars and other planets
+- Add textures for satellites
+- Add rising and set times, observability, for the local position
+- The local landscape is not at all accurate; compare with PeakFinder
+- The compass does not work reliably

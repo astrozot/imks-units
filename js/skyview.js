@@ -16,7 +16,7 @@ const FLAT = { mars: 0.00589, jupiter: 0.06487, saturn: 0.09796, uranus: 0.02293
 const skyBlend = (planet) => planet === 'venus' || planet === 'mercury' ? 'normal' : 'screen';
 
 // Saturn's rings (planet radii): from, to, opacity, color (C, B, the
-// Cassini division, A)
+// Cassini division, A), until their profiles (saturn-rings.png) arrive
 const RINGS = [
   [1.239, 1.527, 0.15, [150, 140, 125]], [1.527, 1.951, 0.9, [232, 218, 184]],
   [1.951, 2.027, 0.08, [120, 115, 105]], [2.027, 2.269, 0.6, [205, 195, 168]],
@@ -63,6 +63,28 @@ function covered(a, b, d) {
 }
 
 const ringAt = (rho) => RINGS.find(([a, b]) => rho >= a && rho < b);
+// Jónsson's profiles of the rings (saturn-rings.png): from 74510 to
+// 140390 km, in Saturn's equatorial radii, in three rows: the light of the
+// lit face (as from near the Sun's direction) and that of the unlit face,
+// premultiplied, and the transparency seen square on
+const RING_IN = 74510 / 60268, RING_OUT = 140390 / 60268;
+// The rings at a distance rho from the center, from their profiles
+// (pixels) or else RINGS, seen mu (the sine of the angle) from their
+// plane: the light of the face lit or not, premultiplied (0 to 255, at
+// most their opacity), and the part they let through, or null
+function ringsAt(pixels, rho, lit, mu) {
+  if (!pixels) {
+    const r = ringAt(rho);
+    return r && { light: r[3].map((c) => c * r[2] * (lit ? 1 : 0.3)), clear: 1 - r[2] };
+  }
+  const u = (rho - RING_IN) / (RING_OUT - RING_IN);
+  if (!(u >= 0 && u < 1)) return null;
+  // (between the two nearest samples, as the GPU)
+  const x = Math.min(pixels.w - 1, Math.max(0, u * pixels.w - 0.5)), x0 = Math.floor(x), x1 = Math.min(pixels.w - 1, x0 + 1), w = x - x0;
+  const at = (row, k) => (1 - w) * pixels.data[4 * (row * pixels.w + x0) + k] + w * pixels.data[4 * (row * pixels.w + x1) + k];
+  const clear = (at(2, 0) / 255) ** (1 / Math.max(mu, 1e-3));
+  return { light: [0, 1, 2].map((k) => Math.min(at(lit ? 0 : 1, k), 255 * (1 - clear))), clear };
+}
 
 // The axes of the planet (e1, e2 in its equator, p to its north pole), in
 // the view
@@ -95,8 +117,11 @@ function hitGlobe(o, d, f) {
 }
 
 // The maps of the surfaces (equirectangular, east to the right, from
-// −180° in the middle of the far side; planetocentric latitudes) from
-// Solar System Scope (CC BY 4.0, from NASA's missions; the Moon's from
+// −180° in the middle of the far side, but for Jónsson's from 0° at the
+// left edge; planetocentric latitudes) from
+// Solar System Scope (CC BY 4.0, from NASA's missions; Saturn's, its
+// rings' and the Galilean moons' created by Björn Jónsson, from NASA's
+// Voyager, Galileo and Cassini images: tools/planetmaps.py; the Moon's from
 // NASA's CGI Moon Kit, LRO's colours and LOLA's heights, public domain,
 // with its heights: 0 to 255 for −9 to +11 km; Venus's clouds at a
 // third of their contrast, as it looks in visible light; Uranus and
@@ -120,19 +145,20 @@ const MAPS = {
   mercury: { file: "mercury.jpg", u0: () => [0.5, 0.5] },
   venus: { file: "venus.jpg", u0: () => [0.5, 0.5] },
   mars: { file: "mars.jpg", u0: () => [0.5, 0.5] },
-  saturn: { file: "saturn.jpg", u0: () => [0.5, 0.5] },
+  saturn: { file: "saturn-bj.jpg", rings: "saturn-rings.png", u0: () => [0, 0] },
   uranus: { file: "uranus.jpg", u0: () => [0.5, 0.5] },
   neptune: { file: "neptune.jpg", u0: () => [0.5, 0.5] },
   moon: { file: "moon.jpg", heights: "moon-heights.jpg", u0: () => [0.5, 0.5] },
-  jupiter: { file: "jupiter.jpg", u0: (t) => [GRS.u + grsLon(t) / 360, GRS.u + (GRS.lon + EZ) / 360], zones: true },
+  jupiter: { file: "jupiter.jpg", moons: "galilean.jpg", u0: (t) => [GRS.u + grsLon(t) / 360, GRS.u + (GRS.lon + EZ) / 360], zones: true },
 };
 const maps = new Map();
-// { img, pixels (for the JavaScript tracer), ready (a promise) }, or null
+// { img, heights, rings, moons (the images of MAPS), ready (a promise) },
+// or null
 function planetMap(planet) {
   const m = MAPS[planet];
   if (!m || typeof fetch === "undefined" || typeof createImageBitmap === "undefined") return null;
   if (!maps.has(planet)) {
-    const e = { img: null, pixels: null };
+    const e = { img: null };
     e.ready = (async () => {
       let cache = null;
       try { cache = await caches.open(MAP_CACHE); } catch { /* no Cache Storage */ }
@@ -146,40 +172,65 @@ function planetMap(planet) {
         }
         return createImageBitmap(await res.blob());
       };
-      [e.img, e.heights] = await Promise.all([load(m.file), m.heights ? load(m.heights) : null]);
+      [e.img, e.heights, e.rings, e.moons] = await Promise.all([m.file, m.heights, m.rings, m.moons].map((f) => f ? load(f) : null));
       return e;
     })().catch(() => null);
     maps.set(planet, e);
   }
   return maps.get(planet);
 }
-// a map's pixels, for the JavaScript tracer
-function mapPixels(e) {
-  if (!e.pixels) {
+// an image's pixels, for the JavaScript tracer (kept)
+const pixelsKept = new WeakMap();
+function mapPixels(img) {
+  if (!pixelsKept.has(img)) {
     const c = document.createElement("canvas");
-    c.width = e.img.width; c.height = e.img.height;
+    c.width = img.width; c.height = img.height;
     const g = c.getContext("2d", { willReadFrequently: true });
-    g.drawImage(e.img, 0, 0);
-    e.pixels = { w: c.width, h: c.height, data: g.getImageData(0, 0, c.width, c.height).data };
+    g.drawImage(img, 0, 0);
+    pixelsKept.set(img, { w: c.width, h: c.height, data: g.getImageData(0, 0, c.width, c.height).data });
   }
-  return e.pixels;
+  return pixelsKept.get(img);
+}
+// The rings' profiles for s pixels a radius, for both tracers: averaged
+// to two samples a pixel across the rings (fewer would show the ringlets
+// in moiré), each row apart (kept)
+const profilesKept = new WeakMap();
+function ringProfiles(img, s) {
+  let w = img.width;
+  while (w > 256 && w / 2 >= 2 * (RING_OUT - RING_IN) * s) w /= 2;
+  if (!profilesKept.has(img)) profilesKept.set(img, new Map());
+  const kept = profilesKept.get(img);
+  if (!kept.has(w)) {
+    const full = mapPixels(img), n = full.w / w, data = new Uint8Array(4 * w * full.h);
+    for (let i = 0; i < data.length; i++) {
+      const row = Math.floor(i / (4 * w)), x = Math.floor(i / 4) % w, k = i % 4;
+      let sum = 0;
+      for (let j = 0; j < n; j++) sum += full.data[4 * (row * full.w + x * n + j) + k];
+      data[i] = Math.round(sum / n);
+    }
+    kept.set(w, { w, h: full.h, data });
+  }
+  return kept.get(w);
 }
 
 // The moons as the GPU draws them: their colours (as they look; Io's
 // sulphur, Callisto dark), and how (0: a sphere, 1: Titan's haze, 2:
-// Iapetus, dark on its leading side)
+// Iapetus, dark on its leading side; 3 + n: the nth map of the Galilean
+// moons, galilean.jpg, once loaded)
 const MOON_LOOK = {
   Io: [[236, 214, 140], 0], Europa: [[226, 216, 198], 0], Ganymede: [[178, 168, 154], 0], Callisto: [[120, 108, 96], 0],
   Titan: [[214, 156, 78], 1], Iapetus: [[214, 208, 196], 2], Phobos: [[112, 102, 94], 0], Deimos: [[132, 122, 112], 0],
   Triton: [[222, 208, 202], 0], other: [[208, 206, 202], 0],
 };
+const MOON_MAPS = { Io: 0, Europa: 1, Ganymede: 2, Callisto: 3 };
 
 // The geometry of the planet for the tracing, at s pixels per radius: its
 // flattening, its axes (e1, e2 in its equator, p to its north pole), the
 // directions of the Earth and the Sun on them, the moons (at least 0.7
 // pixels across, for their shadows), the Sun's angular radius, which face
 // of the rings is lit, and the map with the longitudes below the Earth
-// (east; for Jupiter, System II and System I) once loaded
+// (east; for Jupiter, System II and System I), the rings' profiles and
+// the moons' maps once loaded
 function planetModel(sky, s) {
   const { planet, moons } = sky, f = FLAT[planet] || 0;
   // the pole and the Sun made unit vectors again: rounded to 1e-5 in the
@@ -191,9 +242,13 @@ function planetModel(sky, s) {
   // the Earth's direction and the Sun's, on the planet's axes
   const view = toP([0, 0, 1]), light = toP(sun);
   const shadows = moons.filter((m) => m.r > 0).map((m) => ({ c: toP([m.x, m.y, m.z]), r: Math.max(m.r, 0.7 / s) }));
-  const bodies = moons.filter((m) => m.r > 0).map((m) => ({ c: toP([m.x, m.y, m.z]), r: m.r, look: MOON_LOOK[m.name] || MOON_LOOK.other }));
-  const e = sky.facing && planetMap(planet), map = e?.img ? { e, lon0: [sky.facing.clouds ?? sky.facing.lon, sky.facing.lon1 ?? sky.facing.lon], u0: MAPS[planet].u0(sky.t), zones: Boolean(MAPS[planet].zones) } : null;
-  return { planet, f, e1, e2, p, toP, view, light, shadows, bodies, map, sunAngle: SUN_ANGLE[planet] || 0, sat: planet === "saturn", litFace: Math.sign(light[2]) === Math.sign(view[2]) };
+  const loaded = planetMap(planet), e = loaded?.img ? loaded : null, moonMaps = e?.moons || null;
+  const bodies = moons.filter((m) => m.r > 0).map((m) => {
+    const look = MOON_LOOK[m.name] || MOON_LOOK.other;
+    return { c: toP([m.x, m.y, m.z]), r: m.r, look: moonMaps && m.name in MOON_MAPS ? [look[0], 3 + MOON_MAPS[m.name]] : look };
+  });
+  const map = e && sky.facing ? { e, lon0: [sky.facing.clouds ?? sky.facing.lon, sky.facing.lon1 ?? sky.facing.lon], u0: MAPS[planet].u0(sky.t), zones: Boolean(MAPS[planet].zones) } : null;
+  return { planet, f, e1, e2, p, toP, view, light, shadows, bodies, map, rings: e?.rings || null, moonMaps, sunAngle: SUN_ANGLE[planet] || 0, sat: planet === "saturn", litFace: Math.sign(light[2]) === Math.sign(view[2]) };
 }
 
 // Display exposure for faint earthlight, separate from the physical
@@ -206,11 +261,11 @@ const earthshineBrightness = (sky) => EARTHSHINE_EXPOSURE * (sky.earthshine ?? 0
 // (x0, y0) (the top left corner, planet radii) over w × h pixels of scale s
 // (pixels per radius)
 function planetPixels(ctx, sky, x0, y0, w, h, s) {
-  const { planet, f, toP, view, light, shadows, map, sunAngle, sat, litFace } = planetModel(sky, s);
+  const { planet, f, toP, view, light, shadows, map, rings, sunAngle, sat, litFace } = planetModel(sky, s);
   const img = ctx.createImageData(w, h), px = img.data;
   // the map's color at a point q of the surface (planet axes): its
   // longitude east of the one below the Earth, its latitude
-  const pixels = map && mapPixels(map.e), sE = view;
+  const pixels = map && mapPixels(map.e.img), ringPixels = rings && ringProfiles(rings, s), sE = view;
   const sample = (q, k) => {
     const lon = map.lon0[k] + Math.atan2(sE[0] * q[1] - sE[1] * q[0], sE[0] * q[0] + sE[1] * q[1]) * 180 / Math.PI;
     const u = map.u0[k] + lon / 360, v = 0.5 - Math.atan2(q[2], Math.hypot(q[0], q[1])) / Math.PI;
@@ -243,8 +298,8 @@ function planetPixels(ctx, sky, x0, y0, w, h, s) {
         if (sat && shade > 0 && Math.abs(light[2]) > 1e-6) {
           const t = -q[2] / light[2];
           if (t > 0) {
-            const r = ringAt(Math.hypot(q[0] + t * light[0], q[1] + t * light[1]));
-            if (r) shade *= 1 - 0.85 * r[2];
+            const r = ringsAt(ringPixels, Math.hypot(q[0] + t * light[0], q[1] + t * light[1]), true, Math.abs(light[2]));
+            if (r) shade *= 1 - 0.85 * (1 - r.clear);
           }
         }
         // the moons' shadows: the part of the Sun each covers, seen from
@@ -263,15 +318,14 @@ function planetPixels(ctx, sky, x0, y0, w, h, s) {
       if (sat && Math.abs(d[2]) > 1e-9) {
         const t = -o[2] / d[2];
         if (t < tGlobe) {
-          const q = o.map((v, k) => v + d[k] * t), r = ringAt(Math.hypot(q[0], q[1]));
-          if (r) {
-            let b = litFace ? 1 : 0.3;
+          const q = o.map((v, k) => v + d[k] * t), r = ringsAt(ringPixels, Math.hypot(q[0], q[1]), litFace, Math.abs(d[2]));
+          if (r && r.clear < 1) {
             // the globe's shadow on the rings
-            const gs = hitGlobe(q, light, f);
-            if (gs && gs[1] > 0) b *= 0.06;
-            const ring = r[3].map((c) => c * b), a = r[2];
-            rgb = rgb ? rgb.map((c, k) => c * (1 - a) + ring[k] * a) : ring;
-            alpha = alpha + a * (1 - alpha);
+            const gs = hitGlobe(q, light, f), b = gs && gs[1] > 0 ? 0.06 : 1;
+            // (premultiplied, then not)
+            const a = alpha * r.clear + 1 - r.clear;
+            rgb = r.light.map((c, k) => (c * b + (rgb ? rgb[k] * alpha * r.clear : 0)) / a);
+            alpha = a;
           }
         }
       }
@@ -306,8 +360,9 @@ uniform vec4 bands[${MAX_BANDS}];
 uniform int nBands;
 uniform vec4 rings[4];
 uniform vec2 ringEdges[4];
-uniform sampler2D surface, heights;
-uniform bool mapped, zones, lunar, relief;
+uniform sampler2D surface, heights, ringMap, moonMaps;
+uniform bool mapped, zones, lunar, relief, ringMapped;
+uniform float moonEdge;
 uniform float earthshine;
 uniform vec3 earth;
 uniform vec2 lon0, u0;
@@ -332,6 +387,20 @@ float covered(float a, float b, float d) {
 vec4 ringAt(float rho) {
   for (int i = 0; i < 4; i++) if (rho >= ringEdges[i].x && rho < ringEdges[i].y) return rings[i];
   return vec4(0.0);
+}
+// the rings at a distance from the center, from their profiles once loaded
+// (ringMap) or else from RINGS, seen mu (the sine of the angle) from
+// their plane: the light of the face lit or not, premultiplied (at most
+// their opacity), and the part they let through
+vec4 ringsAt(float rho, bool lit, float mu) {
+  if (!ringMapped) {
+    vec4 r = ringAt(rho);
+    return vec4(r.rgb * r.a * (lit ? 1.0 : 0.3), 1.0 - r.a);
+  }
+  float u = (rho - ${RING_IN}) / ${RING_OUT - RING_IN};
+  if (u < 0.0 || u >= 1.0) return vec4(0.0, 0.0, 0.0, 1.0);
+  float clear = pow(texture2D(ringMap, vec2(u, 5.0 / 6.0)).r, 1.0 / max(mu, 1e-3));
+  return vec4(min(texture2D(ringMap, vec2(u, lit ? 1.0 / 6.0 : 0.5)).rgb, 1.0 - clear), clear);
 }
 // the map's color at a point q of the surface: its longitude east of the
 // one below the Earth (the seam of the map on the far side), its latitude
@@ -402,7 +471,9 @@ vec4 trace(vec2 xy) {
   vec3 o = toP * vec3(xy, near), d = -view;
   // the nearest moon on it: a sphere lit by the Sun (its phase), dark in
   // the planet's shadow; Titan's haze, bright to its limb and past its
-  // terminator; Iapetus dark on the side leading in its orbit
+  // terminator; Iapetus dark on the side leading in its orbit; the
+  // Galilean moons with their maps, their longitude 0 to the planet and
+  // their poles as its
   float tMoon = 1e9;
   vec4 mAt = vec4(0.0), mLook = vec4(0.0), c = vec4(0.0);
   for (int i = 0; i < ${MAX_SHADOWS}; i++) {
@@ -423,7 +494,12 @@ vec4 trace(vec2 xy) {
     vec3 color = mLook.rgb;
     if (mLook.a > 0.5 && mLook.a < 1.5) shade = pow(clamp((mu0 + 0.12) / 1.12, 0.0, 1.0), 0.6) * (0.85 + 0.25 * (1.0 - mu));
     else shade = mu0 > 0.0 ? pow(mu0, 0.75) * (0.7 + 0.3 * mu) : 0.0;
-    if (mLook.a > 1.5) color *= mix(1.0, 0.12, smoothstep(-0.25, 0.25, dot(n, normalize(cross(vec3(0.0, 0.0, 1.0), mAt.xyz)))));
+    if (mLook.a > 1.5 && mLook.a < 2.5) color *= mix(1.0, 0.12, smoothstep(-0.25, 0.25, dot(n, normalize(cross(vec3(0.0, 0.0, 1.0), mAt.xyz)))));
+    if (mLook.a > 2.5) {
+      vec3 X = normalize(vec3(-mAt.xy, 0.0)), Y = vec3(-X.y, X.x, 0.0);
+      float v = clamp(0.5 - asin(clamp(n.z, -1.0, 1.0)) / 3.14159265, moonEdge, 1.0 - moonEdge);
+      color = texture2D(moonMaps, vec2(atan(dot(n, Y), dot(n, X)) / 6.2831853, (mLook.a - 3.0 + v) / 4.0)).rgb;
+    }
     bool inShadow;
     vec2 gs = hitGlobe(p, light, inShadow);
     if (inShadow && gs.y > 0.0) shade *= 0.02;
@@ -443,7 +519,7 @@ vec4 trace(vec2 xy) {
     // the rings' shadow on the globe
     if (saturn && shade > 0.0 && abs(light.z) > 1e-6) {
       float t = -q.z / light.z;
-      if (t > 0.0) shade *= 1.0 - 0.85 * ringAt(length(q.xy + t * light.xy)).a;
+      if (t > 0.0) shade *= 1.0 - 0.85 * (1.0 - ringsAt(length(q.xy + t * light.xy), true, abs(light.z)).a);
     }
     // the moons' shadows: the part of the Sun each covers, seen from here
     for (int i = 0; i < ${MAX_SHADOWS}; i++) {
@@ -465,14 +541,12 @@ vec4 trace(vec2 xy) {
     float t = -o.z / d.z;
     if (t < min(tGlobe, tMoon)) {
       vec3 q = o + d * t;
-      vec4 r = ringAt(length(q.xy));
-      if (r.a > 0.0) {
-        float b = litFace ? 1.0 : 0.3;
+      vec4 r = ringsAt(length(q.xy), litFace, abs(d.z));
+      if (r.a < 1.0) {
         // the globe's shadow on the rings
         bool shadowed;
         vec2 gs = hitGlobe(q, light, shadowed);
-        if (shadowed && gs.y > 0.0) b *= 0.06;
-        c = vec4(r.rgb * b * r.a, r.a) + c * (1.0 - r.a);
+        c = vec4(r.rgb * (shadowed && gs.y > 0.0 ? 0.06 : 1.0), 1.0 - r.a) + c * r.a;
       }
     }
   }
@@ -511,7 +585,7 @@ function planetProgram(gl) {
   gl.enableVertexAttribArray(at);
   gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
   const u = {};
-  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "relief", "earthshine", "earth", "moonsAt", "moonsLook", "nMoons", "near"]) u[name] = gl.getUniformLocation(prog, name);
+  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "relief", "earthshine", "earth", "moonsAt", "moonsLook", "nMoons", "near"]) u[name] = gl.getUniformLocation(prog, name);
   gl.uniform4fv(u.rings, RINGS.flatMap(([, , a, c]) => [...c.map((x) => x / 255), a]));
   gl.uniform2fv(u.ringEdges, RINGS.flatMap(([a, b]) => [a, b]));
   return u;
@@ -557,7 +631,7 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s) {
   gl.uniform2f(u.size, w, h);
   gl.uniform1f(u.scale, s);
   gl.uniform1f(u.flattening, m.f);
-  gl.uniform1f(u.reach, m.sat ? 2.3 : 1.02);
+  gl.uniform1f(u.reach, m.sat ? RING_OUT : 1.02);
   gl.uniform1f(u.sunAngle, m.sunAngle);
   gl.uniformMatrix3fv(u.toP, false, [0, 1, 2].flatMap((k) => [m.e1[k], m.e2[k], m.p[k]]));
   gl.uniform3fv(u.view, m.view);
@@ -613,6 +687,25 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s) {
     gl.uniform2fv(u.lon0, m.map.lon0);
     gl.uniform2fv(u.u0, m.map.u0);
   }
+  // the rings' profiles and the moons' maps, at the resolution of the
+  // view as the map (in the rings, two texels a pixel across them; the
+  // rows of the profiles kept apart)
+  gl.uniform1i(u.ringMapped, m.sat && m.rings ? 1 : 0);
+  if (m.sat && m.rings) {
+    const p = ringProfiles(m.rings, s);
+    bindScaled(r, `rings:${p.w}`, p, p.w, p.h, 2, false);
+    gl.uniform1i(u.ringMap, 2);
+  }
+  const mapped = m.moonMaps && m.bodies.filter((b) => b.look[1] > 2.5);
+  if (mapped?.length) {
+    let tw = m.moonMaps.width;
+    const rMax = Math.max(...mapped.map((b) => b.r));
+    while (tw > 64 && tw / 2 >= 2 * Math.PI * rMax * s * 2) tw /= 2;
+    bindScaled(r, `moons:${tw}`, m.moonMaps, tw, tw * m.moonMaps.height / m.moonMaps.width, 3, true);
+    gl.uniform1i(u.moonMaps, 3);
+    // (half a texel of a map, at the poles: not into the next)
+    gl.uniform1f(u.moonEdge, 1 / tw);
+  }
   // the Moon: its heights (once), and its earthshine
   const lunar = m.planet === "moon" && Boolean(m.map), hm = lunar && m.map.e.heights;
   gl.uniform1i(u.lunar, lunar ? 1 : 0);
@@ -639,10 +732,38 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s) {
   return true;
 }
 
+// An image (or pixels: { w, h, data }) as the texture of a renderer r in
+// a unit, w × h texels (made once), wrapping around in longitude or not
+function bindScaled(r, key, img, w, h, unit, wrap) {
+  const { gl } = r;
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  let tex = r.textures.get(key);
+  if (!tex) {
+    tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    if (img.data) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, img.data);
+    else {
+      let source = img;
+      if (w < img.width || h < img.height) {
+        source = document.createElement("canvas");
+        source.width = w; source.height = h;
+        const g = source.getContext("2d");
+        g.imageSmoothingQuality = "high";
+        g.drawImage(img, 0, 0, w, h);
+      }
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, source);
+    }
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, wrap ? gl.REPEAT : gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    r.textures.set(key, tex);
+  }
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.activeTexture(gl.TEXTURE0);
+}
+
 // the part of the view (W × H, centered on cx, cy, s pixels per radius)
 // where the planet and its rings can be: left, top, right, bottom
 function planetBox(sky, W, H, cx, cy, s) {
-  const reach = sky.planet === "saturn" ? 2.3 : 1.02;
+  const reach = sky.planet === "saturn" ? RING_OUT : 1.02;
   return [Math.max(0, W / 2 + (-reach - cx) * s), Math.max(0, H / 2 - (reach - cy) * s),
     Math.min(W, W / 2 + (reach - cx) * s), Math.min(H, H / 2 - (-reach - cy) * s)];
 }

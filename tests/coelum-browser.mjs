@@ -791,23 +791,26 @@ try {
   if (shader) for (const s of shader) assert.ok(s.mean < 1 && s.big < 0.01, `WebGL sky differs: ${JSON.stringify(s)}`);
   else console.log('WebGL2 unavailable: the shader was not compared');
   // The planets traced on the GPU (skyview.js) as in JavaScript: the same
-  // but at the edges, smoothed by four rays a pixel
+  // but at the edges, smoothed by four rays a pixel (compared at half the
+  // resolution, as they show on the black sky: Saturn's ringlets are edges
+  // everywhere, and its faint rings nearly transparent)
   const traced = await page.evaluate(async () => {
     const { skyView } = await import('./js/sky.js');
     const { drawPlanet, planetMap } = await import('./js/skyview.js');
     const out = [];
-    // Jupiter's and Mars's maps first (fetched, then kept)
-    if (!(await planetMap('jupiter').ready) || !(await planetMap('mars').ready)) return [{ planet: 'maps not loaded', mean: 99 }];
+    // Jupiter's, Saturn's (and its rings') and Mars's maps first (fetched,
+    // then kept)
+    if (!(await planetMap('jupiter').ready) || !(await planetMap('saturn').ready)?.rings || !(await planetMap('mars').ready)) return [{ planet: 'maps not loaded', mean: 99 }];
     for (const [planet, t] of [['saturn', '2026-11-06T21:00:00Z'], ['jupiter', '2026-11-06T21:00:00Z'], ['saturn', '2032-03-01T00:00:00Z'], ['mars', '2026-11-06T21:00:00Z']]) {
       const sky = skyView(planet, Date.parse(t) / 1000), W = 360, H = 240, s = planet === 'saturn' ? 70 : 100;
       const gpu = document.createElement('canvas'), cpu = document.createElement('canvas');
       cpu.getContext('2d');
       if (!drawPlanet(gpu, sky, W, H, 0, 0, s, 1)) return null;
       drawPlanet(cpu, sky, W, H, 0, 0, s, 1);
-      const px = [gpu, cpu].map((c) => { const d = document.createElement('canvas'); d.width = W; d.height = H; const g = d.getContext('2d'); g.drawImage(c, 0, 0); return g.getImageData(0, 0, W, H).data; });
+      const px = [gpu, cpu].map((c) => { const d = document.createElement('canvas'); d.width = W / 2; d.height = H / 2; const g = d.getContext('2d'); g.fillRect(0, 0, W / 2, H / 2); g.drawImage(c, 0, 0, W / 2, H / 2); return g.getImageData(0, 0, W / 2, H / 2).data; });
       let sum = 0, big = 0, lit = 0;
-      for (let i = 0; i < px[0].length; i++) { const d = Math.abs(px[0][i] - px[1][i]); sum += d; if (d > 24) big++; if (i % 4 === 3 && px[0][i] > 0) lit++; }
-      out.push({ planet, mean: sum / px[0].length, big: big / px[0].length, drawn: lit / (W * H) });
+      for (let i = 0; i < px[0].length; i++) { if (i % 4 === 3) { if (px[0][i - 3] + px[0][i - 2] + px[0][i - 1] > 0) lit++; continue; } const d = Math.abs(px[0][i] - px[1][i]); sum += d; if (d > 24) big++; }
+      out.push({ planet, mean: sum / (px[0].length * 0.75), big: big / (px[0].length * 0.75), drawn: lit / (W * H / 4) });
     }
     return out;
   });
