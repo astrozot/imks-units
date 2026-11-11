@@ -278,9 +278,9 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       surfaceBodies.push(o.body);
       const model = planetSurface(frame, o), moon = model.moons.find((v) => v.name === m.name);
       ctx.save(); clipForeground(m.dist, q, disk * 1.02);
-      const textured = traceSurface(ctx, model, q, disk / moon.r, northAt(m, q), { W, H },
+      const textured = traceSurface(ctx, { ...model, moonsOnly: true }, q, disk / moon.r, northAt(m, q), { W, H },
         opts.atmosphere ? 0.75 + 0.25 * (1 - light.day) : 1, { center: moon, reach: moon.r * 1.02 });
-      if (!textured) drawPlanet(ctx, { body: 'moon', phase: o.phase }, q, disk, xy(o.light), false);
+      if (!textured) drawPlanet(ctx, { body: 'moon', phase: o.phase, opaque: true }, q, disk, xy(o.light), false);
       ctx.restore();
       mr = disk;
     } else point(m, mag, BODY_RGB[o.body], q);
@@ -369,7 +369,7 @@ function drawPlanet(ctx, o, q, r, lightPoint, rings) {
   // Blend the outer planets' dark limbs into the sky. The inner planets
   // keep their dark silhouettes so their crescent phases remain clear.
   ctx.save();
-  if (o.body !== 'venus' && o.body !== 'mercury') ctx.globalCompositeOperation = 'screen';
+  if (o.body !== 'venus' && o.body !== 'mercury' && !o.opaque) ctx.globalCompositeOperation = 'screen';
   const rgb = BODY_RGB[o.body], ring = (near) => {
     ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(rings.angle);
     if (near) { ctx.beginPath(); ctx.rect(-rings.outer - 2, 0, 2 * rings.outer + 4, rings.near * (rings.outer + 2)); ctx.clip(); }
@@ -416,7 +416,7 @@ function traceSurface(ctx, disk, q, r, north, { W, H }, alpha, { center = { x: 0
   const k = Math.min(2, window.devicePixelRatio || 1), w = Math.ceil((Rt - L) * k), h = Math.ceil((B - T) * k);
   if (!tracePlanet(surfaceCanvas, disk, center.x + L / r, center.y - T / r, w, h, r * k)) return false;
   ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(north);
-  ctx.globalCompositeOperation = disk.planet === 'moon' ? 'lighter' : disk.planet === 'venus' || disk.planet === 'mercury' ? 'source-over' : 'screen'; ctx.globalAlpha = alpha;
+  ctx.globalCompositeOperation = disk.moonsOnly ? 'source-over' : disk.planet === 'moon' ? 'lighter' : disk.planet === 'venus' || disk.planet === 'mercury' ? 'source-over' : 'screen'; ctx.globalAlpha = alpha;
   ctx.drawImage(surfaceCanvas, 0, 0, w, h, L, T, w / k, h / k);
   ctx.restore();
   return true;

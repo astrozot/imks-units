@@ -238,6 +238,48 @@ try {
         }
       }
     }
+    let transit;
+    {
+      // In transit, a moon overlay must contain only the moon, and replace
+      // the planet beneath it rather than screening a second rectangular crop.
+      const { moons } = await import('/js/astro.js');
+      let transitTime;
+      for (let dt = 0; dt < 3 * 86400; dt += 600) {
+        const io = moons('jupiter', frame.t + dt).moons.find((m) => m.name === 'Io');
+        if (io.view.z > 0 && Math.hypot(io.view.x, io.view.y) < 0.6) { transitTime = frame.t + dt; break; }
+      }
+      check(transitTime, 'Found an Io transit');
+      const tf = skyFrame(transitTime, frame.place), j = tf.bodies.find((o) => o.body === 'jupiter');
+      const io = planetMoons(tf, j).find((o) => o.name === 'Io'), model = skyView('jupiter', transitTime);
+      const m = model.moons.find((o) => o.name === 'Io'), s = 25 / m.r;
+      const scale = 25 / (io.diameter / 2 * R * skyRadius(W, H, 1) / 2);
+      const view = { rotation: lookAt(io.az, io.alt), scale };
+      skyScene(tf, W, H, { ...layers, labels: false }, view, ctx);
+      const actual = ctx.getImageData(0, 0, W, H).data;
+      const ref = document.createElement('canvas'), copy = document.createElement('canvas'); copy.width = W; copy.height = H;
+      check(tracePlanet(ref, model, m.x - W / 2 / s, m.y + H / 2 / s, W, H, s), 'Full Io/Jupiter reference');
+      const g = copy.getContext('2d'), n = { ra: io.ra, dec: io.dec + 0.001 };
+      const north = projectVector(pointVector({ ...n, ...tf.hor(n) }), view.rotation, true);
+      g.translate(W / 2, H / 2); g.rotate(Math.atan2(north.y, north.x) + Math.PI / 2); g.drawImage(ref, -W / 2, -H / 2);
+      const expected = g.getImageData(0, 0, W, H).data;
+      let moonDifference = 0, outsideDifference = 0, moonCount = 0, outsideCount = 0;
+      for (let y = H / 2 - 35; y < H / 2 + 35; y++) for (let x = W / 2 - 35; x < W / 2 + 35; x++) {
+        const radius = Math.hypot(x + 0.5 - W / 2, y + 0.5 - H / 2), i = 4 * (y * W + x);
+        for (let c = 0; c < 3; c++) {
+          const delta = Math.abs(actual[i + c] - expected[i + c]);
+          if (radius < 22) { moonDifference += delta; moonCount++; }
+          if (radius > 29) { outsideDifference += delta; outsideCount++; }
+        }
+      }
+      transit = { t: transitTime, moonMean: moonDifference / moonCount, outsideMean: outsideDifference / outsideCount };
+      check(transit.moonMean < 4, `Transit moon replaces Jupiter: ${transit.moonMean}`);
+      check(transit.outsideMean < 4, `No rectangular transit highlight: ${transit.outsideMean}`);
+      // A direct overlay has transparent corners even over the bright disk.
+      check(tracePlanet(ref, { ...model, moonsOnly: true }, m.x - 1.1 * m.r, m.y + 1.1 * m.r, 56, 56, s), 'Io overlay');
+      const gl = ref.getContext('webgl'), corner = new Uint8Array(4);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, corner);
+      check(corner[3] === 0, 'Moon crop corner is transparent over Jupiter');
+    }
     // Check the close-up canvas and exported SVG paths too.
     const sky = skyView('jupiter', frame.t), stage = document.createElement('div');
     stage.className = 'sky-stage'; stage.style.cssText = 'width:360px;height:240px';
@@ -287,7 +329,7 @@ try {
     }
     const ringMean = ringPixels[0].reduce((sum, v, i) => sum + Math.abs(v - ringPixels[1][i]), 0) / ringPixels[0].length;
     check(ringMean < 2, `Saturn GPU/fallback ring shadow agrees: ${ringMean}`);
-    return { edges, earthlight, occultations, surfaces, moonSurfaces, saturnPenumbra: { lo, hi, mean, ringMean } };
+    return { edges, earthlight, occultations, surfaces, moonSurfaces, transit, saturnPenumbra: { lo, hi, mean, ringMean } };
   });
   assert.equal(result.edges.length, 4);
   // Lock a mapped moon through UI zooms and time changes, with its parent

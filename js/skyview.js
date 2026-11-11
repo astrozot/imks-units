@@ -415,7 +415,7 @@ uniform vec2 origin, size;
 uniform float scale, flattening, reach, sunAngle;
 uniform mat3 toP;
 uniform vec3 view, light;
-uniform bool saturn, litFace, softShadows;
+uniform bool saturn, litFace, softShadows, moonsOnly;
 uniform vec4 shadows[${MAX_SHADOWS}];
 uniform int nShadows;
 uniform vec4 moonsAt[${MAX_SHADOWS}], moonsLook[${MAX_SHADOWS}];
@@ -617,6 +617,19 @@ vec4 trace(vec2 xy) {
   vec2 g = hitGlobe(o, d, hit);
   hit = hit && g.x < tMoon;
   float tGlobe = hit ? g.x : 1e9;
+  // A separate moon overlay must leave the planet and empty sky transparent.
+  // Keep occultation by the globe and transmission through foreground rings.
+  if (moonsOnly) {
+    if (hit) return vec4(0.0);
+    if (saturn && abs(d.z) > 1e-9) {
+      float t = -o.z / d.z;
+      if (t > 0.0 && t < tMoon) {
+        vec3 q = o + d * t;
+        c *= ringsAt(length(q.xy), litFace, abs(d.z)).a;
+      }
+    }
+    return c;
+  }
   if (hit && lunar) c = vec4(lunarColor(o + d * tGlobe), 1.0);
   else if (hit) {
     vec3 q = o + d * tGlobe, n = vec3(q.xy, q.z / ((1.0 - flattening) * (1.0 - flattening)));
@@ -687,7 +700,7 @@ function planetProgram(gl) {
   gl.enableVertexAttribArray(at);
   gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
   const u = {};
-  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "relief", "earthshine", "earth", "moonsAt", "moonsLook", "nMoons", "near"]) u[name] = gl.getUniformLocation(prog, name);
+  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "relief", "earthshine", "earth", "moonsAt", "moonsLook", "nMoons", "near", "moonsOnly"]) u[name] = gl.getUniformLocation(prog, name);
   gl.uniform4fv(u.rings, RINGS.flatMap(([, , a, c]) => [...c.map((x) => x / 255), a]));
   gl.uniform2fv(u.ringEdges, RINGS.flatMap(([a, b]) => [a, b]));
   return u;
@@ -741,6 +754,7 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s) {
   gl.uniform3fv(u.light, m.light);
   gl.uniform1i(u.saturn, m.sat ? 1 : 0);
   gl.uniform1i(u.litFace, m.litFace ? 1 : 0);
+  gl.uniform1i(u.moonsOnly, sky.moonsOnly ? 1 : 0);
   const shadows = m.shadows.slice(0, MAX_SHADOWS);
   gl.uniform1i(u.nShadows, shadows.length);
   if (shadows.length) gl.uniform4fv(u.shadows, shadows.flatMap((x) => [...x.c, x.r]));
