@@ -12,7 +12,7 @@ import { storedHorizon, computeHorizon, forgetHorizon, horizonAt } from './skyho
 import { skyView as moonSystem } from './sky.js';
 import { moonsView, planetMap } from './skyview.js';
 import { pickLunarFeature, lunarFeatureDetails, findLunarFeature, lunarFeatureTarget, LUNAR_MIN_RADIUS } from './lunarfeatures.js';
-import { pickMarsFeature, marsFeatureDetails, findMarsFeature, marsFeatureState, projectMarsFeatures, MARS_MIN_RADIUS } from './marsfeatures.js';
+import { pickMarsFeature, marsFeatureDetails, findMarsFeature, marsFeatureTarget, marsFeatureState, projectMarsFeatures, MARS_MIN_RADIUS } from './marsfeatures.js';
 
 // Optional fainter stars, from AT-HYG like the built-in ones
 // (tools/stars.mjs): files of the app downloaded when asked, kept in a
@@ -234,7 +234,8 @@ export async function forceAppUpdate(reload = () => location.reload(), report = 
 // drawn anew on opening.
 export function mountCoelum(root, model, formatTime, options = {}) {
   const id = `coelum-${++explorers}`, extra = options.panels || [];
-  let mode = 'chart';
+  let mode = 'chart', moonSize = 'magnitude';
+  try { if (localStorage.getItem('imks-coelum-moon-size') === 'actual') moonSize = 'actual'; } catch { /* private mode */ }
   try { if (localStorage.getItem('imks-coelum-mode') === 'sky') mode = 'sky'; } catch { /* private mode */ }
   root.dataset.mode = mode;
   root.innerHTML = `<div class="coelum-topbar coelum-hud">
@@ -303,6 +304,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       </div>
     </div>
     <div class="coelum-timebar coelum-hud">
+      <label class="coelum-moon-sizing" hidden>Moon sizes <select data-moon-size aria-label="Moon sizes"><option value="magnitude">By magnitude</option><option value="actual">Actual size</option></select></label>
       <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button> · <button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"></button><span class="coelum-condition"></span></p><span class="coelum-clock-side"><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output><span class="coelum-ruler" title="Angular scale at the center of the view"><i></i><b></b></span></span></div>
       <div class="coelum-controls" role="toolbar" aria-label="Time">
         <button type="button" class="coelum-btn coelum-btn-text" data-action="back" aria-label="One hour earlier" title="One hour earlier">−1 h</button>
@@ -385,14 +387,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (!force && now - lastUI < 200) return;
     lastUI = now;
     // Retire selections that leave the projected layer (search may allow unlit).
-    const feature = drawn?.lunarFeatures?.find((f) => f.key === selected);
-    if (selected?.startsWith('lunar:') && !feature) { selected = null; unlitLunar = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; }
+    const feature = [...(drawn?.lunarFeatures || []), ...(drawn?.marsFeatures || [])].find((f) => f.key === selected);
+    if ((selected?.startsWith('lunar:') || selected?.startsWith('mars:')) && !feature) { selected = null; unlitLunar = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; }
     root.classList.toggle('coelum-has-selection', Boolean(selected));
     const sun = frame.bodies[0].alt, condition = sun >= 0 ? 'Daylight' : sun >= -6 ? 'Civil twilight' : sun >= -12 ? 'Nautical twilight' : sun >= -18 ? 'Astr. twilight' : 'Night';
     statusTime.textContent = formatTime(t); statusPlace.textContent = placeLabel; statusCondition.textContent = ` · ${condition} · Sun ${sun.toFixed(1)}°`;
     if (selected) {
       const o = findObject(frame, selected);
-      const html = feature ? lunarFeatureDetails(feature) : o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
+      const html = feature ? (feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
       // unchanged, the card stays (a tap on its button is not lost)
       if (html && html !== detailHTML) detail.innerHTML = detailHTML = html;
     }
@@ -437,6 +439,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // The ruler: a round angle (arcseconds) 90 px long or less, at the center
   // of the view, or of the planet's close-up
   const RULER = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 18000, 36000, 72000, 108000, 162000, 324000];
+  const moonSizing = $('.coelum-moon-sizing'), moonSizeSelect = $('[data-moon-size]');
+  moonSizeSelect.value = moonSize;
   const ruler = $('.coelum-ruler');
   const showRuler = (perPixel) => {
     const a = [...RULER].reverse().find((x) => x / perPixel <= 90) ?? RULER[0], text = a < 60 ? `${a}″` : a < 3600 ? `${a / 60}′` : `${a / 3600}°`;
@@ -454,7 +458,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       frame = animator(t);
     }
     // the planet's close-up covers the view: the sky is not drawn
-    if (moons) { followMoons(); updateUI(!playing); return; }
+    if (moons) { moonSizing.hidden = true; followMoons(); updateUI(!playing); return; }
     applyLock();
     const view = mark(), F = mountMatrix();
     // the camera in the horizon's frame, for drawing
@@ -468,13 +472,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (onCanvas) {
-      drawn = mode === 'sky' ? skyScene(frame, size, height, { ...layers.sky, atmosphere: atmosphereOn() }, { ...shown, moving: interacting }, ctx) : skyChart(frame, size, height, layers.chart, shown, ctx);
+      drawn = mode === 'sky' ? skyScene(frame, size, height, { ...layers.sky, atmosphere: atmosphereOn(), moonSize }, { ...shown, moving: interacting }, ctx) : skyChart(frame, size, height, layers.chart, shown, ctx);
       canvas.dataset.frame = String(++frameNumber);
       if (svg.childElementCount) svg.innerHTML = '';
     } else {
       drawn = skyChart(frame, size, height, layers.chart, { ...shown, backdrop: ctx });
       svg.innerHTML = drawn.svg;
     }
+    moonSizing.hidden = mode !== 'sky' || !drawn.moonSizing;
     if (mode === 'sky') for (const body of drawn.surfaceBodies) {
       if (surfaceMapsWatched.has(body)) continue;
       surfaceMapsWatched.add(body);
@@ -560,10 +565,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const [lo, hi] = scaleLimits();
     const searchScale = () => {
       if (o.feature) {
-        // Resolve the feature while keeping the Moon's feature layer active.
+        // Resolve the feature while keeping its surface layer active.
         const pixels = Math.min(130, Math.min(size, height) * 0.22);
-        const radius = Math.max(LUNAR_MIN_RADIUS * 1.3, pixels * 1737.4 / Math.max(0.01, o.feature.diameter) / Math.sqrt(Math.max(0.06, o.lunarState.v[2])));
-        return Math.max(lo, Math.min(hi, radius / (o.moonRadius * skyRadius(size, height, 1) / 2 * R)));
+        const mars = Boolean(o.marsState), state = o.marsState || o.lunarState;
+        const radius = Math.max((mars ? MARS_MIN_RADIUS : LUNAR_MIN_RADIUS) * 1.3, pixels * (mars ? 3396.19 : 1737.4) / Math.max(0.01, mars ? o.feature.extent || 3396.19 : o.feature.diameter) / Math.sqrt(Math.max(0.06, state.v[2])));
+        return Math.max(lo, Math.min(hi, radius / ((o.marsRadius || o.moonRadius) * skyRadius(size, height, 1) / 2 * R)));
       }
       const angularField = field ?? searchAngularField(o), span = Math.min(size, height);
       const scale = mode === 'sky' ? span / (2 * skyRadius(size, height, 1) * Math.tan(angularField * R / 4)) : span / (chartRadius(size, height, 1) * angularField / 90);
@@ -653,7 +659,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const lit = (1 + Math.cos(o.phase * R)) * 50, diameter = 2 * diskRadius(o) * 3600;
     $('.coelum-moons-data').textContent = `${lit.toFixed(0)} % lit · ${diameter.toFixed(1)}″ · mag ${o.mag.toFixed(1).replace('-', '−')} · ${(o.dist / 149597870.7).toFixed(2)} au`;
   };
-  // Mars surface interaction belongs to the telescope view, not the sky.
+  // The telescope view also offers Mars surface interaction.
   const marsSurface = () => {
     let features = [], labels = [], chosen = null, html = '';
     const card = $('.coelum-mars-detail');
@@ -703,6 +709,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     };
   };
   const showMoons = (planet, feature = null) => {
+    moonSizing.hidden = true;
     moonEventsList.close();
     const stage = $('.coelum-moons-stage');
     stage.innerHTML = '<canvas class="sky-canvas"></canvas><svg class="sky-svg sky-full" role="img"></svg>';
@@ -1076,10 +1083,16 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     input.blur(); pause(); setLock(null);
     if (moons) closeMoons();
     if (feature?.key.startsWith('mars:')) {
+      if (mode !== 'sky') setMode('sky');
+      select(null);
       await planetMap('mars')?.ready;
       if (ticket !== searchChoice || !root.isConnected) return;
-      select('Mars');
-      showMoons('mars', feature);
+      const target = marsFeatureTarget(frame, feature), state = target.marsState, available = state.visible && state.sunlit;
+      goTo(available ? target : findObject(frame, 'Mars'), { fit: true, onArrival: () => {
+        select(available ? feature.key : 'Mars');
+        if (!state.visible) say(`${feature.name} is on the far side of Mars.`);
+        else if (!state.sunlit) say(`${feature.name} is not currently illuminated.`);
+      } });
     } else if (feature) {
       if (mode !== 'sky') setMode('sky');
       select(null);
@@ -1129,6 +1142,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   });
   root.addEventListener('change', (ev) => {
     const L = layers[mode];
+    if (ev.target.matches('[data-moon-size]')) {
+      moonSize = ev.target.value === 'actual' ? 'actual' : 'magnitude';
+      try { localStorage.setItem('imks-coelum-moon-size', moonSize); } catch { /* private mode */ }
+    }
     if (ev.target.matches('[data-orient-level]')) { phoneLevel = ev.target.checked; try { localStorage.setItem('imks-phone-level', String(phoneLevel)); } catch { /* private mode */ } if (orient) applyPhone(); }
     if (ev.target.dataset.layer) L[ev.target.dataset.layer] = ev.target.checked;
     if (ev.target.matches('[data-limit]')) layers.chart.magnitude = Number(ev.target.value);
@@ -1354,7 +1371,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         const direct = nearby[0] && nearby[0].d <= nearby[0].o.radius + 2 ? nearby[0].o.name : null;
         const lunarDisk = drawn.objects.find((o) => o.body === 'moon');
         const onMoon = lunarDisk && Math.hypot(p.x - lunarDisk.x, p.y - lunarDisk.y) <= lunarDisk.radius;
-        const feature = label?.name.startsWith('lunar:') ? label.name : onMoon && pickLunarFeature(drawn.lunarFeatures, p.x, p.y)?.key;
+        const marsDisk = drawn.objects.find((o) => o.body === 'mars');
+        const onMars = marsDisk && Math.hypot(p.x - marsDisk.x, p.y - marsDisk.y) <= marsDisk.radius;
+        const feature = label?.name.startsWith('lunar:') || label?.name.startsWith('mars:') ? label.name
+          : onMoon ? pickLunarFeature(drawn.lunarFeatures, p.x, p.y)?.key : onMars && pickMarsFeature(drawn.marsFeatures, p.x, p.y)?.key;
         select(feature || direct || label?.name || nearby[0]?.o.name || null);
         lastTap = { time: performance.now(), x: p.x, y: p.y };
         draw();

@@ -357,13 +357,14 @@ features become selectable as their apparent size grows. Features beyond the
 limb, on the night side or inside Earth's umbra are excluded. The detailed
 Moon texture and WebGL renderer are required for surface alignment.
 
-Mars surface features are available only in **Moons of Mars**, opened from
-Mars's detail card. The offline catalogue contains 2,054 unique approved
+Mars surface features are available on the textured disk in **Sky** and in
+**Moons of Mars**, opened from Mars's detail card. The offline catalogue contains 2,054 unique approved
 IAU/USGS names. At a globe diameter of 240 CSS pixels, feature centers become
 selectable, with labels added progressively by apparent size and prominence.
-Search opens the telescope view and frames a visible, sunlit feature; small
+Search switches to Sky and frames a visible, sunlit feature directly; small
 craters get a closer view. An unavailable feature frames Mars without a
-highlight. The standard sky/chart retains its maximum zoom of 400.
+highlight. Tap a surface feature or its label to select it and show its contour
+and details.
 
 Contours use measured crater ellipses from Robbins's 2020 release, mapped
 USGS/OpenPlanetary polygon footprints, or derived ellipses for suitable compact

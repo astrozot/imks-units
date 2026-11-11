@@ -7,10 +7,11 @@ import { skyRaster, skyLight, hillAt } from './skyraster.js';
 import { covered, tracePlanet, planetMap, earthshineBrightness } from './skyview.js';
 import { moonDisk, moons, planetDisk } from './astro.js';
 import { projectLunarFeatures, LUNAR_COLOR } from './lunarfeatures.js';
+import { projectMarsFeatures, MARS_COLOR } from './marsfeatures.js';
 
 const SOLID = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const FLAT = () => 0;
-export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, deep: false, minor: false, satellites: true, labels: true, labelSize: 14 };
+export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, deep: false, minor: false, satellites: true, labels: true, labelSize: 14, moonSize: 'magnitude' };
 // The diagonal of the view spans 140° at scale 1.
 export const skyRadius = (W, H, scale) => Math.hypot(W, H) / 2 / Math.tan(35 * R) * scale;
 // The default direction: toward the Sun near sunrise or sunset, otherwise
@@ -197,7 +198,12 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     const n = { ra: o.ra, dec: o.dec + 0.001 }, v = xy({ ...n, ...frame.hor(n) });
     return Math.atan2(v.y - q.y, v.x - q.x) + Math.PI / 2;
   };
-  let lunarFeatures = [];
+  let lunarFeatures = [], marsFeatures = [], moonSizing = false;
+  const surfaceAboveGround = (f) => {
+    if (!opts.ground) return true;
+    const v = unprojectSky((f.x - cx) / radius, (f.y - cy) / radius, rotation, true);
+    return above({ alt: Math.asin(v[2]) / R, az: (Math.atan2(v[0], v[1]) / R + 360) % 360 });
+  };
   // Paint nearer sources last as well, including unresolved minor bodies.
   for (const o of [...frame.bodies].sort((a, b) => b.dist - a.dist)) {
     if (o.hidden) continue;
@@ -242,27 +248,26 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       // Surface positions are transformed exactly like the GPU texture.
       // The fallback near-side photograph has no libration, so needs no labels.
       if (textured) lunarFeatures = projectLunarFeatures(disk, q, r, north, W, H,
-        shadowPoint && { ...shadowPoint, umbra: o.shadow.umbra }, view.selected, view.unlitLunar === view.selected).filter((f) => {
-          if (!opts.ground) return true;
-          const v = unprojectSky((f.x - cx) / radius, (f.y - cy) / radius, rotation, true);
-          return above({ alt: Math.asin(v[2]) / R, az: (Math.atan2(v[0], v[1]) / R + 360) % 360 });
-        });
+        shadowPoint && { ...shadowPoint, umbra: o.shadow.umbra }, view.selected, view.unlitLunar === view.selected).filter(surfaceAboveGround);
     } else {
       const mag = o.mag + (opts.atmosphere ? extinction(o.alt) : 0);
       r = pointRadius(mag);
       if (!r) { ctx.restore(); continue; }
       const disk = diskRadius(o) * R * pxPerRad;
       if (disk >= r) {
+        if (hasMoons(o)) moonSizing = true;
         surfaceBodies.push(o.body);
         const model = planetSurface(frame, o);
         const textured = traceSurface(ctx, { ...model, hideMoons: true }, q, disk, northAt(o, q), { W, H }, opts.atmosphere ? 0.75 + 0.25 * (1 - light.day) : 1);
+        if (textured && o.body === 'mars') marsFeatures = projectMarsFeatures(model, q, disk, northAt(o, q), W, H, view.selected).filter(surfaceAboveGround);
         if (!textured) drawPlanet(ctx, o, q, disk, xy(o.light), o.body === 'saturn' && saturnRings(frame, o, xy, disk));
         r = disk;
       } else point(o, mag, BODY_RGB[o.body], q);
     }
     ctx.restore();
     objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4) });
-    if (o.body !== 'moon' || r < 40) labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? '#fff1c9' : '#ffc98f', r: Math.max(r, 3), priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
+    // Close-up disks identify themselves; omit both the name and its leader.
+    if (!SOLID.has(o.body) || o.body === 'sun' || r < 40) labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? '#fff1c9' : '#ffc98f', r: Math.max(r, 3), priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
   }
   // Test each moon against the viewport, independently of its planet.
   // Recenter the system tracer on the moon, preserving its mapped face,
@@ -274,12 +279,13 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     const mag = m.mag + (opts.atmosphere ? extinction(m.alt) : 0), dot = pointRadius(mag);
     if (!dot && m.name !== view.selected) continue;
     // Share the planet's texture threshold, even when it is off screen.
-    // Keep a small moon at least as large as its former point symbol.
+    // Magnitude mode keeps a small moon at least as large as its former dot.
     const parentDot = pointRadius(o.mag + (opts.atmosphere ? extinction(o.alt) : 0));
     const parentResolved = parentDot > 0 && diskRadius(o) * R * pxPerRad >= parentDot;
+    if (parentResolved) moonSizing = true;
     let mr = dot;
     if (parentResolved || disk >= Math.max(1, dot)) {
-      mr = Math.max(disk, dot);
+      mr = opts.moonSize === 'actual' ? disk : Math.max(disk, dot);
       surfaceBodies.push(o.body);
       const model = planetSurface(frame, o), moon = model.moons.find((v) => v.name === m.name);
       ctx.save(); clipForeground(m.dist, q, mr * 1.02);
@@ -321,15 +327,19 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   for (const feature of lunarFeatures) if (feature.label || feature.key === view.selected) {
     labels.push({ ...feature, size: opts.labelSize, color: LUNAR_COLOR, r: 2, priority: feature.key === view.selected ? -1 : 2, mag: -(feature.diameter || 0), key: feature.key });
   }
-  const symbols = objects.filter((o) => o.body && !(o.body === 'moon' && lunarFeatures.length)), names = new Set([...objects.map((o) => o.name), ...lunarFeatures.map((f) => f.key)]);
+  const marsLabels = marsFeatures.filter((f) => f.label || f.key === view.selected)
+    .sort((a, b) => Number(b.key === view.selected)-Number(a.key === view.selected) || Number(b.major)-Number(a.major) || b.size-a.size).slice(0, 28);
+  for (const feature of marsLabels) labels.push({ ...feature, size: opts.labelSize, color: MARS_COLOR, r: 2, priority: feature.key === view.selected ? -1 : 2, key: feature.key });
+  const surfaceFeatures = [...lunarFeatures, ...marsFeatures];
+  const symbols = objects.filter((o) => o.body && !(o.body === 'moon' && lunarFeatures.length || o.body === 'mars' && marsFeatures.length)), names = new Set([...objects.map((o) => o.name), ...surfaceFeatures.map((f) => f.key)]);
   let hitLabels = [];
-  if (opts.labels || lunarFeatures.some((f) => f.key === view.selected)) {
+  if (opts.labels || surfaceFeatures.some((f) => f.key === view.selected)) {
     ctx.shadowColor = '#000c'; ctx.shadowBlur = 3;
     hitLabels = placeLabels(opts.labels ? labels : labels.filter((l) => l.key === view.selected), {
       W, H, size: opts.labelSize, symbols, history: view.labelHistory,
       draw: (l, x, y) => {
         ctx.font = fontFor(l.size || opts.labelSize); ctx.textAlign = 'left';
-        if (l.key?.startsWith('lunar:')) { ctx.strokeStyle = '#08162b'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeText(l.name, x, y); }
+        if (l.key?.startsWith('lunar:') || l.key?.startsWith('mars:')) { ctx.strokeStyle = '#08162b'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeText(l.name, x, y); }
         ctx.fillStyle = l.color; ctx.fillText(l.name, x, y);
       },
       leader: (l, x, y) => { ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(x, y); ctx.strokeStyle = l.color; ctx.globalAlpha = 0.6; ctx.lineWidth = 0.7; ctx.stroke(); ctx.globalAlpha = 1; },
@@ -350,7 +360,20 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     ctx.restore();
     if (selectedFeature.sunlight <= 0.005 && selectedFeature.size < 8) reticle(p, selectedFeature.x, selectedFeature.y, 4, LUNAR_COLOR);
   }
-  return { objects, radius, hitLabels, light, lunarFeatures, surfaceBodies };
+  const selectedMars = marsFeatures.find((f) => f.key === view.selected);
+  if (selectedMars) {
+    if (selectedMars.outline) {
+      ctx.save(); ctx.beginPath();
+      let previous = null;
+      for (const point of selectedMars.outline) {
+        if (point.visible) ctx[previous?.visible ? 'lineTo' : 'moveTo'](point.x, point.y);
+        previous = point;
+      }
+      ctx.strokeStyle = '#08162b'; ctx.lineWidth = 3.5; ctx.stroke();
+      ctx.strokeStyle = MARS_COLOR; ctx.lineWidth = 1.5; ctx.stroke(); ctx.restore();
+    } else reticle(p, selectedMars.x, selectedMars.y, 4, MARS_COLOR);
+  }
+  return { objects, radius, hitLabels, light, lunarFeatures, marsFeatures, surfaceBodies, moonSizing };
 }
 
 // Keep the physical disk and moon-shadow geometry with the frame, independent
