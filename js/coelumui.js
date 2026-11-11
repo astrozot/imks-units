@@ -330,7 +330,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <button type="button" class="coelum-btn" data-action="orient" aria-pressed="false" aria-label="Follow the phone's orientation" title="Follow the phone's orientation"${orientationSupported() ? '' : ' hidden'}>${ICONS.orient}</button>
       </div>
     </div>
-    <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><p>Tap an object or its label, or search for it, to see its characteristics.</p></div></section>
+    <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><p>Tap an object or its label to see its characteristics.</p></div></section>
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
     <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars and deep-sky objects: the app’s IAU / HYG / OpenNGC catalogs. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
@@ -345,7 +345,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   setSatellites(satelliteList());
   let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null, unlitLunar = null, detailHTML = '';
   let realTime = false;
-  let followTarget = null;
+  let followTarget = null, detailShown = false;
   const guide = $('.coelum-follow-guide'), guideMarker = guide.querySelector('g'), guideRing = guide.querySelector('circle'), guideArrow = guide.querySelector('path'), guideText = guide.querySelector('text');
   const clearGuide = () => { followTarget = null; guide.setAttribute('hidden', ''); };
   const drawGuide = (rotation, scale) => {
@@ -430,8 +430,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     lastUI = now;
     // Retire selections that leave the projected layer (search may allow unlit).
     const feature = [...(drawn?.lunarFeatures || []), ...(drawn?.marsFeatures || [])].find((f) => f.key === selected);
-    if ((selected?.startsWith('lunar:') || selected?.startsWith('mars:')) && !feature) { selected = null; unlitLunar = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; }
+    if ((selected?.startsWith('lunar:') || selected?.startsWith('mars:')) && !feature) { selected = null; unlitLunar = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label to see its characteristics.</p>'; }
     root.classList.toggle('coelum-has-selection', Boolean(selected));
+    root.classList.toggle('coelum-show-detail', Boolean(selected) && detailShown);
     const sun = frame.bodies[0].alt, condition = sun >= 0 ? 'Daylight' : sun >= -6 ? 'Civil twilight' : sun >= -12 ? 'Nautical twilight' : sun >= -18 ? 'Astr. twilight' : 'Night';
     statusTime.textContent = formatTime(t); statusPlace.textContent = placeLabel; statusCondition.textContent = ` · ${condition} · Sun ${sun.toFixed(1)}°`;
     if (selected) {
@@ -652,11 +653,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     };
     flight = requestAnimationFrame(frameStep);
   };
-  const select = (name, { allowUnlit } = {}) => {
+  const select = (name, { allowUnlit, details = false } = {}) => {
     if (name !== followTarget) clearGuide();
     if (name !== selected || allowUnlit !== undefined) unlitLunar = allowUnlit ? name : null;
     selected = name;
-    if (!selected) { detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; detailHTML = ''; }
+    detailShown = Boolean(name) && details;
+    if (!selected) { detail.innerHTML = '<p>Tap an object or its label to see its characteristics.</p>'; detailHTML = ''; }
     // the moons' view, open, turns to the system of the object chosen
     const o = moons && findObject(frame, name), system = o && (hasMoons(o) ? o.body : o.planet && planetOf(o.name));
     if (system && system !== moons.planet) showMoons(system);
@@ -777,7 +779,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const wasImmersive = moons ? moons.wasImmersive : immersive();
     if (!immersive()) fullscreen(true);
     moonsLayer.hidden = false; root.classList.add('coelum-moons-open');
-    moons = { planet, t, wasImmersive, view: moonsView(stage, sky, { onTap: (m) => { closeMoons(); select(m.name); const o = findObject(frame, m.name); if (o) goTo(o); draw(); }, bar: false, onScale: showRuler, top: 64, onOverlay: surface?.overlay, onPoint: surface?.pick }), surface };
+    moons = { planet, t, wasImmersive, view: moonsView(stage, sky, { onTap: (m) => { closeMoons(); select(m.name, { details: true }); const o = findObject(frame, m.name); if (o) goTo(o); draw(); }, bar: false, onScale: showRuler, top: 64, onOverlay: surface?.overlay, onPoint: surface?.pick }), surface };
     sizeMoons(); moonsData();
     if (feature) surface?.focus(feature);
   };
@@ -1516,7 +1518,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         const onMars = marsDisk && Math.hypot(p.x - marsDisk.x, p.y - marsDisk.y) <= marsDisk.radius;
         const feature = label?.name.startsWith('lunar:') || label?.name.startsWith('mars:') ? label.name
           : onMoon ? pickLunarFeature(drawn.lunarFeatures, p.x, p.y)?.key : onMars && pickMarsFeature(drawn.marsFeatures, p.x, p.y)?.key;
-        select(feature || direct || label?.name || nearby[0]?.o.name || null);
+        select(feature || direct || label?.name || nearby[0]?.o.name || null, { details: true });
         lastTap = { time: performance.now(), x: p.x, y: p.y };
         draw();
       }

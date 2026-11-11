@@ -586,7 +586,8 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-immersive .coelum-rail { top: 50%; right: max(12px, env(safe-area-inset-right)); transform: translateY(-50%); }
 .coelum-immersive .coelum-panel { top: calc(max(10px, env(safe-area-inset-top)) + 66px); left: auto; right: calc(max(12px, env(safe-area-inset-right)) + 58px); width: min(380px, calc(100% - 96px)); max-height: calc(100% - max(10px, env(safe-area-inset-top)) - 66px - var(--coelum-controls-height, 130px) - 16px); }
 .coelum-immersive .coelum-detail { display: none; position: absolute; z-index: 3; left: max(12px, env(safe-area-inset-left)); top: calc(max(10px, env(safe-area-inset-top)) + 66px); width: min(330px, calc(100% - 84px)); max-height: calc(50% - 90px); font-size: 13px; line-height: 1.4; padding: 10px 12px; overflow-y: auto; box-sizing: border-box; margin: 0; border-color: var(--c-line); background: var(--c-glass); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); color: var(--c-ink); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
-.coelum-immersive.coelum-has-selection .coelum-detail { display: block; }
+.coelum-explorer .coelum-detail { display: none; }
+.coelum-explorer.coelum-show-detail .coelum-detail { display: block; }
 .coelum-immersive .coelum-object-head h3 { font-size: 16px; }
 .coelum-immersive.coelum-show-options .coelum-detail { display: none; }
 .coelum-immersive .coelum-detail dt, .coelum-immersive .coelum-object-head > span, .coelum-immersive .coelum-detail .coelum-coordinate-note { color: var(--c-muted); }
