@@ -163,7 +163,9 @@ at totality); the Moon in the Earth's shadow (`earthShadow` in
 reddened in the umbra, and lights the sky less. The **Events** panel (`js/eventspanel.js`,
 shared with the Coelum app below) lists the events after the chart's time;
 in iMKS, an eclipse or an occultation tapped there is computed as
-`solareclipse`, `lunareclipse` or `occultation`, with its map or drawing. Cards give apparent diameters (the Sun,
+`solareclipse`, `lunareclipse` or `occultation`, with its map or drawing.
+Every planet's card also gives its geocentric solar elongation in degrees,
+with east or west of the Sun. Cards give apparent diameters (the Sun,
 the Moon, the planets and their moons) and the sizes of deep-sky objects
 (OpenNGC's axes). A star's card
 shows its B−V colour index, an estimated temperature and spectral type,
@@ -238,8 +240,12 @@ seen from the place, or anywhere on the Earth, after the time of the sky.
 It also lists the four Moon phases, conjunctions between planets and
 between a planet and the Moon, planetary oppositions to the Sun, and
 equinoxes and solstices (named by month for either hemisphere).
-These use geocentric ecliptic longitudes and show local altitudes when a
-place is selected. Local conjunctions require both bodies above the
+Greatest elongations lists Mercury and Venus at their maximum angular
+distance from the Sun, with eastern/evening or western/morning labels
+and the angle in degrees. These Earth-centered events are listed in
+both scopes regardless of local altitude; tap one to center the planet.
+Phases, conjunctions and oppositions use geocentric ecliptic longitudes;
+the lists show local altitudes when a place is selected. Local conjunctions require both bodies above the
 horizon and show their average height; Moon conjunctions also show the
 Moon's illuminated fraction. Phases and oppositions remain listed even
 below the horizon. Tap a phase, opposition or seasonal event to center its body in the
@@ -351,25 +357,29 @@ features become selectable as their apparent size grows. Features beyond the
 limb, on the night side or inside Earth's umbra are excluded. The detailed
 Moon texture and WebGL renderer are required for surface alignment.
 
-Mars has a small surface catalogue in `js/marsfeatures.js`: eight classical
-albedo regions, Olympus Mons and Valles Marineris, with approved centers from
-the [IAU/USGS Gazetteer](https://planetarynames.wr.usgs.gov/Page/MARS/target).
 Mars surface features are available only in **Moons of Mars**, opened from
-Mars's detail card. Zoom into the globe: at a diameter of 240 CSS pixels,
-sunlit features appear in amber. Tap a center, footprint or label for its
-type and coordinates. Searching a Mars feature opens this telescope view
-and centers it; unavailable features frame Mars without a highlight. Closing
-the view restores the standard sky/chart, whose maximum zoom is 400.
+Mars's detail card. The offline catalogue contains 2,054 unique approved
+IAU/USGS names. At a globe diameter of 240 CSS pixels, feature centers become
+selectable, with labels added progressively by apparent size and prominence.
+Search opens the telescope view and frames a visible, sunlit feature; small
+craters get a closer view. An unavailable feature frames Mars without a
+highlight. The standard sky/chart retains its maximum zoom of 400.
+
+Contours use measured crater ellipses from Robbins's 2020 release, mapped
+USGS/OpenPlanetary polygon footprints, or derived ellipses for suitable compact
+landforms. Eight familiar albedo markings have approximate identification
+contours digitised from Martin Lewis's 2022–23 reference map; their cards show
+the epoch and the fact that these markings can change. Other albedo names
+retain center markers. Each card identifies its geometry source and shows
+ellipse axes when available. All shapes rotate, foreshorten and clip at the
+limb/terminator with the same globe as the texture. Polar caps are unchanged.
+Sources, filters, caveats and rebuilding instructions are in
+[data/mars-features.md](data/mars-features.md). Tests:
+`node tests/marsfeatures.mjs`, `node tests/marsfeatures-browser.mjs`.
+
 Surface features follow ordinary objects in Search; use a Moon/Mars prefix
 to search them directly. Search uses status icons with a key containing only
 symbols in the current results; tap or hover an icon for its meaning.
-Olympus Mons (610.13 km) and Valles Marineris (3,761.28 km) have catalogue
-size outlines projected onto the oblate globe and clipped at the limb and
-terminator. These indicate diameter/longest extent rather than surveyed
-boundaries. Albedo names have no catalogue extents and retain center markers.
-Polar caps are unchanged.
-`node tests/marsfeatures.mjs` checks geometry and search;
-`node tests/marsfeatures-browser.mjs` checks rendering, taps and search flights.
 
 `js/lunardata.js` bundles 9,087 approved IAU/USGS lunar names, including
 lettered craters, from the [Gazetteer of Planetary Nomenclature](https://planetarynames.wr.usgs.gov/Page/MOON/target)

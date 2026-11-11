@@ -660,7 +660,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     return {
       clear,
       overlay({ sky, W, H, cx, cy, s, gpu }) {
-        features = gpu && planetMap('mars')?.img ? projectMarsFeatures(sky, { x: W / 2 - cx * s, y: H / 2 + cy * s }, s, 0, W, H) : [];
+        features = gpu && planetMap('mars')?.img ? projectMarsFeatures(sky, { x: W / 2 - cx * s, y: H / 2 + cy * s }, s, 0, W, H, chosen) : [];
         const selected = features.find((f) => f.key === chosen);
         if (!selected) { chosen = null; card.hidden = true; }
         else {
@@ -677,7 +677,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
           }
           svg += `<path class="coelum-mars-outline" d="${path}"/>`;
         } else if (selected) svg += `<circle class="coelum-mars-outline" cx="${selected.x}" cy="${selected.y}" r="7"/>`;
-        labels = placeLabels(features.map((f) => ({ ...f, r: 2, priority: f.key === chosen ? -1 : 2 })), {
+        labels = placeLabels(features.filter((f) => f.label || f.key === chosen).sort((a, b) => Number(b.key === chosen)-Number(a.key === chosen) || Number(b.major)-Number(a.major) || b.size-a.size).slice(0, 28).map((f) => ({ ...f, size: 14, r: 2, priority: f.key === chosen ? -1 : f.major ? 1 : 2 })), {
           W, H, size: 14, symbols: [],
           draw: (f, x, y) => { svg += `<text class="coelum-mars-label" data-mars-feature="${f.key}" x="${x}" y="${y}">${esc(f.name)}</text>`; },
         });
@@ -690,7 +690,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         chosen = feature.key; moons.view.redraw(); return true;
       },
       focus(feature) {
-        const state = marsFeatureState(moons.view.sky, feature), radius = Math.max(MARS_MIN_RADIUS * 1.3, Math.min(viewport.clientWidth, viewport.clientHeight) * 0.35);
+        const state = marsFeatureState(moons.view.sky, feature), span = Math.min(viewport.clientWidth, viewport.clientHeight);
+        const radius = Math.max(MARS_MIN_RADIUS * 1.3, Math.min(span*0.15, 90)*3396.19/Math.max(1, feature.extent || 3396.19));
         if (state.visible && state.sunlit) {
           chosen = feature.key; moons.view.focus(state.v[0], state.v[1], radius);
         } else {

@@ -114,7 +114,7 @@ try {
     return Number(await page.locator('.coelum-full').getAttribute('data-scale'));
   };
   await search.fill('Copernicus');
-  assert.equal((await page.locator('.coelum-result-name').allTextContents()).filter((name) => name === 'Copernicus').length, 2, 'Star and crater both searchable');
+  assert.equal((await page.locator('.coelum-result-name').allTextContents()).filter((name) => name === 'Copernicus').length, 3, 'Star, lunar crater and Martian crater are independently searchable');
   assert.match(await page.locator('.coelum-results [role="option"]').first().innerText(), /Star/, 'Star precedes the lunar result');
   const lunarScale = await chooseSearch('Copernicus', true);
   await page.waitForFunction(() => document.querySelector('.coelum-lunar-head h3')?.textContent === 'Copernicus');

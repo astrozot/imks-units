@@ -62,7 +62,7 @@ try {
   assert.ok(await page.locator('.coelum-mars-label').count() >= 2, 'Surface labels appear in the telescope view');
   const label = await page.locator('.coelum-mars-label').evaluateAll((labels) => labels.map((el) => {
     const b = el.getBoundingClientRect(); return { name: el.textContent, x: b.x + b.width / 2, y: b.y + b.height / 2 };
-  }).find((p) => p.y > 200 && p.y < 650));
+  }).find((p) => p.x > 20 && p.x < 880 && p.y > 200 && p.y < 650));
   assert.ok(label, 'An unobstructed feature can be tapped');
   await page.mouse.click(label.x, label.y);
   await page.waitForFunction((name) => document.querySelector('.coelum-mars-detail h3')?.textContent === name && !document.querySelector('.coelum-mars-detail').hidden, label.name);
@@ -106,6 +106,30 @@ try {
   assert.ok(await page.locator('.coelum-mars-outline').count(), 'Selected extent is drawn');
   if (process.env.MARS_SIZE_SCREENSHOT) await page.screenshot({ path: process.env.MARS_SIZE_SCREENSHOT });
   await page.locator('[data-action="close-moons"]').click();
+  // Expanded names and source-specific contours all use this same view.
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t));
+  await choose('Huygens');
+  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Huygens');
+  assert.match(await page.locator('.coelum-mars-detail').innerText(), /484[.,]5.*450[.,]2.*Measured crater ellipse/s);
+  if (process.env.MARS_ELLIPSE_SCREENSHOT) await page.screenshot({ path: process.env.MARS_ELLIPSE_SCREENSHOT });
+  await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t + 4 * 3600));
+  await choose('Valles Marineris');
+  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Valles Marineris');
+  assert.match(await page.locator('.coelum-mars-detail').innerText(), /Mapped nomenclature footprint/);
+  assert.ok((await page.locator('.coelum-mars-outline').getAttribute('d')).length > 100, 'Mapped polygon contour is drawn');
+  if (process.env.MARS_POLYGON_SCREENSHOT) await page.screenshot({ path: process.env.MARS_POLYGON_SCREENSHOT });
+  await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t));
+  await choose('Syrtis Major');
+  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Syrtis Major');
+  assert.match(await page.locator('.coelum-mars-detail').innerText(), /Approximate identification contour.*2022–23/s);
+  assert.ok(await page.locator('.coelum-mars-label').count() <= 28, 'Automatic labels stay bounded');
+  if (process.env.MARS_ALBEDO_SCREENSHOT) await page.screenshot({ path: process.env.MARS_ALBEDO_SCREENSHOT });
+  await choose('Jezero');
+  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Jezero');
+  assert.ok(await view.isVisible(), 'Small crater search retains its selected label at high zoom');
+  await page.locator('[data-action="close-moons"]').click();
+  await page.evaluate(() => window.marsTest.explorer.setTime(Date.parse('2026-11-24T21:00:00Z') / 1000));
   // Other planet systems retain their existing view.
   await search.fill('Jupiter');
   await page.locator('.coelum-results [role="option"]').first().click();

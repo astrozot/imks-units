@@ -81,12 +81,14 @@ try {
   assert.match(await page.locator('[data-event="conjunctions"] small').first().textContent(), /^5\.66° apart \(geocentric\) · 19° high · Moon 1% lit$/);
   for (const text of localConjunctions) assert.doesNotMatch(text, /below the horizon|Moon \d+° high|Mercury \d+° high/);
   const globalLists = {};
-  for (const kind of ['phases', 'oppositions', 'seasons']) {
+  for (const kind of ['phases', 'oppositions', 'seasons', 'elongations']) {
     globalLists[kind] = await page.locator(`[data-event="${kind}"]`).evaluateAll((rows) => rows.map((r) => r.querySelector('b').textContent + r.querySelector('span').textContent));
     assert.equal(globalLists[kind].length, 4);
-    if (kind !== 'seasons') assert.match(await page.locator(`[data-list="${kind}"]`).textContent(), /below the horizon/);
+    if (['phases', 'oppositions'].includes(kind)) assert.match(await page.locator(`[data-list="${kind}"]`).textContent(), /below the horizon/);
   }
   assert.match(globalLists.seasons[0], /^December solstice/);
+  assert.match(globalLists.elongations[0], /^Mercury greatest western elongation/);
+  assert.match(await page.locator('[data-event="elongations"] small').first().textContent(), /^19\.6° from the Sun · morning sky/);
   await page.click('[data-scope="anywhere"]');
   await page.waitForSelector('[data-more="conjunctions"]');
   assert.ok(await page.locator('[data-event="conjunctions"]').count() > localConjunctions.length);
@@ -99,7 +101,7 @@ try {
   // New events open at their time, centered on a body or a whole pair,
   // in both views, even after the previous event left a tight zoom.
   for (const mode of ['chart', 'sky']) {
-    for (const event of ['phases', 'oppositions', 'conjunctions', 'planet-pair', 'seasons']) {
+    for (const event of ['phases', 'oppositions', 'conjunctions', 'planet-pair', 'seasons', 'elongations']) {
       const kind = event === 'planet-pair' ? 'conjunctions' : event;
       await page.click('[data-action="time"]');
       await page.click('[data-set-time="now"]');
@@ -109,7 +111,7 @@ try {
       const candidates = page.locator(`[data-event="${kind}"]`);
       const row = (event === 'planet-pair' ? candidates.filter({ hasText: 'Mars–Jupiter' }) : candidates).first();
       const title = await row.locator('b').textContent();
-      const names = kind === 'phases' ? ['Moon'] : kind === 'seasons' ? ['Sun'] : kind === 'oppositions' ? [title.split(' ')[0]] : title.replace(' conjunction', '').split('–');
+      const names = kind === 'phases' ? ['Moon'] : kind === 'seasons' ? ['Sun'] : ['oppositions', 'elongations'].includes(kind) ? [title.split(' ')[0]] : title.replace(' conjunction', '').split('–');
       if (kind !== 'conjunctions') {
         const count = await page.locator(`[data-event="${kind}"]`).count();
         assert.ok(count >= 4);

@@ -165,7 +165,10 @@ function solarBodies(t, place, hor, rate = 0) {
     bodies.push({ ...p, ...hor(p), name: m.name, number: m.number, body: comet ? 'comet' : 'minor', mag, type: comet ? 'comet' : 'minor planet', color: BODY_COLORS[comet ? 'comet' : 'minor'] });
   }
   const moon = bodies.find((o) => o.body === 'moon'), sun = bodies[0];
-  for (const o of bodies.filter((o) => ORBIT_DAYS[o.body])) { o.phase = aspect(o.body, t).phase; o.light = hor(towardSun(o, sun)); }
+  for (const o of bodies.filter((o) => ORBIT_DAYS[o.body])) {
+    const a = aspect(o.body, t);
+    o.phase = a.phase; o.elong = a.elong; o.light = hor(towardSun(o, sun));
+  }
   if (moon) {
     moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
     moon.shadow = shadowOnMoon(moon, t, hor);
@@ -306,6 +309,9 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
     frame.bodies = left.map((a, i) => {
       const b = right[i]?.name === a.name ? right[i] : a, p = { ...a, ra: (a.ra + (((b.ra - a.ra + 540) % 360) - 180) * fraction + 360) % 360 };
       for (const key of ['dec', 'dist', 'mag', 'phase']) if (Number.isFinite(a[key])) p[key] = a[key] + (b[key] - a[key]) * fraction;
+      // East/west flips at opposition; interpolate the angular distance
+      // separately so a planet opposite the Sun never passes through 0°.
+      if (Number.isFinite(a.elong)) p.elong = (Math.abs(a.elong) + (Math.abs(b.elong) - Math.abs(a.elong)) * fraction) * Math.sign(fraction < 0.5 ? a.elong : b.elong);
       return Object.assign(p, hor(p));
     });
     const moon = frame.bodies.find((o) => o.body === 'moon'), sun = frame.bodies[0];
@@ -1152,6 +1158,7 @@ export function objectDetails(o) {
     ${o.body && Number.isFinite(o.dist) ? row('Distance', o.dist > 1e7 ? `${(o.dist / 149597870.7).toFixed(3)} au` : `${Math.round(o.dist).toLocaleString('en')} km`) : ''}
     ${(o.body === 'moon' || o.type === 'planet') && Number.isFinite(o.phase) ? row('Illuminated', `${((1 + Math.cos(o.phase * R)) * 50).toFixed(1)} %`) : ''}
     ${o.type === 'planet' && Number.isFinite(o.phase) ? row('Phase angle', `${o.phase.toFixed(1)}°`) : ''}
+    ${o.type === 'planet' && Number.isFinite(o.elong) ? row('Solar elongation', `${Math.abs(o.elong).toFixed(1)}° ${o.elong < 0 ? 'west' : 'east'} (geocentric)`) : ''}
     </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">Equatorial coordinates of date · ${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
 }
 

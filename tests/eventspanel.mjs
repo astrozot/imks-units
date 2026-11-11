@@ -1,11 +1,39 @@
 import assert from 'node:assert/strict';
-import { moonPhases, planetConjunctions, planetOppositions, equinoxesSolstices } from '../js/eventspanel.js';
-import { ecliptic, centuries, elongation, horizontal, aspect, solarLongitude } from '../js/astro.js';
+import { moonPhases, planetConjunctions, planetOppositions, equinoxesSolstices, planetElongations } from '../js/eventspanel.js';
+import { ecliptic, centuries, elongation, horizontal, aspect, solarLongitude, greatestElongation } from '../js/astro.js';
 
 const start = Date.UTC(2026, 10, 8, 12) / 1000, day = 86400;
+for (const body of ['mercury', 'venus', 'mars']) {
+  const e = greatestElongation(body, start);
+  assert.ok(e && e.t > start);
+  for (const offset of [-day, -3600, 3600, day]) assert.ok(Math.abs(e.elong) > Math.abs(aspect(body, e.t + offset).elong), `${body}: a maximum of angular distance from the Sun`);
+  assert.ok(greatestElongation(body, e.t + 1).t > e.t + day, `${body}: next event skips this maximum`);
+  assert.equal(greatestElongation(body, start, 1 / 36525), null, 'Respect a short search limit');
+}
 const angle = (x) => (x % 360 + 540) % 360 - 180;
 const longitude = (body, t) => ecliptic(body, centuries(t)).lon;
 const ordered = (list) => list.forEach((e, i) => assert.ok(e.t >= start && (!i || e.t > list[i - 1].t)));
+const elongations = planetElongations(start, null, 16);
+ordered(elongations.list);
+assert.ok(elongations.list.some((e) => e.body === 'mercury'));
+assert.ok(elongations.list.some((e) => e.body === 'venus'));
+for (const body of ['mercury', 'venus']) {
+  const events = elongations.list.filter((e) => e.body === body);
+  assert.ok(events.length >= 2);
+  events.forEach((e, i) => {
+    assert.match(e.name, e.elong > 0 ? /eastern/ : /western/);
+    assert.ok(Math.abs(e.elong) < 50 && Math.abs(e.elong) > 15);
+    if (i) assert.equal(Math.sign(e.elong), -Math.sign(events[i - 1].elong));
+  });
+}
+const firstElongations = planetElongations(start, null, 4);
+const pagedElongations = [...firstElongations.list, ...planetElongations(firstElongations.next, null, 12).list];
+assert.equal(pagedElongations.length, elongations.list.length);
+pagedElongations.forEach((e, i) => {
+  assert.equal(e.name, elongations.list[i].name);
+  assert.ok(Math.abs(e.t - elongations.list[i].t) < 1, 'Pagination preserves events to the search precision');
+});
+assert.deepEqual(planetElongations(start, [45.4642, 9.19, 120], 16), elongations, 'Geocentric elongations are retained regardless of local altitude');
 const phases = moonPhases(start, null, 8);
 ordered(phases.list);
 phases.list.forEach((e, i) => assert.ok(Math.abs(angle(elongation(e.t) - i % 4 * 90)) < 1e-5));

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createCalculator } from '../js/defs.js';
 import { PLAYBACK_SPEEDS, stepPlaybackSpeed, formatPlaybackSpeed, playbackBodyVisible, SOLAR_BODIES, lookAt, skyFrame, createSkyAnimator, skyChart, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
-import { horizontal, siderealTime } from '../js/astro.js';
+import { horizontal, siderealTime, aspect, opposition } from '../js/astro.js';
 import { STARS } from '../js/catalog.js';
 import { CONSTELLATIONS } from '../js/skydata.js';
 import { CHART_STARS } from '../js/stardata.js';
@@ -57,6 +57,25 @@ const card = objectDetails({ name: 'M31', type: 'galaxy', description: '<Androme
 for (const label of ['M31', 'galaxy', 'Right ascension', 'Declination', 'Altitude', 'Azimuth', 'Visual magnitude', 'Not available', 'below the horizon', '&lt;Andromeda&gt;']) assert.ok(card.includes(label));
 const angleDiff = (a, b) => Math.abs((a - b + 540) % 360 - 180);
 const all = { constellations: true, horizontal: true, equatorial: true, deep: true, labels: true, magnitude: 6 };
+{
+  const t = Date.UTC(2026, 10, 11) / 1000, place = model.coelum.place;
+  const planets = skyFrame(t, place).bodies.filter((o) => o.type === 'planet');
+  assert.equal(planets.length, 7);
+  for (const p of planets) {
+    const card = objectDetails(p);
+    assert.ok(card.includes('Solar elongation'));
+    assert.ok(card.includes(`${Math.abs(p.elong).toFixed(1)}° ${p.elong < 0 ? 'west' : 'east'} (geocentric)`));
+  }
+  // A change from east to west at opposition must retain the large
+  // separation from the Sun during interpolated playback.
+  const at = opposition('jupiter', 'sun', t).t;
+  const animate = createSkyAnimator(at - 60, place);
+  for (const offset of [-30, -1, 0, 1, 30]) {
+    const p = animate(at + offset).bodies.find((o) => o.body === 'jupiter');
+    assert.ok(Math.abs(p.elong) > 170);
+    assert.ok(Math.abs(Math.abs(p.elong) - Math.abs(aspect('jupiter', at + offset).elong)) < 0.001);
+  }
+}
 for (const t of [Date.UTC(1950, 0, 1), Date.UTC(2026, 10, 6), Date.UTC(2100, 0, 1)].map((t) => t / 1000)) {
   for (const place of [[41.892, 12.511, 20], [-33.9, 151.2, 50], [90, 0, 0], [-90, 0, 0]]) {
     const frame = skyFrame(t, place);

@@ -1,0 +1,18 @@
+{
+  "epoch": "2022–23",
+  "url": "https://britastro.org/wp-content/uploads/2021/07/Mars-2022-23-Albedo-Map-annotated-Final-MRLewis-1.png",
+  "credit": "Martin R. Lewis, Mars 2022–23 Albedo Map, 29 November 2023; reference published by the British Astronomical Association",
+  "note": "Manually digitised approximate identification envelopes around eight familiar markings, not measured boundaries or timeless albedo models. Source image is not redistributed. Connected markings have subjective dividing edges.",
+  "projection": "Lambert cylindrical equal area; planetographic latitude, south up, increasing west longitude",
+  "grid": {"left": 58, "width": 1200, "westAtLeft": 180, "equator": 284, "latitudeScale": 190},
+  "features": [
+    {"id":5795,"name":"Syrtis Major","pixels":[[409,204],[425,219],[442,244],[447,277],[442,310],[424,344],[410,332],[411,303],[419,278],[414,249],[401,232],[409,204]]},
+    {"id":2429,"name":"Hellas","pixels":[[401,149],[415,139],[438,141],[455,151],[462,168],[451,184],[432,190],[412,184],[400,168],[401,149]]},
+    {"id":3663,"name":"Mare Acidalium","pixels":[[702,343],[722,351],[740,364],[781,378],[800,405],[784,435],[729,436],[707,410],[697,381],[702,343]]},
+    {"id":5568,"name":"Sinus Meridiani","pixels":[[642,246],[659,249],[674,253],[682,266],[673,278],[657,279],[644,272],[639,259],[642,246]]},
+    {"id":5570,"name":"Sinus Sabaeus","pixels":[[526,219],[552,223],[580,232],[612,238],[639,245],[643,260],[630,268],[610,266],[585,272],[562,254],[540,242],[523,231],[526,219]]},
+    {"id":3669,"name":"Mare Cimmerium","pixels":[[101,167],[132,173],[164,185],[196,200],[228,218],[252,239],[239,253],[207,250],[181,238],[155,226],[135,213],[110,201],[95,184],[101,167]]},
+    {"id":3672,"name":"Mare Erythraeum","pixels":[[711,171],[735,163],[765,169],[790,175],[812,184],[829,199],[819,215],[795,228],[771,233],[745,225],[723,215],[707,196],[711,171]]},
+    {"id":5624,"name":"Solis Lacus","ellipse":true,"pixels":[[924,177],[943,175],[960,183],[968,195],[963,208],[945,214],[929,209],[919,198],[924,177]]}
+  ]
+}

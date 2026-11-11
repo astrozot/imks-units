@@ -557,6 +557,26 @@ function aspect(body, t) {
   };
 }
 
+// The next local maximum of angular distance from the Sun, geocentric.
+// Daily samples bracket the maximum; refine the smooth angular distance
+// rather than its signed form, which jumps at conjunction/opposition.
+function greatestElongation(body, t, years = 3) {
+  const day = 86400, end = t + years * 31557600;
+  const angle = (u) => Math.abs(aspect(body, u).elong);
+  let x = t, before = angle(x - day), current = angle(x);
+  while (x <= end) {
+    const after = angle(x + day);
+    if (current > before && current > after) {
+      const at = least((u) => -angle(u), x, day);
+      if (at > t && at <= end) return { t: at, elong: aspect(body, at).elong };
+    }
+    before = current;
+    current = after;
+    x += day;
+  }
+  return null;
+}
+
 // Equatorial radii (km, IAU 2015) and north poles (right ascension and
 // declination of J2000, degrees) of the bodies
 const RADIUS = { sun: 695700, moon: 1737.4, mercury: 2440.53, venus: 6051.8, mars: 3396.19, jupiter: 71492, saturn: 60268, uranus: 25559, neptune: 24764 };
@@ -1867,4 +1887,4 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
-export { MOON_RADIUS, planetDisk, conjunction, opposition, occultationCandidate, occultation, occultationLocal, occultationTrack, orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, earthShadow, moonDisk, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };
+export { MOON_RADIUS, planetDisk, greatestElongation, conjunction, opposition, occultationCandidate, occultation, occultationLocal, occultationTrack, orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, earthShadow, moonDisk, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };

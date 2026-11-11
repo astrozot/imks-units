@@ -3,14 +3,14 @@
 // passes of the satellites (satellites.js) in the next day; the
 // occultations by the Moon in the next month (occultations.js) and the
 // next solar and lunar eclipses, seen from there or anywhere on the Earth.
-// Moon phases, planetary conjunctions and oppositions use geocentric
+// Moon phases, planetary conjunctions, oppositions and elongations use geocentric
 // times in either scope; a tap frames the body or pair in the local sky.
 // Equinoxes and solstices are worldwide events and frame the Sun.
 // A pass tapped is shown in the sky; the other events go to the app,
 // host.open(kind, event, place or null, explorer): Coelum draws them in a
 // sheet, iMKS computes them. host: { store, utc, formatTime, open, opens
 // (what a tap on those gives, for the note) }.
-import { solarEclipse, solarLocal, lunarEclipse, horizontal, satellitePasses, nextPhase, moonPhase, conjunction, opposition, season } from "./astro.js";
+import { solarEclipse, solarLocal, lunarEclipse, horizontal, satellitePasses, nextPhase, moonPhase, conjunction, opposition, season, greatestElongation } from "./astro.js";
 import { satelliteList, satelliteMagnitude, satelliteStatus, onSatellites } from "./satellites.js";
 import { OCC_MAG, lunarOccultations } from "./occultations.js";
 
@@ -149,6 +149,23 @@ function planetOppositions(u, place, n) {
   }
   return { list, next: u };
 }
+function planetElongations(u, place, n) {
+  const list = [];
+  // Keep one candidate per planet so the longer Venus cycle is searched
+  // only when its event is consumed, rather than for every Mercury event.
+  const next = (body, from) => {
+    const e = greatestElongation(body, from);
+    return e && { body, name: `${KIND(body)} greatest ${e.elong > 0 ? "eastern" : "western"} elongation`, ...e };
+  };
+  const candidates = ["mercury", "venus"].map((body) => next(body, u));
+  while (list.length < n) {
+    const e = candidates.filter(Boolean).sort((a, b) => a.t - b.t)[0];
+    if (!e) break;
+    list.push(e);
+    candidates[candidates.indexOf(e)] = next(e.body, e.t + 1);
+  }
+  return { list, next: list.length ? list.at(-1).t + 1 : u };
+}
 async function planetConjunctions(u, span, place, job) {
   const bodies = ["moon", ...PLANETS], pairs = [];
   for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) pairs.push([bodies[i], bodies[j]]);
@@ -184,7 +201,7 @@ function skyEventRow(kind, x, i) {
   };
   const how = (kind === "conjunctions"
     ? [`${x.sep.toFixed(2)}° apart (geocentric)`, at && `${Math.round(x.alt)}° high`, x.lit !== undefined && `Moon ${Math.round(x.lit * 100)}% lit`]
-    : [at && altitude(x.body)]).filter(Boolean).join(" · ");
+    : [kind === "elongations" && `${Math.abs(x.elong).toFixed(1)}° from the Sun · ${x.elong > 0 ? "evening" : "morning"} sky`, at && altitude(x.body)]).filter(Boolean).join(" · ");
   return `<button type="button" class="coelum-event" data-event="${kind}" data-index="${i}"><b>${esc(x.name)}</b><span>${esc(host.formatTime(x.t))}</span>${how ? `<small>${esc(how)}</small>` : ""}</button>`;
 }
 const percent = (x) => `${(x * 100).toFixed(x > 0.995 && x < 1 ? 1 : 0)}%`;
@@ -214,6 +231,7 @@ const jobs = {};
 const SEARCHES = { solar: [solarEclipses, solarRow, "Solar eclipses"], lunar: [lunarEclipses, lunarRow, "Lunar eclipses"],
   phases: [moonPhases, (x, i) => skyEventRow("phases", x, i), "Moon phases"],
   oppositions: [planetOppositions, (x, i) => skyEventRow("oppositions", x, i), "Planetary oppositions"],
+  elongations: [planetElongations, (x, i) => skyEventRow("elongations", x, i), "Greatest elongations"],
   seasons: [equinoxesSolstices, (x, i) => skyEventRow("seasons", x, i), "Equinoxes and solstices"] };
 const SLOW = {
   conjunctions: {
@@ -244,7 +262,7 @@ function renderEvents(body, explorer) {
   const at = scope === "here" ? place : null, render = ++renders;
   const slow = Object.entries(SLOW).filter(([, k]) => at || !k.here);
   body.innerHTML = `<div class="coelum-seg coelum-event-scope" role="group" aria-label="Where">${[["here", "From here"], ["anywhere", "Anywhere"]].map(([s, label]) => `<button type="button" data-scope="${s}" aria-pressed="${s === scope}">${label}</button>`).join("")}</div>
-    <p class="coelum-panel-note">${scope === "here" ? `Seen from ${esc(explorer.placeLabel)}` : "Anywhere on the Earth"}, after ${esc(host.formatTime(from))}. Tap one to see it in the sky, or an eclipse or occultation for ${host.opens}. Moon phases, conjunctions and oppositions use Earth-centered times; local visibility may vary.</p>
+    <p class="coelum-panel-note">${scope === "here" ? `Seen from ${esc(explorer.placeLabel)}` : "Anywhere on the Earth"}, after ${esc(host.formatTime(from))}. Tap one to see it in the sky, or an eclipse or occultation for ${host.opens}. Moon phases, conjunctions, oppositions and elongations use Earth-centered times; local visibility may vary.</p>
     ${[...slow.map(([kind, k]) => [kind, k.head]), ...Object.entries(SEARCHES).map(([kind, [, , head]]) => [kind, head])].map(([kind, head]) => `<h3 class="coelum-events-head">${head}</h3><div class="coelum-event-list" data-list="${kind}"><p class="coelum-panel-note">Searching…</p></div>`).join("")}`;
   const fillSlow = (kind) => {
     const box = body.querySelector(`[data-list="${kind}"]`), x = found?.[kind], k = SLOW[kind];
@@ -306,7 +324,7 @@ function renderEvents(body, explorer) {
     }
     const row = ev.target.closest("[data-event]"), kind = row?.dataset.event, x = row && found[kind].list[Number(row.dataset.index)];
     if (kind === "passes") showPass(x, explorer);
-    else if (["phases", "conjunctions", "oppositions", "seasons"].includes(kind)) {
+    else if (["phases", "conjunctions", "oppositions", "seasons", "elongations"].includes(kind)) {
       explorer.closePanel();
       explorer.setTime(x.t);
       if (kind === "conjunctions") explorer.focusPair(KIND(x.body), KIND(x.other));
@@ -339,4 +357,4 @@ onSatellites(() => {
   if (shown?.body.isConnected && panel && !panel.hidden && !jobs.passes) renderEvents(shown.body, shown.explorer);
 });
 
-export { eventsPanel, moonPhases, planetConjunctions, planetOppositions, equinoxesSolstices };
+export { eventsPanel, moonPhases, planetConjunctions, planetOppositions, equinoxesSolstices, planetElongations };
