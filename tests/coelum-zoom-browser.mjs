@@ -82,6 +82,70 @@ try {
       check(pixels.some((v, i) => i % 4 !== 3 && v > 50), 'Lunar surface remains visible');
       edges.push([disk.x, disk.y]);
     }
+    // Synthetic alignments exercise both catalog orders, full and partial
+    // occultations, dark hemispheres, and foreground sources nearer than Moon.
+    const { skyRadius } = await import('/js/coelumsky.js');
+    const occultScale = 5000, px = skyRadius(W, H, occultScale) / 2;
+    const occultView = { rotation: lookAt(moon.az, moon.alt), scale: occultScale };
+    const occultLayers = { ...layers, labels: false, minor: true };
+    const occultations = [];
+    for (const foregroundBody of ['moon', 'jupiter']) {
+      const original = frame.bodies.find((o) => o.body === foregroundBody);
+      const foreground = { ...original, ra: moon.ra, dec: moon.dec, az: moon.az, alt: moon.alt,
+        dist: (foregroundBody === 'moon' ? 1737.4 : 71492) / Math.sin(80 / px) };
+      const baseFrame = { ...frame, bodies: [frame.bodies[0], foreground], stars: [], deep: [] };
+      skyScene(baseFrame, W, H, occultLayers, occultView, ctx);
+      const baseline = ctx.getImageData(0, 0, W, H).data;
+      for (const body of ['jupiter', 'saturn', 'minor', 'comet', 'satellite', 'star']) {
+        if (body === foregroundBody) continue;
+        for (const offset of [0, 82]) {
+          const originalTarget = frame.bodies.find((o) => o.body === body) || {};
+          const target = { ...originalTarget, name: `Occulted ${body}`, body, mag: -5, bv: 0,
+            ra: moon.ra, dec: moon.dec, alt: moon.alt,
+            az: moon.az + offset / px / R / Math.cos(moon.alt * R),
+            dist: Math.max(originalTarget.dist || 1e10, foreground.dist * 2),
+            lit: true, satellite: { group: 'stations' } };
+          const sources = body === 'star' ? { stars: [target] } : { bodies: [frame.bodies[0], target, foreground] };
+          const scene = skyScene({ ...baseFrame, ...sources }, W, H, occultLayers, occultView, ctx);
+          const pixels = ctx.getImageData(0, 0, W, H).data;
+          let changesOutside = 0;
+          for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+            const radius = Math.hypot(x + 0.5 - W / 2, y + 0.5 - H / 2), i = 4 * (y * W + x);
+            const difference = Math.max(...[0, 1, 2].map((c) => Math.abs(pixels[i + c] - baseline[i + c])));
+            if (radius < 77) check(difference === 0, `${foregroundBody} hides ${body} at offset ${offset}`);
+            if (radius > 83 && difference > 2) changesOutside++;
+          }
+          if (offset && body !== 'star') check(changesOutside > 0, `${body} remains visible beyond foreground limb`);
+          if (!offset && ['minor', 'comet', 'satellite', 'star'].includes(body)) {
+            check(!scene.objects.some((o) => o.name === target.name), `Fully occulted ${body} is not selectable`);
+          }
+          if (!offset && ['minor', 'comet', 'satellite'].includes(body)) {
+            const nearer = { ...target, name: 'Nearer source', dist: foreground.dist / 2 };
+            const nearScene = skyScene({ ...baseFrame, bodies: [frame.bodies[0], nearer, foreground] }, W, H, occultLayers, occultView, ctx);
+            check(nearScene.objects.some((o) => o.name === nearer.name), `Nearer ${body} remains visible`);
+            const center = ctx.getImageData(W / 2, H / 2, 1, 1).data, i = 4 * ((H / 2) * W + W / 2);
+            check(center.some((v, c) => c < 3 && v !== baseline[i + c]), `Nearer ${body} is drawn over foreground disk`);
+          }
+          occultations.push(`${foregroundBody}/${body}/${offset}`);
+        }
+      }
+    }
+    // Fully hiding the Sun must preserve its corona outside the lunar limb.
+    const eclipseMoon = { ...moon, dist: 1737.4 / Math.sin(80 / px) };
+    const eclipseSun = { ...frame.bodies[0], ra: moon.ra, dec: moon.dec, az: moon.az, alt: moon.alt,
+      dist: 695700 / Math.sin(50 / px) };
+    const eclipseFrame = { ...frame, stars: [], bodies: [{ ...eclipseSun, hidden: true }, eclipseMoon] };
+    skyScene(eclipseFrame, W, H, occultLayers, occultView, ctx);
+    const noCorona = ctx.getImageData(0, 0, W, H).data;
+    skyScene({ ...eclipseFrame, bodies: [eclipseSun, eclipseMoon] }, W, H, occultLayers, occultView, ctx);
+    const corona = ctx.getImageData(0, 0, W, H).data;
+    let coronaPixels = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (Math.hypot(x - W / 2, y - H / 2) < 83) continue;
+      const i = 4 * (y * W + x);
+      if (corona[i] > noCorona[i] + 5) coronaPixels++;
+    }
+    check(coronaPixels > 100, 'Totality retains the solar corona');
     // A large Jupiter must not darken the surrounding sky at its limb.
     const jupiter = frame.bodies.find((o) => o.body === 'jupiter');
     const planetFrame = { ...frame, bodies: [frame.bodies[0], jupiter], stars: [] };
@@ -91,6 +155,42 @@ try {
     skyScene(planetFrame, W, H, layers, view, ctx);
     const foreground = ctx.getImageData(0, 0, W, H).data;
     check(foreground.every((v, i) => i % 4 === 3 || v >= background[i]), 'Planet limb blends with the sky');
+    // The ordinary sky must use the same textured geometry as the optional
+    // planet view, including its rotation on the screen and Saturn's rings.
+    const surfaces = [];
+    for (const body of ['mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']) {
+      check(await planetMap(body).ready, `${body} map loaded`);
+      const o = frame.bodies.find((o) => o.body === body);
+      const { skyRadius } = await import('/js/coelumsky.js');
+      const { diskRadius } = await import('/js/coelum.js');
+      const scale = 55 / (diskRadius(o) * R * skyRadius(W, H, 1) / 2);
+      const isolated = { ...frame, bodies: [frame.bodies[0], o], stars: [], deep: [], constellations: [] };
+      const scene = skyScene(isolated, W, H, { ...layers, labels: false }, { rotation: lookAt(o.az, o.alt), scale }, ctx);
+      check(scene.surfaceBodies.includes(body), `${body} requests its detailed surface`);
+      const actual = ctx.getImageData(0, 0, W, H).data;
+      const model = skyView(body, frame.t), reference = document.createElement('canvas');
+      check(tracePlanet(reference, model, -W / 2 / 55, H / 2 / 55, W, H, 55), `${body} uses GPU`);
+      const copy = document.createElement('canvas'); copy.width = W; copy.height = H;
+      const g = copy.getContext('2d');
+      const n = { ra: o.ra, dec: o.dec + 0.001 };
+      const { projectVector, pointVector } = await import('/js/coelum.js');
+      const north = projectVector(pointVector({ ...n, ...frame.hor(n) }), lookAt(o.az, o.alt), true);
+      const angle = Math.atan2(north.y, north.x) + Math.PI / 2;
+      g.translate(W / 2, H / 2); g.rotate(angle); g.drawImage(reference, -W / 2, -H / 2);
+      const expected = g.getImageData(0, 0, W, H).data;
+      let difference = 0, count = 0;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = 4 * (y * W + x);
+        // Stay off the resampled edge and faint night side; the sky's
+        // point glow contributes slightly beneath the resolved surface.
+        if (expected[i + 3] < 250 || Math.max(...expected.slice(i, i + 3)) < 80) continue;
+        for (let c = 0; c < 3; c++) { difference += Math.abs(actual[i + c] - expected[i + c]); count++; }
+      }
+      check(count > 100, `${body} has visible detailed pixels`);
+      const mean = difference / count;
+      check(mean < 18, `${body} sky matches planet renderer: ${mean}`);
+      surfaces.push({ body, scale, mean });
+    }
     // Check the close-up canvas and exported SVG paths too.
     const sky = skyView('jupiter', frame.t), stage = document.createElement('div');
     stage.className = 'sky-stage'; stage.style.cssText = 'width:360px;height:240px';
@@ -140,9 +240,55 @@ try {
     }
     const ringMean = ringPixels[0].reduce((sum, v, i) => sum + Math.abs(v - ringPixels[1][i]), 0) / ringPixels[0].length;
     check(ringMean < 2, `Saturn GPU/fallback ring shadow agrees: ${ringMean}`);
-    return { edges, earthlight, saturnPenumbra: { lo, hi, mean, ringMean } };
+    return { edges, earthlight, occultations, surfaces, saturnPenumbra: { lo, hi, mean, ringMean } };
   });
   assert.equal(result.edges.length, 4);
+  // A device without WebGL retains the shaded sky disks and rings.
+  const fallback = await browser.newPage();
+  await fallback.addInitScript(() => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (type, ...args) {
+      return /webgl/.test(type) ? null : getContext.call(this, type, ...args);
+    };
+  });
+  await fallback.goto(`http://localhost:${server.address().port}/coelum/`);
+  const fallbackBodies = await fallback.evaluate(async () => {
+    const { skyFrame, lookAt } = await import('/js/coelum.js');
+    const { skyScene } = await import('/js/coelumsky.js');
+    const { planetMap } = await import('/js/skyview.js');
+    const f = skyFrame(Date.parse('2026-11-24T21:00:00Z') / 1000, [41.892, 12.511, 20]);
+    const c = document.createElement('canvas'); c.width = 360; c.height = 240;
+    const ctx = c.getContext('2d');
+    const bodies = [];
+    for (const body of ['mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']) {
+      await planetMap(body).ready;
+      const o = f.bodies.find((o) => o.body === body);
+      const scene = skyScene({ ...f, bodies: [f.bodies[0], o], stars: [] }, 360, 240,
+        { ground: false, atmosphere: false, labels: false, milkyway: false },
+        { rotation: lookAt(o.az, o.alt), scale: 40000 }, ctx);
+      if (!scene.objects.some((o) => o.body === body)) throw new Error(`${body} missing without WebGL`);
+      if (!ctx.getImageData(180, 120, 1, 1).data.slice(0, 3).some((v) => v > 0)) throw new Error(`${body} fallback is blank`);
+      bodies.push(body);
+    }
+    const moon = f.bodies.find((o) => o.body === 'moon');
+    const view = { rotation: lookAt(moon.az, moon.alt), scale: 5000 };
+    const layers = { ground: false, atmosphere: false, labels: false, milkyway: false, minor: true };
+    const base = { ...f, bodies: [f.bodies[0], moon], stars: [] };
+    skyScene(base, 360, 240, layers, view, ctx);
+    const baseline = ctx.getImageData(0, 0, 360, 240).data;
+    for (const body of ['jupiter', 'minor', 'comet']) {
+      const original = f.bodies.find((o) => o.body === body) || {};
+      const target = { ...original, name: `Hidden ${body}`, body, mag: -5, dist: 1e10,
+        ra: moon.ra, dec: moon.dec, az: moon.az, alt: moon.alt };
+      const scene = skyScene({ ...base, bodies: [f.bodies[0], moon, target] }, 360, 240, layers, view, ctx);
+      const pixels = ctx.getImageData(0, 0, 360, 240).data;
+      if (!pixels.every((v, i) => v === baseline[i])) throw new Error(`${body} leaks through fallback Moon`);
+      if (scene.objects.some((o) => o.name === target.name)) throw new Error(`${body} selectable behind fallback Moon`);
+    }
+    return bodies;
+  });
+  assert.equal(fallbackBodies.length, 7);
+  await fallback.close();
   console.log('Coelum high-zoom checks passed:', JSON.stringify(result));
 } finally {
   await browser?.close();

@@ -5,7 +5,7 @@
 import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
 import { covered, tracePlanet, planetMap, earthshineBrightness } from './skyview.js';
-import { moonDisk } from './astro.js';
+import { moonDisk, moons, planetDisk } from './astro.js';
 import { projectLunarFeatures, LUNAR_COLOR } from './lunarfeatures.js';
 
 const SOLID = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
@@ -116,6 +116,32 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   }
   if (opts.boundaries && frame.boundaries) for (const b of frame.boundaries) line(b, { stroke: '#c49a7a', width: 0.7, dash: [2, 3], opacity: 0.45 * fade });
   if (opts.ecliptic && frame.ecliptic) line(frame.ecliptic, { stroke: '#e3b45c', width: 1, dash: [6, 4], opacity: 0.6 * fade });
+  // The disks of the Sun, the Moon and the planets (pixels; at least the
+  // size they are drawn) hide more distant sources, even on their night sides.
+  const pxPerRadAt = (q) => radius / 2 / Math.cos(Math.acos(Math.max(-1, Math.min(1, q.z))) / 2) ** 2;
+  const diskOf = (o, pxPerRad) => (o.body === 'sun' ? Math.max(5, Math.asin(695700 / o.dist) * pxPerRad) : o.body === 'moon' ? Math.max(6, Math.asin(1737.4 / o.dist) * pxPerRad) : diskRadius(o) * R * pxPerRad);
+  const disks = [];
+  for (const o of frame.bodies) {
+    if (o.hidden) continue;
+    if (!SOLID.has(o.body)) continue;
+    const q = xy(o), r = diskOf(o, pxPerRadAt(q));
+    if (!onScreen(q, Math.max(60, r)) || !above(q)) continue;
+    if (r > 1) disks.push({ x: q.x, y: q.y, r, dist: o.dist });
+  }
+  // Drawing order alone cannot hide a background object: textured bodies
+  // add/screen their light onto the sky, including their dark hemispheres.
+  // Mask every more distant source against the complete foreground disk.
+  const behind = (q, dist = Infinity, extent = 0) => disks.some((d) => d.dist < dist && Math.hypot(q.x - d.x, q.y - d.y) + extent < d.r);
+  const clipForeground = (dist = Infinity, q = null, extent = Infinity) => {
+    for (const d of disks) {
+      if (!(d.dist < dist) || q && (Math.abs(q.x - d.x) > d.r + extent || Math.abs(q.y - d.y) > d.r + extent)) continue;
+      if (!d.cut) {
+        d.cut = new Path2D(); d.cut.rect(0, 0, W, H);
+        d.cut.moveTo(d.x + d.r, d.y); d.cut.arc(d.x, d.y, d.r, 0, 2 * Math.PI);
+      }
+      ctx.clip(d.cut, 'evenodd');
+    }
+  };
   const labels = [], objects = [];
   if (opts.constellations) for (const k of frame.constellations) {
     if (k.curves) for (const l of k.curves) line(l, { stroke: '#6d9be0', width: 0.9, opacity: 0.55 * fade });
@@ -125,8 +151,10 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   }
   if (opts.deep) for (const o of frame.deep) {
     const q = xy(o);
-    if (!above(q) || !onScreen(q, 5)) continue;
+    if (!above(q) || !onScreen(q, 5) || behind(q)) continue;
+    ctx.save(); clipForeground(Infinity, q, 5);
     p.circle(q.x, q.y, 4.5, { stroke: deepColor(o.type), width: 1, opacity: 0.75 * fade });
+    ctx.restore();
     objects.push({ ...o, x: q.x, y: q.y, radius: 4.5 });
     labels.push({ ...q, name: o.name, color: deepColor(o.type), r: 5.5, priority: 3 });
   }
@@ -139,27 +167,15 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     const rel = limit - mag;
     if (rel < 0) return 0;
     const r = Math.min(4.2, 0.5 + 0.05 * rel * rel) * grow, a = Math.min(1, Math.max(0.15, rel / 1.8));
+    ctx.save(); clipForeground(o.dist, q, r * 9);
     if (rel > 4 || o.body) {
       const s = r * (o.body ? 9 : 7) * (0.6 + 0.4 * Math.max(0, Math.min(1, (rel - 4) / 4)));
       ctx.globalAlpha = Math.min(1, 0.55 * a * (opts.atmosphere ? 1 : 0.6)); ctx.drawImage(glow(rgb), q.x - s, q.y - s, 2 * s, 2 * s);
     }
     ctx.globalAlpha = a; ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
+    ctx.restore();
     return r;
   };
-  // The disks of the Sun, the Moon and the planets (pixels; at least the
-  // size they are drawn) hide the stars behind them, even their night sides.
-  const pxPerRadAt = (q) => radius / 2 / Math.cos(Math.acos(Math.max(-1, Math.min(1, q.z))) / 2) ** 2;
-  const diskOf = (o, pxPerRad) => (o.body === 'sun' ? Math.max(5, Math.asin(695700 / o.dist) * pxPerRad) : o.body === 'moon' ? Math.max(6, Math.asin(1737.4 / o.dist) * pxPerRad) : diskRadius(o) * R * pxPerRad);
-  const disks = [];
-  for (const o of frame.bodies) {
-    if (o.hidden) continue;
-    if (!SOLID.has(o.body)) continue;
-    const q = xy(o), r = diskOf(o, pxPerRadAt(q));
-    if (!onScreen(q, Math.max(60, r)) || !above(q)) continue;
-    if (r > 1) disks.push([q.x, q.y, r * r]);
-  }
-  const behind = (q) => disks.some(([x, y, rr]) => (q.x - x) ** 2 + (q.y - y) ** 2 < rr);
   for (const o of frame.stars) {
     const q = xy(o);
     if (!onScreen(q, 4) || !above(q) || behind(q)) continue;
@@ -175,16 +191,22 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     const r = point({}, mag + (opts.atmosphere ? extinction(Math.asin(Math.max(-1, Math.min(1, v[2]))) / R) : 0), bvRGB(bv), q);
     if (r) objects.push(new FaintHit(i, q.x, q.y, r));
   }, { v: rotation.slice(6, 9), radius: 2 * Math.atan(Math.hypot(W, H) / 2 / radius) + 0.03 });
-  const moonsOf = [];
+  const moonsOf = [], surfaceBodies = [];
   let lunarFeatures = [];
-  for (const o of frame.bodies) {
+  // Paint nearer sources last as well, including unresolved minor bodies.
+  for (const o of [...frame.bodies].sort((a, b) => b.dist - a.dist)) {
     if (o.hidden) continue;
     const minor = o.body === 'minor' || o.body === 'comet';
     if (o.body === 'satellite' || minor && !opts.minor && o.name !== view.selected) continue;
     const q = xy(o);
     const pxPerRad = pxPerRadAt(q);
-    const extent = diskOf(o, pxPerRad) * (o.body === 'saturn' ? 2.3 : 1);
+    const extent = diskOf(o, pxPerRad) * (o.body === 'saturn' ? 2.34 : 1);
     if (!onScreen(q, Math.max(60, extent)) || !above(q)) continue;
+    // The planet can be covered while some of its moons remain visible.
+    if (hasMoons(o) && pxPerRad * R > 20) moonsOf.push([o, diskOf(o, pxPerRad), pxPerRad * R]);
+    // At totality the Sun's disk is hidden, but its corona remains visible.
+    if (o.body !== 'sun' && behind(q, o.dist, extent)) continue;
+    ctx.save(); clipForeground(o.dist, q, Math.max(60, extent * 10));
     let r;
     if (o.body === 'sun') {
       const reddening = opts.atmosphere ? Math.exp(-Math.max(0, o.alt) / 4) : 0, rgb = [255, Math.round(246 - 90 * reddening), Math.round(228 - 170 * reddening)];
@@ -211,6 +233,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     } else if (o.body === 'moon') {
       r = diskOf(o, pxPerRad);
       const northPoint = xy(o.north), shadowPoint = o.shadow && xy(o.shadow.center);
+      if (r >= 10) surfaceBodies.push('moon');
       const disk = moonDisk(frame.t, o), north = Math.atan2(northPoint.y - q.y, northPoint.x - q.x) + Math.PI / 2;
       const textured = drawMoon(ctx, o, q, r, xy(o.light), northPoint, light, opts.atmosphere, shadowPoint, { t: frame.t, W, H }, disk);
       // Surface positions are transformed exactly like the GPU texture.
@@ -223,19 +246,31 @@ export function skyScene(frame, W, H, layers, view, ctx) {
         });
     } else {
       r = point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), BODY_RGB[o.body], q);
-      if (!r) continue;
+      if (!r) { ctx.restore(); continue; }
       const disk = diskRadius(o) * R * pxPerRad;
-      if (disk > r) { drawPlanet(ctx, o, q, disk, xy(o.light), o.body === 'saturn' && saturnRings(frame, o, xy, disk)); r = disk; }
+      if (disk > r) {
+        let textured = false;
+        if (disk >= 10) {
+          surfaceBodies.push(o.body);
+          const model = planetSurface(frame, o);
+          const n = { ra: o.ra, dec: o.dec + 0.001 };
+          const northPoint = xy({ ...n, ...frame.hor(n) });
+          const north = Math.atan2(northPoint.y - q.y, northPoint.x - q.x) + Math.PI / 2;
+          textured = traceSurface(ctx, model, q, disk, north, { W, H }, opts.atmosphere ? 0.75 + 0.25 * (1 - light.day) : 1);
+        }
+        if (!textured) drawPlanet(ctx, o, q, disk, xy(o.light), o.body === 'saturn' && saturnRings(frame, o, xy, disk));
+        r = disk;
+      }
     }
+    ctx.restore();
     objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4) });
     if (o.body !== 'moon' || r < 40) labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? '#fff1c9' : '#ffc98f', r: Math.max(r, 3), priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
-    if (hasMoons(o) && pxPerRad * R > 20) moonsOf.push([o, r, pxPerRad * R]);
   }
   // Zoomed in, the planets' moons, to the same limiting magnitude.
   for (const [o, r, pxPerDeg] of moonsOf) for (const m of planetMoons(frame, o)) {
     if (m.hidden || m.separation * pxPerDeg < r + 3) continue;
     const q = xy(m);
-    if (!onScreen(q, 4) || !above(q)) continue;
+    if (!onScreen(q, 4) || !above(q) || behind(q, m.dist)) continue;
     const mr = point(m, m.mag + (opts.atmosphere ? extinction(m.alt) : 0), BODY_RGB[o.body], q);
     if (!mr && m.name !== view.selected) continue;
     objects.push({ ...m, x: q.x, y: q.y, radius: Math.max(mr, 3) });
@@ -248,11 +283,13 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (o.hidden) continue;
     if (o.body !== 'satellite' || !opts.satellites && o.name !== view.selected) continue;
     const q = xy(o), chosen = o.name === view.selected;
-    if (!onScreen(q, 4) || !above(q)) continue;
+    if (!onScreen(q, 4) || !above(q) || behind(q, o.dist)) continue;
     let r = o.lit ? point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), [228, 242, 255], q) : 0;
     if (!r && !chosen) continue;
+    ctx.save(); clipForeground(o.dist);
     if (o.trail?.length) line([o, ...o.trail], { stroke: o.lit ? '#cfe9ff' : '#8090a8', width: 1, opacity: 0.35 });
     if (!r) { r = 2; p.circle(q.x, q.y, r, { stroke: '#8090a8', width: 1 }); }
+    ctx.restore();
     objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4) });
     if (chosen || o.satellite.group === 'stations' || o.mag < 1) labels.push({ ...q, name: o.name, color: '#cfe9ff', r: Math.max(r, 3), priority: chosen ? 0 : 2, mag: o.mag });
   }
@@ -287,7 +324,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const chosen = findObject(frame, view.selected);
   if (chosen && !(chosen.body === 'sun' && chosen.hidden)) {
     const o = objects.find((x) => x.name === chosen.name), q = o || xy(chosen);
-    if (o || q.z > -0.2) reticle(p, q.x, q.y, o ? o.radius : 3, '#ffe9a8');
+    if (o || q.z > -0.2 && !behind(q, chosen.dist)) reticle(p, q.x, q.y, o ? o.radius : 3, '#ffe9a8');
   }
   const selectedFeature = lunarFeatures.find((f) => f.key === view.selected);
   if (selectedFeature) {
@@ -298,7 +335,21 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     ctx.restore();
     if (selectedFeature.sunlight <= 0.005 && selectedFeature.size < 8) reticle(p, selectedFeature.x, selectedFeature.y, 4, LUNAR_COLOR);
   }
-  return { objects, radius, hitLabels, light, lunarFeatures };
+  return { objects, radius, hitLabels, light, lunarFeatures, surfaceBodies };
+}
+
+// Keep the physical disk and moon-shadow geometry with the frame, independent
+// of pan/zoom. The tracer's axes are celestial west, north, toward Earth.
+const planetSurfaces = new WeakMap();
+function planetSurface(frame, o) {
+  let cache = planetSurfaces.get(frame);
+  if (!cache || cache.t !== frame.t) { cache = { t: frame.t }; planetSurfaces.set(frame, cache); }
+  if (!cache[o.body]) {
+    const system = hasMoons(o) ? moons(o.body, frame.t) : planetDisk(o.body, frame.t);
+    cache[o.body] = { ...system, planet: o.body, t: frame.t,
+      moons: system.moons.map((m) => ({ name: m.name, ...m.view })) };
+  }
+  return cache[o.body];
 }
 
 // A planet's disk with its phase (the night side faint), darker toward the
@@ -337,10 +388,10 @@ function moonDim(o) {
   return s.d < s.umbra ? 0.01 : Math.min(1, 0.02 + 0.98 * (s.d - s.umbra) / (s.penumbra - s.umbra));
 }
 
-// A surface traced on the GPU (skyview.js), when it is large enough: its
-// map turned to the face seen from the place (the librations), its
-// relief and shadows, the night side with earthshine; only the part on the
-// screen, turned with celestial north, its light added to the sky's.
+// A resolved surface traced on the GPU (skyview.js), with its rotation,
+// lighting, relief or moon shadows, and Saturn's rings. Crop to the screen
+// in the body's celestial frame before tracing, even with its center outside
+// the viewport. The Moon adds its light; planets use the close-up's blend.
 // False without WebGL (or before its map is loaded).
 const surfaceCanvas = typeof document === 'undefined' ? null : document.createElement('canvas');
 function traceSurface(ctx, disk, q, r, north, { W, H }, alpha) {
@@ -348,12 +399,13 @@ function traceSurface(ctx, disk, q, r, north, { W, H }, alpha) {
   // the screen's corners in the body's frame (celestial north up)
   const c = Math.cos(north), s = Math.sin(north), xs = [], ys = [];
   for (const [x, y] of [[0, 0], [W, 0], [0, H], [W, H]]) { const dx = x - q.x, dy = y - q.y; xs.push(dx * c + dy * s); ys.push(-dx * s + dy * c); }
-  const L = Math.max(-r, Math.min(...xs)), Rt = Math.min(r, Math.max(...xs)), T = Math.max(-r, Math.min(...ys)), B = Math.min(r, Math.max(...ys));
+  const reach = r * (disk.planet === 'saturn' ? 2.34 : 1.02);
+  const L = Math.max(-reach, Math.min(...xs)), Rt = Math.min(reach, Math.max(...xs)), T = Math.max(-reach, Math.min(...ys)), B = Math.min(reach, Math.max(...ys));
   if (Rt <= L || B <= T) return true;
   const k = Math.min(2, window.devicePixelRatio || 1), w = Math.ceil((Rt - L) * k), h = Math.ceil((B - T) * k);
   if (!tracePlanet(surfaceCanvas, disk, L / r, -T / r, w, h, r * k)) return false;
   ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(north);
-  ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha;
+  ctx.globalCompositeOperation = disk.planet === 'moon' ? 'lighter' : disk.planet === 'venus' || disk.planet === 'mercury' ? 'source-over' : 'screen'; ctx.globalAlpha = alpha;
   ctx.drawImage(surfaceCanvas, 0, 0, w, h, L, T, w / k, h / k);
   ctx.restore();
   return true;

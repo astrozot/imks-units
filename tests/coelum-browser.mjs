@@ -608,7 +608,7 @@ try {
     assert.ok(worst < 15, `Chart drag toward the edge jumps ${worst.toFixed(1)}°`);
   }
   // Both views zoom to the same magnification.
-  const most = async () => { for (let i = 0; i < 24; i++) await page.locator('[data-action="in"]').click(); return Number(await page.locator('.coelum-full').getAttribute('data-scale')); };
+  const most = async () => { for (let i = 0; i < 48; i++) await page.locator('[data-action="in"]').click(); return Number(await page.locator('.coelum-full').getAttribute('data-scale')); };
   const chartMost = await most();
   await page.locator('[data-view="sky"]').click();
   const skyMost = await most();
@@ -617,7 +617,7 @@ try {
     const svg = document.querySelector('.coelum-full'), w = svg.viewBox.baseVal.width, h = svg.viewBox.baseVal.height;
     return (chartRadius(w, h, c) / 90) / (skyRadius(w, h, k) / 2 * Math.PI / 180);
   }, [chartMost, skyMost]);
-  assert.ok(skyMost === 400 && Math.abs(ratio - 1) < 0.01, `Largest zooms ${chartMost} / ${skyMost}: ${ratio}`);
+  assert.ok(skyMost === 40000 && Math.abs(ratio - 1) < 0.01, `Largest zooms ${chartMost} / ${skyMost}: ${ratio}`);
   await page.locator('.coelum-full').press('Home');
   // Date and time panel: the day's events; the place panel: coordinates.
   await page.locator('[data-action="time"]').click();
@@ -667,8 +667,7 @@ try {
   // circles. The adjacent label remains a stable point within tap range.
   const ioLabel = page.locator('.coelum-moons-stage .sky-label').filter({ hasText: /^Io$/ });
   await ioLabel.waitFor({ state: 'visible' });
-  const moon = await ioLabel.boundingBox();
-  await page.mouse.click(moon.x + moon.width / 2, moon.y + moon.height / 2);
+  await ioLabel.click({ force: true }); // reacquire after a texture-triggered redraw
   await page.waitForFunction(() => /^(Io|Europa|Ganymede|Callisto)$/.test(document.querySelector('.coelum-object-head h3')?.textContent));
   assert.equal(await page.locator('.coelum-moonsview').isVisible(), false);
   // Backward, the play button points left.
@@ -677,7 +676,10 @@ try {
   assert.ok(await page.locator('[data-action="play"]').evaluate((b) => getComputedStyle(b.querySelector('svg')).transform !== 'none'));
   await page.locator('[data-action="reverse"]').click();
   assert.equal(await page.locator('[data-action="play"]').getAttribute('aria-label'), 'Play');
-  // The ruler: a round angle, smaller as the view zooms in.
+  // The ruler: a round angle, smaller as the view zooms in. Start wide
+  // so the preceding moon selection cannot leave us at the zoom limit.
+  await page.waitForTimeout(700); // finish the flight from the moon selection
+  await page.locator('.coelum-full').press('Home');
   const rulerText = () => page.locator('.coelum-ruler b').textContent();
   const degrees = (r) => (r.endsWith('°') ? 60 : 1) * parseFloat(r);
   const ruler0 = await rulerText();

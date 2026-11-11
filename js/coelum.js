@@ -750,6 +750,7 @@ export function planetMoons(frame, planet) {
     return {
       ...p, ...frame.hor(p), name: m.name, type: `moon of ${planet.name}`, planet: planet.name, color: planet.color,
       mag: MOON_MAG[m.name] + planet.mag - OPPOSITION_MAG[planet.body], separation: Math.hypot(m.east, m.north), hidden: m.occulted,
+      dist: planet.dist - m.view.z * PLANET_RADIUS[planet.body],
       diameter: 2 * Math.asin(MOON_RADIUS[m.name] / planet.dist) / R,
     };
   }));

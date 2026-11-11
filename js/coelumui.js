@@ -145,8 +145,9 @@ const LAYERS = [
   ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['satellites', 'Satellites', 'chart sky'], ['labels', 'Labels', 'chart sky'],
 ];
 const MODES = { chart: 'Chart', sky: 'Sky' };
-// The chart's maximum matches Sky; planetary detail has its own view.
-const SKY_MAX = 400;
+// Match the chart and Sky limits, with enough magnification for the outer
+// planets; the separate planet view remains available for their systems.
+const SKY_MAX = 40000;
 const TYPE_ORDER = { 'lunar feature': 'Moon feature', 'Mars feature': 'Mars feature', star: 'Star', planet: 'Planet', moon: 'Moon', constellation: 'Constellation' };
 // Search status symbols share their shapes with the key and tap/hover hints.
 const searchIcon = (body) => `<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
@@ -474,7 +475,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       drawn = skyChart(frame, size, height, layers.chart, { ...shown, backdrop: ctx });
       svg.innerHTML = drawn.svg;
     }
-    if (mode === 'sky' && view.scale > 20) for (const body of ['moon']) {
+    if (mode === 'sky') for (const body of drawn.surfaceBodies) {
       if (surfaceMapsWatched.has(body)) continue;
       surfaceMapsWatched.add(body);
       planetMap(body)?.ready.then(() => { if (root.isConnected && mode === 'sky' && !playing) draw(); });
