@@ -85,8 +85,9 @@ terrestrial refraction; it is kept on the device for twelve places, and
 the chart draws it as a green line. Elevation models include no trees and
 only some buildings. **Fainter stars** can be downloaded from the app's
 own `data/`: to magnitude 8 (40,000 more stars, 1.3 MB), 10 (349,000,
-8.3 MB) or 11 (937,000, 18.4 MB), with parallaxes and proper motions and
-found by their HIP, HD or TYC numbers; one set at a time is stored in Cache
+8.3 MB), 11 (937,000, 18.4 MB) or 12 (2,308,825, 58.9 MB), with available
+parallaxes and proper motions and found by their HIP, HD or TYC numbers
+(new Gaia stars also by their Gaia DR3 number); one set at a time is stored in Cache
 Storage (the service worker keeps caches named `imks-data…` across
 updates) and appears as you zoom in, in the chart up to the chosen
 magnitude. The stars are kept in tiles of the sky, and only those in view
@@ -182,7 +183,7 @@ keep it in place. The bottom bar shows a ruler under the
 speed, a round angle at the center of the view, and the play button points backward when
 time runs backward.
 
-The chart's stars, built in and downloadable, come from one catalog,
+The chart's built-in stars and downloads through magnitude 11 come from
 [AT-HYG](https://codeberg.org/astronexus/athyg) v4.0 (David Nash): Tycho-2,
 Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and
 proper motions, and the IAU star names. V, B−V and the double and variable
@@ -198,6 +199,52 @@ numbers; the layout is described in the tool). To regenerate, download
 `hip2.dat.gz` (I/311) and `suppl_1.dat.gz` (I/259) — the last three from
 https://vizier.cfa.harvard.edu/ftp/cats/ — into a directory and run
 `node tools/stars.mjs <directory>`.
+
+The magnitude-12 download retains the magnitude-11 stars and adds sources
+from [ESA Gaia DR3](https://www.cosmos.esa.int/web/gaia/dr3), matched against
+the retained catalog by HIP/TYC identifiers and J2000 position (within 2″,
+or 10″ for Hipparcos systems whose integrated light is already represented).
+Gaia's J2016.0 positions are propagated to J2000.0 before packing. New
+sources have exact, searchable `Gaia DR3` identifiers; available HIP/TYC
+cross-identifications are retained. The existing stars keep their original
+astrometry, photometry and names.
+
+For new sources, Johnson V and display B−V are **estimates**, derived from
+observed Gaia G and BP−RP using the [DR3 photometric relationships](https://gea.esac.esa.int/archive/documentation/GDR3/Data_processing/chap_cu5pho/cu5pho_sec_photSystem/cu5pho_ssec_photRelations.html)
+(Tables 5.9 and 5.10). The V selection uses −0.5 ≤ BP−RP ≤ 5; B−V is obtained
+by inverting the published BP−RP versus B−V polynomial inside its validity
+range. No dereddening is applied. Gaia sources without usable colour or
+outside the V transformation's range are excluded, so this is not a claim
+of a completely exhaustive V≤12 catalog. Missing proper motions are stored
+as zero, missing/nonpositive parallaxes as unknown. Cards identify estimated
+photometry; colours, temperatures and inferred spectral classes remain
+approximate.
+
+To regenerate, run `tools/gaia-stars.adql` as an asynchronous query in the
+[Gaia Archive](https://gea.esac.esa.int/archive/), requesting CSV and
+`MAXREC=10000000`, and save the complete result as `gaia-v12.csv`. Then run
+`node tools/gaia-stars.mjs /path/to/gaia-v12.csv`. The importer checks the
+independent DR3 selection count (2,323,409 unique sources, deduplicating
+cross-match rows) and refuses a truncated
+extract. It writes `data/stars-12.bin` and `data/stars-12.json`, including
+source and output checksums, counts and attribution. STAR version 2 keeps
+the original arrays and appends 8 bytes per star for Gaia's 64-bit ID (zero
+for retained AT-HYG entries); the reader accepts both versions. The file
+stays an optional download shared by both apps, outside their offline shell.
+Validate with `node tests/gaia-stars.mjs` and, with Playwright configured as
+for the other browser checks, `node tests/gaia-stars-browser.mjs`.
+The 2026-11-11 browser check at 390×844 with 4× CPU throttling measured
+median canvas chart renders of 4–42 ms and Sky renders of 5–25 ms across
+dense Sagittarius and high-latitude fields at several zoom levels. Full
+SVG chart generation took 9–71 ms. These are desktop browser measurements,
+not a physical-phone benchmark; the densest fields can reduce frame rates.
+
+This work has made use of data from the European Space Agency (ESA) mission
+Gaia, processed by the Gaia Data Processing and Analysis Consortium (DPAC).
+Funding for the DPAC has been provided by national institutions, in
+particular the institutions participating in the Gaia Multilateral
+Agreement. The combined downloadable catalog retains AT-HYG's CC BY-SA 4.0
+license; full Gaia acknowledgement is included in `data/stars-12.json`.
 
 `js/skydata.js` bundles the 88 constellation figures, boundaries and Latin
 labels, and the Milky Way isophotes, via

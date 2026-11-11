@@ -1,0 +1,22 @@
+{
+  "format": "STAR v2",
+  "depth": 12,
+  "stars": 2308825,
+  "bytes": 58885080,
+  "retainedATHYG": 936502,
+  "addedGaia": 1372323,
+  "inputRows": 2330531,
+  "matchedExisting": 951086,
+  "rejectedRows": 0,
+  "addedWithoutProperMotion": 8904,
+  "uniqueGaiaSources": 2323409,
+  "repeatedCrossmatchRows": 7122,
+  "addedWithoutColour": 704,
+  "inputSha256": "2fcb050236751c8884ad82f4ede92253a2ca54ade6e821ff8d9510fe10a938fe",
+  "sha256": "9ebc56442ecf065c3116e04c8035e210c9f783c4eeed57eb486abed1c30b0699",
+  "source": "ESA Gaia DR3, gaiadr3.gaia_source; query tools/gaia-stars.adql",
+  "photometry": "Estimated Johnson V and B-V from observed G and BP-RP; ESA DR3 Tables 5.9/5.10; -0.5 <= BP-RP <= 5",
+  "matching": "Keep AT-HYG data; exclude Gaia matches by TYC/HIP or J2000 position within 2 arcsec (10 arcsec for HIP systems)",
+  "acknowledgement": "This work has made use of data from the European Space Agency (ESA) mission Gaia (https://www.cosmos.esa.int/gaia), processed by the Gaia Data Processing and Analysis Consortium (DPAC, https://www.cosmos.esa.int/web/gaia/dpac/consortium). Funding for the DPAC has been provided by national institutions, in particular the institutions participating in the Gaia Multilateral Agreement.",
+  "license": "Retained AT-HYG data: David Nash, CC BY-SA 4.0. Combined catalog distributed under CC BY-SA 4.0; Gaia acknowledgement above."
+}

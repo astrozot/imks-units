@@ -443,9 +443,12 @@ export const faintDepth = () => (STORED ? STORED.depth : 6);
 // a polar cap about the pole, and the fastest proper motion (radians a
 // year), by which stars may leave their tiles.
 export function readStars(buffer) {
+  if (buffer.byteLength < 20) throw new Error('incomplete star file');
   const head = new Uint32Array(buffer, 0, 5);
-  if (String.fromCharCode(...new Uint8Array(buffer, 0, 4)) !== 'STAR' || head[1] !== 1) throw new Error('not a star file of this version');
-  const [, , T, n, A] = head, box = new Float32Array(buffer, 20, 4 * T);
+  if (String.fromCharCode(...new Uint8Array(buffer, 0, 4)) !== 'STAR' || ![1, 2].includes(head[1])) throw new Error('not a star file of this version');
+  const [, , T, n, A] = head;
+  if (buffer.byteLength !== 24 + 20 * T + (head[1] === 2 ? 24 : 16) * n + 8 * A) throw new Error('incomplete star file');
+  const box = new Float32Array(buffer, 20, 4 * T);
   let o = 20 + 16 * T;
   const start = new Uint32Array(buffer, o, T + 1); o += 4 * (T + 1);
   const tyc = new Uint32Array(buffer, o, n); o += 4 * n;
@@ -457,6 +460,8 @@ export function readStars(buffer) {
   const mag = new Uint8Array(buffer, o, n); o += n;
   const bv = new Int8Array(buffer, o, n); o += n;
   const aliasStar = new Uint32Array(buffer, o, A), alias = new Uint32Array(buffer, o + 4 * A, A);
+  // v2 appends exact Gaia DR3 IDs as low/high words, zero for AT-HYG stars.
+  const gaia = head[1] === 2 ? new Uint32Array(buffer, o + 8 * A, 2 * n) : null;
   const center = new Float32Array(3 * T), reach = new Float32Array(T);
   let depth = 0, fastest = 0;
   for (let t = 0; t < T; t++) {
@@ -472,7 +477,7 @@ export function readStars(buffer) {
     if (start[t + 1] > start[t]) depth = Math.max(depth, mag[start[t + 1] - 1] / 20);
   }
   for (let j = 0; j < n; j++) fastest = Math.max(fastest, Math.abs(pmra[j]), Math.abs(pmdec[j]));
-  return { n, T, box, start, tyc, ra, dec, pmra, pmdec, plx, mag, bv, aliasStar, alias, center, reach, depth, fastest: Math.SQRT2 * fastest * R / 3.6e6 };
+  return { n, T, box, start, tyc, ra, dec, pmra, pmdec, plx, mag, bv, aliasStar, alias, gaia, center, reach, depth, fastest: Math.SQRT2 * fastest * R / 3.6e6 };
 }
 // Stored star j: its J2000 vector at the epoch, its tile and data
 function storedStar(j) {
@@ -490,6 +495,7 @@ function storedNames(j) {
   for (let k = lo; k < S.alias.length && S.aliasStar[k] === j; k++) out.push(`${S.alias[k] >= 2 ** 29 ? 'HD' : 'HIP'} ${S.alias[k] % 2 ** 28}`);
   const t = S.tyc[j];
   if (t) out.push(`TYC ${Math.floor(t / 65536)}-${Math.floor(t / 4) % 16384}-${t % 4 + 1}`);
+  if (S.gaia && (S.gaia[2 * j] || S.gaia[2 * j + 1])) out.unshift(`Gaia DR3 ${(BigInt(S.gaia[2 * j + 1]) << 32n) + BigInt(S.gaia[2 * j])}`);
   return out.length ? out : ['Star'];
 }
 
@@ -527,16 +533,26 @@ export class FaintHit {
 // Stored star j as an object (as the built-in stars), at the frame's time
 function faintObject(frame, j) {
   const s = storedStar(j), [name, ...designations] = storedNames(j), p = frame.catalog(s.ra, s.dec, s.pmra, s.pmdec);
-  return { ...p, ...frame.hor(p), name, designations, type: 'star', mag: s.mag, bv: s.bv, parallax: s.parallax, pmra: s.pmra, pmdec: s.pmdec };
+  return { ...p, ...frame.hor(p), name, designations, type: 'star', mag: s.mag, bv: s.bv, parallax: s.parallax, pmra: s.pmra, pmdec: s.pmdec,
+    estimatedPhotometry: Boolean(STORED.gaia && (STORED.gaia[2 * j] || STORED.gaia[2 * j + 1])) };
 }
 // A stored star by one of its designations: HIP 12345, HD 12345, TYC 1-2-1
 function findFaint(frame, name) {
   if (!STORED) return null;
+  // A selected star is resolved on every frame. Keep its index rather than
+  // rescanning a multi-million-star ID array while panning or playing time.
+  if (name && STORED.lookupName === name) return faintObject(frame, STORED.lookupIndex);
   const m = /^(HIP|HD) (\d+)$/.exec(name || ''), t = /^TYC (\d+)-(\d+)-(\d+)$/.exec(name || '');
   let j = -1;
   if (m) { const k = STORED.alias.indexOf((m[1] === 'HD' ? 2 : 1) * 2 ** 28 + Number(m[2])); j = k < 0 ? -1 : STORED.aliasStar[k]; }
   else if (t) j = STORED.tyc.indexOf(Number(t[1]) * 65536 + Number(t[2]) * 4 + Number(t[3]) - 1);
-  return j < 0 ? null : faintObject(frame, j);
+  else if (STORED.gaia && /^Gaia DR3 \d{1,19}$/.test(name || '')) {
+    const id = BigInt(name.slice(9)), lo = Number(id & 0xffffffffn), hi = Number(id >> 32n);
+    if (id > 0n) for (let k = 0; k < STORED.n; k++) if (STORED.gaia[2 * k] === lo && STORED.gaia[2 * k + 1] === hi) { j = k; break; }
+  }
+  if (j < 0) return null;
+  STORED.lookupName = name; STORED.lookupIndex = j;
+  return faintObject(frame, j);
 }
 
 // Approximate only the ground silhouette, not object positions. Fully filled
@@ -1079,7 +1095,8 @@ export function searchSky(frame, query, limit = 8) {
   }
   // downloaded stars by number: HIP 12345, HD 12345, TYC 1234-567-1
   const number = /^(hip|hd)(\d+)$/.exec(qc), tyc = /^tyc ?(\d+) (\d+) (\d+)$/.exec(q);
-  const id = number ? `${number[1].toUpperCase()} ${Number(number[2])}` : tyc && `TYC ${Number(tyc[1])}-${Number(tyc[2])}-${Number(tyc[3])}`;
+  const gaia = /^gaia(?:dr3)?(\d{1,19})$/.exec(qc);
+  const id = number ? `${number[1].toUpperCase()} ${Number(number[2])}` : tyc ? `TYC ${Number(tyc[1])}-${Number(tyc[2])}-${Number(tyc[3])}` : gaia && `Gaia DR3 ${BigInt(gaia[1])}`;
   const extra = id && !out.some((r) => r.object.name === id || r.object.designations?.includes(id)) && findFaint(frame, id);
   if (extra) out.push({ score: 0, alias: null, object: extra });
   return out.sort((a, b) => Number(surface(a.object)) - Number(surface(b.object)) || a.score - b.score || rank(a.object) - rank(b.object) || (a.object.mag ?? 99) - (b.object.mag ?? 99)).slice(0, limit)
@@ -1153,10 +1170,11 @@ export function objectDetails(o) {
     ${row('Altitude (Alt)', sexagesimal(o.alt, false, true))}
     ${Number.isFinite(o.apparentAlt) ? row('Apparent altitude', sexagesimal(o.apparentAlt, false, true)) : ''}
     ${row('Azimuth (Az)', sexagesimal(o.az))}
-    ${o.type === 'constellation' ? '' : row('Visual magnitude', Number.isFinite(o.mag) ? o.mag.toFixed(2) : 'Not available')}
+    ${o.type === 'constellation' ? '' : row('Visual magnitude', Number.isFinite(o.mag) ? o.mag.toFixed(2) + (o.estimatedPhotometry ? ' (estimated)' : '') : 'Not available')}
     ${apparentDiameter(o) > 0 ? row(o.body === 'saturn' ? 'Apparent diameter (globe)' : 'Apparent diameter', angleText(apparentDiameter(o))) : ''}
     ${o.size ? row('Apparent size', o.size.map((x) => `${x < 10 ? Number(x.toFixed(1)) : Math.round(x)}′`).filter((x, i, all) => !i || x !== all[0]).join(' × ')) : ''}
     ${notes.length ? row('Hipparcos', notes.join(', ')) : ''}
+    ${o.estimatedPhotometry ? row('Photometry', `V${Number.isFinite(o.bv) ? ' and B−V' : ''} estimated from Gaia G and BP−RP`) : ''}
     ${o.designations?.length ? row('Designations', o.designations.join(' · ')) : ''}
     ${o.spect ? row('Spectral type', o.spect) : ''}
     ${o.parallax > 0 ? row('Parallax', `${o.parallax.toFixed(o.parallax < 10 ? 3 : 2)} mas`) + row('Distance', distanceText(1000 / o.parallax)) : ''}
