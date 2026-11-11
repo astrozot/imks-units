@@ -925,12 +925,17 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     } else bodySymbol(p, o, q.x, q.y, r);
     const size = Math.max(r, disk);
     labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? o.color : c.planet, r: o.body === 'saturn' ? size + 3 : size, priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
-    if (hasMoons(o) && pxPerDeg > 20) for (const m of planetMoons(frame, o)) {
+  }
+  // Moons remain in the chart when their planet has left the viewport.
+  for (const o of frame.bodies) {
+    if (o.hidden || !hasMoons(o) || pxPerDeg <= 20) continue;
+    const size = Math.max(2.2, 4 - o.mag * 0.3, diskRadius(o) * pxPerDeg);
+    for (const m of planetMoons(frame, o)) {
       if (m.hidden || m.separation * pxPerDeg < size + 3) continue;
       const mr = Math.max(1, Math.min(2.6, starRadius(m.mag, scale) * 0.8)), mq = add(m, mr);
       if (!mq) continue;
       p.circle(mq.x, mq.y, mr, { fill: o.color });
-      labels.push({ ...mq, name: m.name, color: c.planet, r: mr, priority: m.name === view.selected ? 0 : 2, mag: m.mag });
+      labels.push({ ...mq, name: m.name, color: o.color, r: mr, priority: m.name === view.selected ? 0 : 2, mag: m.mag });
     }
   }
   // Satellites: sunlit, by their magnitude; in the shadow, a ring. The

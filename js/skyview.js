@@ -314,7 +314,7 @@ function planetModel(sky, s) {
   const view = toP([0, 0, 1]), light = toP(sun);
   const shadows = moons.filter((m) => m.r > 0).map((m) => ({ c: toP([m.x, m.y, m.z]), r: Math.max(m.r, 0.7 / s) }));
   const loaded = planetMap(planet), e = loaded?.img ? loaded : null, moonMaps = e?.moons || null;
-  const bodies = moons.filter((m) => m.r > 0).map((m) => {
+  const bodies = (sky.hideMoons ? [] : moons).filter((m) => m.r > 0).map((m) => {
     const look = MOON_LOOK[m.name] || MOON_LOOK.other;
     return { c: toP([m.x, m.y, m.z]), r: m.r, look: moonMaps && m.name in MOON_MAPS ? [look[0], 3 + MOON_MAPS[m.name]] : look };
   });

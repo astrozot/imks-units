@@ -617,7 +617,8 @@ try {
     const svg = document.querySelector('.coelum-full'), w = svg.viewBox.baseVal.width, h = svg.viewBox.baseVal.height;
     return (chartRadius(w, h, c) / 90) / (skyRadius(w, h, k) / 2 * Math.PI / 180);
   }, [chartMost, skyMost]);
-  assert.ok(skyMost === 40000 && Math.abs(ratio - 1) < 0.01, `Largest zooms ${chartMost} / ${skyMost}: ${ratio}`);
+  assert.ok(skyMost === 4000000 && Math.abs(ratio - 1) < 0.01, `Largest zooms ${chartMost} / ${skyMost}: ${ratio}`);
+  assert.ok(await page.locator('.coelum-ruler i').evaluate((e) => parseFloat(e.style.width) <= 90), 'Ruler stays compact at maximum zoom');
   await page.locator('.coelum-full').press('Home');
   // Date and time panel: the day's events; the place panel: coordinates.
   await page.locator('[data-action="time"]').click();

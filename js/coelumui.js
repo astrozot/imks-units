@@ -145,9 +145,9 @@ const LAYERS = [
   ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['satellites', 'Satellites', 'chart sky'], ['labels', 'Labels', 'chart sky'],
 ];
 const MODES = { chart: 'Chart', sky: 'Sky' };
-// Match the chart and Sky limits, with enough magnification for the outer
-// planets; the separate planet view remains available for their systems.
-const SKY_MAX = 40000;
+// Match the chart and Sky limits, with enough magnification for mapped
+// moons; the separate planet view remains available for their systems.
+const SKY_MAX = 4000000;
 const TYPE_ORDER = { 'lunar feature': 'Moon feature', 'Mars feature': 'Mars feature', star: 'Star', planet: 'Planet', moon: 'Moon', constellation: 'Constellation' };
 // Search status symbols share their shapes with the key and tap/hover hints.
 const searchIcon = (body) => `<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
@@ -436,7 +436,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
   // The ruler: a round angle (arcseconds) 90 px long or less, at the center
   // of the view, or of the planet's close-up
-  const RULER = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 18000, 36000, 72000, 108000, 162000, 324000];
+  const RULER = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 18000, 36000, 72000, 108000, 162000, 324000];
   const ruler = $('.coelum-ruler');
   const showRuler = (perPixel) => {
     const a = [...RULER].reverse().find((x) => x / perPixel <= 90) ?? RULER[0], text = a < 60 ? `${a}″` : a < 3600 ? `${a / 60}′` : `${a / 3600}°`;

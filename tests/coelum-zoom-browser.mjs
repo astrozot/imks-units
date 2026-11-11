@@ -191,6 +191,53 @@ try {
       check(mean < 18, `${body} sky matches planet renderer: ${mean}`);
       surfaces.push({ body, scale, mean });
     }
+    // Texture begins as soon as the physical disk resolves the point source,
+    // before the former ten-pixel cutoff.
+    const jupiterScale = 7 / (skyView('jupiter', frame.t).radius / 3600 * R * skyRadius(W, H, 1) / 2);
+    const small = skyScene(planetFrame, W, H, { ...layers, labels: false }, { rotation: lookAt(jupiter.az, jupiter.alt), scale: jupiterScale }, ctx);
+    check(small.surfaceBodies.includes('jupiter'), 'Seven-pixel Jupiter is already textured');
+    // Every mapped Galilean moon survives with the planet outside the view,
+    // both as a point and as a resolved texture. Compare to the same GPU
+    // tracer used in the optional planet view, recentered on the moon.
+    const { planetMoons, projectVector, pointVector } = await import('/js/coelum.js');
+    const moonSurfaces = [];
+    for (const name of ['Io', 'Europa', 'Ganymede', 'Callisto']) {
+      for (const dt of [0, 3600]) {
+        const f = skyFrame(frame.t + dt, frame.place), parent = f.bodies.find((o) => o.body === 'jupiter');
+        const moon = planetMoons(f, parent).find((o) => o.name === name);
+        check(!moon.hidden, `${name} test is outside the planetary disk`);
+        const model = skyView('jupiter', f.t), satellite = model.moons.find((o) => o.name === name);
+        const s = 40 / satellite.r;
+        const scale = 40 / (moon.diameter / 2 * R * skyRadius(W, H, 1) / 2);
+        check(scale < 4000000, `${name} resolves within the zoom limit`);
+        for (const magnification of [0.03, 1]) {
+          const view = { rotation: lookAt(moon.az, moon.alt), scale: scale * magnification, selected: name };
+          const scene = skyScene(f, W, H, { ...layers, labels: false }, view, ctx);
+          const visible = scene.objects.find((o) => o.name === name);
+          check(visible && Math.hypot(visible.x - W / 2, visible.y - H / 2) < 0.01, `${name} remains centered`);
+          if (magnification !== 1) continue;
+          check(!scene.objects.some((o) => o.body === 'jupiter'), `${name} is visible with Jupiter off screen`);
+          check(scene.surfaceBodies.includes('jupiter'), `${name} requests its atlas independently`);
+          const actual = ctx.getImageData(0, 0, W, H).data;
+          const reference = document.createElement('canvas');
+          check(tracePlanet(reference, model, satellite.x - W / 2 / s, satellite.y + H / 2 / s, W, H, s), `${name} GPU texture`);
+          const copy = document.createElement('canvas'); copy.width = W; copy.height = H;
+          const g = copy.getContext('2d'), n = { ra: moon.ra, dec: moon.dec + 0.001 };
+          const north = projectVector(pointVector({ ...n, ...f.hor(n) }), view.rotation, true);
+          const angle = Math.atan2(north.y, north.x) + Math.PI / 2;
+          g.translate(W / 2, H / 2); g.rotate(angle); g.drawImage(reference, -W / 2, -H / 2);
+          const expected = g.getImageData(0, 0, W, H).data;
+          let difference = 0, count = 0;
+          for (let y = H / 2 - 30; y < H / 2 + 30; y++) for (let x = W / 2 - 30; x < W / 2 + 30; x++) {
+            if (Math.hypot(x - W / 2, y - H / 2) > 28) continue;
+            const i = 4 * (y * W + x);
+            for (let c = 0; c < 3; c++) { difference += Math.abs(actual[i + c] - expected[i + c]); count++; }
+          }
+          check(difference / count < 4, `${name} matches mapped texture: ${difference / count}`);
+          moonSurfaces.push({ name, dt, scale, mean: difference / count });
+        }
+      }
+    }
     // Check the close-up canvas and exported SVG paths too.
     const sky = skyView('jupiter', frame.t), stage = document.createElement('div');
     stage.className = 'sky-stage'; stage.style.cssText = 'width:360px;height:240px';
@@ -240,9 +287,50 @@ try {
     }
     const ringMean = ringPixels[0].reduce((sum, v, i) => sum + Math.abs(v - ringPixels[1][i]), 0) / ringPixels[0].length;
     check(ringMean < 2, `Saturn GPU/fallback ring shadow agrees: ${ringMean}`);
-    return { edges, earthlight, occultations, surfaces, saturnPenumbra: { lo, hi, mean, ringMean } };
+    return { edges, earthlight, occultations, surfaces, moonSurfaces, saturnPenumbra: { lo, hi, mean, ringMean } };
   });
   assert.equal(result.edges.length, 4);
+  // Lock a mapped moon through UI zooms and time changes, with its parent
+  // outside the frame. The canvas must keep a resolved, detailed surface.
+  const locked = await page.evaluate(async () => {
+    const { mountCoelum } = await import('/js/coelumui.js');
+    const { skyFrame, planetMoons, projectVector, pointVector, lookAt, R } = await import('/js/coelum.js');
+    const { skyRadius } = await import('/js/coelumsky.js');
+    const host = document.createElement('div'); host.className = 'coelum-explorer';
+    document.body.replaceChildren(host);
+    localStorage.setItem('imks-coelum-mode', 'sky');
+    const t = Date.parse('2026-11-24T21:00:00Z') / 1000, place = [41.892, 12.511, 20];
+    const explorer = mountCoelum(host, { t, place, label: 'Rome' }, String, { standalone: true });
+    for (const key of ['ground', 'atmosphere', 'labels', 'milkyway']) {
+      const box = host.querySelector(`[data-layer="${key}"]`); box.checked = false;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    explorer.focus('Ganymede', { fit: true, field: 0.005 });
+    await new Promise((r) => setTimeout(r, 750));
+    host.querySelector('[data-action="lock"]').click();
+    const svg = host.querySelector('.coelum-full');
+    while (Number(svg.dataset.scale) < 120000) host.querySelector('[data-action="in"]').click();
+    const samples = [];
+    for (const dt of [0, 3600]) {
+      explorer.setTime(t + dt);
+      const f = skyFrame(t + dt, place), planet = f.bodies.find((o) => o.body === 'jupiter');
+      const moon = planetMoons(f, planet).find((o) => o.name === 'Ganymede');
+      const rotation = lookAt(Number(svg.dataset.az), Number(svg.dataset.alt));
+      const W = svg.viewBox.baseVal.width, H = svg.viewBox.baseVal.height, scale = Number(svg.dataset.scale), radius = skyRadius(W, H, scale);
+      const q = projectVector(pointVector(moon), rotation, true);
+      const canvas = host.querySelector('.coelum-canvas'), ctx = canvas.getContext('2d'), k = canvas.width / W;
+      const pixels = ctx.getImageData(Math.round((W / 2 - 20) * k), Math.round((H / 2 - 20) * k), Math.round(40 * k), Math.round(40 * k)).data;
+      const values = new Set();
+      for (let i = 0; i < pixels.length; i += 4) values.add(pixels[i]);
+      if (Math.hypot(q.x * radius, q.y * radius) > 1) throw new Error('Locked Ganymede drifted');
+      if (values.size < 15) throw new Error('Locked Ganymede lost its texture');
+      samples.push({ dt, scale, surfaceValues: values.size, radius: moon.diameter / 2 * R * radius / 2 });
+    }
+    if (host.querySelector('[data-action="lock"]').getAttribute('aria-pressed') !== 'true') throw new Error('Moon lock was lost');
+    host.remove();
+    return samples;
+  });
+  assert.equal(locked.length, 2);
   // A device without WebGL retains the shaded sky disks and rings.
   const fallback = await browser.newPage();
   await fallback.addInitScript(() => {
