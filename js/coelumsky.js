@@ -273,16 +273,20 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (pxPerRad * R <= 20 || !onScreen(q, Math.max(4, disk)) || !above(q) || behind(q, m.dist, disk)) continue;
     const mag = m.mag + (opts.atmosphere ? extinction(m.alt) : 0), dot = pointRadius(mag);
     if (!dot && m.name !== view.selected) continue;
+    // Share the planet's texture threshold, even when it is off screen.
+    // Keep a small moon at least as large as its former point symbol.
+    const parentDot = pointRadius(o.mag + (opts.atmosphere ? extinction(o.alt) : 0));
+    const parentResolved = parentDot > 0 && diskRadius(o) * R * pxPerRad >= parentDot;
     let mr = dot;
-    if (disk >= Math.max(1, dot)) {
+    if (parentResolved || disk >= Math.max(1, dot)) {
+      mr = Math.max(disk, dot);
       surfaceBodies.push(o.body);
       const model = planetSurface(frame, o), moon = model.moons.find((v) => v.name === m.name);
-      ctx.save(); clipForeground(m.dist, q, disk * 1.02);
-      const textured = traceSurface(ctx, { ...model, moonsOnly: true }, q, disk / moon.r, northAt(m, q), { W, H },
+      ctx.save(); clipForeground(m.dist, q, mr * 1.02);
+      const textured = traceSurface(ctx, { ...model, moonsOnly: true }, q, mr / moon.r, northAt(m, q), { W, H },
         opts.atmosphere ? 0.75 + 0.25 * (1 - light.day) : 1, { center: moon, reach: moon.r * 1.02 });
-      if (!textured) drawPlanet(ctx, { body: 'moon', phase: o.phase, opaque: true }, q, disk, xy(o.light), false);
+      if (!textured) drawPlanet(ctx, { body: 'moon', phase: o.phase, opaque: true }, q, mr, xy(o.light), false);
       ctx.restore();
-      mr = disk;
     } else point(m, mag, BODY_RGB[o.body], q);
     objects.push({ ...m, x: q.x, y: q.y, radius: Math.max(mr, 3) });
     labels.push({ ...q, name: m.name, color: '#ffd9b0', r: Math.max(mr, 2), priority: m.name === view.selected ? 0 : 2, mag: m.mag });

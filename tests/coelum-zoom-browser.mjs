@@ -207,20 +207,21 @@ try {
         const moon = planetMoons(f, parent).find((o) => o.name === name);
         check(!moon.hidden, `${name} test is outside the planetary disk`);
         const model = skyView('jupiter', f.t), satellite = model.moons.find((o) => o.name === name);
-        const s = 40 / satellite.r;
         const scale = 40 / (moon.diameter / 2 * R * skyRadius(W, H, 1) / 2);
         check(scale < 4000000, `${name} resolves within the zoom limit`);
-        for (const magnification of [0.03, 1]) {
+        for (const magnification of [7 * satellite.r / 40, 0.03, 1]) {
           const view = { rotation: lookAt(moon.az, moon.alt), scale: scale * magnification, selected: name };
           const scene = skyScene(f, W, H, { ...layers, labels: false }, view, ctx);
           const visible = scene.objects.find((o) => o.name === name);
           check(visible && Math.hypot(visible.x - W / 2, visible.y - H / 2) < 0.01, `${name} remains centered`);
-          if (magnification !== 1) continue;
-          check(!scene.objects.some((o) => o.body === 'jupiter'), `${name} is visible with Jupiter off screen`);
+          if (magnification === 0.03) continue;
+          if (magnification === 1) check(!scene.objects.some((o) => o.body === 'jupiter'), `${name} is visible with Jupiter off screen`);
+          else check(moon.diameter / 2 * R * skyRadius(W, H, view.scale) / 2 < 1, `${name} gets a texture before resolving its own disk`);
           check(scene.surfaceBodies.includes('jupiter'), `${name} requests its atlas independently`);
           const actual = ctx.getImageData(0, 0, W, H).data;
           const reference = document.createElement('canvas');
-          check(tracePlanet(reference, model, satellite.x - W / 2 / s, satellite.y + H / 2 / s, W, H, s), `${name} GPU texture`);
+          const s = visible.radius / satellite.r;
+          check(tracePlanet(reference, { ...model, moonsOnly: true }, satellite.x - W / 2 / s, satellite.y + H / 2 / s, W, H, s), `${name} GPU texture`);
           const copy = document.createElement('canvas'); copy.width = W; copy.height = H;
           const g = copy.getContext('2d'), n = { ra: moon.ra, dec: moon.dec + 0.001 };
           const north = projectVector(pointVector({ ...n, ...f.hor(n) }), view.rotation, true);
@@ -228,13 +229,14 @@ try {
           g.translate(W / 2, H / 2); g.rotate(angle); g.drawImage(reference, -W / 2, -H / 2);
           const expected = g.getImageData(0, 0, W, H).data;
           let difference = 0, count = 0;
-          for (let y = H / 2 - 30; y < H / 2 + 30; y++) for (let x = W / 2 - 30; x < W / 2 + 30; x++) {
-            if (Math.hypot(x - W / 2, y - H / 2) > 28) continue;
+          const sample = Math.min(28, Math.floor(visible.radius * 0.65));
+          for (let y = H / 2 - sample; y <= H / 2 + sample; y++) for (let x = W / 2 - sample; x <= W / 2 + sample; x++) {
+            if (Math.hypot(x - W / 2, y - H / 2) > sample) continue;
             const i = 4 * (y * W + x);
             for (let c = 0; c < 3; c++) { difference += Math.abs(actual[i + c] - expected[i + c]); count++; }
           }
           check(difference / count < 4, `${name} matches mapped texture: ${difference / count}`);
-          moonSurfaces.push({ name, dt, scale, mean: difference / count });
+          moonSurfaces.push({ name, dt, scale: view.scale, mean: difference / count });
         }
       }
     }
