@@ -13,6 +13,20 @@ import { skyRaster } from './skyraster.js';
 import { searchLunarFeatures, lunarFeatureState } from './lunarfeatures.js';
 import { searchMarsFeatures, marsFeatureState, marsDisk } from './marsfeatures.js';
 
+// Selection, labels and tracking use names as identifiers. Components of a
+// multiple star can share a Bayer designation (e.g. three θ¹ Ori entries).
+const STAR_NAMES = CHART_STARS.map(([hip, , , , , , , , , proper, names]) => {
+  const designations = [...names ? names.split('|') : [], ...hip ? [`HIP ${hip}`] : []];
+  return { name: proper || designations.shift() || 'Star', designations };
+});
+const starNameCounts = new Map();
+for (const { name } of STAR_NAMES) starNameCounts.set(name, (starNameCounts.get(name) || 0) + 1);
+for (const star of STAR_NAMES) if (starNameCounts.get(star.name) > 1) {
+  const id = star.designations.find((s) => s.startsWith('HIP ')) || star.designations.find((s) => s.startsWith('HD '));
+  star.designations.unshift(star.name);
+  star.name = `${star.name} (${id})`;
+}
+
 export const R = Math.PI / 180;
 const clamp = (x) => Math.max(-1, Math.min(1, x));
 export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -249,9 +263,9 @@ export function skyFrame(t, place, rate = 0) {
   };
   const hor = (p) => horizonPoint(p.ra, p.dec, place[0], lst);
   const catalog = (ra, dec, pmra, pmdec) => { const p = eq(ra, dec, pmra, pmdec); return { ...p, ...hor(p) }; };
-  const stars = CHART_STARS.map(([hip, ra, dec, mag, bv, flags, pmra, pmdec, parallax, proper, names, spect]) => {
+  const stars = CHART_STARS.map(([hip, ra, dec, mag, bv, flags, pmra, pmdec, parallax, proper, names, spect], i) => {
     // named by the IAU, or by the first designation (Bayer, Flamsteed, HIP)
-    const designations = [...names ? names.split('|') : [], ...hip ? [`HIP ${hip}`] : []], name = proper || designations.shift() || 'Star';
+    const { name, designations } = STAR_NAMES[i];
     return { ...catalog(ra, dec, pmra, pmdec), name, designations, mag, bv: bv ?? undefined, type: 'star', named: Boolean(proper), parallax, pmra, pmdec, spect, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
   });
   const bodies = [...solarBodies(t, place, hor, rate), ...(playbackBodyVisible('satellite', rate) ? satelliteBodies(t, place, hor) : [])];
@@ -477,7 +491,14 @@ export function readStars(buffer) {
     if (start[t + 1] > start[t]) depth = Math.max(depth, mag[start[t + 1] - 1] / 20);
   }
   for (let j = 0; j < n; j++) fastest = Math.max(fastest, Math.abs(pmra[j]), Math.abs(pmdec[j]));
-  return { n, T, box, start, tyc, ra, dec, pmra, pmdec, plx, mag, bv, aliasStar, alias, gaia, center, reach, depth, fastest: Math.SQRT2 * fastest * R / 3.6e6 };
+  // HD numbers can describe more than one resolved component. Keep those
+  // aliases for search, but prefer a component's individual TYC identifier.
+  const seenAliases = new Set(), sharedNames = new Set();
+  for (const code of alias) {
+    if (seenAliases.has(code)) sharedNames.add(`${code >= 2 ** 29 ? 'HD' : 'HIP'} ${code % 2 ** 28}`);
+    seenAliases.add(code);
+  }
+  return { n, T, box, start, tyc, ra, dec, pmra, pmdec, plx, mag, bv, aliasStar, alias, gaia, center, reach, depth, sharedNames, fastest: Math.SQRT2 * fastest * R / 3.6e6 };
 }
 // Stored star j: its J2000 vector at the epoch, its tile and data
 function storedStar(j) {
@@ -496,7 +517,12 @@ function storedNames(j) {
   const t = S.tyc[j];
   if (t) out.push(`TYC ${Math.floor(t / 65536)}-${Math.floor(t / 4) % 16384}-${t % 4 + 1}`);
   if (S.gaia && (S.gaia[2 * j] || S.gaia[2 * j + 1])) out.unshift(`Gaia DR3 ${(BigInt(S.gaia[2 * j + 1]) << 32n) + BigInt(S.gaia[2 * j])}`);
-  return out.length ? out : ['Star'];
+  const primary = out.findIndex((name) => !S.sharedNames.has(name));
+  if (primary > 0) out.unshift(...out.splice(primary, 1));
+  // A few AT-HYG rows have no individual catalog ID. Give them an explicit
+  // identity within this download, rather than the unresolvable name 'Star'.
+  if (primary < 0) out.unshift(`Catalog V${S.depth} star ${j + 1}`);
+  return out;
 }
 
 // Calls visit(j, horizontal vector, magnitude, B−V) for the stored stars
@@ -543,8 +569,10 @@ function findFaint(frame, name) {
   // rescanning a multi-million-star ID array while panning or playing time.
   if (name && STORED.lookupName === name) return faintObject(frame, STORED.lookupIndex);
   const m = /^(HIP|HD) (\d+)$/.exec(name || ''), t = /^TYC (\d+)-(\d+)-(\d+)$/.exec(name || '');
+  const row = /^Catalog V([\d.]+) star (\d+)$/.exec(name || '');
   let j = -1;
-  if (m) { const k = STORED.alias.indexOf((m[1] === 'HD' ? 2 : 1) * 2 ** 28 + Number(m[2])); j = k < 0 ? -1 : STORED.aliasStar[k]; }
+  if (row && Number(row[1]) === STORED.depth && Number(row[2]) >= 1 && Number(row[2]) <= STORED.n) j = Number(row[2]) - 1;
+  else if (m) { const k = STORED.alias.indexOf((m[1] === 'HD' ? 2 : 1) * 2 ** 28 + Number(m[2])); j = k < 0 ? -1 : STORED.aliasStar[k]; }
   else if (t) j = STORED.tyc.indexOf(Number(t[1]) * 65536 + Number(t[2]) * 4 + Number(t[3]) - 1);
   else if (STORED.gaia && /^Gaia DR3 \d{1,19}$/.test(name || '')) {
     const id = BigInt(name.slice(9)), lo = Number(id & 0xffffffffn), hi = Number(id >> 32n);
@@ -740,7 +768,7 @@ export function reticle(p, x, y, r, color) {
 
 export function findObject(frame, name) {
   if (!name) return null;
-  return frame.bodies.find((o) => o.name === name) || frame.stars.find((o) => o.name === name) || frame.deep.find((o) => o.name === name) || frame.constellations.find((o) => o.name === name) || findFaint(frame, name) || findMoon(frame, name);
+  return frame.bodies.find((o) => o.name === name) || frame.stars.find((o) => o.name === name) || frame.deep.find((o) => o.name === name) || frame.constellations.find((o) => o.name === name) || frame.stars.find((o) => o.designations?.includes(name)) || findFaint(frame, name) || findMoon(frame, name);
 }
 
 // The major moons of a planet at the frame's time, placed by their offsets
@@ -1096,7 +1124,8 @@ export function searchSky(frame, query, limit = 8) {
   // downloaded stars by number: HIP 12345, HD 12345, TYC 1234-567-1
   const number = /^(hip|hd)(\d+)$/.exec(qc), tyc = /^tyc ?(\d+) (\d+) (\d+)$/.exec(q);
   const gaia = /^gaia(?:dr3)?(\d{1,19})$/.exec(qc);
-  const id = number ? `${number[1].toUpperCase()} ${Number(number[2])}` : tyc ? `TYC ${Number(tyc[1])}-${Number(tyc[2])}-${Number(tyc[3])}` : gaia && `Gaia DR3 ${BigInt(gaia[1])}`;
+  const row = /^catalogv([\d.]+)star(\d+)$/.exec(qc);
+  const id = number ? `${number[1].toUpperCase()} ${Number(number[2])}` : tyc ? `TYC ${Number(tyc[1])}-${Number(tyc[2])}-${Number(tyc[3])}` : gaia ? `Gaia DR3 ${BigInt(gaia[1])}` : row && `Catalog V${Number(row[1])} star ${Number(row[2])}`;
   const extra = id && !out.some((r) => r.object.name === id || r.object.designations?.includes(id)) && findFaint(frame, id);
   if (extra) out.push({ score: 0, alias: null, object: extra });
   return out.sort((a, b) => Number(surface(a.object)) - Number(surface(b.object)) || a.score - b.score || rank(a.object) - rank(b.object) || (a.object.mag ?? 99) - (b.object.mag ?? 99)).slice(0, limit)

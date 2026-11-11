@@ -18,6 +18,22 @@ assert.deepEqual(model.heads, ['altitude', 'azimuth']);
 assert.equal(model.coelum.label, 'Rome');
 assert.equal(JSON.stringify(model.coelum).length < 150, true, 'History keeps a small descriptor');
 assert.equal(calc.run('coelum(1, "Rome")').kind, 'error');
+// Shared Bayer names must still identify each resolved component separately.
+{
+  const frame = skyFrame(model.coelum.t, model.coelum.place);
+  assert.equal(new Set(frame.stars.map((s) => s.name)).size, frame.stars.length, 'Unique selection names throughout the built-in catalog');
+  const components = [26220, 26221, 26224].map((hip) => frame.stars.find((s) => s.designations.includes(`HIP ${hip}`)));
+  for (const star of components) {
+    assert.equal(findObject(frame, star.name), star, 'Selection resolves the clicked component');
+    const hip = star.designations.find((s) => s.startsWith('HIP '));
+    assert.equal(findObject(frame, hip), star, 'Catalog IDs resolve the same component');
+    assert.equal(searchSky(frame, hip)[0].name, star.name, 'Search retains the component identity');
+    assert.ok(star.name.startsWith('θ¹ Ori'));
+    assert.ok(star.designations.includes('θ¹ Ori'), 'Shared designation remains searchable');
+  }
+  assert.equal(findObject(frame, 'θ¹ Ori'), components[0], 'Existing shared-name links still resolve');
+  assert.equal(searchSky(frame, 'θ¹ Ori').filter((s) => components.some((c) => c.name === s.name)).length, 3);
+}
 assert.equal(calc.run('coelum(now)').kind, 'error', 'Location is required without Settings');
 assert.equal(calc.run('coelum(now, (91, 0) deg)').kind, 'error');
 assert.equal(calc.run('coelum(3001.01.01 00:00 Z, "Rome")').kind, 'error');

@@ -23,6 +23,52 @@ try {
   browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
   const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
   await page.goto(`http://localhost:${server.address().port}/coelum/`);
+  // Reproduce taps on the three resolved θ¹ Ori stars near M42. Their
+  // shared Bayer designation used to send every selection to HIP 26220.
+  const orion = await page.evaluate(async () => {
+    const { mountCoelum } = await import('/js/coelumui.js');
+    const { skyFrame, skyChart, setFaintStars, lookAt } = await import('/js/coelum.js');
+    const { skyScene } = await import('/js/coelumsky.js');
+    setFaintStars(await (await fetch('/data/stars-8.bin')).arrayBuffer());
+    const host = document.createElement('div'); document.body.appendChild(host);
+    const model = { t: Date.parse('2026-11-24T21:00:00Z') / 1000, place: [41.892, 12.511, 20], label: 'Rome' };
+    const explorer = mountCoelum(host, model, String, { standalone: true });
+    const limit = host.querySelector('[data-limit]'); limit.value = '8';
+    limit.dispatchEvent(new Event('change', { bubbles: true }));
+    const frame = skyFrame(model.t, model.place);
+    const components = [26220, 26221, 26224].map((hip) => frame.stars.find((s) => s.designations.includes(`HIP ${hip}`)));
+    explorer.focus(components[1].name, { fit: true, field: 0.025 });
+    await new Promise((r) => setTimeout(r, 850));
+    const svg = host.querySelector('.coelum-full'), { width, height } = svg.viewBox.baseVal;
+    const selected = [];
+    for (const mode of ['chart', 'sky']) {
+      if (mode === 'sky') {
+        host.querySelector('[data-view="sky"]').click();
+        const atmosphere = host.querySelector('[data-layer="atmosphere"]');
+        if (atmosphere.checked) atmosphere.click();
+      }
+      const view = { scale: Number(svg.dataset.scale), rotation: mode === 'chart'
+        ? svg.dataset.rotation.split(',').map(Number) : lookAt(Number(svg.dataset.az), Number(svg.dataset.alt)) };
+      const scene = mode === 'chart' ? skyChart(frame, width, height, { magnitude: 8, ground: false }, view)
+        : skyScene(frame, width, height, { atmosphere: false, ground: false, milkyway: false }, view, document.createElement('canvas').getContext('2d'));
+      for (const star of components) {
+        const object = scene.objects.find((o) => o.name === star.name);
+        if (!object) throw new Error(`Missing resolved component ${star.name}`);
+        const point = svg.createSVGPoint(); point.x = object.x; point.y = object.y;
+        const p = point.matrixTransform(svg.getScreenCTM());
+        for (const type of ['pointerdown', 'pointerup']) svg.dispatchEvent(new PointerEvent(type, {
+          bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: p.x, clientY: p.y
+        }));
+        selected.push(host.querySelector('.coelum-detail h3')?.textContent);
+        if (selected.at(-1) !== star.name) throw new Error(`${mode}: tap on ${star.name} selected ${selected.at(-1)}`);
+      }
+    }
+    host.remove();
+    setFaintStars(null);
+    return selected;
+  });
+  assert.equal(new Set(orion).size, 3, 'All three θ¹ Ori components can be selected independently');
+  assert.equal(orion.length, 6, 'Selection checked in both chart and realistic sky views');
   const result = await page.evaluate(async () => {
     const { skyFrame, lookAt, R } = await import('/js/coelum.js');
     const { skyScene } = await import('/js/coelumsky.js');
