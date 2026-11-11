@@ -138,6 +138,46 @@ try {
   await page.locator('.coelum-full').press('Home');
   await page.locator('[data-action="forward"]').click(); assert.notEqual(await status(), original);
   await page.locator('[data-action="back"]').click(); assert.equal(await status(), original);
+  const skyTime = () => page.locator('.coelum-full').evaluate((e) => Number(e.dataset.time));
+  const hold = async (action, duration = 950) => {
+    const b = await page.locator(`[data-action="${action}"]`).boundingBox();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.mouse.down(); await page.waitForTimeout(duration); await page.mouse.up();
+  };
+  const startingTime = await skyTime();
+  await hold('forward'); assert.equal(await skyTime(), startingTime + 86400, 'Hold advances a day without an extra hour');
+  await hold('back'); assert.equal(await skyTime(), startingTime, 'Hold goes back a day');
+  await hold('reverse'); assert.equal(await skyTime(), startingTime + 86400, 'Undo restores the preceding jump');
+  await hold('reverse'); assert.equal(await skyTime(), startingTime, 'Repeated undo walks time history');
+  assert.equal(await page.locator('[data-speed]').getAttribute('data-rate'), '60', 'Undo does not reverse playback');
+  await page.locator('.coelum-search input').fill('Vega');
+  await page.locator('.coelum-search-clear').click();
+  assert.equal(await page.locator('.coelum-search input').inputValue(), '');
+  assert.equal(await page.locator('.coelum-search-dropdown').isVisible(), false);
+  assert.equal(await page.locator('.coelum-search-clear').isVisible(), false);
+  const starBoost = () => page.locator('.coelum-full').evaluate((e) => Number(e.dataset.starBoost));
+  const scaleBeforeHold = await page.locator('.coelum-full').getAttribute('data-scale');
+  const legendBeforeHold = await page.locator('.coelum-mags').innerHTML();
+  await hold('in', 1300);
+  assert.notEqual(await page.locator('.coelum-mags').innerHTML(), legendBeforeHold, 'Legend tracks star brightness');
+  const brighter = await starBoost(); assert.ok(brighter > 0.2, 'Holding plus continuously brightens stars');
+  await page.waitForTimeout(150); assert.equal(await starBoost(), brighter, 'Release stops brightness changes');
+  assert.equal(await page.locator('.coelum-full').getAttribute('data-scale'), scaleBeforeHold, 'Brightness hold does not zoom');
+  await hold('out', 1300); assert.ok(await starBoost() < brighter - 0.2, 'Holding minus dims stars');
+  await hold('play');
+  assert.ok(Math.abs(await skyTime() - Date.now() / 1000) < 3, 'Paused hold moves to now');
+  assert.equal(await page.locator('[data-action="play"]').getAttribute('aria-pressed'), 'false');
+  await page.locator('[data-action="play"]').click();
+  await hold('play');
+  assert.equal(await page.locator('[data-speed]').getAttribute('data-rate'), '1');
+  assert.equal(await page.locator('[data-action="play"]').getAttribute('aria-pressed'), 'true', 'Hold preserves active playback');
+  await page.evaluate(() => { window.originalDateNow = Date.now; Date.now = () => window.originalDateNow() + 30_000; });
+  await page.waitForTimeout(250);
+  assert.ok(Math.abs(await skyTime() - Date.now() / 1000 - 30) < 3, 'Real-time mode follows wall clock after a clock gap');
+  await page.evaluate(() => { Date.now = window.originalDateNow; delete window.originalDateNow; });
+  await page.locator('[data-action="reset"]').click();
+  assert.equal(await starBoost(), 0, 'Reset restores default star brightness and visibility');
+  assert.equal(await page.locator('.coelum-mags').innerHTML(), legendBeforeHold, 'Reset restores legend');
   assert.equal(await page.locator('[data-speed]').getAttribute('data-rate'), '60', 'Gentler default speed');
   await page.locator('[data-action="faster"]').click();
   assert.equal(await page.locator('[data-speed]').getAttribute('data-rate'), '120');
@@ -149,6 +189,26 @@ try {
   assert.equal(await page.locator('[data-speed]').getAttribute('data-rate'), '-120');
   await page.locator('[data-action="slower"]').click();
   await page.locator('[data-action="reverse"]').click();
+  const brightnessRendering = await page.evaluate(async () => {
+    const { skyFrame, lookAt, SKY_IDENTITY } = await import('./js/coelum.js');
+    const { skyScene } = await import('./js/coelumsky.js');
+    const { planetMap } = await import('./js/skyview.js');
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 360;
+    const ctx = canvas.getContext('2d'), frame = skyFrame(Date.parse('2026-11-06T21:00:00Z') / 1000, [41.892, 12.511, 20]);
+    const layers = { ground: false, atmosphere: false, labels: false, milkyway: false };
+    const count = (starBoost) => skyScene(frame, 360, 360, { ...layers, starBoost }, { scale: 1, rotation: SKY_IDENTITY }, ctx).objects.filter((o) => o.type === 'star' && !o.body).length;
+    const dim = count(-2), normal = count(0), bright = count(2);
+    const sizing = {};
+    for (const body of ['mars', 'jupiter']) {
+      await planetMap(body)?.ready;
+      const o = frame.bodies.find((o) => o.body === body);
+      sizing[body] = skyScene(frame, 360, 360, layers, { scale: 3000, rotation: lookAt(o.az, o.alt) }, ctx).moonSizing;
+    }
+    return { dim, normal, bright, sizing };
+  });
+  assert.ok(brightnessRendering.dim < brightnessRendering.normal && brightnessRendering.normal < brightnessRendering.bright, `Sky brightness adjusts star visibility: ${JSON.stringify(brightnessRendering)}`);
+  assert.equal(brightnessRendering.sizing.mars, false, 'Untextured Mars moons do not offer sizing');
+  assert.equal(brightnessRendering.sizing.jupiter, true, 'Textured Jupiter moons offer sizing');
   // Exercise the complete rounded ladder through the actual controls.
   const speedSteps = await page.evaluate(async () => {
     const { PLAYBACK_SPEEDS, skyFrame, lookAt } = await import('./js/coelum.js');
@@ -668,7 +728,7 @@ try {
   // circles. The adjacent label remains a stable point within tap range.
   const ioLabel = page.locator('.coelum-moons-stage .sky-label').filter({ hasText: /^Io$/ });
   await ioLabel.waitFor({ state: 'visible' });
-  await ioLabel.click({ force: true }); // reacquire after a texture-triggered redraw
+  await ioLabel.click(); // wait for a stable label after a texture-triggered redraw
   await page.waitForFunction(() => /^(Io|Europa|Ganymede|Callisto)$/.test(document.querySelector('.coelum-object-head h3')?.textContent));
   assert.equal(await page.locator('.coelum-moonsview').isVisible(), false);
   // Backward, the play button points left.
@@ -706,9 +766,23 @@ try {
   await page.locator('[data-action="mount"]').click();
   assert.equal(await page.locator('[data-action="mount"]').textContent(), 'EQ');
   assert.ok(await hourMoves() < 1.5, 'Equatorial: the stars stay');
+  await hold('mount');
+  assert.equal(await page.locator('[data-action="mount"]').textContent(), 'EQ', 'Holding EQ keeps the mount');
+  assert.equal(await page.locator('[data-layer="ground"]').isChecked(), false, 'EQ hold hides chart ground');
+  await page.locator('[data-view="sky"]').click();
+  assert.equal(await page.locator('[data-layer="ground"]').isChecked(), false, 'EQ hold also hides sky ground');
+  assert.equal(await page.locator('[data-layer="atmosphere"]').isChecked(), false, 'EQ hold hides atmosphere');
+  await page.locator('[data-view="chart"]').click();
   await page.locator('[data-action="mount"]').click();
   assert.equal(await page.locator('[data-action="mount"]').textContent(), 'AZ');
   assert.ok(await hourMoves() > 10, 'Alt-az: the stars turn');
+  await hold('mount');
+  assert.equal(await page.locator('[data-action="mount"]').textContent(), 'AZ', 'Holding AZ keeps the mount');
+  assert.equal(await page.locator('[data-layer="ground"]').isChecked(), true, 'AZ hold restores chart ground');
+  await page.locator('[data-view="sky"]').click();
+  assert.equal(await page.locator('[data-layer="ground"]').isChecked(), true, 'AZ hold restores sky ground');
+  assert.equal(await page.locator('[data-layer="atmosphere"]').isChecked(), true, 'AZ hold restores atmosphere');
+  await page.locator('[data-view="chart"]').click();
   // The lock: a star stays where it is as the hours pass (it turns in
   // alt-az); without a selection, a hint.
   await page.locator('[data-action="lock"]').click();

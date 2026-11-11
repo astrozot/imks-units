@@ -37,7 +37,8 @@ try {
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = 900;
     const scene = skyScene(frame, 900, 900, { ground: false, atmosphere: false, labels: true },
       { rotation: lookAt(mars.az, mars.alt), scale: 20000 }, canvas.getContext('2d'));
-    if (scene.marsFeatures?.length || scene.hitLabels.some((l) => l.name.startsWith('mars:'))) throw new Error('Mars features leaked into the standard sky');
+    if (!scene.marsFeatures?.length || !scene.hitLabels.some((l) => l.name.startsWith('mars:'))) throw new Error('Mars features missing from the textured sky');
+    window.marsScene = scene;
     localStorage.setItem('imks-coelum-mode', 'sky');
     localStorage.setItem('imks-coelum-mount', 'altaz');
     const host = document.createElement('div'); host.className = 'coelum-explorer'; host.style.cssText = 'position:fixed;inset:0';
@@ -75,60 +76,68 @@ try {
     await page.locator('.coelum-results [role="option"]').first().click();
   };
   await choose('Sinus Meridiani');
-  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Sinus Meridiani');
-  assert.ok(await view.isVisible(), 'Search opens the dedicated view');
-  assert.equal(await page.locator('.coelum-explorer').getAttribute('data-mode'), 'sky');
+  const selected = async (name) => {
+    await page.waitForFunction((name) => document.querySelector('.coelum-detail h3')?.textContent === name, name);
+    assert.ok(await view.isHidden(), 'Search stays in the Sky view');
+    assert.equal(await page.locator('.coelum-explorer').getAttribute('data-mode'), 'sky');
+  };
+  await selected('Sinus Meridiani');
   if (process.env.MARS_SCREENSHOT) await page.screenshot({ path: process.env.MARS_SCREENSHOT });
-  // Rotation updates the same surface, retiring unavailable selections.
+  // Rotation retires a feature that leaves the visible, illuminated face.
   await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t + 12 * 3600));
-  await page.waitForFunction(() => document.querySelector('.coelum-mars-detail').hidden);
+  await page.waitForFunction(() => document.querySelector('.coelum-detail h3')?.textContent !== 'Sinus Meridiani');
   await choose('Sinus Meridiani');
-  assert.ok(await view.isVisible());
-  assert.ok(await page.locator('.coelum-mars-detail').isHidden(), 'Unavailable search result does not highlight a feature');
+  await selected('Mars');
   await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t));
-  await page.locator('[data-action="close-moons"]').click();
   await page.locator('[data-view="chart"]').click();
   await choose('Sinus Meridiani');
-  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden);
-  assert.ok(await view.isVisible());
-  assert.equal(await page.locator('.coelum-explorer').getAttribute('data-mode'), 'chart', 'Search uses the telescope overlay without changing the standard mode');
-  await page.locator('[data-action="close-moons"]').click();
-  await page.locator('[data-view="sky"]').click();
-  await page.evaluate(() => { for (let i = 0; i < 70; i++) document.querySelector('[data-action="in"]').click(); });
-  assert.equal(Number(await page.locator('.coelum-full').getAttribute('data-scale')), 400, 'Standard sky zoom is restored to 400');
-  assert.equal(await page.locator('.coelum-mars-label:visible').count(), 0, 'No surface labels in the standard view');
-  // Size outlines and search work in the dedicated view on a phone as well.
+  await selected('Sinus Meridiani');
+  // Sky labels and physical footprints both accept taps.
+  const pick = await page.evaluate(async () => {
+    const { skyFrame, lookAt } = await import('/js/coelum.js');
+    const { skyScene } = await import('/js/coelumsky.js');
+    const { marsFeatureTarget, findMarsFeature } = await import('/js/marsfeatures.js');
+    const svg = document.querySelector('.coelum-full'), b = svg.getBoundingClientRect();
+    const frame = skyFrame(window.marsTest.t, [41.892, 12.511, 20]);
+    const canvas = document.createElement('canvas'); canvas.width = b.width; canvas.height = b.height;
+    const scene = skyScene(frame, b.width, b.height, { ground: false, atmosphere: false, labels: true },
+      { rotation: lookAt(+svg.dataset.az, +svg.dataset.alt), scale: +svg.dataset.scale }, canvas.getContext('2d'));
+    const feature = scene.marsFeatures.find((f) => f.name === 'Sinus Meridiani');
+    if (!feature?.outline?.some((p) => p.visible)) throw new Error('Selected contour missing');
+    const label = scene.hitLabels.find((l) => l.name === feature.key);
+    return { x: b.x + feature.x, y: b.y + feature.y, label: label && { x: b.x + (label.box[0]+label.box[2])/2, y: b.y + (label.box[1]+label.box[3])/2 } };
+  });
+  assert.ok(pick.label, 'Surface label is laid out');
+  await page.mouse.click(pick.x, pick.y);
+  await selected('Sinus Meridiani');
+  await page.waitForTimeout(350);
+  await page.mouse.click(pick.label.x, pick.label.y);
+  await selected('Sinus Meridiani');
+  // Phone search frames an ellipse without opening a planet overlay.
   await page.setViewportSize({ width: 360, height: 760 });
   await page.evaluate(() => window.marsTest.explorer.setTime(Date.parse('2026-11-24T21:00:00Z') / 1000));
   await choose('Olympus Mons');
-  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Olympus Mons');
-  assert.match(await page.locator('.coelum-mars-detail').innerText(), /Diameter \/ extent.*610/s);
-  assert.ok(await page.locator('.coelum-mars-outline').count(), 'Selected extent is drawn');
+  await selected('Olympus Mons');
+  assert.match(await page.locator('.coelum-detail').innerText(), /Diameter \/ extent.*610/s);
   if (process.env.MARS_SIZE_SCREENSHOT) await page.screenshot({ path: process.env.MARS_SIZE_SCREENSHOT });
-  await page.locator('[data-action="close-moons"]').click();
-  // Expanded names and source-specific contours all use this same view.
   await page.setViewportSize({ width: 900, height: 900 });
   await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t));
   await choose('Huygens');
-  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Huygens');
-  assert.match(await page.locator('.coelum-mars-detail').innerText(), /484[.,]5.*450[.,]2.*Measured crater ellipse/s);
+  await selected('Huygens');
+  assert.match(await page.locator('.coelum-detail').innerText(), /484[.,]5.*450[.,]2.*Measured crater ellipse/s);
   if (process.env.MARS_ELLIPSE_SCREENSHOT) await page.screenshot({ path: process.env.MARS_ELLIPSE_SCREENSHOT });
   await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t + 4 * 3600));
   await choose('Valles Marineris');
-  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Valles Marineris');
-  assert.match(await page.locator('.coelum-mars-detail').innerText(), /Mapped nomenclature footprint/);
-  assert.ok((await page.locator('.coelum-mars-outline').getAttribute('d')).length > 100, 'Mapped polygon contour is drawn');
+  await selected('Valles Marineris');
+  assert.match(await page.locator('.coelum-detail').innerText(), /Mapped nomenclature footprint/);
   if (process.env.MARS_POLYGON_SCREENSHOT) await page.screenshot({ path: process.env.MARS_POLYGON_SCREENSHOT });
   await page.evaluate(() => window.marsTest.explorer.setTime(window.marsTest.t));
   await choose('Syrtis Major');
-  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Syrtis Major');
-  assert.match(await page.locator('.coelum-mars-detail').innerText(), /Approximate identification contour.*2022–23/s);
-  assert.ok(await page.locator('.coelum-mars-label').count() <= 28, 'Automatic labels stay bounded');
+  await selected('Syrtis Major');
+  assert.match(await page.locator('.coelum-detail').innerText(), /Approximate identification contour.*2022–23/s);
   if (process.env.MARS_ALBEDO_SCREENSHOT) await page.screenshot({ path: process.env.MARS_ALBEDO_SCREENSHOT });
   await choose('Jezero');
-  await page.waitForFunction(() => !document.querySelector('.coelum-mars-detail').hidden && document.querySelector('.coelum-mars-detail h3')?.textContent === 'Jezero');
-  assert.ok(await view.isVisible(), 'Small crater search retains its selected label at high zoom');
-  await page.locator('[data-action="close-moons"]').click();
+  await selected('Jezero');
   await page.evaluate(() => window.marsTest.explorer.setTime(Date.parse('2026-11-24T21:00:00Z') / 1000));
   // Other planet systems retain their existing view.
   await search.fill('Jupiter');
@@ -150,7 +159,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.coelum-moonsview').hidden);
   await page.waitForFunction(() => document.querySelector('.coelum-detail h3')?.textContent === 'Io');
   assert.deepEqual(errors, []);
-  console.log('Mars telescope checks passed: standard sky exclusion, button entry, zoom, taps, search from Sky/Chart, rotation, size outlines, mobile and Jupiter regression');
+  console.log('Mars telescope checks passed: Sky features, telescope button, zoom, surface/label taps, Sky/Chart searches, rotation, contours, mobile and Jupiter regression');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));

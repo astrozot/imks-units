@@ -163,6 +163,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   // horizon; brighter ones with a soft halo. Sizes follow the magnitude
   // below the limit, which deepens as the view zooms in, so a magnified
   // cluster keeps its bright and faint members apart.
+  const starBoost = opts.starBoost || 0;
   const zoom = Math.log2(Math.max(1, view.scale)), limit = light.limit + 0.8 * zoom, grow = Math.min(1.4, 1 + 0.1 * zoom);
   const pointRadius = (mag) => mag > limit ? 0 : Math.min(4.2, 0.5 + 0.05 * (limit - mag) ** 2) * grow;
   const point = (o, mag, rgb, q) => {
@@ -181,16 +182,16 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   for (const o of frame.stars) {
     const q = xy(o);
     if (!onScreen(q, 4) || !above(q) || behind(q)) continue;
-    const r = point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), bvRGB(o.bv), q);
+    const r = point(o, o.mag - starBoost + (opts.atmosphere ? extinction(o.alt) : 0), bvRGB(o.bv), q);
     if (!r) continue;
     objects.push({ ...o, x: q.x, y: q.y, radius: r });
     if (o.name === view.selected || o.named && o.mag < (view.scale > 1.5 ? 4.5 : 2.5) && o.mag + 0.5 < limit) labels.push({ ...q, name: o.name, color: `rgba(215,225,240,${0.85 * fade + 0.15})`, r, priority: 2 });
   }
   // Downloaded fainter stars, to the same limit.
-  eachFaint(frame, limit, (i, v, mag, bv) => {
+  eachFaint(frame, limit + starBoost, (i, v, mag, bv) => {
     const q = apparent(refract(v));
     if (!onScreen(q, 2) || !above(q) || behind(q)) return;
-    const r = point({}, mag + (opts.atmosphere ? extinction(Math.asin(Math.max(-1, Math.min(1, v[2]))) / R) : 0), bvRGB(bv), q);
+    const r = point({}, mag - starBoost + (opts.atmosphere ? extinction(Math.asin(Math.max(-1, Math.min(1, v[2]))) / R) : 0), bvRGB(bv), q);
     if (r) objects.push(new FaintHit(i, q.x, q.y, r));
   }, { v: rotation.slice(6, 9), radius: 2 * Math.atan(Math.hypot(W, H) / 2 / radius) + 0.03 });
   const moonsOf = frame.bodies.filter((o) => !o.hidden && hasMoons(o)), surfaceBodies = [];
@@ -255,7 +256,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       if (!r) { ctx.restore(); continue; }
       const disk = diskRadius(o) * R * pxPerRad;
       if (disk >= r) {
-        if (hasMoons(o)) moonSizing = true;
+        if (hasMoons(o) && planetMap(o.body)?.moons) moonSizing = true;
         surfaceBodies.push(o.body);
         const model = planetSurface(frame, o);
         const textured = traceSurface(ctx, { ...model, hideMoons: true }, q, disk, northAt(o, q), { W, H }, opts.atmosphere ? 0.75 + 0.25 * (1 - light.day) : 1);
@@ -282,7 +283,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     // Magnitude mode keeps a small moon at least as large as its former dot.
     const parentDot = pointRadius(o.mag + (opts.atmosphere ? extinction(o.alt) : 0));
     const parentResolved = parentDot > 0 && diskRadius(o) * R * pxPerRad >= parentDot;
-    if (parentResolved) moonSizing = true;
+    if (parentResolved && planetMap(o.body)?.moons) moonSizing = true;
     let mr = dot;
     if (parentResolved || disk >= Math.max(1, dot)) {
       mr = opts.moonSize === 'actual' ? disk : Math.max(disk, dot);

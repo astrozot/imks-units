@@ -194,8 +194,11 @@ try {
     // Texture begins as soon as the physical disk resolves the point source,
     // before the former ten-pixel cutoff.
     const jupiterScale = 7 / (skyView('jupiter', frame.t).radius / 3600 * R * skyRadius(W, H, 1) / 2);
-    const small = skyScene(planetFrame, W, H, { ...layers, labels: false }, { rotation: lookAt(jupiter.az, jupiter.alt), scale: jupiterScale }, ctx);
+    const small = skyScene(planetFrame, W, H, layers, { rotation: lookAt(jupiter.az, jupiter.alt), scale: jupiterScale }, ctx);
     check(small.surfaceBodies.includes('jupiter'), 'Seven-pixel Jupiter is already textured');
+    check(small.hitLabels.some((l) => l.name === 'Jupiter'), 'Small Jupiter retains its label');
+    const close = skyScene(planetFrame, W, H, layers, { ...view, selected: 'Jupiter' }, ctx);
+    check(!close.hitLabels.some((l) => l.name === 'Jupiter'), 'Large Jupiter hides its name and leader even when selected');
     // Every mapped Galilean moon survives with the planet outside the view,
     // both as a point and as a resolved texture. Compare to the same GPU
     // tracer used in the optional planet view, recentered on the moon.
@@ -236,6 +239,19 @@ try {
             for (let c = 0; c < 3; c++) { difference += Math.abs(actual[i + c] - expected[i + c]); count++; }
           }
           check(difference / count < 4, `${name} matches mapped texture: ${difference / count}`);
+          if (name === 'Io' && magnification < 0.01) {
+            const real = skyScene(f, W, H, { ...layers, labels: false, moonSize: 'actual' }, { ...view, selected: null }, ctx);
+            check(real.moonSizing, 'Size option is available at the parent texture threshold');
+            const realPixels = ctx.getImageData(0, 0, W, H).data;
+            let realRing = 0, magnitudeRing = 0;
+            for (let y = H / 2 - 4; y <= H / 2 + 4; y++) for (let x = W / 2 - 4; x <= W / 2 + 4; x++) {
+              const radius = Math.hypot(x - W / 2, y - H / 2);
+              if (radius < 2.5 || radius > 4) continue;
+              const i = 4 * (y * W + x);
+              for (let c = 0; c < 3; c++) { realRing += realPixels[i + c]; magnitudeRing += actual[i + c]; }
+            }
+            check(magnitudeRing > 100 && realRing < magnitudeRing * 0.2, 'Actual size removes the magnitude-based enlargement');
+          }
           moonSurfaces.push({ name, dt, scale: view.scale, mean: difference / count });
         }
       }
@@ -345,12 +361,21 @@ try {
     localStorage.setItem('imks-coelum-mode', 'sky');
     const t = Date.parse('2026-11-24T21:00:00Z') / 1000, place = [41.892, 12.511, 20];
     const explorer = mountCoelum(host, { t, place, label: 'Rome' }, String, { standalone: true });
+    const sizing = host.querySelector('.coelum-moon-sizing'), sizeSelect = host.querySelector('[data-moon-size]');
+    if (!sizing.hidden) throw new Error('Moon-size control shown before texture zoom');
     for (const key of ['ground', 'atmosphere', 'labels', 'milkyway']) {
       const box = host.querySelector(`[data-layer="${key}"]`); box.checked = false;
       box.dispatchEvent(new Event('change', { bubbles: true }));
     }
     explorer.focus('Ganymede', { fit: true, field: 0.005 });
     await new Promise((r) => setTimeout(r, 750));
+    if (sizing.hidden) throw new Error('Moon-size control missing at texture zoom');
+    sizeSelect.value = 'actual'; sizeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    if (localStorage.getItem('imks-coelum-moon-size') !== 'actual') throw new Error('Moon-size preference was not saved');
+    host.querySelector('[data-view="chart"]').click();
+    if (!sizing.hidden) throw new Error('Moon-size control shown in Chart');
+    host.querySelector('[data-view="sky"]').click();
+    if (sizing.hidden || sizeSelect.value !== 'actual') throw new Error('Moon-size preference lost on switching views');
     host.querySelector('[data-action="lock"]').click();
     const svg = host.querySelector('.coelum-full');
     while (Number(svg.dataset.scale) < 120000) host.querySelector('[data-action="in"]').click();
@@ -371,6 +396,8 @@ try {
       samples.push({ dt, scale, surfaceValues: values.size, radius: moon.diameter / 2 * R * radius / 2 });
     }
     if (host.querySelector('[data-action="lock"]').getAttribute('aria-pressed') !== 'true') throw new Error('Moon lock was lost');
+    host.querySelector('.coelum-full').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    if (!sizing.hidden) throw new Error('Moon-size control remains after zooming out');
     host.remove();
     return samples;
   });

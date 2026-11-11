@@ -239,7 +239,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   try { if (localStorage.getItem('imks-coelum-mode') === 'sky') mode = 'sky'; } catch { /* private mode */ }
   root.dataset.mode = mode;
   root.innerHTML = `<div class="coelum-topbar coelum-hud">
-      <div class="coelum-search">${ICONS.search}<input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="Search" aria-label="Search stars, planets, deep-sky objects and surface features" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><div class="coelum-search-dropdown" hidden><ul class="coelum-results" id="${id}-results" role="listbox" aria-label="Matches" hidden></ul><div class="coelum-search-key"></div><div class="coelum-search-hint" role="status" hidden></div></div></div>
+      <div class="coelum-search">${ICONS.search}<input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="Search" aria-label="Search stars, planets, deep-sky objects and surface features" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-results"><button type="button" class="coelum-btn coelum-search-clear" aria-label="Clear search" title="Clear search" hidden>${ICONS.close}</button><div class="coelum-search-dropdown" hidden><ul class="coelum-results" id="${id}-results" role="listbox" aria-label="Matches" hidden></ul><div class="coelum-search-key"></div><div class="coelum-search-hint" role="status" hidden></div></div></div>
       <div class="coelum-seg" role="group" aria-label="View">${Object.entries(MODES).map(([m, label]) => `<button type="button" data-view="${m}" aria-pressed="${m === mode}" title="${m === 'chart' ? 'Map-like star chart' : 'Realistic sky'}">${ICONS[m]}<span>${label}</span></button>`).join('')}</div>
       ${options.standalone ? '' : `<button type="button" class="coelum-btn" data-action="fullscreen" aria-pressed="false" aria-label="Full screen" title="Full screen">${ICONS.expand}</button>`}
     </div>
@@ -300,7 +300,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       </div>
       <p class="coelum-toast" role="status" aria-live="polite" hidden></p>
       <div class="coelum-panel coelum-legend" id="${id}-legend" role="group" aria-label="Legend" hidden>
-        <button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="close-panel" aria-label="Close legend">${ICONS.close}</button>${chartLegend()}
+        <button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="close-panel" aria-label="Close legend">${ICONS.close}</button><div class="coelum-legend-body">${chartLegend()}</div>
       </div>
     </div>
     <div class="coelum-timebar coelum-hud">
@@ -309,11 +309,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       <div class="coelum-controls" role="toolbar" aria-label="Time">
         <button type="button" class="coelum-btn coelum-btn-text" data-action="back" aria-label="One hour earlier" title="One hour earlier">−1 h</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="slower" aria-label="Decrease playback speed (about half)" title="Decrease playback speed (about half)">÷2</button>
-        <button type="button" class="coelum-btn coelum-play" data-action="play" aria-label="Play" title="Play">${ICONS.play}</button>
+        <button type="button" class="coelum-btn coelum-play" data-action="play" aria-pressed="false" aria-label="Play" title="Play">${ICONS.play}</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="faster" aria-label="Increase playback speed (about double)" title="Increase playback speed (about double)">×2</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="forward" aria-label="One hour later" title="One hour later">+1 h</button>
         <button type="button" class="coelum-btn" data-action="reverse" aria-pressed="false" aria-label="Reverse playback direction" title="Reverse playback direction">${ICONS.reverse}</button>
-        <button type="button" class="coelum-btn" data-action="reset" aria-label="Back to the original time, place and view" title="Back to the original time, place and view · Hold to check for app updates">${ICONS.reset}</button>
+        <button type="button" class="coelum-btn" data-action="reset" aria-label="Back to the original time, place, view and star brightness" title="Back to the original time, place, view and star brightness · Hold to check for app updates">${ICONS.reset}</button>
         <button type="button" class="coelum-btn" data-action="orient" aria-pressed="false" aria-label="Follow the phone's orientation" title="Follow the phone's orientation"${orientationSupported() ? '' : ' hidden'}>${ICONS.orient}</button>
       </div>
     </div>
@@ -331,6 +331,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   setMinorBodies(options.minorBodies?.() || []);
   setSatellites(satelliteList());
   let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null, unlitLunar = null, detailHTML = '';
+  let realTime = false;
+  const timeHistory = [];
+  const jumpTime = (time, remember = true) => {
+    const next = limitTime(time);
+    if (remember && next !== t) timeHistory.push(t);
+    realTime = false; t = next; animator = null; last = performance.now();
+  };
   let animator = null, animation = 0, lastUI = -Infinity, frameNumber = 0, speed = 60, flight = 0, interacting = false, settleTimer = 0;
   // Suppress daylight and refraction once a day passes in a real second,
   // without changing the atmosphere preference saved in the layer controls.
@@ -373,7 +380,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
 
   const setSpeed = (value) => {
-    speed = value; last = performance.now(); animator = null;
+    realTime = false; speed = value; last = performance.now(); animator = null;
     const output = $('[data-speed]');
     output.dataset.rate = String(speed);
     output.textContent = formatPlaybackSpeed(speed);
@@ -447,12 +454,19 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     ruler.firstChild.style.width = `${Math.round(a / perPixel)}px`;
     if (ruler.lastChild.textContent !== text) ruler.lastChild.textContent = text;
   };
+  let legendKey = '';
   const draw = (recompute = false) => {
     const drawStart = performance.now();
     cancelAnimationFrame(pending); pending = 0;
     if (recompute) { animator = null; frame = skyFrame(t, place); }
     svg.setAttribute('viewBox', `0 0 ${size} ${height}`);
     svg.dataset.time = String(t);
+    svg.dataset.starBoost = String(layers[mode].starBoost || 0);
+    const key = `${layers.chart.starBoost || 0},${views.chart.scale},${layers.chart.magnitude}`;
+    if (key !== legendKey) {
+      legendKey = key;
+      $('.coelum-legend-body').innerHTML = chartLegend({ ...layers.chart, scale: views.chart.scale });
+    }
     if (playing) {
       if (!animator) animator = createSkyAnimator(t, place, layers[mode], speed);
       frame = animator(t);
@@ -500,7 +514,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     animation = 0;
     if (!root.isConnected || !playing) return;
     if (!document.hidden) {
-      const next = t + Math.min(0.1, Math.max(0, (now - last) / 1000)) * speed;
+      const next = realTime ? Date.now() / 1000 : t + Math.min(0.1, Math.max(0, (now - last) / 1000)) * speed;
       t = limitTime(next);
       if (t !== next) { pause(); return; }
       draw();
@@ -513,11 +527,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const button = $('[data-action="play"]'), label = on ? 'Pause' : speed < 0 ? 'Play backward' : 'Play';
     button.innerHTML = on ? ICONS.pause : ICONS.play;
     button.classList.toggle('coelum-backward', speed < 0);
-    button.setAttribute('aria-label', label); button.title = label;
+    button.setAttribute('aria-label', label); button.title = `${label} · Hold to go to now${on ? ' and play in real time' : ''}`;
     button.setAttribute('aria-pressed', String(on));
   };
   const pause = () => {
-    playing = false;
+    playing = false; realTime = false;
     cancelAnimationFrame(animation); animation = 0;
     setPlay(false);
     draw(true);
@@ -814,7 +828,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       + (found.some((e) => e.t === null) ? `<p class="coelum-panel-note">Not on this day: ${found.filter((e) => e.t === null).map((e) => esc(e.label.toLowerCase())).join(', ')}.</p>` : '');
   };
   const setTime = (time) => {
-    t = limitTime(time);
+    jumpTime(time);
     if (playing) pause(); else draw(true);
     if (!panels.time.hidden) showTime();
   };
@@ -972,7 +986,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const showMount = () => {
     const eq = mount === 'equatorial';
     mountButton.textContent = eq ? 'EQ' : 'AZ'; mountButton.setAttribute('aria-pressed', String(eq));
-    mountButton.title = eq ? 'Equatorial: RA and Dec fixed, the pole up (tap for alt-az)' : 'Alt-az: the horizon level (tap for equatorial)';
+    mountButton.title = eq ? 'Equatorial: RA and Dec fixed, the pole up (tap for alt-az) · Hold to hide ground and atmosphere' : 'Alt-az: the horizon level (tap for equatorial) · Hold to show ground and atmosphere';
   };
   const setMount = (m) => {
     const F0 = mountMatrix(), chart = horizonCamera(views.chart.rotation, F0), sky = views.sky && fromMount(horizontalVector(views.sky.alt, views.sky.az), F0);
@@ -1056,6 +1070,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // Search: matches as you type; Enter or a tap flies to the object.
   let matches = [], active = -1;
   const showResults = () => {
+    $('.coelum-search-clear').hidden = !input.value;
     results.hidden = searchDropdown.hidden = !matches.length;
     searchHint.hidden = true;
     input.setAttribute('aria-expanded', String(!results.hidden));
@@ -1109,6 +1124,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       if (o) { select(o.name); goTo(o, { fit: true }); }
     }
   };
+  $('.coelum-search-clear').addEventListener('click', () => {
+    ++searchChoice; input.value = ''; matches = []; active = -1; showResults(); input.focus();
+  });
   input.addEventListener('input', () => { matches = searchSky(frame, input.value); active = matches.length ? 0 : -1; showResults(); });
   input.addEventListener('focus', () => { if (input.value) { matches = searchSky(frame, input.value); active = matches.length ? 0 : -1; showResults(); } });
   input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) { matches = []; showResults(); } }, 150));
@@ -1175,6 +1193,60 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   });
   for (const type of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture']) resetButton.addEventListener(type, cancelResetHold);
   resetButton.addEventListener('contextmenu', (ev) => { ev.preventDefault(); });
+  // A hold performs one action; the release must not also trigger a tap.
+  const controlHolds = new Map();
+  for (const action of ['play', 'back', 'forward', 'reverse', 'in', 'out', 'mount']) {
+    const button = $(`[data-action="${action}"]`);
+    const state = { timer: 0, pointer: null, held: false, start: null, animation: 0 };
+    controlHolds.set(button, state);
+    const cancel = () => { clearTimeout(state.timer); cancelAnimationFrame(state.animation); state.animation = 0; state.timer = 0; state.pointer = null; };
+    state.cancel = cancel;
+    const hint = action === 'in' ? 'brighten stars continuously' : action === 'out' ? 'dim stars continuously' : action === 'play' ? 'go to now' : action === 'reverse' ? 'undo the last time jump' : action === 'back' ? 'go one day earlier' : 'go one day later';
+    if (action !== 'mount') button.title += ` · Hold to ${hint}`;
+    button.addEventListener('pointerdown', (ev) => {
+      if (!ev.isPrimary || ev.button !== 0) return;
+      cancel(); state.held = false; state.pointer = ev.pointerId;
+      state.start = { x: ev.clientX, y: ev.clientY };
+      state.timer = setTimeout(() => {
+        state.held = true; cancel();
+        if (!root.isConnected) return;
+        if (action === 'mount') {
+          const observer = mount === 'altaz';
+          layers.chart.ground = layers.sky.ground = layers.sky.atmosphere = observer;
+          syncLayers(); draw(true);
+          say(observer ? 'Ground and atmosphere shown.' : 'Ground and atmosphere hidden.');
+          return;
+        }
+        if (action === 'in' || action === 'out') {
+          let previous = performance.now();
+          const adjust = (now) => {
+            if (!root.isConnected || document.hidden) { cancel(); return; }
+            const boost = Math.max(-4, Math.min(4, (layers.sky.starBoost || 0) + (action === 'in' ? 1 : -1) * Math.min(0.1, (now - previous) / 1000)));
+            layers.sky.starBoost = layers.chart.starBoost = boost;
+            previous = now; draw();
+            state.animation = requestAnimationFrame(adjust);
+          };
+          state.pointer = ev.pointerId;
+          state.animation = requestAnimationFrame(adjust);
+          return;
+        }
+        if (action === 'play') {
+          jumpTime(Date.now() / 1000);
+          if (playing) { setSpeed(1); realTime = true; }
+        } else if (action === 'reverse') {
+          if (timeHistory.length) jumpTime(timeHistory.pop(), false);
+        } else jumpTime(t + (action === 'back' ? -86400 : 86400));
+        draw(true);
+        if (!panels.time.hidden) showTime();
+      }, 800);
+    });
+    button.addEventListener('pointermove', (ev) => {
+      if (ev.pointerId === state.pointer && Math.hypot(ev.clientX - state.start.x, ev.clientY - state.start.y) > 10) cancel();
+    });
+    for (const type of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture']) button.addEventListener(type, cancel);
+    button.addEventListener('contextmenu', (ev) => ev.preventDefault());
+  }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) for (const hold of controlHolds.values()) hold.cancel(); });
   root.addEventListener('click', async (ev) => {
     const download = ev.target.closest('[data-download]')?.dataset.download;
     if (download) {
@@ -1214,6 +1286,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (viewButton) { setMode(viewButton.dataset.view); return; }
     const button = ev.target.closest('[data-action]'), action = button?.dataset.action;
     if (!action) return;
+    const hold = controlHolds.get(button);
+    if (hold?.held) { hold.held = false; ev.preventDefault(); return; }
     if (action === 'reset' && resetHeld) { resetHeld = false; ev.preventDefault(); return; }
     if (action === 'fullscreen') fullscreen(!immersive());
     else if (action === 'layers' || action === 'legend' || action === 'time' || action === 'place' || action in panels) showPanel(action);
@@ -1244,9 +1318,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       if (action === 'reset') {
         stopOrientation(); setLock(null); closeMoons();
         if (place.some((x, i) => x !== (model.place[i] ?? 0))) await setPlace({ lat: model.place[0], lon: model.place[1], h: model.place[2] || 0, name: model.label });
-        t = model.t; setSpeed(60); pause(); fit();
+        layers.sky.starBoost = layers.chart.starBoost = 0;
+        jumpTime(model.t); setSpeed(60); pause(); fit();
       }
-      else t = limitTime(t + (action === 'back' ? -3600 : 3600));
+      else jumpTime(t + (action === 'back' ? -3600 : 3600));
       draw(true);
     }
   });
@@ -1431,7 +1506,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   const explorer = {

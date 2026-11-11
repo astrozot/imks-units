@@ -886,20 +886,20 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     labels.push({ ...q, name: o.name, color: deepColor(o.type), r: deepSize + 1, priority: 3 });
   }
   for (const o of frame.stars) {
-    if (o.mag > opts.magnitude) continue;
-    const r = starRadius(o.mag, scale), q = add(o, r);
+    if (o.mag - (opts.starBoost || 0) > opts.magnitude) continue;
+    const r = starRadius(o.mag - (opts.starBoost || 0), scale), q = add(o, r);
     if (!q) continue;
     starSymbol(p, o, q.x, q.y, r, starTint(o.bv));
     if (o.name === view.selected || o.named && o.mag < (scale > 2 ? 4.5 : 2)) labels.push({ ...q, name: o.name, color: c.label, r, priority: 2 });
   }
   // Downloaded stars: fainter ones appear as the chart is zoomed in.
   // by tint, so that thousands are filled at once
-  const faintLimit = Math.min(opts.magnitude, 6 + 1.25 * Math.log2(scale)), tints = new Map();
+  const faintLimit = Math.min(opts.magnitude, 6 + 1.25 * Math.log2(scale)) + (opts.starBoost || 0), tints = new Map();
   if (faintLimit > 6) eachFaint(frame, faintLimit, (i, v, mag, bv) => {
     if (opts.ground && v[2] < 0) return;
     const pv = projectVector(v, rotation), x = cx + pv.x * radius, y = cy + pv.y * radius;
     if (x < -2 || x > W + 2 || y < -2 || y > H + 2) return;
-    const r = Math.max(0.45, starRadius(mag, scale) * 0.9), tint = starTint(bv);
+    const r = Math.max(0.45, starRadius(mag - (opts.starBoost || 0), scale) * 0.9), tint = starTint(bv);
     if (!tints.has(tint)) tints.set(tint, []);
     tints.get(tint).push(x, y, r);
     objects.push(new FaintHit(i, x, y, r));
@@ -971,10 +971,10 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
 }
 
 // Legend for the chart, with the same symbols.
-export function chartLegend() {
+export function chartLegend({ starBoost = 0, scale = 1, magnitude = 6 } = {}) {
   const icon = (draw, w = 28) => { const p = pen(null); draw(p); return `<svg viewBox="0 0 ${w} 20" width="${w}" height="20" aria-hidden="true">${p.svg}</svg>`; };
   const star = (o, r, color = '#f3f5fa') => icon((p) => starSymbol(p, o, 14, 10, r, color));
-  const mags = [-1, 0, 1, 2, 3, 4, 5, 6].map((m) => `<span class="coelum-mag"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="${starRadius(m).toFixed(2)}" fill="#f3f5fa"/></svg>${m}</span>`).join('');
+  const mags = Array.from({ length: Math.max(1, Math.floor(magnitude + starBoost) + 2) }, (_, i) => i - 1).map((m) => `<span class="coelum-mag"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="${starRadius(m - starBoost, scale).toFixed(2)}" fill="#f3f5fa"/></svg>${m}</span>`).join('');
   const row = (svg, label) => `<li>${svg}<span>${label}</span></li>`;
   const lineIcon = (st) => icon((p) => p.path('M2,10H26', st));
   return `<h3>Legend</h3><p class="coelum-mags" aria-label="Star magnitudes">${mags}</p><ul>

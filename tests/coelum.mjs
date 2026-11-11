@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createCalculator } from '../js/defs.js';
-import { PLAYBACK_SPEEDS, stepPlaybackSpeed, formatPlaybackSpeed, playbackBodyVisible, SOLAR_BODIES, lookAt, skyFrame, createSkyAnimator, skyChart, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
+import { PLAYBACK_SPEEDS, stepPlaybackSpeed, formatPlaybackSpeed, playbackBodyVisible, SOLAR_BODIES, lookAt, skyFrame, createSkyAnimator, skyChart, chartLegend, starRadius, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
 import { horizontal, siderealTime, aspect, opposition } from '../js/astro.js';
 import { STARS } from '../js/catalog.js';
 import { CONSTELLATIONS } from '../js/skydata.js';
@@ -400,4 +400,23 @@ for (const phase of [0, 45, 90, 135, 180]) {
   assert.equal(q.x, 6, 'Parallel label slides along the viewport edge');
   assert.equal(q.y, 88);
 }
-console.log('Coelum geometry, catalogs and calculator checks passed');
+
+// Star brightness changes symbol sizes and the set of visible stars together.
+{
+  const frame = skyFrame(model.coelum.t, model.coelum.place);
+  const view = { rotation: SKY_IDENTITY, scale: 1 };
+  const normal = skyChart(frame, 600, 600, { ground: false, labels: false }, view);
+  const bright = skyChart(frame, 600, 600, { ground: false, labels: false, starBoost: 2 }, view);
+  const dim = skyChart(frame, 600, 600, { ground: false, labels: false, starBoost: -2 }, view);
+  const stars = (scene) => scene.objects.filter((o) => o.type === 'star' && !o.body);
+  assert.ok(stars(dim).length < stars(normal).length);
+  assert.ok(stars(bright).length > stars(normal).length);
+  const shared = stars(dim).find((o) => o.mag > 2);
+  assert.ok(shared);
+  assert.ok(stars(bright).find((o) => o.name === shared.name).radius > shared.radius);
+  const legend = chartLegend({ starBoost: 2, scale: 2 });
+  assert.ok(legend.includes(`r="${starRadius(4 - 2, 2).toFixed(2)}"`));
+  assert.match(legend, /<\/svg>8<\/span>/);
+  assert.doesNotMatch(chartLegend({ starBoost: -2 }), /<\/svg>5<\/span>/);
+}
+console.log('Coelum geometry, catalogs, brightness and calculator checks passed');
