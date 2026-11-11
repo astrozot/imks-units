@@ -37,8 +37,38 @@ try {
   await page.waitForSelector('.coelum-full');
   await page.locator('[data-action="layers"]').click();
   assert.equal(await page.locator('[data-limit] option[value="12"]').evaluate((o) => o.disabled), true);
-  await page.locator('[data-download="12"]').click();
+  const radios = page.locator('.coelum-catalog-choices input[type="radio"]');
+  assert.equal(await radios.count(), 4);
+  assert.equal(await page.locator('.coelum-catalog-choices input:checked').count(), 0);
+  for (const width of [320, 360, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    const layout = await page.locator('.coelum-catalog-choices').evaluate((row) => {
+      const r = row.getBoundingClientRect();
+      if (!r.width) return null;
+      return [...row.children].map((label) => {
+        const b = label.getBoundingClientRect(), text = label.querySelector('small').getBoundingClientRect();
+        return { top: b.top, left: b.left, right: b.right, textLeft: text.left, textRight: text.right, rowLeft: r.left, rowRight: r.right, fits: b.left >= r.left && b.right <= r.right + 1 && text.left >= b.left && text.right <= b.right + 1 };
+      });
+    });
+    if (layout) assert.ok(layout.every((item) => item.top === layout[0].top && item.fits), `Four catalog radios fit on one row at ${width}px: ${JSON.stringify(layout)}`);
+    else {
+      assert.equal(await page.locator('[data-catalog-select]').isVisible(), true, `Dropdown replaces cramped radios at ${width}px`);
+      assert.equal(await page.locator('[data-catalog-select]').evaluate((select) => select.scrollWidth <= select.clientWidth), true);
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.deepEqual(await page.locator('[data-catalog-space]').allTextContents(), ['+ 1.3 MB', '+ 8.3 MB', '+ 18.4 MB', '+ 58.9 MB']);
+  await page.setViewportSize({ width: 360, height: 844 });
+  await page.locator('[data-catalog-select]').selectOption('12');
   await page.waitForFunction((n) => document.querySelector('.coelum-faint-note').textContent.includes(n.toLocaleString('en')), metadata.stars, { timeout: 60000 });
+  assert.equal(await page.locator('[data-download="12"]').isChecked(), true);
+  assert.equal(await page.locator('[data-catalog-select]').inputValue(), '12');
+  assert.deepEqual(await page.locator('[data-catalog-space]').allTextContents(), ['− 57.5 MB', '− 50.6 MB', '− 40.4 MB', '0.0 MB']);
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (process.env.CATALOG_SCREENSHOT) {
+    await page.locator('.coelum-catalog-choices').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: process.env.CATALOG_SCREENSHOT });
+  }
   await page.locator('[data-limit]').selectOption('12');
   const sample = await page.evaluate(async () => {
     const { readStars } = await import('/js/coelum.js');
@@ -93,6 +123,8 @@ try {
   await page.locator('[data-action="layers"]').click();
   await page.waitForFunction((n) => document.querySelector('.coelum-faint-note').textContent.includes(n.toLocaleString('en')), metadata.stars);
   assert.equal(await page.locator('[data-limit] option[value="12"]').evaluate((o) => o.disabled), false);
+  assert.equal(await page.locator('[data-download="12"]').isChecked(), true);
+  assert.equal(await page.locator('[data-catalog-select]').inputValue(), '12');
   // iMKS uses the same stored data after navigation.
   await context.setOffline(false);
   await page.goto(`${origin}/`); await page.waitForSelector('#expr');

@@ -2,6 +2,7 @@
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
 import { PhoneOrientation } from './phoneorientation.js';
+import { followGuide } from './followguide.js';
 import { moonEventsPanel } from './mooneventspanel.js';
 import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, satelliteList, satelliteStatus } from './satellites.js';
 import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
@@ -21,20 +22,21 @@ import { pickMarsFeature, marsFeatureDetails, findMarsFeature, marsFeatureTarget
 // next to iMKS's page, whichever app (iMKS or Coelum) downloads them.
 const appFile = (name) => new URL(`../${name}`, import.meta.url).href;
 const STAR_FILES = {
-  8: { url: appFile('data/stars-8.bin'), label: 'to magnitude 8', size: '1.3 MB' },
-  10: { url: appFile('data/stars-10.bin'), label: 'to magnitude 10', size: '8.3 MB' },
-  11: { url: appFile('data/stars-11.bin'), label: 'to magnitude 11', size: '18.4 MB' },
-  12: { url: appFile('data/stars-12.bin'), label: 'to magnitude 12', size: '58.9 MB' },
+  8: { url: appFile('data/stars-8.bin'), label: 'to magnitude 8', bytes: 1341024 },
+  10: { url: appFile('data/stars-10.bin'), label: 'to magnitude 10', bytes: 8319640 },
+  11: { url: appFile('data/stars-11.bin'), label: 'to magnitude 11', bytes: 18442736 },
+  12: { url: appFile('data/stars-12.bin'), label: 'to magnitude 12', bytes: 58885080 },
 };
 const STAR_CACHE = 'imks-data-stars', STAR_KEY = appFile('coelum-faint-stars.bin');
-let faintVariant = null, faintLoading = null;
+let faintVariant = null, faintLoading = null, faintBytes = 0;
 function loadFaintStars() {
   if (!faintLoading) faintLoading = (async () => {
     try {
       const res = await (await caches.open(STAR_CACHE)).match(STAR_KEY);
       if (!res) return;
       try {
-        setFaintStars(await res.arrayBuffer());
+        const data = await res.arrayBuffer();
+        setFaintStars(data); faintBytes = data.byteLength;
         faintVariant = res.headers.get('x-variant');
       } catch { await removeFaintStars(); }
     } catch { /* no Cache Storage (private mode): nothing stored */ }
@@ -45,23 +47,27 @@ async function downloadFaintStars(variant, progress) {
   // no-store: past the service worker, which would keep a second copy
   const res = await fetch(STAR_FILES[variant].url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`download failed (${res.status})`);
-  const total = Number(res.headers.get('content-length')) || 0, reader = res.body.getReader(), parts = [];
+  // Fetch decodes compressed responses; Content-Length can be the smaller
+  // compressed transfer size. Compare decoded bytes with the catalog's size.
+  const total = STAR_FILES[variant].bytes, reader = res.body.getReader(), parts = [];
   let got = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     parts.push(value); got += value.length;
-    if (total) progress(got / total);
+    progress(Math.min(0.99, got / total));
   }
+  if (got !== total) throw new Error('catalog download has an unexpected size');
   const data = await new Blob(parts).arrayBuffer();
   parts.length = 0;
   setFaintStars(data);
-  faintVariant = variant;
+  faintVariant = variant; faintBytes = data.byteLength;
+  progress(1);
   try { await (await caches.open(STAR_CACHE)).put(STAR_KEY, new Response(data, { headers: { 'x-variant': variant } })); } catch { /* kept for this session */ }
 }
 async function removeFaintStars() {
   try { await caches.delete(STAR_CACHE); } catch { /* nothing stored */ }
-  faintVariant = null;
+  faintVariant = null; faintBytes = 0;
   setFaintStars(null);
 }
 
@@ -248,6 +254,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     </div>
     <div class="coelum-viewport">
       <canvas class="coelum-canvas" aria-hidden="true"></canvas><svg class="coelum-full" viewBox="0 0 600 600" role="img" tabindex="0" aria-label="Interactive sky; drag to look around, pinch or scroll to zoom"></svg>
+      <svg class="coelum-follow-guide" hidden role="img" aria-label="Find selected object">
+        <g class="coelum-follow-marker"><circle/><path d="M0 0H18M10 -8L18 0 10 8"/></g>
+        <text text-anchor="middle"></text>
+      </svg>
       <div class="coelum-rail coelum-hud" role="toolbar" aria-label="View" aria-orientation="vertical">
         <button type="button" class="coelum-btn" data-action="in" aria-label="Zoom in" title="Zoom in">${ICONS.plus}</button>
         <button type="button" class="coelum-btn" data-action="out" aria-label="Zoom out" title="Zoom out">${ICONS.minus}</button>
@@ -273,8 +283,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-downloads coelum-satellites"><h3>Satellites</h3>
           <div class="coelum-switches">${SAT_GROUPS.map(([g, label]) => `<label><input type="checkbox" role="switch" data-satellite-group="${g}"><span>${label}</span></label>`).join('')}</div>
           <p class="coelum-panel-note coelum-satellite-note"></p><button type="button" class="coelum-chip" data-satellites="update">Update now</button></div>
-        <div class="coelum-downloads"><h3>Fainter stars</h3><p class="coelum-panel-note coelum-faint-note"></p>
-          <div class="coelum-download-buttons">${Object.entries(STAR_FILES).map(([k, f]) => `<button type="button" class="coelum-chip" data-download="${k}">${f.label[0].toUpperCase() + f.label.slice(1)} · ${f.size}</button>`).join('')}<button type="button" class="coelum-chip" data-download="remove">Remove</button></div></div>
+        <div class="coelum-downloads coelum-star-downloads"><h3>Fainter stars</h3><p class="coelum-panel-note coelum-faint-note"></p>
+          <div class="coelum-catalog-choices" role="radiogroup" aria-label="Downloaded star catalog">${Object.keys(STAR_FILES).map((k) => `<label><span><input type="radio" name="${id}-catalog" value="${k}" data-download="${k}"> ${k}</span><small data-catalog-space="${k}"></small></label>`).join('')}</div><label class="coelum-catalog-select">Magnitude limit <select data-catalog-select><option value="" disabled>Choose a catalog</option>${Object.keys(STAR_FILES).map((k) => `<option value="${k}">${k}</option>`).join('')}</select></label><button type="button" class="coelum-chip" data-download="remove">Remove</button></div>
       </div>
       ${extra.map((p) => `<div class="coelum-panel coelum-extra" id="${id}-${p.key}" data-panel="${p.key}" role="group" aria-label="${esc(p.label)}" hidden>
         <div class="coelum-panel-head"><h3>${esc(p.label)}</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close ${esc(p.label.toLowerCase())}">${ICONS.close}</button></div>
@@ -335,6 +345,28 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   setSatellites(satelliteList());
   let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null, unlitLunar = null, detailHTML = '';
   let realTime = false;
+  let followTarget = null;
+  const guide = $('.coelum-follow-guide'), guideMarker = guide.querySelector('g'), guideRing = guide.querySelector('circle'), guideArrow = guide.querySelector('path'), guideText = guide.querySelector('text');
+  const clearGuide = () => { followTarget = null; guide.setAttribute('hidden', ''); };
+  const drawGuide = (rotation, scale) => {
+    const o = orient?.tracker.filtered && followTarget && findObject(frame, followTarget);
+    guide.toggleAttribute('hidden', !o);
+    if (!o) return;
+    const direction = mode === 'sky' && atmosphereOn() ? refractVector(pointVector(o), place[2] || 0) : pointVector(o);
+    const g = followGuide(direction, rotation, size, height, mode === 'sky' ? skyRadius(size, height, scale) : chartRadius(size, height, scale), mode === 'sky');
+    guide.setAttribute('viewBox', `0 0 ${size} ${height}`);
+    guideMarker.setAttribute('transform', `translate(${g.x} ${g.y})`);
+    guideRing.setAttribute('r', g.ring);
+    guideArrow.setAttribute('transform', `rotate(${g.bearing}) translate(${g.ring + 7} 0)`);
+    guideArrow.style.display = g.acquired ? 'none' : '';
+    guide.dataset.angle = g.angle.toFixed(2);
+    guide.dataset.radius = g.ring.toFixed(2);
+    guide.dataset.acquired = String(g.acquired);
+    const label = `${o.name} · ${g.acquired ? 'In view' : `${Math.round(g.angle)}° away`}${o.alt < 0 ? ' · Below horizon' : ''}`;
+    const bottom = root.classList.contains('coelum-immersive') ? (parseFloat(root.style.getPropertyValue('--coelum-controls-height')) || 130) + 20 : 74;
+    guideText.setAttribute('x', size / 2); guideText.setAttribute('y', height - bottom);
+    guideText.textContent = label; guide.setAttribute('aria-label', label);
+  };
   const timeHistory = [];
   const jumpTime = (time, remember = true) => {
     const next = limitTime(time);
@@ -504,6 +536,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     }
     canvas.dataset.content = onCanvas ? 'scene' : 'backdrop';
     canvas.dataset.atmosphere = String(mode === 'sky' && atmosphereOn());
+    drawGuide(shown.rotation || lookAt(view.az, view.alt), view.scale);
     updateUI(!playing && !interacting);
     orient?.tracker.drawn(performance.now() - drawStart);
   };
@@ -620,6 +653,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     flight = requestAnimationFrame(frameStep);
   };
   const select = (name, { allowUnlit } = {}) => {
+    if (name !== followTarget) clearGuide();
     if (name !== selected || allowUnlit !== undefined) unlitLunar = allowUnlit ? name : null;
     selected = name;
     if (!selected) { detail.innerHTML = '<p>Tap an object or its label, or search for it, to see its characteristics.</p>'; detailHTML = ''; }
@@ -760,13 +794,36 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     $('[data-horizon]').value = horizon;
     for (const o of $('[data-limit]').options) o.disabled = Number(o.value) > Math.max(6, Math.round(faintDepth()));
   };
-  // Fainter stars: what is stored, and the buttons to change it.
+  // Fainter stars: the stored selection and relative space for each limit.
   const faintNote = $('.coelum-faint-note');
   const showFaint = (text) => {
     const n = faintCount();
     faintNote.textContent = text || (n ? `${n.toLocaleString('en')} more stars stored on this device (${STAR_FILES[faintVariant]?.label || 'downloaded'}); they appear as you zoom in.` : 'Only stars to magnitude 6 are built in. Download more to see fainter ones when zoomed in; they stay on this device for offline use.');
-    for (const b of root.querySelectorAll('[data-download]')) b.hidden = b.dataset.download === 'remove' ? !n : b.dataset.download === faintVariant;
+    for (const radio of root.querySelectorAll('input[data-download]')) {
+      radio.checked = radio.value === faintVariant;
+      const delta = STAR_FILES[radio.value].bytes - faintBytes;
+      const space = root.querySelector(`[data-catalog-space="${radio.value}"]`);
+      space.textContent = `${delta > 0 ? '+ ' : delta < 0 ? '− ' : ''}${(Math.abs(delta) / 1e6).toFixed(1)} MB`;
+      $('[data-catalog-select]').querySelector(`option[value="${radio.value}"]`).textContent = `${radio.value} · ${space.textContent}`;
+    }
+    $('[data-catalog-select]').value = faintVariant || '';
+    $('[data-download="remove"]').hidden = !n;
     syncLayers();
+  };
+  let catalogBusy = false;
+  const changeFaintCatalog = async (variant) => {
+    if (catalogBusy || variant === faintVariant) return;
+    catalogBusy = true;
+    for (const control of root.querySelectorAll('[data-download], [data-catalog-select]')) control.disabled = true;
+    try {
+      await loadFaintStars();
+      if (variant === 'remove') await removeFaintStars();
+      else if (variant !== faintVariant) await downloadFaintStars(variant, (f) => showFaint(`Downloading ${STAR_FILES[variant].label}… ${Math.floor(f * 100)}%`));
+      showFaint();
+    } catch (e) { showFaint(`${e.message}. Try again when online.`); }
+    catalogBusy = false;
+    for (const control of root.querySelectorAll('[data-download], [data-catalog-select]')) control.disabled = false;
+    animator = null; draw(true);
   };
   // Satellites: the groups chosen, how many, how old their elements are;
   // a new catalog redraws the sky.
@@ -935,6 +992,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
   const stopOrientation = (message) => {
     orientationRequest++;
+    clearGuide();
     if (!orient) return;
     // Keep the last complete camera when following stops. Manual sky gestures
     // use az/alt again, so the sky view returns to its level mount.
@@ -1101,6 +1159,17 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     input.value = m.name; matches = []; active = -1; showResults();
     input.blur(); pause(); setLock(null);
     if (moons) closeMoons();
+    if (orient) {
+      // Surface details are much too small for hand-held pointing: guide to
+      // their parent disk, without changing the view, zoom or phone calibration.
+      const name = feature ? feature.key.startsWith('mars:') ? 'Mars' : 'Moon' : m.name;
+      const o = findObject(frame, name);
+      if (o) {
+        stopFlight(); select(o.name); followTarget = o.name; draw();
+        say(`Point the phone toward ${o.name}. Follow the red arrow; pinch to zoom if needed.${feature ? ` Find ${feature.name} on ${o.name}.` : ''}`);
+      }
+      return;
+    }
     if (feature?.key.startsWith('mars:')) {
       if (mode !== 'sky') setMode('sky');
       select(null);
@@ -1129,6 +1198,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     }
   };
   $('.coelum-search-clear').addEventListener('click', () => {
+    clearGuide(); draw();
     ++searchChoice; input.value = ''; matches = []; active = -1; showResults(); input.focus();
   });
   input.addEventListener('input', () => { matches = searchSky(frame, input.value); active = matches.length ? 0 : -1; showResults(); });
@@ -1163,6 +1233,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     else if (immersive() && !options.standalone) { ev.preventDefault(); ev.stopPropagation(); fullscreen(false); }
   });
   root.addEventListener('change', (ev) => {
+    if (ev.target.matches('[data-catalog-select]')) { if (ev.target.value) void changeFaintCatalog(ev.target.value); return; }
+    if (ev.target.matches('input[data-download]')) { void changeFaintCatalog(ev.target.value); return; }
     const L = layers[mode];
     if (ev.target.matches('[data-moon-size]')) {
       moonSize = ev.target.value === 'actual' ? 'actual' : 'magnitude';
@@ -1253,18 +1325,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) for (const hold of controlHolds.values()) hold.cancel(); });
   root.addEventListener('click', async (ev) => {
-    const download = ev.target.closest('[data-download]')?.dataset.download;
-    if (download) {
-      for (const b of root.querySelectorAll('[data-download]')) b.disabled = true;
-      try {
-        if (download === 'remove') await removeFaintStars();
-        else await downloadFaintStars(download, (f) => showFaint(`Downloading ${STAR_FILES[download].label}… ${Math.round(f * 100)}%`));
-        showFaint();
-      } catch (e) { showFaint(`${e.message}. Try again when online.`); }
-      for (const b of root.querySelectorAll('[data-download]')) b.disabled = false;
-      animator = null; draw(true);
-      return;
-    }
+    if (ev.target.closest('[data-download="remove"]')) { await changeFaintCatalog('remove'); return; }
     const timeEvent = ev.target.closest('[data-time-event]')?.dataset.timeEvent;
     if (timeEvent) { setTime(Number(timeEvent)); return; }
     const timeStep = ev.target.closest('[data-time-step]')?.dataset.timeStep;

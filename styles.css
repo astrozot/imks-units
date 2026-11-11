@@ -392,6 +392,10 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-panel, .coelum-topbar, .coelum-timebar { touch-action: pan-y; }
 .coelum-full:active { cursor: grabbing; }
 .coelum-full:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -2px; }
+.coelum-follow-guide { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; pointer-events: none; overflow: hidden; color: #ff5555; }
+.coelum-follow-guide[hidden] { display: none; }
+.coelum-follow-marker { fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 3px #000); }
+.coelum-follow-guide text { fill: #fff; stroke: #111; stroke-width: 4; paint-order: stroke; font: 600 13px system-ui, sans-serif; }
 .coelum-btn { display: inline-grid; place-items: center; flex: none; box-sizing: border-box; width: 40px; height: 40px; padding: 0; border: 1px solid var(--c-line); border-radius: 12px; background: rgba(255, 255, 255, 0.045); color: var(--c-ink); font: 600 14px/1 system-ui, -apple-system, sans-serif; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s; -webkit-tap-highlight-color: transparent; }
 .coelum-btn:hover { background: var(--c-hover); }
 .coelum-btn:active { transform: scale(0.93); }
@@ -469,7 +473,19 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-chip[hidden] { display: none; }
 .coelum-downloads { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--c-line); }
 .coelum-downloads .coelum-panel-note { margin-top: 6px; }
-.coelum-download-buttons { margin-top: 4px; }
+.coelum-catalog-choices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 10px 0 6px; }
+.coelum-catalog-choices label { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; padding: 6px 0; cursor: pointer; }
+.coelum-catalog-choices label > span { display: flex; align-items: center; gap: 4px; }
+.coelum-catalog-choices input { margin: 0; accent-color: var(--c-accent); }
+.coelum-catalog-choices small { color: var(--c-muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.coelum-catalog-choices label:has(input:disabled) { opacity: 0.6; cursor: progress; }
+.coelum-star-downloads { container-type: inline-size; }
+.coelum-catalog-select { display: none; margin: 10px 0; font-size: 12px; }
+.coelum-catalog-select select { display: block; box-sizing: border-box; width: 100%; min-height: 40px; margin-top: 6px; padding: 6px 8px; border: 1px solid var(--c-line); border-radius: 8px; background: var(--c-bg); color: var(--c-muted); font: inherit; font-size: 14px; }
+@container (max-width: 245px) {
+  .coelum-catalog-choices { display: none; }
+  .coelum-catalog-select { display: block; }
+}
 .coelum-legend ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 12px; margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; }
 .coelum-legend li { display: flex; align-items: center; gap: 8px; min-height: 26px; }
 .coelum-legend li svg { flex: none; }
