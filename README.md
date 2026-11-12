@@ -198,6 +198,24 @@ steps. Terrain still shades a spherical surface; this is not a displaced
 mesh or a model of mountain silhouettes for grazing occultations.
 Devices with smaller GPU texture limits use scaled maps. Both apps share
 the download; it survives app updates and can be removed in Layers.
+Phones, touch iPads and devices reporting at most 4 GB of memory use a
+pre-sized 9.1 MB pack instead: 4096 × 2048 colour and 2880 × 1440
+16-bit heights (about 3.8 km spacing at the equator). The pair decodes to
+about 48 MiB instead of 191 MiB, before GPU copies. These are smaller
+source files; decoding the desktop maps and then resizing them would still
+incur the large memory peak. Existing desktop-sized phone downloads are
+replaced automatically when online; offline they fall back to the standard
+maps until the smaller files can be fetched. Heights are averaged before
+packing their two bytes, preserving half-metre encoding.
+Only the active Moon texture level is retained during zooming, temporary
+resize canvases are released after upload, and phone Moon rendering is
+limited to about one million pixels with a 1024 × 1024 lighting-cache
+limit (4 MiB). These are memory budgets in addition to GPU size limits.
+`node tests/lunar-mobile-browser.mjs` checks phone asset selection,
+migration without decoding old large files, repeated zoom allocation,
+Retina buffer limits, partial-decode cleanup and offline restoration.
+Use `BROWSER_ENGINE=webkit` to run it in WebKit (omit `CHROME`). These
+checks emulate the phone profile; they do not measure memory on an iPhone.
 `tools/lunarmaps.py` reproduces the assets from NASA's
 `lroc_color_poles_8k.tif` and `ldem_16_uint.tif` (Pillow and numpy required).
 `node tests/lunar-detail-browser.mjs` checks height-map selection, deep-zoom

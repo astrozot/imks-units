@@ -269,10 +269,46 @@ const MAPS = {
 };
 const maps = new Map();
 const MOON_DETAIL_CACHE = 'imks-data-moon-detail-v1';
-const MOON_DETAIL_FILES = ['moon-8k.jpg', 'moon-heights-16.png'];
+// MAX_TEXTURE_SIZE is a size limit, not a memory budget. In particular,
+// phones can advertise 8K textures without room for decoded images, GPU
+// copies, multiple mip sizes and Retina drawing buffers at the same time.
+const compactMoon = typeof navigator !== 'undefined' && (
+  /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+  (navigator.deviceMemory > 0 && navigator.deviceMemory <= 4));
+const moonDetailProfile = Object.freeze(compactMoon
+  ? { colorWidth: 4096, heightWidth: 2880, heightHeight: 1440, cacheSide: 1024, drawPixels: 1e6, drawSide: 2048 }
+  : { colorWidth: 8192, heightWidth: 5760, heightHeight: 2880, cacheSide: 2048, drawPixels: 4e6, drawSide: 8192 });
+const MOON_DESKTOP_FILES = ['moon-8k.jpg', 'moon-heights-16.png'];
+const MOON_DETAIL_FILES = compactMoon ? ['moon-4k.jpg', 'moon-heights-mobile-16.png'] : MOON_DESKTOP_FILES;
 const moonDetailURL = (file) => new URL(`../img/planets/${file}`, import.meta.url).href;
-const decodeMoonDetail = (responses) => Promise.all(responses.map(async (r) =>
-  createImageBitmap(await r.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' })));
+async function decodeMoonDetail(responses) {
+  const images = [];
+  try {
+    // Sequential decoding bounds temporary memory, and lets us close the
+    // first bitmap if decoding the second fails.
+    for (const r of responses) images.push(await createImageBitmap(await r.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }));
+    return images;
+  } catch (error) { images.forEach((img) => img.close()); throw error; }
+}
+async function fetchMoonDetail(progress = () => {}) {
+  const responses = [];
+  for (const [i, file] of MOON_DETAIL_FILES.entries()) {
+    progress(i ? 'Downloading lunar elevation…' : 'Downloading lunar colour…');
+    const res = await fetch(moonDetailURL(file), { cache: 'no-store' });
+    if (!res.ok) throw new Error(`Moon download failed (${res.status})`);
+    responses.push(new Response(await res.blob()));
+  }
+  return responses;
+}
+async function storeMoonDetail(cache, responses) {
+  // Serialize writes too: do not retain two additional response clones.
+  for (const [i, file] of MOON_DETAIL_FILES.entries()) await cache.put(moonDetailURL(file), responses[i]);
+  if (compactMoon) for (const file of MOON_DESKTOP_FILES) await cache.delete(moonDetailURL(file));
+}
+function planetPixelRatio(w, h, requested) {
+  return Math.min(requested, Math.sqrt(moonDetailProfile.drawPixels / Math.max(1, w * h)), moonDetailProfile.drawSide / Math.max(1, w, h));
+}
 
 async function moonDetailStored() {
   if (maps.has('moon')) {
@@ -281,7 +317,9 @@ async function moonDetailStored() {
   }
   try {
     const cache = await caches.open(MOON_DETAIL_CACHE);
-    return (await Promise.all(MOON_DETAIL_FILES.map((f) => cache.match(moonDetailURL(f))))).every(Boolean);
+    const selected = (await Promise.all(MOON_DETAIL_FILES.map((f) => cache.match(moonDetailURL(f))))).every(Boolean);
+    // An older phone download is migrated without ever decoding its 8K file.
+    return selected || (compactMoon && (await Promise.all(MOON_DESKTOP_FILES.map((f) => cache.match(moonDetailURL(f))))).every(Boolean));
   } catch { return false; }
 }
 
@@ -291,9 +329,18 @@ async function restoreMoonDetail(e) {
   e.baseImages = [e.img, e.heights];
   try {
     const cache = await caches.open(MOON_DETAIL_CACHE);
-    const responses = await Promise.all(MOON_DETAIL_FILES.map((f) => cache.match(moonDetailURL(f))));
+    let responses = await Promise.all(MOON_DETAIL_FILES.map((f) => cache.match(moonDetailURL(f))));
+    let migrated = false;
+    if (!responses.every(Boolean) && compactMoon &&
+        (await Promise.all(MOON_DESKTOP_FILES.map((f) => cache.match(moonDetailURL(f))))).every(Boolean)) {
+      responses = await fetchMoonDetail();
+      migrated = true;
+    }
     if (responses.every(Boolean)) {
-      [e.img, e.heights] = await decodeMoonDetail(responses);
+      const images = await decodeMoonDetail(responses.map((r) => r.clone()));
+      try { if (migrated) await storeMoonDetail(cache, responses); }
+      catch (error) { images.forEach((img) => img.close()); throw error; }
+      [e.img, e.heights] = images;
       e.highResolution = true;
     }
   } catch { /* default maps remain usable without persistent storage */ }
@@ -303,19 +350,13 @@ async function downloadMoonDetail(progress = () => {}) {
   const e = planetMap('moon');
   await e.ready;
   if (!e.img) throw new Error('Could not load the Moon');
-  const responses = [];
-  for (const [i, file] of MOON_DETAIL_FILES.entries()) {
-    progress(i ? 'Downloading lunar elevation…' : 'Downloading lunar colour…');
-    const res = await fetch(moonDetailURL(file), { cache: 'no-store' });
-    if (!res.ok) throw new Error(`Moon download failed (${res.status})`);
-    responses.push(new Response(await res.blob()));
-  }
+  const responses = await fetchMoonDetail(progress);
   const images = await decodeMoonDetail(responses.map((r) => r.clone()));
   // Persistence is part of the download contract: report quota/storage
   // failures and leave the current maps in use so the button can retry.
   try {
     const cache = await caches.open(MOON_DETAIL_CACHE);
-    await Promise.all(MOON_DETAIL_FILES.map((f, i) => cache.put(moonDetailURL(f), responses[i])));
+    await storeMoonDetail(cache, responses);
   } catch (error) {
     images.forEach((img) => img.close());
     await caches.delete(MOON_DETAIL_CACHE).catch(() => {});
@@ -327,10 +368,10 @@ async function downloadMoonDetail(progress = () => {}) {
 }
 
 async function removeMoonDetail() {
-  const e = planetMap('moon');
-  await e.ready;
+  const e = maps.get('moon');
+  if (e) await e.ready;
   await caches.delete(MOON_DETAIL_CACHE);
-  if (e.highResolution) {
+  if (e?.highResolution) {
     e.img.close(); e.heights.close();
     [e.img, e.heights] = e.baseImages;
     e.highResolution = false;
@@ -1004,6 +1045,13 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s, { lunarCache = true } = {}) {
     while (tw > gl.getParameter(gl.MAX_TEXTURE_SIZE)) tw /= 2;
     while (tw > 64 && tw / 2 >= 2 * Math.PI * s * 2) tw /= 2;
     const key = `${m.planet}:${m.map.e.highResolution ? "high:" : ""}${tw}`;
+    // Zooming used to accumulate every uploaded Moon size, including an
+    // 8K texture after zooming back out. Keep just the active albedo level.
+    if (m.planet === 'moon') for (const [oldKey, oldTex] of r.textures) {
+      if (oldKey.startsWith('moon:') && !oldKey.startsWith('moon:heights:') && oldKey !== key) {
+        gl.deleteTexture(oldTex); r.textures.delete(oldKey);
+      }
+    }
     let tex = r.textures.get(key);
     if (!tex) {
       let source = img;
@@ -1017,6 +1065,7 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s, { lunarCache = true } = {}) {
       tex = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, source);
+      if (source !== img) source.width = source.height = 1;
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
@@ -1133,7 +1182,8 @@ function cacheLunarLighting(r, m, sky, x0, y0, w, h, s, heightSize) {
     const T = covered ? c.top : (Math.ceil(top * density) + pad) / density;
     const cols = covered ? c.cols : Math.ceil((right - L) * density) + pad;
     const rows = covered ? c.rows : Math.ceil((T - bottom) * density) + pad;
-    if (cols > Math.min(2048, gl.getParameter(gl.MAX_TEXTURE_SIZE)) || rows > Math.min(2048, gl.getParameter(gl.MAX_TEXTURE_SIZE))) return;
+    const maxSide = Math.min(moonDetailProfile.cacheSide, gl.getParameter(gl.MAX_TEXTURE_SIZE));
+    if (cols > maxSide || rows > maxSide) return;
     if (!c) {
       c = r.lunarLighting = { texture: gl.createTexture(), framebuffer: gl.createFramebuffer(), ...planetProgram(gl, 'LUNAR_LIGHT_PASS') };
     }
@@ -1198,6 +1248,7 @@ function bindScaled(r, key, img, w, h, unit, wrap) {
         g.drawImage(img, 0, 0, w, h);
       }
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, source);
+      if (source !== img) source.width = source.height = 1;
     }
     for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, wrap ? gl.REPEAT : gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
     r.textures.set(key, tex);
@@ -1217,6 +1268,7 @@ function planetBox(sky, W, H, cx, cy, s) {
 // The planet in a canvas covering the view, k pixels per pixel of the view:
 // on the GPU (then true), or else in JavaScript
 function drawPlanet(canvas, sky, W, H, cx, cy, s, k) {
+  if (sky.planet === 'moon') k = planetPixelRatio(W, H, k);
   if (tracePlanet(canvas, sky, cx - W / 2 / s, cy + H / 2 / s, Math.round(W * k), Math.round(H * k), s * k)) return true;
   canvas.width = Math.round(W * k);
   canvas.height = Math.round(H * k);
@@ -1441,4 +1493,4 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
   };
 }
 
-export { moonDetailStored, downloadMoonDetail, removeMoonDetail, lunarShadowLight, lunarShadowMean, lunarEclipseColor, surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap, solarSegment, globeCoverage, ringCoverage };
+export { moonDetailProfile, planetPixelRatio, moonDetailStored, downloadMoonDetail, removeMoonDetail, lunarShadowLight, lunarShadowMean, lunarEclipseColor, surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap, solarSegment, globeCoverage, ringCoverage };

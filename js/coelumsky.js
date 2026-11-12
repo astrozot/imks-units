@@ -4,7 +4,7 @@
 // phase, and a landscape in front. Always drawn on a canvas.
 import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
-import { covered, tracePlanet, planetMap, earthshineBrightness, lunarShadowLight, lunarShadowMean, lunarEclipseColor } from './skyview.js';
+import { covered, tracePlanet, planetMap, planetPixelRatio, earthshineBrightness, lunarShadowLight, lunarShadowMean, lunarEclipseColor } from './skyview.js';
 import { moonDisk, moons, planetDisk, equatorial, earthShadow } from './astro.js';
 import { projectLunarFeatures, LUNAR_COLOR } from './lunarfeatures.js';
 import { projectMarsFeatures, MARS_COLOR } from './marsfeatures.js';
@@ -436,7 +436,9 @@ function traceSurface(ctx, disk, q, r, north, { W, H }, alpha, { center = { x: 0
   const extent = r * reach;
   const L = Math.max(-extent, Math.min(...xs)), Rt = Math.min(extent, Math.max(...xs)), T = Math.max(-extent, Math.min(...ys)), B = Math.min(extent, Math.max(...ys));
   if (Rt <= L || B <= T) return true;
-  const k = Math.min(2, window.devicePixelRatio || 1), w = Math.ceil((Rt - L) * k), h = Math.ceil((B - T) * k);
+  const requested = Math.min(2, window.devicePixelRatio || 1);
+  const k = disk.planet === 'moon' ? planetPixelRatio(Rt - L, B - T, requested) : requested;
+  const w = Math.ceil((Rt - L) * k), h = Math.ceil((B - T) * k);
   if (!tracePlanet(surfaceCanvas, disk, center.x + L / r, center.y - T / r, w, h, r * k)) return false;
   ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(north);
   ctx.globalCompositeOperation = disk.moonsOnly ? 'source-over' : disk.planet === 'moon' ? 'lighter' : disk.planet === 'venus' || disk.planet === 'mercury' ? 'source-over' : 'screen'; ctx.globalAlpha = alpha;
