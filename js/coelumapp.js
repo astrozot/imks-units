@@ -37,7 +37,12 @@ const zoneOverrides = store.get('coelumPlaceZones', {});
 const placeZoneKey = (p = clockPlace) => p.slice(0, 2).map((x) => x.toFixed(4)).join(',');
 const inferredZone = (p = clockPlace) => { const zone = tzlookup(p[0], p[1]); return validSkyZone(zone) ? zone : 'UTC'; };
 const clockZone = (p = clockPlace) => timeMode === 'utc' ? 'UTC' : timeMode === 'device' ? deviceTimeZone() : zoneOverrides[placeZoneKey(p)] || inferredZone(p);
-const clockWithZone = (t, p = clockPlace, seconds = false) => `${skyClock(t, clockZone(p), seconds)} ${skyTimeZone(t, clockZone(p))}`;
+const clockWithZone = (t, p = clockPlace, seconds = false) => {
+  // Worldwide event maps have no selected place. Use the sky's location
+  // for their clock, just as for the event list.
+  const zone = clockZone(p ?? clockPlace);
+  return `${skyClock(t, zone, seconds)} ${skyTimeZone(t, zone)}`;
+};
 // The stars, objects and places found online (lookup.js), read anew before
 // each change, as iMKS may have added some
 const lookups = () => {

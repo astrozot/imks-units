@@ -308,10 +308,13 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   const draw = () => { if (svg.style.display !== "none") svg.innerHTML = mapSVG(m, W, H, v, place, sim ? at : null); };
   function redraw() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); }
   const size = () => {
-    W = Math.max(240, Math.round(svg.parentElement.clientWidth));
+    const zoom = v ? v.s / base0() : 1;
+    W = Math.max(240, Math.round(svg.clientWidth));
     H = Math.round(Math.max(240, Math.min(W * (sim ? 1 : 1.1), window.innerHeight - (sim ? 340 : 220))));
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    if (!v) v = mapView(m, W, H);
+    svg.setAttribute("width", W);
+    svg.setAttribute("height", H);
+    v = v ? { ...v, s: clampS(base0() * zoom) } : mapView(m, W, H);
     draw();
   };
   // the shadow at the time t, and what is seen then
@@ -437,6 +440,13 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   dragTrack(slider, (t) => { stop(); slider.value = t; setTime(t); });
   showLocal();
   mode(host.store.get("solarView", "sim"));
+  // A calculator sheet is mounted while hidden. Measure again once it is
+  // visible, and when its available width changes (including rotation).
+  const observer = new ResizeObserver(() => {
+    if (!svg.isConnected) observer.disconnect();
+    else if (svg.clientWidth) size();
+  });
+  observer.observe(svg);
   host.onResize?.(() => { if (svg.isConnected) size(); });
   const local = (ev) => {
     const b = svg.getBoundingClientRect();
@@ -494,7 +504,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   // the simulation
   return {
     resize: size,
-    destroy: () => { ++shown; stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
+    destroy: () => { ++shown; observer.disconnect(); stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
     share: () => {
       const cap = sim ? [...caption, when.textContent] : caption, name = occ ? "occultation" : "solar-eclipse";
       return osm.hidden
