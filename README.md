@@ -437,6 +437,18 @@ from NASA's LRO colour map (Scientific Visualization Studio, CGI Moon Kit,
 public domain): `python3 tools/moondisk.py lroc_color_poles_1k.jpg` writes
 it (numpy and Pillow).
 
+Lunar eclipses in Sky use the visible area of the finite solar disk at each
+point on the Moon, plus faint atmospheric red light that fades toward the
+umbra's center. Lighting and exposure are calculated in floating-point linear
+RGB before conversion to the display; totality increases the disk's exposure
+smoothly, while the surrounding sky follows the Moon's actual integrated
+illumination. The GPU and Canvas fallback share this model. Atmospheric
+colours represent a typical eclipse; clouds and volcanic aerosols can make
+real eclipses brighter or darker. `node tests/lunar-eclipse.mjs` checks the
+light model against numerical solar-disk integration;
+`node tests/lunar-eclipse-browser.mjs` checks rendered lighting, crop/rotation
+and the fallback (`ECLIPSE_SCREENSHOT=/path/to/preview.png` saves a preview).
+
 At high zoom in Sky, sunlit lunar features appear in blue when Labels is on.
 Tap a feature (also with Labels off) for its name, type, size and coordinates.
 The selected feature is outlined by an ellipse projected onto the lunar surface;

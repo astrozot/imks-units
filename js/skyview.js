@@ -62,6 +62,51 @@ function covered(a, b, d) {
   return (a * a * Math.acos(x) + b * b * Math.acos(y) - 0.5 * Math.sqrt(Math.max(0, (-d + a + b) * (d + a - b) * (d - a + b) * (d + a + b)))) / (Math.PI * a * a);
 }
 
+// Finite solar disk as seen from a point on the Moon. Umbra/penumbra
+// radii recover the Earth's and Sun's apparent radii in the same units.
+// Atmospheric light is a representative clear-atmosphere approximation,
+// not a prediction of clouds/aerosols (NASA's Danjon scale spans both):
+// https://eclipse.gsfc.nasa.gov/LEcat5/appearance.html
+function lunarShadowLight(shadow, d) {
+  if (!shadow) return [1, 1, 1];
+  const a = (shadow.penumbra - shadow.umbra) / 2;
+  const b = (shadow.penumbra + shadow.umbra) / 2;
+  const direct = 1 - covered(a, b, d);
+  const depth = Math.max(0, (shadow.umbra - d) / (2 * a));
+  const air = Math.exp(-3 * depth) * (1 - direct);
+  return [direct + 0.0025 * air, direct + 0.00045 * air, direct + 0.00009 * air];
+}
+// Equal-area quadrature over the whole lunar disk: the center alone gives
+// the wrong sky brightness and exposure during partial/contact phases.
+const lunarShadowMeans = new WeakMap();
+function lunarShadowMean(shadow) {
+  if (!shadow) return { brightness: 1, exposure: 1 };
+  if (lunarShadowMeans.has(shadow)) return lunarShadowMeans.get(shadow);
+  let direct = 0, brightness = 0;
+  for (let i = 0; i < 12; i++) for (let j = 0; j < 32; j++) {
+    const r = Math.sqrt((i + 0.5) / 12), angle = (j + 0.5) * 2 * Math.PI / 32;
+    const d = Math.hypot(shadow.d + r * Math.cos(angle), r * Math.sin(angle));
+    const rgb = lunarShadowLight(shadow, d);
+    brightness += 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+    direct += 1 - covered((shadow.penumbra - shadow.umbra) / 2, (shadow.penumbra + shadow.umbra) / 2, d);
+  }
+  // Up to six stops of low-light adaptation at totality. This affects
+  // only the displayed disk, never the Moon's illumination of the sky.
+  const mean = { brightness: brightness / 384, exposure: 1 + 63 * (1 / (1 + 400 * direct / 384) - 1 / 401) / (1 - 1 / 401) };
+  lunarShadowMeans.set(shadow, mean);
+  return mean;
+}
+// Lighting stays in floating-point linear RGB until display conversion.
+// A white-preserving Reinhard shoulder accommodates the exposed crescent.
+function lunarEclipseColor(rgb, illumination, exposure) {
+  return rgb.map((c, k) => {
+    const linear = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    const radiance = linear * illumination[k];
+    const v = exposure * radiance / (1 + (exposure - 1) * radiance);
+    return v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055;
+  });
+}
+
 const ringAt = (rho) => RINGS.find(([a, b]) => rho >= a && rho < b);
 // Jónsson's profiles of the rings (saturn-rings.png): from 74510 to
 // 140390 km, in Saturn's equatorial radii, in three rows: the light of the
@@ -430,6 +475,8 @@ uniform bool mapped, zones, lunar, relief, ringMapped;
 uniform float moonEdge;
 uniform float earthshine;
 uniform vec3 earth;
+uniform vec4 lunarShadow; // center (west, north), umbra, penumbra
+uniform float lunarExposure;
 uniform vec2 lon0, u0;
 
 vec2 hitGlobe(vec3 o, vec3 d, out bool hit) {
@@ -561,7 +608,19 @@ vec3 lunarColor(vec3 q) {
   // scattering law as sunlight. Slopes facing away from Earth receive none.
   float muE = dot(n, earth);
   float earthlit = muE > 0.0 ? min(1.6, 2.6 * muE / (muE + mu + 1e-4)) : 0.0;
-  return albedo * (lit + earthshine * earthlit);
+  vec3 color = albedo * (lit + earthshine * earthlit);
+  if (lunarShadow.w <= 0.0) return color;
+  vec2 xy = vec2(dot(q, toP[0]), dot(q, toP[1]));
+  float d = length(xy - lunarShadow.xy);
+  float a = (lunarShadow.w - lunarShadow.z) * 0.5;
+  float b = (lunarShadow.w + lunarShadow.z) * 0.5;
+  float direct = 1.0 - covered(a, b, d);
+  float air = exp(-3.0 * max(0.0, (lunarShadow.z - d) / (2.0 * a))) * (1.0 - direct);
+  vec3 illumination = vec3(direct) + vec3(0.0025, 0.00045, 0.00009) * air;
+  vec3 linear = mix(color / 12.92, pow((color + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), color));
+  vec3 radiance = linear * illumination;
+  vec3 v = lunarExposure * radiance / (1.0 + (lunarExposure - 1.0) * radiance);
+  return mix(12.92 * v, 1.055 * pow(v, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), v));
 }
 vec3 bandColor(float lat) {
   vec3 c = bands[0].yzw;
@@ -700,7 +759,7 @@ function planetProgram(gl) {
   gl.enableVertexAttribArray(at);
   gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
   const u = {};
-  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "relief", "earthshine", "earth", "moonsAt", "moonsLook", "nMoons", "near", "moonsOnly"]) u[name] = gl.getUniformLocation(prog, name);
+  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "relief", "earthshine", "earth", "lunarShadow", "lunarExposure", "moonsAt", "moonsLook", "nMoons", "near", "moonsOnly"]) u[name] = gl.getUniformLocation(prog, name);
   gl.uniform4fv(u.rings, RINGS.flatMap(([, , a, c]) => [...c.map((x) => x / 255), a]));
   gl.uniform2fv(u.ringEdges, RINGS.flatMap(([a, b]) => [a, b]));
   return u;
@@ -828,6 +887,9 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s) {
   gl.uniform1i(u.lunar, lunar ? 1 : 0);
   gl.uniform1i(u.relief, hm ? 1 : 0);
   gl.uniform1f(u.earthshine, earthshineBrightness(sky));
+  const eclipse = sky.eclipse;
+  gl.uniform4f(u.lunarShadow, eclipse?.x || 0, eclipse?.y || 0, eclipse?.umbra || 0, eclipse?.penumbra || 0);
+  gl.uniform1f(u.lunarExposure, eclipse?.exposure || 1);
   gl.uniform3fv(u.earth, sky.earth ? m.toP(sky.earth) : m.view);
   if (hm) {
     gl.activeTexture(gl.TEXTURE1);
@@ -1112,4 +1174,4 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
   };
 }
 
-export { surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap, solarSegment, globeCoverage, ringCoverage };
+export { lunarShadowLight, lunarShadowMean, lunarEclipseColor, surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap, solarSegment, globeCoverage, ringCoverage };

@@ -4,7 +4,7 @@
 // phase, and a landscape in front. Always drawn on a canvas.
 import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
-import { covered, tracePlanet, planetMap, earthshineBrightness } from './skyview.js';
+import { covered, tracePlanet, planetMap, earthshineBrightness, lunarShadowLight, lunarShadowMean, lunarEclipseColor } from './skyview.js';
 import { moonDisk, moons, planetDisk } from './astro.js';
 import { projectLunarFeatures, LUNAR_COLOR } from './lunarfeatures.js';
 import { projectMarsFeatures, MARS_COLOR } from './marsfeatures.js';
@@ -418,14 +418,8 @@ function drawPlanet(ctx, o, q, r, lightPoint, rings) {
   ctx.restore();
 }
 
-// The light of the Moon in the Earth's shadow (coelum.js's moon.shadow),
-// from its center: in the penumbra, the part of the Sun seen from there;
-// in the umbra, a little, reddened by the Earth's atmosphere
-function moonDim(o) {
-  const s = o.shadow;
-  if (!s) return 1;
-  return s.d < s.umbra ? 0.01 : Math.min(1, 0.02 + 0.98 * (s.d - s.umbra) / (s.penumbra - s.umbra));
-}
+// Sky illumination uses physical flux, without the disk's display exposure.
+const moonDim = (o) => lunarShadowMean(o.shadow).brightness;
 
 // A resolved surface traced on the GPU (skyview.js), with its rotation,
 // lighting, relief or moon shadows, and Saturn's rings. Crop to the screen
@@ -433,6 +427,7 @@ function moonDim(o) {
 // the viewport. The Moon adds its light; planets use the close-up's blend.
 // False without WebGL (or before its map is loaded).
 const surfaceCanvas = typeof document === 'undefined' ? null : document.createElement('canvas');
+const moonFallback = typeof document === 'undefined' ? null : document.createElement('canvas');
 function traceSurface(ctx, disk, q, r, north, { W, H }, alpha, { center = { x: 0, y: 0 }, reach = disk.planet === 'saturn' ? 2.34 : 1.02 } = {}) {
   if (!surfaceCanvas || (disk.planet === 'moon' && r < 10) || !planetMap(disk.planet)?.img) return false;
   // the screen's corners in the body's frame (celestial north up)
@@ -463,8 +458,22 @@ function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere, shado
     ctx.drawImage(glow([200, 210, 230]), q.x - s, q.y - s, 2 * s, 2 * s);
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
   }
-  const textured = traceSurface(ctx, disk, q, r, north, screen, atmosphere ? 0.75 + 0.25 * night : 1);
+  if (shadowPoint) {
+    const dx = (shadowPoint.x - q.x) / r, dy = (shadowPoint.y - q.y) / r;
+    disk = { ...disk, eclipse: { ...o.shadow,
+      x: dx * Math.cos(north) + dy * Math.sin(north),
+      y: dx * Math.sin(north) - dy * Math.cos(north),
+      exposure: lunarShadowMean(o.shadow).exposure } };
+  }
+  const alpha = atmosphere ? 0.75 + 0.25 * night : 1;
+  const textured = traceSurface(ctx, disk, q, r, north, screen, alpha);
+  const target = ctx;
   if (!textured) {
+    // Isolate the surface so eclipse lighting never multiplies the sky.
+    const fallback = moonFallback, size = Math.max(2, Math.min(1024, Math.ceil(2 * r)));
+    fallback.width = fallback.height = size;
+    const ctx = fallback.getContext('2d', { willReadFrequently: true });
+    ctx.save(); ctx.scale(size / (2 * r), size / (2 * r));
     const lit = new Path2D();
     for (let i = 0; i <= 32; i++) { const a = -Math.PI / 2 + i * Math.PI / 32; lit[i ? 'lineTo' : 'moveTo'](r * Math.cos(a), r * Math.sin(a)); }
     for (let i = 0; i <= 32; i++) { const a = Math.PI / 2 - i * Math.PI / 32; lit.lineTo(-k * r * Math.cos(a), r * Math.sin(a)); }
@@ -474,23 +483,30 @@ function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere, shado
       if (moonImage) { ctx.save(); ctx.rotate(north - angle); ctx.drawImage(moonImage, -r, -r, 2 * r, 2 * r); ctx.restore(); }
       else { ctx.fillStyle = '#e9e5d9'; ctx.fillRect(-r, -r, 2 * r, 2 * r); }
     };
-    ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(angle);
+    ctx.save(); ctx.translate(r, r); ctx.rotate(angle);
     ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.clip();
     // Low-resolution fallback uses the same phase/distance brightness;
     // the detailed shader also lights individual slopes toward Earth.
-    face(Math.min(1, 1.3 * earthshineBrightness(disk)) * (atmosphere ? 0.75 + 0.25 * night : 1));
+    face(Math.min(1, 1.3 * earthshineBrightness(disk)));
     ctx.clip(lit);
-    face(atmosphere ? 0.75 + 0.25 * night : 1);
-    ctx.restore(); ctx.globalAlpha = 1;
+    face(1);
+    ctx.restore(); ctx.restore(); ctx.globalAlpha = 1;
+    if (disk.eclipse) {
+      const image = ctx.getImageData(0, 0, size, size), px = image.data, e = disk.eclipse;
+      for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+        const at = 4 * (j * size + i);
+        if (!px[at + 3]) continue;
+        const dx = 2 * (i + 0.5) / size - 1, dy = 2 * (j + 0.5) / size - 1;
+        const x = dx * Math.cos(north) + dy * Math.sin(north), y = dx * Math.sin(north) - dy * Math.cos(north);
+        const rgb = lunarEclipseColor([px[at], px[at + 1], px[at + 2]].map((v) => v / 255),
+          lunarShadowLight(e, Math.hypot(x - e.x, y - e.y)), e.exposure);
+        for (let k = 0; k < 3; k++) px[at + k] = 255 * rgb[k];
+      }
+      ctx.putImageData(image, 0, 0);
+    }
+    target.save(); target.globalCompositeOperation = 'lighter'; target.globalAlpha = alpha;
+    target.drawImage(fallback, q.x - r, q.y - r, 2 * r, 2 * r); target.restore();
   }
-  if (!shadowPoint) return textured;
-  const s = o.shadow, P = s.penumbra * r, u = s.umbra / s.penumbra;
-  const g = ctx.createRadialGradient(shadowPoint.x, shadowPoint.y, 0, shadowPoint.x, shadowPoint.y, P);
-  g.addColorStop(0, 'rgb(62, 20, 10)'); g.addColorStop(u * 0.85, 'rgb(92, 32, 16)'); g.addColorStop(u, 'rgb(122, 52, 30)');
-  g.addColorStop(Math.min(1, u + 0.015), 'rgb(70, 68, 66)'); g.addColorStop(1, 'rgb(255, 255, 255)');
-  ctx.save(); ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.clip();
-  ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = g; ctx.fillRect(q.x - r, q.y - r, 2 * r, 2 * r);
-  ctx.restore();
   return textured;
 }
 
