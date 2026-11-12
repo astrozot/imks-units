@@ -64,10 +64,23 @@ try {
   const line = await page.locator('.coelum-condition').boundingBox();
   const when = await page.locator('[data-action="time"]').boundingBox();
   assert.ok(line.y >= when.y + when.height);
+  await page.click('[data-action="time"]');
+  assert.equal(await page.locator('.coelum-time-zone').first().innerText().then((s) => s.split('\n')[0]), 'Time');
+  assert.deepEqual(await page.locator('[data-time-zone] option').allTextContents(), ['UTC', 'device', 'selected location']);
+  assert.equal(await page.locator('[data-set-time="original"]').count(), 0);
+  assert.doesNotMatch(await page.locator('.coelum-events').textContent(), /Astronomical|Nautical/);
+  await page.click('[data-action="time"]');
+  await page.click('[data-action="events"]');
+  await page.click('[data-action="time"]');
+  assert.equal(await page.locator('[data-panel="events"]').isVisible(), false, 'An outside click dismisses Events');
+  assert.equal(await page.locator('.coelum-timepanel').isVisible(), false, 'The dismissal click does not activate the control underneath');
   await page.click('[data-action="place"]');
   assert.equal(await page.locator('[data-place="original"]').count(), 0, 'Standalone Coelum has no Original place');
   await page.click('[data-place="map"]');
   await page.waitForSelector('.coelum-map-panel .map-coast');
+  const largeMap = await page.locator('.coelum-map-panel').boundingBox();
+  assert.ok(largeMap.width > 390 * 0.95 && largeMap.height > 844 * 0.95, 'The location map uses the full phone window');
+  assert.equal(await page.locator('.coelum-map-panel').evaluate((el) => el.matches(':modal')), true);
   const initialMarker = await page.locator('.coelum-map-panel .map-place').getAttribute('cx');
   const globe = page.locator('.coelum-map-panel .map-svg');
   const globeBox = await globe.boundingBox();
@@ -156,7 +169,9 @@ try {
     assert.equal(actualYear, Number(year), `Set year ${year} without a 1900 offset`);
     if (Number(year) <= 0) assert.ok((await status()).includes(year.replace('-', '−')), 'The local status preserves the astronomical year');
     await page.click('[data-action="time"]');
+    assert.equal(await dateInput.isVisible(), false, `Close the time panel in year ${year}`);
     await page.click('[data-action="time"]');
+    assert.equal(await dateInput.isVisible(), true, `Reopen the time panel in year ${year}`);
     assert.equal(await dateInput.inputValue(), `${year}-06-01 12:34`);
   }
   const unchanged = await page.locator('.coelum-full').getAttribute('data-time');
@@ -225,6 +240,80 @@ try {
   } else console.log('Skipped offline reload check by SKIP_OFFLINE_RELOAD');
   assert.deepEqual(second.errors, []);
   await second.context.close();
+  const third = await open({ 'imks.settings': { location: { lat: 45.4642, lon: 9.19, h: 120, name: 'Milan' } } });
+  const mount = third.page.locator('[data-action="mount"]');
+  assert.equal(await mount.textContent(), 'AZ');
+  await mount.click(); assert.equal(await mount.textContent(), 'EQ');
+  await mount.click(); assert.equal(await mount.textContent(), 'GA');
+  await third.page.waitForTimeout(3100);
+  await mount.click(); assert.equal(await mount.textContent(), 'AZ');
+  await third.page.waitForTimeout(3100);
+  await mount.click(); assert.equal(await mount.textContent(), 'GA');
+  // GA -> AZ -> EQ is a new burst: slow clicks must now use GA/EQ.
+  await third.page.waitForTimeout(3100);
+  await mount.click(); assert.equal(await mount.textContent(), 'AZ');
+  await mount.click(); assert.equal(await mount.textContent(), 'EQ');
+  await third.page.waitForTimeout(3100);
+  await mount.click(); assert.equal(await mount.textContent(), 'GA');
+  await third.page.waitForTimeout(3100);
+  await mount.click(); assert.equal(await mount.textContent(), 'EQ');
+  await third.page.waitForTimeout(3100);
+  await mount.click(); await mount.click(); await mount.click();
+  assert.equal(await mount.textContent(), 'EQ', 'Three fast clicks preserve the mode');
+  const pair = await third.page.evaluate(() => JSON.parse(localStorage.getItem('imks-coelum-mount-pair')));
+  assert.deepEqual(new Set(pair), new Set(['equatorial', 'galactic']), 'A full cycle preserves the pair');
+  await third.page.reload(); await third.page.waitForSelector('.coelum-full');
+  assert.equal(await mount.textContent(), 'EQ', 'The mount is saved');
+  await mount.click(); assert.equal(await mount.textContent(), 'GA', 'The pair is saved');
+  await third.page.click('[data-action="layers"]');
+  await third.page.uncheck('[data-layer="ground"]'); await third.page.click('[data-action="layers"]');
+  // Actual chart labels stay still over an hour in the Galactic mount.
+  const star = await third.page.evaluate(() => {
+    const names = ['Vega', 'Deneb', 'Altair', 'Capella', 'Aldebaran', 'Sirius', 'Betelgeuse', 'Rigel', 'Arcturus', 'Polaris'];
+    const e = [...document.querySelectorAll('.coelum-full text')].find((el) => names.includes(el.textContent));
+    return { name: e.textContent, x: Number(e.getAttribute('x')), y: Number(e.getAttribute('y')) };
+  });
+  await third.page.click('[data-action="forward"]');
+  const after = await third.page.evaluate((name) => {
+    const e = [...document.querySelectorAll('.coelum-full text')].find((el) => el.textContent === name);
+    return { x: Number(e.getAttribute('x')), y: Number(e.getAttribute('y')) };
+  }, star.name);
+  assert.ok(Math.hypot(after.x - star.x, after.y - star.y) < 0.2, 'Galactic mount keeps star positions fixed');
+  // A hold follows the same next-mode rule and sets the environment for its destination.
+  await mount.hover(); await third.page.mouse.down(); await third.page.waitForTimeout(900); await third.page.mouse.up();
+  assert.equal(await mount.textContent(), 'AZ');
+  assert.equal(await third.page.locator('[data-layer="ground"]').isChecked(), true);
+  await third.page.click('[data-view="sky"]');
+  assert.equal(await third.page.locator('[data-layer="atmosphere"]').isChecked(), true);
+  await mount.hover(); await third.page.mouse.down(); await third.page.waitForTimeout(900); await third.page.mouse.up();
+  assert.equal(await mount.textContent(), 'EQ');
+  assert.equal(await third.page.locator('[data-layer="ground"]').isChecked(), false);
+  assert.equal(await third.page.locator('[data-layer="atmosphere"]').isChecked(), false);
+  // With GA/EQ as the pair, a slow hold of GA must choose EQ without ground.
+  await third.page.evaluate(() => {
+    localStorage.setItem('imks-coelum-mount', 'galactic');
+    localStorage.setItem('imks-coelum-mount-pair', JSON.stringify(['galactic', 'equatorial']));
+  });
+  await third.page.reload(); await third.page.waitForSelector('.coelum-full');
+  assert.equal(await mount.textContent(), 'GA');
+  await mount.hover(); await third.page.mouse.down(); await third.page.waitForTimeout(900); await third.page.mouse.up();
+  assert.equal(await mount.textContent(), 'EQ');
+  assert.equal(await third.page.locator('[data-layer="ground"]').isChecked(), false);
+  await third.page.click('[data-view="sky"]');
+  assert.equal(await third.page.locator('[data-layer="atmosphere"]').isChecked(), false);
+  // AZ's partner may be GA: a hold must honor that pair too.
+  await third.page.evaluate(() => {
+    localStorage.setItem('imks-coelum-mount', 'altaz');
+    localStorage.setItem('imks-coelum-mount-pair', JSON.stringify(['altaz', 'galactic']));
+  });
+  await third.page.reload(); await third.page.waitForSelector('.coelum-full');
+  await mount.hover(); await third.page.mouse.down(); await third.page.waitForTimeout(900); await third.page.mouse.up();
+  assert.equal(await mount.textContent(), 'GA');
+  assert.equal(await third.page.locator('[data-layer="ground"]').isChecked(), false);
+  await third.page.click('[data-view="sky"]');
+  assert.equal(await third.page.locator('[data-layer="atmosphere"]').isChecked(), false);
+  assert.deepEqual(third.errors, []);
+  await third.context.close();
   console.log('Coelum UI and timezone improvements passed: galactic grids and details, Layers dismissal, signed local/UTC years and date validation');
 } finally {
   await browser?.close();

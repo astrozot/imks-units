@@ -330,7 +330,7 @@ function renderEvents(body, explorer) {
       if (kind === "conjunctions") explorer.focusPair(KIND(x.body), KIND(x.other));
       else explorer.focus(KIND(x.body), { fit: true });
     }
-    else if (kind) host.open(kind, x, found.at, explorer);
+    else if (kind) { explorer.closePanel(); host.open(kind, x, found.at, explorer); }
   };
 }
 

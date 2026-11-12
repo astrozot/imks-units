@@ -147,6 +147,11 @@ const GALACTIC = [
   [0.4941094278755837, -0.4448296299600112, 0.7469822444972189],
   [-0.8676661490190047, -0.1980763734312015, 0.4559837761750669],
 ];
+// Rows of the rotation from the local horizon to the fixed Galactic frame.
+export function horizonToGalactic(frame) {
+  const h = horizonToJ2000(frame);
+  return GALACTIC.flatMap((row) => [0, 1, 2].map((j) => row[0] * h[j] + row[1] * h[3 + j] + row[2] * h[6 + j]));
+}
 export function galacticCoordinates(o, frame) {
   // Undo the date's precession/nutation before applying the fixed system.
   const v = vec(o.ra, o.dec), j2000 = frame.matrix.map((col) => dot3(col, v));

@@ -1736,7 +1736,16 @@ body.coelum-app { background: #000; }
 .coelum-type-mars-feature { background: #ffc98f; }
 
 /* The place picker shares the event maps, with Coelum's dark controls. */
-.coelum-map-panel { max-width: 640px; }
+.coelum-explorer .coelum-map-panel {
+  position: fixed; z-index: 50; top: max(4px, env(safe-area-inset-top)); left: 50%; right: auto;
+  transform: translateX(-50%); margin: 0; width: min(640px, calc(100% - 8px));
+  height: calc(100dvh - max(4px, env(safe-area-inset-top)) - max(4px, env(safe-area-inset-bottom)));
+  max-width: none; max-height: none; padding: 12px; overflow: hidden; background: #0c1426;
+}
+.coelum-explorer .coelum-map-panel[open] { display: flex; flex-direction: column; }
+.coelum-map-panel::backdrop { background: rgba(0, 0, 0, 0.65); }
+.coelum-map-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.coelum-map-panel .coelum-panel-head { flex: none; }
 .coelum-map-body .map-views, .coelum-map-body .sky-hint { color: var(--c-muted); }
 .coelum-map-body .map-select { color: var(--c-ink); border-color: var(--c-line); background: var(--c-bg); }
 .coelum-map-body .chip { color: var(--c-ink); border-color: var(--c-line); background: var(--c-hover); }

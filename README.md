@@ -58,7 +58,7 @@ limit, shared with the supported interval of the season formulas;
 extending it needs validation of the position and event models.
 Galactic longitude (l) and latitude (b) appear in object details, and an
 optional galactic grid is available in both views (off by default).
-The Place panel offers an offline globe and online maps to choose a location;
+The Place panel opens a large map dialog with an offline globe and online maps;
 tap a point and confirm with **Use this place**. “Original place” is offered
 only in iMKS. Search results mark objects hidden by their layer or magnitude
 settings with a crossed-eye symbol; tap the symbol for its explanation.
@@ -196,12 +196,19 @@ the Moon, the planets and their moons) and the sizes of deep-sky objects
 shows its B−V colour index, an estimated temperature and spectral type,
 and a black-body spectrum. On phones the orientation button makes the
 view follow where the phone points. Both views zoom to the same largest
-magnification. The AZ/EQ button chooses the mount: alt-az keeps the
+magnification. The AZ/EQ/GA button chooses the mount: alt-az keeps the
 horizon level with the zenith up; equatorial keeps RA and Dec of date fixed
-on the screen with the celestial pole up, as a telescope's equatorial mount
-does (the views keep their cameras in the mount's frame and turn them to
-the horizon's to draw). The lock button holds the selected object where it
-is on the screen as time runs, in either mount; a drag moves it (and the
+with the celestial pole up; galactic keeps longitude and latitude fixed
+with the galactic pole up. Clicks within three seconds cycle all three.
+After a longer pause, clicks alternate between the endpoints of the last
+fast sequence, skipping its intermediate mode. Three fast presses (or a
+multiple of three) return to the starting mode and preserve the previous
+pair. Holding selects the same next mode as a tap and sets ground and
+atmosphere on for AZ, off for EQ or GA. The mode and pair are saved
+for the next opening. The views keep
+their cameras in the mount's frame and turn them to the horizon's to draw.
+The lock button holds the selected object where it
+is on the screen as time runs, in any mount; a drag moves it (and the
 sky with it) under the finger, and it keeps tracking from there; zooms
 keep it in place. The bottom bar shows a ruler under the
 speed, a round angle at the center of the view, and the play button points backward when

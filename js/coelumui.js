@@ -1,14 +1,15 @@
 // The coelum explorer: two views of the same sky (a map-like chart and a
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
+import { MountSwitcher } from './mountswitch.js';
 import { preventPageZoom } from './pagezoom.js';
 import { mountMap } from './eventview.js';
-import { skyTimeInput, parseSkyInput, skyTimeZone, deviceTimeZone, validSkyZone, skyDayBounds, skyClock } from './coelumtime.js';
+import { skyTimeInput, parseSkyInput, skyTimeZone, validSkyZone, skyDayBounds, skyClock } from './coelumtime.js';
 import { PhoneOrientation } from './phoneorientation.js';
 import { followGuide } from './followguide.js';
 import { moonEventsPanel } from './mooneventspanel.js';
 import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, satelliteList, satelliteStatus } from './satellites.js';
-import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius } from './coelum.js';
+import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius, horizonToGalactic } from './coelum.js';
 import { riseSet, planetOf, siderealTime } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
@@ -296,13 +297,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       <div class="coelum-panel coelum-timepanel" id="${id}-time" role="group" aria-label="Date and time" hidden>
         <div class="coelum-panel-head"><h3>Date and time</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close date and time">${ICONS.close}</button></div>
         <div class="coelum-time-row"><input type="text" placeholder="YYYY-MM-DD HH:mm" spellcheck="false" data-time-input aria-label="Date and time in the selected timezone"><button type="button" class="coelum-chip" data-set-time="now">Now</button></div>
-        ${options.standalone ? `<label class="coelum-time-zone">Time display <select data-time-zone aria-label="Time display"><option value="utc">UTC</option><option value="device">Device time (${esc(deviceTimeZone())})</option><option value="location">Selected location</option></select></label>
+        ${options.standalone ? `<label class="coelum-time-zone">Time <select data-time-zone aria-label="Time"><option value="utc">UTC</option><option value="device">device</option><option value="location">selected location</option></select></label>
         <label class="coelum-time-zone" data-place-zone-row hidden><span>Location timezone</span><span class="coelum-location-zone-controls"><input type="text" data-place-zone list="${id}-zones" aria-label="Location timezone" placeholder="Europe/Rome or UTC+02:00"><button type="button" class="coelum-chip" data-reset-place-zone>Automatic</button></span></label>
         <datalist id="${id}-zones">${(Intl.supportedValuesOf?.('timeZone') || ['Europe/Rome', 'America/New_York', 'Asia/Tokyo']).map((zone) => `<option value="${esc(zone)}"></option>`).join('')}</datalist>` : ''}
         <p class="coelum-panel-note coelum-zone-note"></p>
         <h3 class="coelum-events-head">Events of the day</h3>
         <div class="coelum-events"></div>
-        <div class="coelum-chips"><button type="button" class="coelum-chip" data-time-step="-86400">−1 day</button><button type="button" class="coelum-chip" data-time-step="86400">+1 day</button><button type="button" class="coelum-chip" data-set-time="original">Original time</button></div>
+        <div class="coelum-chips"><button type="button" class="coelum-chip" data-time-step="-86400">−1 day</button><button type="button" class="coelum-chip" data-time-step="86400">+1 day</button>${options.standalone ? '' : '<button type="button" class="coelum-chip" data-set-time="original">Original time</button>'}</div>
       </div>
       <div class="coelum-panel coelum-placepanel" id="${id}-place" role="group" aria-label="Place" hidden>
         <div class="coelum-panel-head"><h3>Place</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close place">${ICONS.close}</button></div>
@@ -311,10 +312,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <p class="coelum-panel-note coelum-place-status" role="status" aria-live="polite"></p>
         <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button>${options.standalone ? '' : '<button type="button" class="coelum-chip" data-place="original">Original place</button>'}<button type="button" class="coelum-chip" data-place="map">Choose on map</button></div>
       </div>
-      <div class="coelum-panel coelum-map-panel" id="${id}-map" role="group" aria-label="Choose a place on the map" hidden>
+      <dialog class="coelum-panel coelum-map-panel" id="${id}-map" aria-label="Choose a place on the map" hidden>
         <div class="coelum-panel-head"><h3>Choose on map</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close map">${ICONS.close}</button></div>
         <div class="coelum-map-body"></div>
-      </div>
+      </dialog>
       <div class="coelum-moonsview" role="group" aria-label="Moons" hidden>
         <div class="sky-stage coelum-moons-stage"></div>
         <div class="coelum-moons-head"><div><h3 class="coelum-moons-title">Moons</h3><p class="coelum-moons-data"></p></div><button type="button" class="coelum-chip" data-action="moon-events" aria-expanded="false" aria-controls="${id}-moon-events" hidden>Events</button><button type="button" class="coelum-btn coelum-btn-small" data-action="close-moons" aria-label="Close the moons">${ICONS.close}</button></div>
@@ -345,6 +346,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
     <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars and deep-sky objects: the app’s IAU / HYG / OpenNGC catalogs. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
+  root.appendChild($('.coelum-map-panel'));
   const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('.coelum-detail-body'), viewport = $('.coelum-viewport');
   const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results'), searchDropdown = $('.coelum-search-dropdown'), searchKey = $('.coelum-search-key'), searchHint = $('.coelum-search-hint');
   const layers = { chart: { ...DEFAULT_LAYERS }, sky: { ...SKY_LAYERS } };
@@ -399,15 +401,19 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     layers.chart.terrain = horizon === 'terrain' ? terrain : null;
   };
   applyHorizon();
-  // The mount: alt-az (the horizon's frame: the zenith up) or equatorial
-  // (RA and Dec of date: the pole up, the stars fixed on the screen). The
+  // Mounts: alt-az (zenith up), equatorial (celestial pole up) and
+  // galactic (galactic pole up, in the fixed J2000 frame). The
   // views keep their cameras in the mount's frame, and gestures, flights
   // and levelling work there; the drawing turns them to the horizon's.
   let mount = 'altaz';
-  try { if (localStorage.getItem('imks-coelum-mount') === 'equatorial') mount = 'equatorial'; } catch { /* private mode */ }
+  try { const saved = localStorage.getItem('imks-coelum-mount'); if (saved === 'equatorial' || saved === 'galactic') mount = saved; } catch { /* private mode */ }
+  let mountPair = ['altaz', 'equatorial'];
+  try { mountPair = JSON.parse(localStorage.getItem('imks-coelum-mount-pair')) || mountPair; } catch { /* private mode */ }
+  const mountSwitch = new MountSwitcher(mount, mountPair);
   // From horizontal [east, north, up] to the mount's frame, F[3k + j]
   const mountMatrix = () => {
-    if (mount !== 'equatorial') return null;
+    if (mount === 'galactic') return horizonToGalactic(frame);
+    if (mount === 'altaz') return null;
     const lst = siderealTime(frame.t, place[1]) * R, lat = place[0] * R, sl = Math.sin(lst), cl = Math.cos(lst), sp = Math.sin(lat), cp = Math.cos(lat);
     return [-sl, -sp * cl, cp * cl, cl, -sp * sl, cp * sl, 0, cp, sp];
   };
@@ -418,8 +424,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const mountCamera = (r, F = mountMatrix()) => (F ? [0, 1, 2].flatMap((i) => [0, 1, 2].map((k) => r[3 * i] * F[3 * k] + r[3 * i + 1] * F[3 * k + 1] + r[3 * i + 2] * F[3 * k + 2])) : r);
   const lookOf = (d) => ({ az: (Math.atan2(d[0], d[1]) / R + 360) % 360, alt: Math.asin(Math.max(-1, Math.min(1, d[2]))) / R });
   // the chart's home: the zenith at the center
-  const chartHome = () => (mount === 'equatorial' ? (({ az, alt }) => lookAt(az, alt))(lookOf(toMount([0, 0, 1]))) : [...SKY_IDENTITY]);
-  if (mount === 'equatorial') views.chart.rotation = chartHome();
+  const chartHome = () => (mount !== 'altaz' ? (({ az, alt }) => lookAt(az, alt))(lookOf(toMount([0, 0, 1]))) : [...SKY_IDENTITY]);
+  if (mount !== 'altaz') views.chart.rotation = chartHome();
   const skyView = () => {
     if (!views.sky) { const v = defaultSkyView(frame, size, height); views.sky = { ...v, ...lookOf(toMount(horizontalVector(v.alt, v.az))) }; }
     return views.sky;
@@ -445,10 +451,15 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     root.classList.toggle('coelum-has-selection', Boolean(selected));
     root.classList.toggle('coelum-show-detail', Boolean(selected) && detailShown);
     const sun = frame.bodies[0].alt, condition = sun >= 0 ? 'Daylight' : sun >= -6 ? 'Civil twilight' : sun >= -12 ? 'Nautical twilight' : sun >= -18 ? 'Astr. twilight' : 'Night';
-    statusTime.textContent = (options.formatStatusTime || formatTime)(t);
+    const timeText = (options.formatStatusTime || formatTime)(t);
+    // Keep the clock's text node stable while an input blur redraws the sky;
+    // replacing it during pointerdown can cancel the pending click in WebKit.
+    if (statusTime.textContent !== timeText) statusTime.textContent = timeText;
     statusTime.parentElement.title = `Set the date and time · ${formatTime(t)}`;
     statusTime.parentElement.setAttribute('aria-label', `Date and time: ${formatTime(t)}`);
-    statusPlace.textContent = placeLabel; statusCondition.textContent = `${condition} · Sun ${sun.toFixed(1)}°`;
+    if (statusPlace.textContent !== placeLabel) statusPlace.textContent = placeLabel;
+    const conditionText = `${condition} · Sun ${sun.toFixed(1)}°`;
+    if (statusCondition.textContent !== conditionText) statusCondition.textContent = conditionText;
     if (selected) {
       const o = findObject(frame, selected);
       const html = feature ? (feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o, frame);
@@ -689,6 +700,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     for (const [key, panel] of Object.entries(panels)) {
       const on = key === name && panel.hidden;
       panel.hidden = !on;
+      if (key === 'map') { if (on) panel.showModal(); else panel.close(); }
       $(`[data-action="${key}"]`)?.setAttribute('aria-expanded', String(on));
     }
     root.classList.toggle('coelum-show-options', panelOpen() && panels.legend.hidden);
@@ -698,16 +710,19 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (more && !panels[name].hidden) more.render(panels[name].querySelector('.coelum-panel-body'), explorer);
     wake();
   };
+  panels.map.addEventListener('cancel', (ev) => { ev.preventDefault(); showPanel(null); });
+  const dismissiblePanel = () => [panels.layers, panels.events].find((panel) => panel && !panel.hidden);
   // Consume the whole outside gesture, including its synthesized click,
   // before it reaches sky picking or another control. Listen on document
-  // so dismissal also works outside an embedded explorer.
+  // so Layers and Events also dismiss outside an embedded explorer.
   const stopPageZoom = preventPageZoom(options.standalone ? document.body : root);
   const panelDismissal = new AbortController(), dismissalPointers = new Set();
   let dismissalClick = false;
   document.addEventListener('pointerdown', (ev) => {
     if (!root.isConnected) return;
     dismissalClick = false;
-    if (panels.layers.hidden || panels.layers.contains(ev.target)) return;
+    const panel = dismissiblePanel();
+    if (!panel || panel.contains(ev.target)) return;
     showPanel(null); lastTap = null;
     dismissalPointers.add(ev.pointerId); dismissalClick = true;
     ev.preventDefault(); ev.stopImmediatePropagation();
@@ -719,7 +734,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   }, { capture: true, signal: panelDismissal.signal });
   document.addEventListener('click', (ev) => {
     if (!root.isConnected) return;
-    if (dismissalClick || (!panels.layers.hidden && !panels.layers.contains(ev.target))) {
+    const panel = dismissiblePanel();
+    if (dismissalClick || (panel && !panel.contains(ev.target))) {
       dismissalClick = false; showPanel(null);
       ev.preventDefault(); ev.stopImmediatePropagation();
     }
@@ -915,8 +931,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const localInput = (time) => skyTimeInput(time, timeZone());
   const clock = (time) => skyClock(time, timeZone());
   const EVENTS = [
-    ['Astronomical dawn', 'sun', true, -18], ['Nautical dawn', 'sun', true, -12], ['Civil dawn', 'sun', true, -6], ['Sunrise', 'sun', true, null],
-    ['Sunset', 'sun', false, null], ['Civil dusk', 'sun', false, -6], ['Nautical dusk', 'sun', false, -12], ['Astronomical dusk', 'sun', false, -18],
+    ['Astr. dawn', 'sun', true, -18], ['Naut. dawn', 'sun', true, -12], ['Civil dawn', 'sun', true, -6], ['Sunrise', 'sun', true, null],
+    ['Sunset', 'sun', false, null], ['Civil dusk', 'sun', false, -6], ['Naut. dusk', 'sun', false, -12], ['Astr. dusk', 'sun', false, -18],
     ['Moonrise', 'moon', true, null], ['Moonset', 'moon', false, null],
   ];
   let eventsDay = null;
@@ -1135,20 +1151,23 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // its new up (the zenith or the pole).
   const mountButton = $('[data-action="mount"]');
   const showMount = () => {
-    const eq = mount === 'equatorial';
-    mountButton.textContent = eq ? 'EQ' : 'AZ'; mountButton.setAttribute('aria-pressed', String(eq));
-    mountButton.title = eq ? 'Equatorial: RA and Dec fixed, the pole up (tap for alt-az) · Hold for alt-az with ground and atmosphere' : 'Alt-az: the horizon level (tap for equatorial) · Hold for equatorial without ground and atmosphere';
+    const labels = { altaz: 'AZ', equatorial: 'EQ', galactic: 'GA' };
+    const description = { altaz: 'Alt-az: the horizon level', equatorial: 'Equatorial: RA and Dec fixed, the celestial pole up', galactic: 'Galactic: longitude and latitude fixed, the galactic pole up' };
+    mountButton.textContent = labels[mount];
+    mountButton.setAttribute('aria-pressed', String(mount !== 'altaz'));
+    mountButton.setAttribute('aria-label', `${labels[mount]} mount: ${description[mount]}`);
+    mountButton.title = `${description[mount]} · Tap to switch ${labels[mount]} / ${labels[mountSwitch.pair.find((m) => m !== mount)]}; tap again within 3 seconds for the third mount · Hold to switch with ground and atmosphere only in AZ`;
   };
   const setMount = (m) => {
     const F0 = mountMatrix(), chart = horizonCamera(views.chart.rotation, F0), sky = views.sky && fromMount(horizontalVector(views.sky.alt, views.sky.az), F0);
     mount = m;
-    try { localStorage.setItem('imks-coelum-mount', m); } catch { /* private mode */ }
+    try { localStorage.setItem('imks-coelum-mount', m); localStorage.setItem('imks-coelum-mount-pair', JSON.stringify(mountSwitch.pair)); } catch { /* private mode */ }
     const F1 = mountMatrix(), r = mountCamera(chart, F1);
     views.chart.rotation = levelChart(r, zenithSide(r) || 1);
     if (sky) Object.assign(views.sky, lookOf(toMount(sky, F1)));
     if (lock) lock.spot = null;
     stopFlight(); showMount(); draw();
-    say(m === 'equatorial' ? 'Equatorial mount: the stars stay fixed, the celestial pole up.' : 'Alt-az mount: the horizon stays level, the zenith up.');
+    say(m === 'galactic' ? 'Galactic mount: galactic coordinates stay fixed, the galactic pole up.' : m === 'equatorial' ? 'Equatorial mount: the stars stay fixed, the celestial pole up.' : 'Alt-az mount: the horizon stays level, the zenith up.');
   };
   showMount();
   const setMode = (m) => {
@@ -1389,10 +1408,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         state.held = true; cancel();
         if (!root.isConnected) return;
         if (action === 'mount') {
-          const observer = mount === 'equatorial';
+          const next = mountSwitch.next(performance.now()), observer = next === 'altaz';
           layers.chart.ground = layers.sky.ground = layers.sky.atmosphere = observer;
-          syncLayers(); animator = null; setMount(observer ? 'altaz' : 'equatorial');
-          say(observer ? 'Observer mode: AZ with ground and atmosphere.' : 'Astronomer mode: EQ without ground or atmosphere.');
+          syncLayers(); animator = null; setMount(next);
+          say(observer ? 'Observer mode: AZ with ground and atmosphere.' : `Astronomer mode: ${next === 'galactic' ? 'GA' : 'EQ'} without ground or atmosphere.`);
           return;
         }
         if (action === 'in' || action === 'out') {
@@ -1472,7 +1491,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       else if (selected && findObject(frame, selected)) { stopOrientation(); setLock(selected); say(`${selected} stays in place on the screen.`); }
       else say('Select an object to lock it in place.');
       draw();
-    } else if (action === 'mount') setMount(mount === 'equatorial' ? 'altaz' : 'equatorial');
+    } else if (action === 'mount') setMount(mountSwitch.next(performance.now()));
     else if (action === 'orient-align') alignPhone();
     else if (action === 'orient') { if (orient) stopOrientation(); else startOrientation(); }
     else if (action === 'close-panel') showPanel(null);
