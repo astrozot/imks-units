@@ -119,7 +119,7 @@ async function osmMap(el, m, key, { sim = false, view = null, place = m.place, p
     interactive: false,
     icon: L.divIcon({ className: "osm-label", html: `<span style="color:${color}">${text}</span>`, iconSize: null }),
   }).addTo(map);
-  const nightLayer = L.polygon(night(m.sun), { stroke: false, fillColor: "#000", fillOpacity: dark ? 0.35 : 0.18, interactive: false }).addTo(map);
+  const nightLayer = m.sun ? L.polygon(night(m.sun), { stroke: false, fillColor: "#000", fillOpacity: dark ? 0.35 : 0.18, interactive: false }).addTo(map) : null;
   line(m.outline || [...m.penN, ...m.penS], { color: C.partial, weight: sim ? 1 : 2, dashArray: "6 4", opacity: sim ? 0.6 : 1 });
   for (const [kind, color] of sim ? [] : [["begin", C.begin], ["end", C.end]]) {
     for (const [h, ls] of m[kind] || []) {
@@ -159,7 +159,7 @@ async function osmMap(el, m, key, { sim = false, view = null, place = m.place, p
     .map(([lat, lon]) => [Math.max(-80, Math.min(80, lat)), lon]);
   if (view) map.setView(view.center, Math.max(0, Math.min(tiles.max, view.zoom)), { animate: false });
   else if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [10, 10] });
-  else map.setView(m.greatest || [0, 0], 2);
+  else map.setView(m.greatest || place || [0, 0], place && !m.sun ? 5 : 2);
   let moved = false;
   map.on("dragstart zoomstart", () => { moved = true; });
   // a tap picks a place; not the two of a double tap (which zooms)
@@ -175,7 +175,7 @@ async function osmMap(el, m, key, { sim = false, view = null, place = m.place, p
   const shade = (at) => {
     if (shadow) shadow.remove();
     shadow = L.layerGroup().addTo(map);
-    nightLayer.setLatLngs(night(at.sun));
+    nightLayer?.setLatLngs(night(at.sun));
     const poly = (l, fill, edge = null) => {
       const r = ring(l);
       for (const k of [-360, 0, 360]) {

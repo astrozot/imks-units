@@ -36,7 +36,7 @@ try {
       celestrak.push(group);
       route.fulfill({ contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(CELESTRAK[group] || []) });
     });
-    await context.addInitScript((s) => { if (!sessionStorage.getItem('seeded')) { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, JSON.stringify(v)); sessionStorage.setItem('seeded', '1'); } }, storage);
+    await context.addInitScript((s) => { if (!sessionStorage.getItem('seeded')) { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, JSON.stringify(v)); sessionStorage.setItem('seeded', '1'); } }, { 'imks.coelumTimeZone': 'device', ...storage });
     const page = await context.newPage(), errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(url);
@@ -57,7 +57,7 @@ try {
   // iMKS's location, in full screen from the start, without a way out
   const { context, page, errors } = await open({ 'imks.settings': { location: { lat: 45.4642, lon: 9.19, h: 120, name: 'Milan' } } });
   const status = () => page.locator('.coelum-status').textContent();
-  assert.match(await status(), /Nov 8, 2026, 01:00 PM · Milan/);
+  assert.match(await status(), /Nov 8, 2026, 01:00 PM Europe\/Rome \(UTC\+01:00\) · Milan/);
   assert.equal(await page.locator('.coelum-explorer.coelum-immersive').count(), 1);
   assert.equal(await page.locator('[data-action="fullscreen"]').count(), 0);
   await page.keyboard.press('Escape');

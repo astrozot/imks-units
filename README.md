@@ -40,7 +40,31 @@ as the service worker serves the cached copy first).
 Use `coelum(now, here)` for the device position, or omit the place to use the
 location in Settings. The table gives the solar-system bodies' geometric
 altitudes and azimuths, including those below the horizon. Dates from year
-−1000 through 3000 are supported (UTC).
+−1000 through 3000 are supported (UTC). These are signed astronomical
+years in the proleptic Gregorian calendar: 0 is 1 BCE, −1 is 2 BCE, and
+−1000 is 1001 BCE. The date panel accepts `YYYY-MM-DD HH:mm`, including a
+negative year. Standalone Coelum defaults to device time. The date panel offers device
+time, UTC, and the selected location’s timezone. The date panel and event timestamps identify
+the zone and UTC offset; date entry and events follow the same choice.
+The compact bottom bar omits the timezone and stays within its original height.
+Location time uses the approximate offline map from
+[@photostructure/tz-lookup](https://github.com/photostructure/tz-lookup)
+11.7.0 (CC0; see `data/tzlookup-LICENSE.txt`). Boundaries are approximate.
+Override a location with an IANA zone (automatic daylight-saving rules),
+or a fixed offset such as `UTC+02:00`; **Automatic** restores the map result.
+Overrides are saved per location. Browser timezone rules govern historical
+and future dates, so fixed offsets are available for manual adjustments. The range is an application
+limit, shared with the supported interval of the season formulas;
+extending it needs validation of the position and event models.
+Galactic longitude (l) and latitude (b) appear in object details, and an
+optional galactic grid is available in both views (off by default).
+The Place panel offers an offline globe and online maps to choose a location;
+tap a point and confirm with **Use this place**. “Original place” is offered
+only in iMKS. Search results mark objects hidden by their layer or magnitude
+settings with a crossed-eye symbol; tap the symbol for its explanation.
+The daylight/twilight and Sun altitude status always occupies a separate line.
+Browser page zoom is disabled within Coelum, including cards and event sheets;
+zoom gestures still control the sky and maps.
 
 - **Chart** is a map-like whole-sky chart in the style of a printed atlas:
   zenith at the center, north up, east left; stars to magnitude 6 sized by

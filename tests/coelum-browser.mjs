@@ -62,7 +62,7 @@ try {
   const baseline = await page.locator('.coelum-full').innerHTML();
   const layersPanel = () => page.locator('[data-action="layers"]').click();
   await layersPanel();
-  for (const layer of ['constellations', 'horizontal', 'equatorial', 'deep']) await page.locator(`[data-layer="${layer}"]`).check();
+  for (const layer of ['constellations', 'horizontal', 'equatorial', 'galactic', 'deep']) await page.locator(`[data-layer="${layer}"]`).check();
   assert.notEqual(await page.locator('.coelum-full').innerHTML(), baseline);
   assert.ok(!/NaN|Infinity|undefined/.test(await page.locator('.coelum-full').innerHTML()));
   const fullCount = await page.locator('.coelum-full circle').count();
@@ -80,9 +80,24 @@ try {
     const svg = document.querySelector('.coelum-full'), v = svg.createSVGPoint(); v.x = p.x; v.y = p.y;
     const q = v.matrixTransform(svg.getScreenCTM()); return { x: q.x, y: q.y };
   });
+  await layersPanel();
+  const outsideObject = await page.evaluate(async () => {
+    const { skyFrame, skyChart } = await import('./js/coelum.js');
+    const svg = document.querySelector('.coelum-full'), box = svg.viewBox.baseVal;
+    const f = skyFrame(Number(svg.dataset.time), [41.892, 12.511, 20]);
+    for (const o of skyChart(f, box.width, box.height, { ground: false, deep: true }).objects) {
+      const v = svg.createSVGPoint(); v.x = o.x; v.y = o.y;
+      const p = v.matrixTransform(svg.getScreenCTM());
+      if (document.elementFromPoint(p.x, p.y)?.closest('.coelum-full')) return { x: p.x, y: p.y };
+    }
+    throw new Error('No sky object outside the Layers panel');
+  });
+  await page.touchscreen.tap(outsideObject.x, outsideObject.y);
+  assert.equal(await page.locator('.coelum-toolbar').isVisible(), false, 'An outside tap dismisses Layers');
+  assert.equal(await page.locator('.coelum-detail h3').count(), 0, 'Dismissal must not select the object underneath');
   await page.touchscreen.tap(saturn.x, saturn.y);
   const detailText = await page.locator('.coelum-detail').textContent();
-  for (const label of ['Saturn', 'planet', 'Altitude', 'Azimuth', 'Right ascension', 'Declination', 'Visual magnitude', 'Distance']) assert.ok(detailText.includes(label), label);
+  for (const label of ['Saturn', 'planet', 'Altitude', 'Azimuth', 'Right ascension', 'Declination', 'Galactic longitude', 'Galactic latitude', 'Visual magnitude', 'Distance']) assert.ok(detailText.includes(label), label);
   assert.equal(await page.locator('.coelum-detail h3').textContent(), 'Saturn');
   await page.locator('[data-action="deselect"]').click();
   await page.locator('.coelum-explorer').evaluate((el) => el.classList.add('coelum-idle'));

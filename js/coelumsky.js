@@ -11,7 +11,7 @@ import { projectMarsFeatures, MARS_COLOR } from './marsfeatures.js';
 
 const SOLID = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const FLAT = () => 0;
-export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, deep: false, minor: false, satellites: true, labels: true, labelSize: 14, moonSize: 'magnitude' };
+export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, galactic: false, deep: false, minor: false, satellites: true, labels: true, labelSize: 14, moonSize: 'magnitude' };
 // The diagonal of the view spans 140° at scale 1.
 export const skyRadius = (W, H, scale) => Math.hypot(W, H) / 2 / Math.tan(35 * R) * scale;
 // The default direction: toward the Sun near sunrise or sunset, otherwise
@@ -104,7 +104,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const fade = opts.atmosphere ? 1 - 0.7 * light.day : 1;
   // Grids, denser as the view zooms in; labels are drawn with the others.
   const gridLabels = [];
-  for (const [kind, stroke, opacity] of [['horizontal', '#7fbf8f', 0.45], ['equatorial', '#6f95e6', 0.5]]) {
+  for (const [kind, stroke, opacity] of [['horizontal', '#7fbf8f', 0.45], ['equatorial', '#6f95e6', 0.5], ['galactic', '#c2a0d7', 0.5]]) {
     if (!opts[kind]) continue;
     const fixed = kind === 'horizontal';
     for (const g of skyGrid(kind, frame, rotation.slice(6, 9), 2 * Math.atan(Math.hypot(W, H) / 2 / radius) / R, radius / 2 * R)) {

@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createCalculator } from '../js/defs.js';
-import { PLAYBACK_SPEEDS, stepPlaybackSpeed, formatPlaybackSpeed, playbackBodyVisible, SOLAR_BODIES, lookAt, skyFrame, createSkyAnimator, skyChart, chartLegend, starRadius, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
+import { galacticCoordinates, skyGrid, DEFAULT_LAYERS, PLAYBACK_SPEEDS, stepPlaybackSpeed, formatPlaybackSpeed, playbackBodyVisible, SOLAR_BODIES, lookAt, skyFrame, createSkyAnimator, skyChart, chartLegend, starRadius, projectSky, unprojectSky, rotateSky, SKY_IDENTITY, objectDetails, coelumPreview, planetMoons, findObject, searchSky, starTemperature } from '../js/coelum.js';
+import { skyTimeInput, localSkyInput, parseSkyInput, formatSkyTime } from '../js/coelumtime.js';
 import { horizontal, siderealTime, aspect, opposition } from '../js/astro.js';
 import { STARS } from '../js/catalog.js';
 import { CONSTELLATIONS } from '../js/skydata.js';
@@ -435,4 +436,42 @@ for (const phase of [0, 45, 90, 135, 180]) {
   assert.match(legend, /<\/svg>8<\/span>/);
   assert.doesNotMatch(chartLegend({ starBoost: -2 }), /<\/svg>5<\/span>/);
 }
+// The fixed galactic axes must survive precession across the supported span.
+assert.equal(DEFAULT_LAYERS.galactic, false);
+for (const date of ['-001000-06-01', '0000-06-01', '2000-06-01', '3000-06-01']) {
+  const t = Date.parse(`${date}T12:00:00Z`) / 1000, f = skyFrame(t, [41.892, 12.511, 20]);
+  const center = f.catalog(266.4049948, -28.936174); // Galactic l=b=0
+  const g = galacticCoordinates(center, f);
+  assert.ok(Math.min(g.lon, 360 - g.lon) < 0.0001 && Math.abs(g.lat) < 0.0001);
+  const pole = galacticCoordinates(f.catalog(192.85948, 27.12825), f);
+  assert.ok(Math.abs(pole.lat - 90) < 0.0001);
+  const lines = skyGrid('galactic', f, [0, 0, 1], 180, 4);
+  assert.ok(lines.some((l) => l.label === 'b 0°'));
+  for (const line of lines) for (const p of line.points) {
+    const value = galacticCoordinates(p, f);
+    const err = line.parallel ? value.lat - line.value : ((value.lon - line.value + 540) % 360) - 180;
+    if (Math.abs(value.lat) < 89.99) assert.ok(Math.abs(err) < 1e-7);
+  }
+  assert.match(objectDetails({ ...f.bodies[0] }, f), /Galactic longitude.*Galactic latitude/s);
+  const chart = skyChart(f, 600, 600, { ground: false, galactic: true });
+  assert.doesNotMatch(chart.svg, /NaN|Infinity|undefined/);
+  assert.match(chart.svg, /b 0°/);
+}
+for (const year of [-1000, -1, 0, 1, 99, 100, 2026, 3000]) {
+  const d = new Date(0); d.setFullYear(year, 5, 1); d.setHours(12, 34, 0, 0);
+  const t = d.getTime() / 1000;
+  assert.equal(parseSkyInput(localSkyInput(t)), t, `Local date roundtrip in year ${year}`);
+  if (year <= 0) assert.ok(formatSkyTime(t).includes(year === 0 ? '0000' : '−' + String(-year).padStart(4, '0')));
+}
+assert.ok(Number.isNaN(parseSkyInput('2026-02-30 12:00')));
+assert.ok(Number.isNaN(parseSkyInput('-1000-13-01 12:00')));
+assert.ok(Number.isNaN(parseSkyInput('2026-01-01 24:00')));
+assert.ok(Number.isNaN(parseSkyInput('2026-01-01')));
+assert.match(formatSkyTime(Date.parse('-001000-01-01T00:00Z') / 1000, true), /^−1000-01-01 00:00 UTC$/);
+for (const year of [-1000, -1, 0, 1, 99, 2026, 3000]) {
+  const date = new Date(0); date.setUTCFullYear(year, 5, 1); date.setUTCHours(12, 34, 0, 0);
+  const time = date.getTime() / 1000;
+  assert.equal(parseSkyInput(skyTimeInput(time, true), true), time, 'UTC input roundtrip');
+}
+assert.match(formatSkyTime(Date.now() / 1000), /UTC[+−]\d\d:\d\d/);
 console.log('Coelum geometry, catalogs, brightness and calculator checks passed');

@@ -98,7 +98,7 @@ function lunarAtTime(d, t) {
 function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
   const W = 360, { H, k, X, Y, f1, svg: base } = lunarFrame(d, W);
   const span = lunarAtTime(d, 0);
-  const local = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const local = (t) => host.formatClock ? host.formatClock(t) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
   const views = [["diagram", "Diagram"], ["sim", "Simulation"]];
   root.innerHTML = `${head}
       <div class="seg lunar-views" role="tablist">${views.map(([v, n]) => `<button data-lunar-view="${v}" role="tab">${n}</button>`).join("")}</div>
@@ -158,7 +158,7 @@ function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
     const umbral = (d.umbra + d.moon - dist) / (2 * d.moon), penumbral = (d.penumbra + d.moon - dist) / (2 * d.moon);
     const phase = umbral >= 1 ? "total" : umbral > 0 ? "partial" : penumbral > 0 ? "penumbral" : "no eclipse";
     const mag = umbral > 0 ? `, umbral magnitude ${umbral.toFixed(3)}` : penumbral > 0 ? `, penumbral magnitude ${penumbral.toFixed(3)}` : "";
-    when.textContent = `${hhmm(t)} UTC${host.utc ? "" : ` (${local(t)} local)`}: ${phase}${mag}${m.up === false ? " · the Moon is down at the place" : ""}`;
+    when.textContent = `${hhmm(t)} UTC${host.utc ? "" : ` (${local(t)}${host.formatClock ? '' : ' device time'})`}: ${phase}${mag}${m.up === false ? " · the Moon is down at the place" : ""}`;
   };
   let raf = 0, last = 0;
   const stop = () => { cancelAnimationFrame(raf); raf = 0; root.querySelector('[data-lunar="play"]').textContent = "▶"; };
@@ -231,13 +231,14 @@ const SHADES = [0, 0.2, 0.4, 0.6, 0.8];
 // zoom 0) that match at the center of the view
 const zoomOf = (s, lat) => Math.log2((s * 2 * Math.PI * Math.cos(lat * Math.PI / 180)) / 256);
 const scaleOf = (zoom, lat) => (256 * 2 ** zoom) / (2 * Math.PI * Math.cos(lat * Math.PI / 180));
-function mountMap(root, m, host, { head = "", caption = [] } = {}) {
+function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null } = {}) {
   const views = [["globe", "Globe"], ...Object.entries(TILES).map(([k, t]) => [k, t.name])];
   // an occultation: no simulation of the shadow (made for the Sun), but
   // places tapped for the occultation there
-  const occ = m.occ || null, canSim = typeof m.t === "number" && !occ, canPick = canSim || Boolean(occ);
-  const localAt = (p) => (occ ? occultationLocal(occ.target, occ.front, m.t, p) : solarLocal(m.t, p));
-  const what = occ ? "occultation" : "eclipse";
+  const locationPicker = Boolean(onSelectPlace);
+  const occ = m.occ || null, canSim = !locationPicker && typeof m.t === "number" && !occ, canPick = locationPicker || canSim || Boolean(occ);
+  const localAt = (p) => locationPicker ? null : (occ ? occultationLocal(occ.target, occ.front, m.t, p) : solarLocal(m.t, p));
+  const what = locationPicker ? "selected location" : occ ? "occultation" : "eclipse";
   // the place: of the calculation, or tapped on the map
   let place = m.place || null;
   // the contacts on the Earth, and at the place; 2 s into the phase they
@@ -286,7 +287,7 @@ function mountMap(root, m, host, { head = "", caption = [] } = {}) {
     svg.style.display = globe ? "" : "none";
     osm.hidden = globe;
     osm.classList.toggle("dark", Boolean(TILES[view]?.dark));
-    hint.textContent = (globe ? "Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back" : "Online map: drag to move, pinch or scroll to zoom") + (canPick ? `; tap a place for the ${what} there` : "");
+    hint.textContent = (globe ? "Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back" : "Online map: drag to move, pinch or scroll to zoom") + (locationPicker ? "; tap a place, then choose Use this place" : canPick ? `; tap a place for the ${what} there` : "");
     if (sim) hint.textContent += "; the penumbra darker where more of the Sun is covered, the umbra in a ring";
     host.store.set("mapView", view);
     if (globe) return redraw();
@@ -314,7 +315,7 @@ function mountMap(root, m, host, { head = "", caption = [] } = {}) {
     draw();
   };
   // the shadow at the time t, and what is seen then
-  const localTime = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const localTime = (t) => host.formatClock ? host.formatClock(t, place) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
   const ll = ([lat, lon]) => `${Math.abs(lat).toFixed(1)}° ${lat < 0 ? "S" : "N"}, ${Math.abs(lon).toFixed(1)}° ${lon < 0 ? "W" : "E"}`;
   // the time shown (the slider rounds it to its steps: the play keeps its own)
   let cur = m.t;
@@ -322,7 +323,7 @@ function mountMap(root, m, host, { head = "", caption = [] } = {}) {
     cur = t;
     at = shadowMap(t, SHADES);
     const u = at.umbra, kind = u && (u.kind === "total" ? "umbra" : "antumbra");
-    let text = `${hhmm(t)} UTC${host.utc ? "" : ` (${localTime(t)} local)`}: `;
+    let text = `${hhmm(t)} UTC${host.utc ? "" : ` (${localTime(t)}${host.formatClock ? '' : ' device time'})`}: `;
     text += u ? (u.center ? `the ${kind} at ${ll(u.center)}` : `the ${kind} at the edge of the Earth`) : at.partial.length ? "partial eclipse only" : "the shadow misses the Earth";
     if (place) {
       const p = solarPhase(t, place);
@@ -343,17 +344,21 @@ function mountMap(root, m, host, { head = "", caption = [] } = {}) {
   const showLocal = () => {
     if (!place) { localBox.innerHTML = ""; return; }
     const head = `<b>${ll(place)}</b>`;
+    if (locationPicker) {
+      localBox.innerHTML = `<p>${head}</p><button type="button" class="chip" data-map="choose-place">Use this place</button>`;
+      return;
+    }
     if (occ) return showOccultation(head);
     const up = (a) => a !== null && a > -0.833;
     if (!l) { localBox.innerHTML = `<p>${head}: no eclipse</p>`; return; }
     const seen = up(l.altC1) || up(l.altMax) || up(l.altC4);
     const hms = (t) => new Date(t * 1000).toISOString().slice(11, 19);
-    const lt = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const lt = (t) => host.formatClock ? host.formatClock(t, place, true) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
     const rows = [["begins", l.C1, l.altC1], [`${l.kind} begins`, l.C2], ["maximum", l.max, l.altMax], [`${l.kind} ends`, l.C3], ["ends", l.C4, l.altC4]]
       .filter(([, t]) => t !== null)
       .map(([n, t, a]) => `<tr><td>${n}${a !== undefined && !up(a) ? " (Sun down)" : ""}</td><td>${hms(t)}</td>${host.utc ? "" : `<td>${lt(t)}</td>`}</tr>`).join("");
     localBox.innerHTML = `<p>${head}: ${l.kind} eclipse${seen ? "" : ", the Sun down"}, magnitude ${l.magnitude.toFixed(3)}, ${(l.obscuration * 100).toFixed(l.obscuration > 0.995 && l.obscuration < 1 ? 1 : 0)}% of the Sun covered, the Sun ${Math.round(l.altMax)}° high at the maximum</p>
-      <table class="map-contacts"><tr><th></th><th>UTC</th>${host.utc ? "" : "<th>local</th>"}</tr>${rows}</table>
+      <table class="map-contacts"><tr><th></th><th>UTC</th>${host.utc ? "" : (host.formatClock ? "<th>Selected time</th>" : "<th>Device time</th>")}</tr>${rows}</table>
       ${actions}`;
   };
   // the occultation seen from the place: its contacts (UTC, and local),
@@ -363,14 +368,14 @@ function mountMap(root, m, host, { head = "", caption = [] } = {}) {
     if (!l) { localBox.innerHTML = `<p>${head}: no occultation</p>`; return; }
     const alt = (t) => horizontal(occ.target, t, place).alt, up = (t) => alt(t) > -0.5;
     const hms = (t) => new Date(t * 1000).toISOString().slice(11, 19);
-    const lt = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const lt = (t) => host.formatClock ? host.formatClock(t, place, true) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
     const rows = (l.r ? [["first contact", l.first], [l.covers ? "disappears" : "second contact", l.C2], [l.covers ? "reappears" : "third contact", l.C3], ["last contact", l.last]]
       : [["disappears", l.first], ["reappears", l.last]])
       .filter(([, t]) => t !== null)
       .map(([n, t]) => `<tr><td>${n}${up(t) ? "" : ` (${esc(TN)} down)`}</td><td>${hms(t)}</td>${host.utc ? "" : `<td>${lt(t)}</td>`}</tr>`).join("");
     const seen = [l.first, l.max, l.last].some(up), sun = horizontal("sun", l.max, place).alt;
     localBox.innerHTML = `<p>${head}: ${esc(TN)} occulted${seen ? `, ${Math.round(alt(l.max))}° high` : ", below the horizon"}, the Sun ${Math.abs(Math.round(sun))}° ${sun < 0 ? "below the horizon" : "high"}</p>
-      <table class="map-contacts"><tr><th></th><th>UTC</th>${host.utc ? "" : "<th>local</th>"}</tr>${rows}</table>
+      <table class="map-contacts"><tr><th></th><th>UTC</th>${host.utc ? "" : (host.formatClock ? "<th>Selected time</th>" : "<th>Device time</th>")}</tr>${rows}</table>
       ${actions}`;
   };
   function pick(p) {
@@ -413,6 +418,13 @@ function mountMap(root, m, host, { head = "", caption = [] } = {}) {
     const b = ev.target.closest("[data-map], [data-map-t]");
     if (!b) return;
     if (b.dataset.mapT) { stop(); slider.value = b.dataset.mapT; setTime(Number(b.dataset.mapT)); return; }
+    if (b.dataset.map === "choose-place") {
+      b.disabled = true; b.textContent = 'Setting place…';
+      Promise.resolve(onSelectPlace([...place])).catch((e) => host.toast(e.message)).finally(() => {
+        if (b.isConnected) { b.disabled = false; b.textContent = 'Use this place'; }
+      });
+      return;
+    }
     if (b.dataset.map === "calc") return host.calc(place);
     if (b.dataset.map === "sky" && l) return host.sky(l.max, place, occ ? [occName(occ), typeof occ.front === "string" ? occ.front[0].toUpperCase() + occ.front.slice(1) : occ.front.name] : ["Sun"]);
     if (play) return stop();
@@ -460,7 +472,7 @@ function mountMap(root, m, host, { head = "", caption = [] } = {}) {
   });
   const up = (ev) => {
     if (!pts.delete(ev.pointerId)) return;
-    if (!moved && !pts.size) {
+    if (ev.type === "pointerup" && !moved && !pts.size) {
       clearTimeout(tapPick);
       if (ev.timeStamp - lastTap < 350) { v = mapView(m, W, H); chosen = false; redraw(); lastTap = 0; } else {
         lastTap = ev.timeStamp;
@@ -481,6 +493,8 @@ function mountMap(root, m, host, { head = "", caption = [] } = {}) {
   // the picture to share: the globe or the map of tiles, with the time of
   // the simulation
   return {
+    resize: size,
+    destroy: () => { ++shown; stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
     share: () => {
       const cap = sim ? [...caption, when.textContent] : caption, name = occ ? "occultation" : "solar-eclipse";
       return osm.hidden

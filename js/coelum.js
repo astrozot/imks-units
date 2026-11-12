@@ -51,7 +51,7 @@ export function formatPlaybackSpeed(rate) {
 // than evaluating their many short or uncertain orbits at extreme rates.
 const ORBIT_DAYS = { moon: 27.32, mercury: 87.97, venus: 224.7, mars: 686.98, jupiter: 4332.59, saturn: 10759.22, uranus: 30688.5, neptune: 60182 };
 export const playbackBodyVisible = (body, rate) => Math.abs(rate) < (body === 'sun' ? 365.256 : ORBIT_DAYS[body] ?? ORBIT_DAYS.moon) * 86400;
-export const DEFAULT_LAYERS = { ground: true, milkyway: true, constellations: true, boundaries: false, ecliptic: true, horizontal: false, equatorial: false, deep: false, minor: false, satellites: true, labels: true, magnitude: 6, labelSize: 14 };
+export const DEFAULT_LAYERS = { ground: true, milkyway: true, constellations: true, boundaries: false, ecliptic: true, horizontal: false, equatorial: false, galactic: false, deep: false, minor: false, satellites: true, labels: true, magnitude: 6, labelSize: 14 };
 export const SKY_IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 export const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 export const unit3 = (v) => { const n = Math.hypot(...v); return v.map((x) => x / n); };
@@ -102,7 +102,7 @@ export const BODY_COLORS = { sun: '#ffd36c', moon: '#f2eee3', mercury: '#c7b5a2'
 // Atlas colours: deep-sky symbols follow the usual printed-atlas code
 // (galaxies red, clusters yellow, nebulae green).
 export const PALETTE = {
-  sky: '#0c1730', ground: '#17211b', horizon: '#86a690', lines: '#5274a3', bounds: '#3d5780', ecliptic: '#d0a54c', equatorial: '#3d5384', horizontal: '#2e4c5e',
+  sky: '#0c1730', ground: '#17211b', horizon: '#86a690', lines: '#5274a3', bounds: '#3d5780', ecliptic: '#d0a54c', equatorial: '#3d5384', galactic: '#76558a', horizontal: '#2e4c5e',
   terrain: '#9fd58c', galaxy: '#ff8f80', cluster: '#f0d36c', nebula: '#6fdc9a', other: '#b9a3ff', label: '#c3d1e6', constellation: '#86a3cc', planet: '#ffe2a8',
   satellite: '#7fdcff', shadowed: '#71819a',
 };
@@ -138,6 +138,20 @@ export function horizonToJ2000(frame) {
   const sl = Math.sin(lst), cl = Math.cos(lst), sp = Math.sin(lat), cp = Math.cos(lat);
   const E = [[-sl, cl, 0], [-sp * cl, -sp * sl, cp], [cp * cl, cp * sl, sp]], M = frame.matrix;
   return [0, 1, 2].flatMap((k) => E.map((col) => dot3(M[k], col)));
+}
+
+// ICRS/J2000 to Galactic rotation (ESA Gaia DR3 documentation, eq. 4.62).
+// https://gea.esac.esa.int/archive/documentation/GDR3/Data_processing/chap_cu3ast/sec_cu3ast_intro/ssec_cu3ast_intro_tansforms.html
+const GALACTIC = [
+  [-0.0548755604162154, -0.8734370902348850, -0.4838350155487132],
+  [0.4941094278755837, -0.4448296299600112, 0.7469822444972189],
+  [-0.8676661490190047, -0.1980763734312015, 0.4559837761750669],
+];
+export function galacticCoordinates(o, frame) {
+  // Undo the date's precession/nutation before applying the fixed system.
+  const v = vec(o.ra, o.dec), j2000 = frame.matrix.map((col) => dot3(col, v));
+  const g = GALACTIC.map((row) => dot3(row, j2000));
+  return { lon: (Math.atan2(g[1], g[0]) / R + 360) % 360, lat: Math.atan2(g[2], Math.hypot(g[0], g[1])) / R };
 }
 
 export function horizonPoint(ra, dec, lat, lst) {
@@ -371,7 +385,7 @@ export function refractVector(v, height = 0) {
 
 // Coordinate grids that get denser as the view zooms in: lines about 70 px
 // apart, only within fov (degrees) of the view's center (a horizontal
-// vector). kind 'horizontal' (alt/az) or 'equatorial' (RA/Dec of date).
+// vector). Horizontal (alt/az), equatorial (RA/Dec of date), or galactic (l/b).
 const GRID_STEPS = [30, 15, 10, 5, 2, 1, 0.5, 0.25, 1 / 6, 1 / 12, 1 / 30];
 const RA_STEPS = [30, 15, 7.5, 5, 2.5, 1.25, 0.5, 0.25, 0.125, 1 / 12];
 const gridStep = (steps, pxPerDeg) => { let step = steps[0]; for (const s of steps) if (s * pxPerDeg >= 70) step = s; return step; };
@@ -384,17 +398,21 @@ const hours = (ra) => {
   return `${Math.floor(t / 3600)}h${m || s ? `${m}m` : ''}${s ? `${s}s` : ''}`;
 };
 export function skyGrid(kind, frame, center, fov, pxPerDeg) {
-  const horizontal = kind === 'horizontal';
-  const point = horizontal ? (lat, lon) => ({ alt: lat, az: ((lon % 360) + 360) % 360, vector: horizontalVector(lat, lon) }) : (lat, lon) => frame.hor({ ra: ((lon % 360) + 360) % 360, dec: lat });
+  const horizontal = kind === 'horizontal', galactic = kind === 'galactic';
+  const galPoint = (lat, lon) => {
+    const v = vec(lon, lat), j = [0, 1, 2].map((i) => GALACTIC.reduce((s, row, k) => s + row[i] * v[k], 0));
+    return frame.catalog((Math.atan2(j[1], j[0]) / R + 360) % 360, Math.atan2(j[2], Math.hypot(j[0], j[1])) / R);
+  };
+  const point = galactic ? galPoint : horizontal ? (lat, lon) => ({ alt: lat, az: ((lon % 360) + 360) % 360, vector: horizontalVector(lat, lon) }) : (lat, lon) => frame.hor({ ra: ((lon % 360) + 360) % 360, dec: lat });
   let c = center;
   if (!horizontal) {
     // The center in RA/Dec of date: hor() is a rotation, so its transpose.
-    const axes = [frame.hor({ ra: 0, dec: 0 }), frame.hor({ ra: 90, dec: 0 }), frame.hor({ ra: 0, dec: 90 })].map(pointVector);
+    const axes = (galactic ? [point(0, 0), point(0, 90), point(90, 0)] : [frame.hor({ ra: 0, dec: 0 }), frame.hor({ ra: 90, dec: 0 }), frame.hor({ ra: 0, dec: 90 })]).map(pointVector);
     c = axes.map((a) => dot3(a, center));
   }
   const lat0 = Math.asin(clamp(c[2])) / R, lon0 = horizontal ? Math.atan2(c[0], c[1]) / R : Math.atan2(c[1], c[0]) / R;
   const f = Math.min(180, fov), cos0 = Math.max(0.25, Math.cos(lat0 * R));
-  const latStep = gridStep(GRID_STEPS, pxPerDeg), lonStep = gridStep(horizontal ? GRID_STEPS : RA_STEPS, pxPerDeg * cos0);
+  const latStep = gridStep(GRID_STEPS, pxPerDeg), lonStep = gridStep((horizontal || galactic) ? GRID_STEPS : RA_STEPS, pxPerDeg * cos0);
   const latLo = Math.max(-90, lat0 - f), latHi = Math.min(90, lat0 + f), polar = Math.abs(lat0) + f >= 89.9;
   const lonHalf = polar ? 180 : Math.asin(Math.min(1, Math.sin(f * R) / Math.cos(lat0 * R))) / R;
   const res = Math.min(2, f / 30), lines = [];
@@ -402,13 +420,13 @@ export function skyGrid(kind, frame, center, fov, pxPerDeg) {
     const lat = k * latStep;
     if (Math.abs(lat) > 89.99) continue;
     const n = Math.min(720, Math.ceil(2 * lonHalf * Math.cos(lat * R) / res) + 2);
-    lines.push({ parallel: true, value: lat, label: degrees(lat), points: Array.from({ length: n + 1 }, (_, i) => point(lat, lon0 - lonHalf + 2 * lonHalf * i / n)) });
+    lines.push({ parallel: true, value: lat, label: `${galactic ? 'b ' : ''}${degrees(lat)}`, points: Array.from({ length: n + 1 }, (_, i) => point(lat, lon0 - lonHalf + 2 * lonHalf * i / n)) });
   }
   const from = polar ? 0 : Math.ceil((lon0 - lonHalf) / lonStep), to = polar ? Math.round(360 / lonStep) - 1 : Math.floor((lon0 + lonHalf) / lonStep);
   const n = Math.min(400, Math.ceil((latHi - latLo) / res) + 1);
   for (let k = from; k <= to; k++) {
     const lon = k * lonStep;
-    lines.push({ parallel: false, value: lon, label: horizontal ? degrees(((lon % 360) + 360) % 360) : hours(lon), points: Array.from({ length: n + 1 }, (_, i) => point(latLo + (latHi - latLo) * i / n, lon)) });
+    lines.push({ parallel: false, value: lon, label: galactic ? `l ${degrees(((lon % 360) + 360) % 360)}` : horizontal ? degrees(((lon % 360) + 360) % 360) : hours(lon), points: Array.from({ length: n + 1 }, (_, i) => point(latLo + (latHi - latLo) * i / n, lon)) });
   }
   return lines;
 }
@@ -886,7 +904,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   }
   p.path(ticks, { stroke: c.horizon, width: 1 });
   // Grids: denser as the chart zooms in, labelled toward the view's edges.
-  for (const [kind, stroke, ink] of [['horizontal', c.horizontal, '#8baabd'], ['equatorial', c.equatorial, '#96a4ce']]) {
+  for (const [kind, stroke, ink] of [['horizontal', c.horizontal, '#8baabd'], ['equatorial', c.equatorial, '#96a4ce'], ['galactic', c.galactic, '#c2a0d7']]) {
     if (!opts[kind]) continue;
     for (const g of skyGrid(kind, frame, rotation.slice(6, 9), Math.hypot(W, H) / 2 / radius * 90, radius / 90)) {
       if (kind === 'horizontal' && g.parallel && g.value === 0) continue;
@@ -1170,7 +1188,7 @@ const motionText = (pmra, pmdec) => {
 // A satellite's card: where it is, how far and how high, how bright, and
 // the age of its elements
 const GROUP_NAMES = { stations: 'Space station or crewed craft', visual: 'Bright satellite', science: 'Science satellite', amateur: 'Amateur radio satellite', weather: 'Weather satellite' };
-function satelliteDetails(o, row) {
+function satelliteDetails(o, row, galacticRows) {
   const s = o.satellite, age = (Date.now() / 1000 - s.epoch) / 3600, km = (x) => `${Math.round(x).toLocaleString('en')} km`;
   return `<div class="coelum-object-head"><h3>${esc(o.name)}</h3><span>${esc(GROUP_NAMES[s.group] || 'Satellite')}</span></div><dl>
     ${row('Altitude (Alt)', sexagesimal(o.alt, false, true))}
@@ -1178,6 +1196,7 @@ function satelliteDetails(o, row) {
     ${row('Azimuth (Az)', sexagesimal(o.az))}
     ${row('Right ascension (RA)', sexagesimal(o.ra / 15, true))}
     ${row('Declination (Dec)', sexagesimal(o.dec, false, true))}
+    ${galacticRows}
     ${row('Distance', km(o.dist))}
     ${row('Height above the Earth', km(o.height))}
     ${row('Visual magnitude', o.lit ? `${o.mag.toFixed(1)} (${s.stdKnown ? 'estimated' : 'rough guess'})` : 'In the Earth’s shadow')}
@@ -1185,9 +1204,11 @@ function satelliteDetails(o, row) {
     ${row('Elements', `${age < 48 ? `${Math.max(0, Math.round(age))} hours` : `${Math.round(age / 24)} days`} old (CelesTrak)`)}
     </dl><p class="coelum-coordinate-note">Seen from the place (topocentric), without refraction in the chart · SGP4 positions, good to a few km while the elements are fresh · brightness from the standard magnitude for the distance and the phase; tumbling and flares are not modeled${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
 }
-export function objectDetails(o) {
+export function objectDetails(o, frame = null) {
   const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`;
-  if (o.satellite) return satelliteDetails(o, row);
+  const g = frame && galacticCoordinates(o, frame);
+  const galacticRows = g ? row('Galactic longitude (l)', sexagesimal(g.lon)) + row('Galactic latitude (b)', sexagesimal(g.lat, false, true)) : '';
+  if (o.satellite) return satelliteDetails(o, row, galacticRows);
   const notes = [o.double && 'double or multiple', o.variable && 'variable'].filter(Boolean);
   // a planet, or a planet's moon: a button for the close-up of the planet
   // (with its moons)
@@ -1196,6 +1217,7 @@ export function objectDetails(o) {
     ${o.description ? `<p>${esc(o.description)}</p>` : ''}<dl>
     ${row('Right ascension (RA)', sexagesimal(o.ra / 15, true))}
     ${row('Declination (Dec)', sexagesimal(o.dec, false, true))}
+    ${galacticRows}
     ${row('Altitude (Alt)', sexagesimal(o.alt, false, true))}
     ${Number.isFinite(o.apparentAlt) ? row('Apparent altitude', sexagesimal(o.apparentAlt, false, true)) : ''}
     ${row('Azimuth (Az)', sexagesimal(o.az))}

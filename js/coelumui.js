@@ -1,6 +1,9 @@
 // The coelum explorer: two views of the same sky (a map-like chart and a
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
+import { preventPageZoom } from './pagezoom.js';
+import { mountMap } from './eventview.js';
+import { skyTimeInput, parseSkyInput, skyTimeZone, deviceTimeZone, validSkyZone, skyDayBounds, skyClock } from './coelumtime.js';
 import { PhoneOrientation } from './phoneorientation.js';
 import { followGuide } from './followguide.js';
 import { moonEventsPanel } from './mooneventspanel.js';
@@ -151,7 +154,7 @@ const ICONS = {
 const LAYERS = [
   ['ground', 'Ground', 'chart sky'], ['atmosphere', 'Atmosphere', 'sky'], ['milkyway', 'Milky Way', 'chart sky'],
   ['constellations', 'Constellations', 'chart sky'], ['boundaries', 'Boundaries', 'chart sky'], ['ecliptic', 'Ecliptic', 'chart sky'],
-  ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['satellites', 'Satellites', 'chart sky'], ['labels', 'Labels', 'chart sky'],
+  ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['galactic', 'Galactic l / b grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['satellites', 'Satellites', 'chart sky'], ['labels', 'Labels', 'chart sky'],
 ];
 const MODES = { chart: 'Chart', sky: 'Sky' };
 // Match the chart and Sky limits, with enough magnification for mapped
@@ -165,6 +168,7 @@ const SEARCH_ICONS = {
   mars: searchIcon('<circle cx="8" cy="12" r="5"/><path d="m11.5 8.5 6-6M12 2h6v6"/>'),
   unlit: searchIcon('<circle cx="10" cy="10" r="4"/><path d="M10 1v2m0 14v2M1 10h2m14 0h2M3 3l2 2m10 10 2 2M3 17 17 3"/>'),
   far: searchIcon('<circle cx="10" cy="10" r="8"/><path fill="currentColor" stroke="none" d="M10 2a8 8 0 0 0 0 16Z"/>'),
+  hidden: searchIcon('<path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6Z"/><circle cx="10" cy="10" r="2.5"/><path d="M2 18 18 2"/>'),
   below: searchIcon('<path d="M2 14h16M10 2v9m-4-4 4 4 4-4m-7 11h6"/>'),
 };
 const searchStatus = (m) => [
@@ -291,7 +295,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-panel-body"></div></div>`).join('')}
       <div class="coelum-panel coelum-timepanel" id="${id}-time" role="group" aria-label="Date and time" hidden>
         <div class="coelum-panel-head"><h3>Date and time</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close date and time">${ICONS.close}</button></div>
-        <div class="coelum-time-row"><input type="datetime-local" step="60" data-time-input aria-label="Date and time on this device's clock"><button type="button" class="coelum-chip" data-set-time="now">Now</button></div>
+        <div class="coelum-time-row"><input type="text" placeholder="YYYY-MM-DD HH:mm" spellcheck="false" data-time-input aria-label="Date and time in the selected timezone"><button type="button" class="coelum-chip" data-set-time="now">Now</button></div>
+        ${options.standalone ? `<label class="coelum-time-zone">Time display <select data-time-zone aria-label="Time display"><option value="utc">UTC</option><option value="device">Device time (${esc(deviceTimeZone())})</option><option value="location">Selected location</option></select></label>
+        <label class="coelum-time-zone" data-place-zone-row hidden><span>Location timezone</span><span class="coelum-location-zone-controls"><input type="text" data-place-zone list="${id}-zones" aria-label="Location timezone" placeholder="Europe/Rome or UTC+02:00"><button type="button" class="coelum-chip" data-reset-place-zone>Automatic</button></span></label>
+        <datalist id="${id}-zones">${(Intl.supportedValuesOf?.('timeZone') || ['Europe/Rome', 'America/New_York', 'Asia/Tokyo']).map((zone) => `<option value="${esc(zone)}"></option>`).join('')}</datalist>` : ''}
         <p class="coelum-panel-note coelum-zone-note"></p>
         <h3 class="coelum-events-head">Events of the day</h3>
         <div class="coelum-events"></div>
@@ -302,7 +309,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <form class="coelum-place-form"><input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="City, or latitude, longitude" aria-label="Search places"><button type="submit" class="coelum-chip">Search online</button></form>
         <div class="coelum-place-results" role="list"></div>
         <p class="coelum-panel-note coelum-place-status" role="status" aria-live="polite"></p>
-        <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button><button type="button" class="coelum-chip" data-place="original">Original place</button></div>
+        <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button>${options.standalone ? '' : '<button type="button" class="coelum-chip" data-place="original">Original place</button>'}<button type="button" class="coelum-chip" data-place="map">Choose on map</button></div>
+      </div>
+      <div class="coelum-panel coelum-map-panel" id="${id}-map" role="group" aria-label="Choose a place on the map" hidden>
+        <div class="coelum-panel-head"><h3>Choose on map</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close map">${ICONS.close}</button></div>
+        <div class="coelum-map-body"></div>
       </div>
       <div class="coelum-moonsview" role="group" aria-label="Moons" hidden>
         <div class="sky-stage coelum-moons-stage"></div>
@@ -318,7 +329,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     </div>
     <div class="coelum-timebar coelum-hud">
       <label class="coelum-moon-sizing" hidden>Moon sizes <select data-moon-size aria-label="Moon sizes"><option value="magnitude">By magnitude</option><option value="actual">Actual size</option></select></label>
-      <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button> · <button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"></button><span class="coelum-condition"></span></p><span class="coelum-clock-side"><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output><span class="coelum-ruler" title="Angular scale at the center of the view"><i></i><b></b></span></span></div>
+      <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><span class="coelum-status-main"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button><span aria-hidden="true"> · </span><button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"></button></span><span class="coelum-condition"></span></p><span class="coelum-clock-side"><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output><span class="coelum-ruler" title="Angular scale at the center of the view"><i></i><b></b></span></span></div>
       <div class="coelum-controls" role="toolbar" aria-label="Time">
         <button type="button" class="coelum-btn coelum-btn-text" data-action="back" aria-label="One hour earlier" title="One hour earlier">−1 h</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="slower" aria-label="Decrease playback speed (about half)" title="Decrease playback speed (about half)">÷2</button>
@@ -434,10 +445,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     root.classList.toggle('coelum-has-selection', Boolean(selected));
     root.classList.toggle('coelum-show-detail', Boolean(selected) && detailShown);
     const sun = frame.bodies[0].alt, condition = sun >= 0 ? 'Daylight' : sun >= -6 ? 'Civil twilight' : sun >= -12 ? 'Nautical twilight' : sun >= -18 ? 'Astr. twilight' : 'Night';
-    statusTime.textContent = formatTime(t); statusPlace.textContent = placeLabel; statusCondition.textContent = ` · ${condition} · Sun ${sun.toFixed(1)}°`;
+    statusTime.textContent = (options.formatStatusTime || formatTime)(t);
+    statusTime.parentElement.title = `Set the date and time · ${formatTime(t)}`;
+    statusTime.parentElement.setAttribute('aria-label', `Date and time: ${formatTime(t)}`);
+    statusPlace.textContent = placeLabel; statusCondition.textContent = `${condition} · Sun ${sun.toFixed(1)}°`;
     if (selected) {
       const o = findObject(frame, selected);
-      const html = feature ? (feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o);
+      const html = feature ? (feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o, frame);
       // unchanged, the card stays (a tap on its button is not lost)
       if (html && html !== detailHTML) detail.innerHTML = detailHTML = html;
     }
@@ -666,10 +680,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
 
   // Panels: one at a time; they keep the full-screen controls awake.
-  const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel') };
+  const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel'), map: $('.coelum-map-panel') };
+  let placeMap = null;
   for (const p of extra) panels[p.key] = $(`[data-panel="${p.key}"]`);
   const panelOpen = () => Object.values(panels).some((panel) => !panel.hidden);
   const showPanel = (name) => {
+    if (placeMap) { placeMap.destroy(); placeMap = null; }
     for (const [key, panel] of Object.entries(panels)) {
       const on = key === name && panel.hidden;
       panel.hidden = !on;
@@ -682,6 +698,32 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (more && !panels[name].hidden) more.render(panels[name].querySelector('.coelum-panel-body'), explorer);
     wake();
   };
+  // Consume the whole outside gesture, including its synthesized click,
+  // before it reaches sky picking or another control. Listen on document
+  // so dismissal also works outside an embedded explorer.
+  const stopPageZoom = preventPageZoom(options.standalone ? document.body : root);
+  const panelDismissal = new AbortController(), dismissalPointers = new Set();
+  let dismissalClick = false;
+  document.addEventListener('pointerdown', (ev) => {
+    if (!root.isConnected) return;
+    dismissalClick = false;
+    if (panels.layers.hidden || panels.layers.contains(ev.target)) return;
+    showPanel(null); lastTap = null;
+    dismissalPointers.add(ev.pointerId); dismissalClick = true;
+    ev.preventDefault(); ev.stopImmediatePropagation();
+  }, { capture: true, signal: panelDismissal.signal });
+  for (const type of ['pointermove', 'pointerup', 'pointercancel']) document.addEventListener(type, (ev) => {
+    if (!dismissalPointers.has(ev.pointerId)) return;
+    if (type !== 'pointermove') dismissalPointers.delete(ev.pointerId);
+    ev.preventDefault(); ev.stopImmediatePropagation();
+  }, { capture: true, signal: panelDismissal.signal });
+  document.addEventListener('click', (ev) => {
+    if (!root.isConnected) return;
+    if (dismissalClick || (!panels.layers.hidden && !panels.layers.contains(ev.target))) {
+      dismissalClick = false; showPanel(null);
+      ev.preventDefault(); ev.stopImmediatePropagation();
+    }
+  }, { capture: true, signal: panelDismissal.signal });
   // A planet and its moons as in the moons() view (Mercury and Venus
   // alone), at the chart's time, over the whole view (in full screen, left
   // as it was on closing), with the planet's phase, size, magnitude and
@@ -868,8 +910,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // the Sun (with twilights) and the Moon at the place.
   const timeInput = $('[data-time-input]'), events = $('.coelum-events');
   const pad = (n) => String(n).padStart(2, '0');
-  const localInput = (time) => { const d = new Date(time * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
-  const clock = (time) => new Date(time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const timeZone = () => { const zone = options.timeZone?.() || 'device'; return zone === 'utc' ? 'UTC' : zone; };
+  const timeUTC = () => timeZone() === 'UTC';
+  const localInput = (time) => skyTimeInput(time, timeZone());
+  const clock = (time) => skyClock(time, timeZone());
   const EVENTS = [
     ['Astronomical dawn', 'sun', true, -18], ['Nautical dawn', 'sun', true, -12], ['Civil dawn', 'sun', true, -6], ['Sunrise', 'sun', true, null],
     ['Sunset', 'sun', false, null], ['Civil dusk', 'sun', false, -6], ['Nautical dusk', 'sun', false, -12], ['Astronomical dusk', 'sun', false, -18],
@@ -878,24 +922,56 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   let eventsDay = null;
   const showTime = () => {
     if (document.activeElement !== timeInput) timeInput.value = localInput(t);
-    const offset = -new Date(t * 1000).getTimezoneOffset(), zone = `UTC${offset < 0 ? '−' : '+'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
-    $('.coelum-zone-note').textContent = `On this device's clock (${zone}).${options.standalone ? '' : " The status line shows the calculator's time format."}`;
-    const d = new Date(t * 1000), start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000, key = `${start},${place.join(',')}`;
+    const zone = skyTimeZone(t, timeZone()), mode = options.timeMode?.() || (timeUTC() ? 'utc' : 'device');
+    const zoneSelect = $('[data-time-zone]');
+    if (zoneSelect) zoneSelect.value = mode;
+    const locationZone = options.placeTimeZone?.();
+    const zoneRow = $('[data-place-zone-row]');
+    if (zoneRow) {
+      zoneRow.hidden = mode !== 'location';
+      if (document.activeElement !== $('[data-place-zone]')) $('[data-place-zone]').value = locationZone.override || locationZone.detected;
+    }
+    $('.coelum-zone-note').textContent = `${mode === 'location' ? `Selected location: ${zone}. ${locationZone?.override ? 'Manual timezone override.' : 'Estimated from the offline timezone map.'} Named zones apply daylight-saving rules; use UTC+HH:mm or UTC−HH:mm for a fixed offset.` : mode === 'utc' ? 'UTC for every place.' : `Device time: ${zone}; does not follow the place viewed.`} YYYY-MM-DD HH:mm; signed years (0 = 1 BCE, −1 = 2 BCE). Supported UTC years: −1000 to 3000.`;
+    const [start, end] = skyDayBounds(t, timeZone()), key = `${start},${end},${place.join(',')}`;
     if (key === eventsDay) return;
     eventsDay = key;
     const found = EVENTS.map(([label, body, rising, h0]) => {
       const e = riseSet(body, start, place, rising, h0);
-      return e && e.t < start + 86400 ? { label, t: e.t } : { label, t: null };
+      return e && e.t < end ? { label, t: e.t } : { label, t: null };
     });
     events.innerHTML = found.filter((e) => e.t !== null).sort((a, b) => a.t - b.t).map((e) => `<button type="button" class="coelum-chip" data-time-event="${e.t}"><span>${esc(e.label)}</span> ${esc(clock(e.t))}</button>`).join('')
       + (found.some((e) => e.t === null) ? `<p class="coelum-panel-note">Not on this day: ${found.filter((e) => e.t === null).map((e) => esc(e.label.toLowerCase())).join(', ')}.</p>` : '');
   };
   const setTime = (time) => {
+    timeInput.setCustomValidity('');
     jumpTime(time);
     if (playing) pause(); else draw(true);
     if (!panels.time.hidden) showTime();
   };
-  timeInput.addEventListener('change', () => { const ms = new Date(timeInput.value).getTime(); if (Number.isFinite(ms)) setTime(ms / 1000); });
+  $('[data-time-zone]')?.addEventListener('change', (ev) => {
+    options.onTimeZone?.(ev.target.value);
+    eventsDay = null; timeInput.setCustomValidity(''); timeInput.value = localInput(t);
+    showTime(); updateUI(true);
+  });
+  $('[data-place-zone]')?.addEventListener('input', (ev) => ev.target.setCustomValidity(''));
+  $('[data-place-zone]')?.addEventListener('change', (ev) => {
+    const value = ev.target.value.trim();
+    if (!validSkyZone(value)) { ev.target.setCustomValidity('Enter an IANA timezone such as Europe/Rome, or a fixed offset such as UTC+02:00.'); ev.target.reportValidity(); return; }
+    options.onPlaceTimeZone?.(value);
+    eventsDay = null; timeInput.value = localInput(t); showTime(); updateUI(true);
+  });
+  $('[data-reset-place-zone]')?.addEventListener('click', () => {
+    options.onPlaceTimeZone?.(null);
+    $('[data-place-zone]').setCustomValidity(''); eventsDay = null;
+    timeInput.value = localInput(t); showTime(); updateUI(true);
+  });
+  timeInput.addEventListener('input', () => timeInput.setCustomValidity(''));
+  timeInput.addEventListener('change', () => {
+    const time = parseSkyInput(timeInput.value, timeZone());
+    const valid = Number.isFinite(time) && limitTime(time) === time;
+    timeInput.setCustomValidity(valid ? '' : 'Enter a valid date in the selected timezone as YYYY-MM-DD HH:mm, within UTC years −1000 to 3000.');
+    if (valid) setTime(time); else timeInput.reportValidity();
+  });
 
   // The place: the calculator's cities and places found before, typed
   // coordinates, a search online (OpenStreetMap) or the device's position.
@@ -928,6 +1004,17 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     options.onPlace?.([...place], placeLabel);
     showPanel(null);
     if (playing) pause(); else draw(true);
+  };
+  const showPlaceMap = () => {
+    showPanel('map');
+    const preferences = new Map();
+    placeMap = mountMap($('.coelum-map-body'), { place: place.slice(0, 2), penN: [], penS: [], band: [], center: [] }, {
+      store: { get: (key, fallback) => preferences.get(key) ?? fallback, set: (key, value) => preferences.set(key, value) },
+      toast: (message) => say(message),
+    }, { onSelectPlace: async ([lat, lon]) => {
+      try { await setPlace({ lat, lon, h: null, name: `${lat.toFixed(3)}°, ${lon.toFixed(3)}°` }); }
+      catch (e) { say(e.message); }
+    } });
   };
   placeInput.addEventListener('input', () => showPlaces(placeInput.value));
   $('.coelum-place-form').addEventListener('submit', async (ev) => {
@@ -1133,21 +1220,34 @@ export function mountCoelum(root, model, formatTime, options = {}) {
 
   // Search: matches as you type; Enter or a tap flies to the object.
   let matches = [], active = -1;
+  const resultStatus = (m) => {
+    const L = layers[mode], o = !m.key && findObject(frame, m.name);
+    let hidden = null;
+    if (o) {
+      if (frame.deep.includes(o) && !L.deep) hidden = 'Not displayed: Deep sky layer is off';
+      else if (o.type === 'constellation' && !L.constellations) hidden = 'Not displayed: Constellations layer is off';
+      else if ((o.body === 'minor' || o.body === 'comet') && !L.minor && o.name !== selected) hidden = 'Not displayed: Minor planets layer is off';
+      else if (o.body === 'satellite' && !L.satellites && o.name !== selected) hidden = 'Not displayed: Satellites layer is off';
+      else if (o.hidden) hidden = 'Not displayed in the current view';
+      else if (mode === 'chart' && o.type === 'star' && !o.body && o.mag - (L.starBoost || 0) > L.magnitude) hidden = 'Not displayed: fainter than the magnitude limit';
+    }
+    return [...searchStatus(m), ...(hidden ? [['hidden', hidden]] : [])];
+  };
   const showResults = () => {
     $('.coelum-search-clear').hidden = !input.value;
     results.hidden = searchDropdown.hidden = !matches.length;
     searchHint.hidden = true;
     input.setAttribute('aria-expanded', String(!results.hidden));
     results.innerHTML = matches.map((m, i) => {
-      const type = TYPE_ORDER[m.type] || m.type, statuses = searchStatus(m);
-      const label = [m.name, m.alias, type, m.availability, m.alt < 0 && 'below horizon'].filter(Boolean).join(' · ');
+      const type = TYPE_ORDER[m.type] || m.type, statuses = resultStatus(m);
+      const label = [m.name, m.alias, type, ...statuses.map(([, text]) => text)].filter(Boolean).join(' · ');
       const symbols = statuses.map(([key, text]) => `<span class="coelum-search-symbol" title="${esc(text)}" data-search-hint="${esc(text)}">${SEARCH_ICONS[key]}</span>`).join('');
       return `<li role="option" id="${id}-r${i}" data-index="${i}" aria-label="${esc(label)}" aria-selected="${i === active}"><span class="coelum-result-dot coelum-type-${m.key?.startsWith('mars:') ? 'mars-feature' : esc(m.type.split(' ').at(-1))}" aria-hidden="true"></span><span class="coelum-result-name">${esc(m.name)}${m.alias ? ` <small>${esc(m.alias)}</small>` : ''}</span><span class="coelum-result-meta" aria-hidden="true">${m.key ? '' : `<span class="coelum-result-type" title="${esc(type)}">${esc(type)}</span>`}${symbols}</span></li>`;
     }).join('');
-    const used = new Set(matches.flatMap((m) => searchStatus(m).map(([symbol]) => symbol)));
+    const used = new Set(matches.flatMap((m) => resultStatus(m).map(([symbol]) => symbol)));
     const farSide = matches.some((m) => m.availability === 'far side'), limb = matches.some((m) => m.availability === 'beyond limb');
     const key = [['moon', 'Moon'], ['mars', 'Mars'], ['unlit', 'Unlit'],
-      ['far', farSide && limb ? 'Far side / beyond limb' : limb ? 'Beyond limb' : 'Far side'], ['below', 'Below horizon']]
+      ['far', farSide && limb ? 'Far side / beyond limb' : limb ? 'Beyond limb' : 'Far side'], ['below', 'Below horizon'], ['hidden', 'Not displayed']]
       .filter(([symbol]) => used.has(symbol));
     searchKey.hidden = !key.length;
     searchKey.innerHTML = key.map(([symbol, text]) => `<span>${SEARCH_ICONS[symbol]}${text}</span>`).join('');
@@ -1337,6 +1437,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const placeIndex = ev.target.closest('[data-place-index]')?.dataset.placeIndex;
     if (placeIndex !== undefined) { setPlace(placeMatches[Number(placeIndex)]); return; }
     const placeChoice = ev.target.closest('[data-place]')?.dataset.place;
+    if (placeChoice === 'map') { showPlaceMap(); return; }
     if (placeChoice === 'original') { setPlace({ lat: model.place[0], lon: model.place[1], h: model.place[2] || 0, name: model.label }); return; }
     if (placeChoice === 'here') {
       placeStatus.textContent = 'Finding your position…';
@@ -1565,6 +1666,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const box = svg.getBoundingClientRect(), width = Math.round(box.width), high = Math.round(box.height);
     sizeMoons();
     if (moonEventsList.isOpen) positionMoonEvents();
+    placeMap?.resize();
     if (width > 0 && high > 0 && (width !== size || high !== height)) {
       // A fresh realistic view keeps its horizon low in the new shape.
       if (views.sky?.auto) views.sky = null;
@@ -1574,7 +1676,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   const explorer = {

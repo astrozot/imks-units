@@ -4116,6 +4116,7 @@ function openCoelum(e, focus = []) {
     content.className = "coelum-explorer";
     root.appendChild(content);
     explorer = mountCoelum(content, e.coelum, formatTime, {
+      timeZone: () => state.settings.utc ? 'utc' : 'device',
       places: () => lookups().places,
       rememberPlace: (key, place) => { lookups().places[key] = place; store.set("lookups", lookups()); },
       minorBodies: () => Object.values(lookups().objects).filter((o) => o.orbits || o.orbit),

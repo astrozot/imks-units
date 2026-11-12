@@ -56,7 +56,7 @@ async function satellitePassesSeen(u, place, hours, job) {
 }
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
 const compass = (az) => COMPASS[Math.round(az / 22.5) % 16];
-const clock = (t) => (host.utc ? new Date(t * 1000).toISOString().slice(11, 16) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+const clock = (t) => host.formatClock ? host.formatClock(t) : (host.utc ? new Date(t * 1000).toISOString().slice(11, 16) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
 function passRow(x, i) {
   const shadow = x.shadow ? " into the shadow" : "";
   const how = `${compass(x.at[0].az)} → ${compass(x.at[1].az)}${shadow} · highest ${Math.round(x.p.max.alt)}° · magnitude ${x.mag.toFixed(1).replace("-", "−")}`;

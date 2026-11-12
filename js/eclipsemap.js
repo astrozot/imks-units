@@ -168,7 +168,7 @@ function mapSVG(m, W, H, view, place = null, at = null) {
   for (let lat = -60; lat <= 60; lat += 30) grid.push(Array.from({ length: 73 }, (_, i) => [lat, -180 + 5 * i]));
   for (let lon = -180; lon < 180; lon += 30) grid.push(Array.from({ length: 37 }, (_, i) => [-90 + 5 * i, lon]));
   svg += `<path class="map-grid" d="${linesPath(grid, P)}"/>`;
-  svg += `<path class="map-night" d="${nightPath(at ? at.sun : m.sun, view, W, H, P)}"/>`;
+  if (at || m.sun) svg += `<path class="map-night" d="${nightPath(at ? at.sun : m.sun, view, W, H, P)}"/>`;
   // the points behind the Earth brought to its edge
   const edgeP = (p) => {
     const [x, y, v] = P(p);
@@ -239,7 +239,7 @@ function mapSVG(m, W, H, view, place = null, at = null) {
 
 // the view of the whole Earth, centered on the greatest eclipse
 function mapView(m, W, H) {
-  const [lat0, lon0] = m.greatest || [0, 0];
+  const [lat0, lon0] = m.greatest || m.place || [0, 0];
   return { lat0, lon0, s: Math.min(W, H) / 2 - 8 };
 }
 
