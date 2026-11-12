@@ -199,7 +199,7 @@ view follow where the phone points. Both views zoom to the same largest
 magnification. The AZ/EQ/GA button chooses the mount: alt-az keeps the
 horizon level with the zenith up; equatorial keeps RA and Dec of date fixed
 with the celestial pole up; galactic keeps longitude and latitude fixed
-with the galactic pole up. Clicks within three seconds cycle all three.
+with the galactic pole up. Clicks within one second cycle all three.
 After a longer pause, clicks alternate between the endpoints of the last
 fast sequence, skipping its intermediate mode. Three fast presses (or a
 multiple of three) return to the starting mode and preserve the previous
@@ -303,6 +303,17 @@ calculator knows them by CelesTrak's names (`passes("SL-16 R/B #22285",
 today)` for one of several with a name).
 
 ### Coelum, the app
+
+The calendar-and-sun button on the right rail opens the **Daily almanac**,
+a separate view that starts on today in the selected sky timezone. Previous,
+Next, Today and direct date entry browse civil days without changing the sky.
+It summarizes sunrise, sunset, daylight duration, solar noon, three levels of
+twilight, Moon rise/set, lunar age and illumination at noon. Daily highlights
+cover Moon phases, seasons, eclipses, planetary conjunctions, oppositions and
+greatest elongations; tap one to show its time in the sky. A seasonal meteor
+shower guide links to the IMO calendar and labels peaks as approximate.
+The same almanac is available in iMKS's sky explorer and works offline.
+Rise/set assumes an unobstructed horizon; dates with no crossing say so.
 
 `coelum/` is the sky explorer as an app of its own, without the calculator:
 it opens in full screen, now, at the place last chosen there (or the
@@ -466,6 +477,11 @@ lettered craters, from the [Gazetteer of Planetary Nomenclature](https://planeta
 regenerates it. `node tests/lunarfeatures.mjs` checks surface alignment,
 illumination and feature selection; the high-zoom browser tests cover labels
 and taps on the rendered Moon (`node tests/lunarfeatures-browser.mjs`).
+
+`node tests/almanac.mjs` checks civil-day bounds, polar daylight, lunar
+crossings, known event dates and meteor activity windows.
+`node tests/almanac-browser.mjs` checks date navigation, sky-time independence,
+responsive layout and opening daily highlights, with the same Playwright options.
 
 `node tests/coelum-app.mjs` checks the Coelum app: its place at the start,
 full screen, the eclipses from a place and anywhere, their sheets and the

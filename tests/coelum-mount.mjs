@@ -25,10 +25,10 @@ for (const mode of ['altaz', 'equatorial', 'galactic']) {
 }
 const edge = new MountSwitcher();
 assert.equal(edge.next(0), 'equatorial');
-assert.equal(edge.next(3000), 'galactic', 'Exactly three seconds is still a fast sequence');
+assert.equal(edge.next(1000), 'galactic', 'Exactly one second is still a fast sequence');
 const slow = new MountSwitcher();
 assert.equal(slow.next(0), 'equatorial');
-assert.equal(slow.next(3001), 'altaz');
+assert.equal(slow.next(1001), 'altaz');
 const restored = new MountSwitcher('galactic', ['equatorial', 'galactic']);
 assert.equal(restored.next(100), 'equatorial', 'Restoring a mount preserves its pair');
 for (const date of ['-001000-06-01T12:00Z', '2000-06-01T12:00Z', '3000-06-01T12:00Z']) {
@@ -46,4 +46,4 @@ for (const date of ['-001000-06-01T12:00Z', '2000-06-01T12:00Z', '3000-06-01T12:
     }
   }
 }
-console.log('Mount checks passed: endpoint pairs, complete fast cycles, the 3-second boundary, persistence and Galactic orientation');
+console.log('Mount checks passed: endpoint pairs, complete fast cycles, the 1-second boundary, persistence and Galactic orientation');

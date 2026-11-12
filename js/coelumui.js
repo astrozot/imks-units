@@ -8,6 +8,7 @@ import { skyTimeInput, parseSkyInput, skyTimeZone, validSkyZone, skyDayBounds, s
 import { PhoneOrientation } from './phoneorientation.js';
 import { followGuide } from './followguide.js';
 import { moonEventsPanel } from './mooneventspanel.js';
+import { ALMANAC_ICON, renderAlmanac } from './almanac.js';
 import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, satelliteList, satelliteStatus } from './satellites.js';
 import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius, horizonToGalactic } from './coelum.js';
 import { riseSet, planetOf, siderealTime } from './astro.js';
@@ -247,7 +248,10 @@ export async function forceAppUpdate(reload = () => location.reload(), report = 
 // icon, render(body, explorer) }], each with its button on the rail and
 // drawn anew on opening.
 export function mountCoelum(root, model, formatTime, options = {}) {
-  const id = `coelum-${++explorers}`, extra = options.panels || [];
+  let stopAlmanac = null;
+  const id = `coelum-${++explorers}`, extra = [{ key: 'almanac', label: 'Daily almanac', icon: ALMANAC_ICON,
+    render: (body, explorer) => { stopAlmanac = renderAlmanac(body, explorer, timeZone(), (t) => limitTime(t) === t); },
+  }, ...(options.panels || [])];
   let mode = 'chart', moonSize = 'magnitude';
   try { if (localStorage.getItem('imks-coelum-moon-size') === 'actual') moonSize = 'actual'; } catch { /* private mode */ }
   try { if (localStorage.getItem('imks-coelum-mode') === 'sky') mode = 'sky'; } catch { /* private mode */ }
@@ -694,8 +698,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel'), map: $('.coelum-map-panel') };
   let placeMap = null;
   for (const p of extra) panels[p.key] = $(`[data-panel="${p.key}"]`);
+  panels.almanac.setAttribute('role', 'dialog');
+  panels.almanac.setAttribute('aria-modal', 'true');
   const panelOpen = () => Object.values(panels).some((panel) => !panel.hidden);
   const showPanel = (name) => {
+    const leavingAlmanac = !panels.almanac.hidden;
+    stopAlmanac?.(); stopAlmanac = null;
     if (placeMap) { placeMap.destroy(); placeMap = null; }
     for (const [key, panel] of Object.entries(panels)) {
       const on = key === name && panel.hidden;
@@ -708,6 +716,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (name === 'place' && !panels.place.hidden) { placeInput.value = ''; showPlaces(''); }
     const more = extra.find((p) => p.key === name);
     if (more && !panels[name].hidden) more.render(panels[name].querySelector('.coelum-panel-body'), explorer);
+    if (leavingAlmanac && panels.almanac.hidden) $('[data-action="almanac"]').focus({ preventScroll: true });
     wake();
   };
   panels.map.addEventListener('cancel', (ev) => { ev.preventDefault(); showPanel(null); });
@@ -955,7 +964,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       const e = riseSet(body, start, place, rising, h0);
       return e && e.t < end ? { label, t: e.t } : { label, t: null };
     });
-    events.innerHTML = found.filter((e) => e.t !== null).sort((a, b) => a.t - b.t).map((e) => `<button type="button" class="coelum-chip" data-time-event="${e.t}"><span>${esc(e.label)}</span> ${esc(clock(e.t))}</button>`).join('')
+    events.innerHTML = found.filter((e) => e.t !== null).sort((a, b) => a.t - b.t).map((e) => `<button type="button" class="coelum-chip" data-time-event="${e.t}"><span>${esc(e.label)}</span> <time>${esc(clock(e.t))}</time></button>`).join('')
       + (found.some((e) => e.t === null) ? `<p class="coelum-panel-note">Not on this day: ${found.filter((e) => e.t === null).map((e) => esc(e.label.toLowerCase())).join(', ')}.</p>` : '');
   };
   const setTime = (time) => {
@@ -1156,7 +1165,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     mountButton.textContent = labels[mount];
     mountButton.setAttribute('aria-pressed', String(mount !== 'altaz'));
     mountButton.setAttribute('aria-label', `${labels[mount]} mount: ${description[mount]}`);
-    mountButton.title = `${description[mount]} · Tap to switch ${labels[mount]} / ${labels[mountSwitch.pair.find((m) => m !== mount)]}; tap again within 3 seconds for the third mount · Hold to switch with ground and atmosphere only in AZ`;
+    mountButton.title = `${description[mount]} · Tap to switch ${labels[mount]} / ${labels[mountSwitch.pair.find((m) => m !== mount)]}; tap again within 1 second for the third mount · Hold to switch with ground and atmosphere only in AZ`;
   };
   const setMount = (m) => {
     const F0 = mountMatrix(), chart = horizonCamera(views.chart.rotation, F0), sky = views.sky && fromMount(horizontalVector(views.sky.alt, views.sky.az), F0);
@@ -1347,7 +1356,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   });
 
   root.addEventListener('keydown', (ev) => {
+    if (!panels.almanac.hidden && ev.key === 'Tab') {
+      const controls = [...panels.almanac.querySelectorAll('button:not(:disabled), input, a[href]')];
+      const first = controls[0], last = controls.at(-1);
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    }
     if (ev.key !== 'Escape') return;
+    if (!panels.almanac.hidden) { ev.preventDefault(); ev.stopPropagation(); showPanel(null); return; }
     if (moonEventsList.isOpen) { ev.preventDefault(); ev.stopPropagation(); moonEventsList.close(); $('[data-action="moon-events"]').focus(); }
     else if (moons) { ev.preventDefault(); ev.stopPropagation(); closeMoons(); }
     else if (panelOpen()) { ev.preventDefault(); ev.stopPropagation(); showPanel(null); }
@@ -1695,7 +1711,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { stopAlmanac?.(); placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   const explorer = {

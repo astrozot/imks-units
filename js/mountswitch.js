@@ -1,6 +1,6 @@
 const MODES = ['altaz', 'equatorial', 'galactic'];
 // A fast sequence replaces the active pair with its endpoints. Intermediate
-// modes are skipped when later clicks are more than three seconds apart.
+// modes are skipped when later clicks are more than one second apart.
 export class MountSwitcher {
   constructor(mode = 'altaz', pair = ['altaz', 'equatorial']) {
     this.pair = Array.isArray(pair) && pair.length === 2 && pair[0] !== pair[1] && pair.every((m) => MODES.includes(m)) ? [...pair] : ['altaz', 'equatorial'];
@@ -13,7 +13,7 @@ export class MountSwitcher {
     this.cycle = null;
   }
   next(now) {
-    if (now - this.last > 3000) {
+    if (now - this.last > 1000) {
       this.origin = this.mode;
       this.originalPair = [...this.pair];
       const other = this.pair.find((m) => m !== this.mode);

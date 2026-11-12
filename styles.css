@@ -378,7 +378,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-preview { display: block; width: 100%; max-width: 440px; margin: 8px auto; padding: 0; border: 0; border-radius: 12px; background: #0c1730; color: #c3d1e6; cursor: pointer; overflow: hidden; text-align: center; box-shadow: 0 1px 0 #ffffff10 inset, 0 4px 14px #0003; }
 .coelum-preview .coelum-svg { display: block; width: 100%; height: auto; }
 .coelum-preview > span { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 2px 10px 10px; font-size: 12px; }
-.coelum-preview:hover > span { color: #fff; }
+@media (hover: hover) and (pointer: fine) { .coelum-preview:hover > span { color: #fff; } }
 .coelum-explorer { --c-bg: #0b1222; --c-glass: rgba(11, 18, 34, 0.8); --c-ink: #e8eef8; --c-muted: #9fb1cb; --c-accent: #8cb8ff; --c-line: rgba(170, 195, 240, 0.17); --c-hover: rgba(140, 180, 255, 0.15); }
 .coelum-explorer[data-mode="sky"] [data-modes]:not([data-modes~="sky"]), .coelum-explorer[data-mode="chart"] [data-modes]:not([data-modes~="chart"]) { display: none !important; }
 .coelum-topbar, .coelum-timebar { background: var(--c-bg); color: var(--c-ink); }
@@ -397,7 +397,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-follow-marker { fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 3px #000); }
 .coelum-follow-guide text { fill: #fff; stroke: #111; stroke-width: 4; paint-order: stroke; font: 600 13px system-ui, sans-serif; }
 .coelum-btn { display: inline-grid; place-items: center; flex: none; box-sizing: border-box; width: 40px; height: 40px; padding: 0; border: 1px solid var(--c-line); border-radius: 12px; background: rgba(255, 255, 255, 0.045); color: var(--c-ink); font: 600 14px/1 system-ui, -apple-system, sans-serif; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s; -webkit-tap-highlight-color: transparent; }
-.coelum-btn:hover { background: var(--c-hover); }
+@media (hover: hover) and (pointer: fine) { .coelum-btn:hover { background: var(--c-hover); } }
 .coelum-btn:active { transform: scale(0.93); }
 .coelum-btn:focus-visible, .coelum-seg button:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
 .coelum-btn[aria-pressed="true"], .coelum-btn[aria-expanded="true"] { background: rgba(140, 184, 255, 0.22); border-color: rgba(140, 184, 255, 0.55); color: #fff; }
@@ -405,7 +405,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-btn-small { width: 32px; height: 32px; border-radius: 10px; }
 .coelum-btn-small svg { width: 18px; height: 18px; }
 .coelum-play { width: 50px; height: 50px; border-radius: 50%; border-color: transparent; background: var(--c-accent); color: #08111f; box-shadow: 0 4px 14px rgba(140, 184, 255, 0.3); }
-.coelum-play:hover { background: #a9caff; }
+@media (hover: hover) and (pointer: fine) { .coelum-play:hover { background: #a9caff; } }
 .coelum-play[aria-pressed="true"] { background: #ffd27a; border-color: transparent; color: #241600; box-shadow: 0 4px 14px rgba(255, 210, 122, 0.3); }
 .coelum-play.coelum-backward svg { transform: scaleX(-1); }
 .coelum-search { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; height: 40px; box-sizing: border-box; padding-left: 10px; border: 1px solid var(--c-line); border-radius: 12px; background: rgba(255, 255, 255, 0.06); color: var(--c-muted); }
@@ -416,12 +416,14 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-search input::-webkit-search-cancel-button { display: none; }
 .coelum-search-clear { display: inline-grid; place-items: center; flex: none; box-sizing: border-box; width: 24px; height: 28px; margin-right: 4px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--c-muted); opacity: 0.6; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .coelum-search-clear svg { width: 12px; height: 12px; }
-.coelum-search-clear:hover, .coelum-search-clear:focus-visible { background: transparent; box-shadow: none; outline: none; color: var(--c-ink); opacity: 1; }
+.coelum-search-clear:focus-visible { background: transparent; box-shadow: none; outline: none; color: var(--c-ink); opacity: 1; }
+@media (hover: hover) and (pointer: fine) { .coelum-search-clear:hover { background: transparent; box-shadow: none; outline: none; color: var(--c-ink); opacity: 1; } }
 .coelum-search-clear[hidden] { display: none; }
 .coelum-search-dropdown { position: absolute; z-index: 6; top: calc(100% + 6px); left: 0; width: max(100%, 280px); max-width: calc(100vw - 32px); box-sizing: border-box; padding: 6px; border: 1px solid var(--c-line); border-radius: 14px; background: rgba(15, 24, 44, 0.97); box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5); }
 .coelum-results { max-height: 280px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
 .coelum-results li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 38px; padding: 9px 10px; border-radius: 9px; color: var(--c-ink); font-size: 15px; cursor: pointer; }
-.coelum-results li[aria-selected="true"], .coelum-results li:hover { background: var(--c-hover); }
+.coelum-results li[aria-selected="true"] { background: var(--c-hover); }
+@media (hover: hover) and (pointer: fine) { .coelum-results li:hover { background: var(--c-hover); } }
 .coelum-result-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.35; }
 .coelum-result-name small { color: var(--c-muted); font-size: 12px; }
 .coelum-result-meta { display: flex; align-items: center; gap: 8px; color: var(--c-muted); font-size: 12px; white-space: nowrap; }
@@ -440,12 +442,12 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-type-constellation { background: transparent; box-shadow: 0 0 0 1.5px #86a3cc inset; }
 .coelum-seg { display: flex; flex: none; gap: 2px; padding: 3px; border: 1px solid var(--c-line); border-radius: 12px; background: rgba(255, 255, 255, 0.05); }
 .coelum-seg button { display: flex; align-items: center; gap: 5px; height: 32px; padding: 0 8px; border: 0; border-radius: 9px; background: transparent; color: var(--c-muted); font: 600 13px system-ui, -apple-system, sans-serif; cursor: pointer; transition: background 0.15s, color 0.15s; }
-.coelum-seg button:hover { color: var(--c-ink); }
+@media (hover: hover) and (pointer: fine) { .coelum-seg button:hover { color: var(--c-ink); } }
 .coelum-seg button svg { width: 18px; height: 18px; }
 .coelum-seg button[aria-pressed="true"] { background: var(--c-accent); color: #08111f; }
 .coelum-rail { position: absolute; z-index: 4; bottom: 8px; right: 8px; display: flex; flex-direction: row; align-items: center; gap: 2px; padding: 5px; border: 1px solid var(--c-line); border-radius: 14px; background: var(--c-glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .coelum-rail .coelum-btn { width: 36px; height: 36px; border-color: transparent; background: transparent; }
-.coelum-rail .coelum-btn:hover { background: var(--c-hover); }
+@media (hover: hover) and (pointer: fine) { .coelum-rail .coelum-btn:hover { background: var(--c-hover); } }
 .coelum-rail .coelum-btn[aria-expanded="true"] { background: rgba(140, 184, 255, 0.24); }
 .coelum-rail-gap { align-self: stretch; width: 1px; margin: 6px 3px; background: var(--c-line); }
 .coelum-immersive .coelum-rail { flex-direction: column; bottom: auto; gap: 4px; }
@@ -457,7 +459,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-panel-close { position: absolute; top: 8px; right: 8px; }
 .coelum-switches { display: grid; grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 6px; }
 .coelum-switches label { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.045); font-size: 14px; cursor: pointer; user-select: none; }
-.coelum-switches label:hover { background: rgba(255, 255, 255, 0.08); }
+@media (hover: hover) and (pointer: fine) { .coelum-switches label:hover { background: rgba(255, 255, 255, 0.08); } }
 .coelum-switches input { appearance: none; -webkit-appearance: none; position: relative; flex: none; width: 34px; height: 20px; margin: 0; border-radius: 999px; background: #3a4562; cursor: pointer; transition: background 0.15s; }
 .coelum-switches input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); transition: transform 0.15s; }
 .coelum-switches input:checked { background: var(--c-accent); }
@@ -468,7 +470,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-panel-note { margin: 10px 0 0; color: var(--c-muted); font-size: 12px; line-height: 1.5; }
 .coelum-panel-note[hidden] { display: none; }
 .coelum-chip { min-height: 32px; margin: 4px 6px 0 0; padding: 0 12px; border: 1px solid var(--c-line); border-radius: 999px; background: rgba(255, 255, 255, 0.06); color: var(--c-ink); font: 600 12.5px system-ui, -apple-system, sans-serif; cursor: pointer; }
-.coelum-chip:hover { background: var(--c-hover); }
+@media (hover: hover) and (pointer: fine) { .coelum-chip:hover { background: var(--c-hover); } }
 .coelum-chip:disabled { opacity: 0.5; cursor: progress; }
 .coelum-chip[hidden] { display: none; }
 .coelum-downloads { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--c-line); }
@@ -516,20 +518,23 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-controls .coelum-btn svg { width: 19px; height: 19px; }
 .coelum-controls .coelum-btn[hidden] { display: none; }
 .coelum-link { padding: 0; border: 0; border-bottom: 1px dotted currentColor; background: none; color: inherit; font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.coelum-link:hover, .coelum-link[aria-expanded="true"] { color: var(--c-accent); }
+.coelum-link[aria-expanded="true"] { color: var(--c-accent); }
+@media (hover: hover) and (pointer: fine) { .coelum-link:hover { color: var(--c-accent); } }
 .coelum-link:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
 .coelum-chips { display: flex; flex-wrap: wrap; margin-top: 6px; }
 .coelum-time-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .coelum-time-row input, .coelum-place-form input { min-width: 0; flex: 1 1 180px; padding: 7px 9px; border: 1px solid var(--c-line); border-radius: 8px; background: #1a2541; color: var(--c-ink); font: 16px system-ui, -apple-system, sans-serif; color-scheme: dark; }
 .coelum-time-row .coelum-chip, .coelum-place-form .coelum-chip { margin: 0; }
 .coelum-events-head { margin-top: 14px !important; }
-.coelum-events { display: flex; flex-wrap: wrap; margin-top: 4px; }
+.coelum-events { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.coelum-events .coelum-chip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 6px; min-width: 0; margin: 0; padding: 6px 8px; text-align: left; }
+.coelum-events .coelum-chip time { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .coelum-events .coelum-chip span { color: var(--c-muted); font-weight: 500; }
-.coelum-events .coelum-panel-note { flex-basis: 100%; }
+.coelum-events .coelum-panel-note { grid-column: 1 / -1; }
 .coelum-place-form { display: flex; flex-wrap: wrap; gap: 8px; }
 .coelum-place-results { display: grid; gap: 2px; margin-top: 8px; }
 .coelum-place { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 10px; border: 0; border-radius: 9px; background: rgba(255, 255, 255, 0.045); color: var(--c-ink); font: 14px system-ui, -apple-system, sans-serif; text-align: left; cursor: pointer; }
-.coelum-place:hover { background: var(--c-hover); }
+@media (hover: hover) and (pointer: fine) { .coelum-place:hover { background: var(--c-hover); } }
 .coelum-place small { flex: none; color: var(--c-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .coelum-toast { position: absolute; z-index: 6; left: 50%; bottom: 12px; max-width: calc(100% - 32px); margin: 0; padding: 7px 12px; border-radius: 10px; background: rgba(12, 20, 38, 0.92); color: var(--c-ink); font-size: 13px; transform: translateX(-50%); pointer-events: none; }
 .coelum-toast[hidden] { display: none; }
@@ -1719,7 +1724,7 @@ body.coelum-app { background: #000; }
 .coelum-event-scope button { flex: 1; justify-content: center; }
 .coelum-event-list { display: grid; gap: 4px; margin-top: 6px; }
 .coelum-event { display: grid; gap: 1px; padding: 8px 10px; border: 0; border-radius: 9px; background: rgba(255, 255, 255, 0.045); color: var(--c-ink); font: 14px system-ui, -apple-system, sans-serif; text-align: left; cursor: pointer; }
-.coelum-event:hover { background: var(--c-hover); }
+@media (hover: hover) and (pointer: fine) { .coelum-event:hover { background: var(--c-hover); } }
 .coelum-event:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
 .coelum-event b { font-weight: 600; }
 .coelum-event span { color: var(--c-ink); font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -1759,3 +1764,33 @@ body.coelum-app { background: #000; }
 .coelum-location-zone-controls { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .coelum-location-zone-controls .coelum-chip { flex: none; margin: 0; }
 .coelum-status [data-action="time"] { text-align: left; }
+
+/* The daily almanac is a page over the sky, with its own scrolling. */
+.coelum-explorer .coelum-panel[data-panel="almanac"] {
+  inset: 0; z-index: 8; width: auto; max-height: none; border-radius: 0;
+  padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  background: #0b1425; overscroll-behavior: contain;
+}
+[data-panel="almanac"] > .coelum-panel-head { max-width: 740px; margin: 0 auto 16px; }
+.almanac-wrap { max-width: 740px; margin: auto; }
+.almanac-nav { display: flex; align-items: center; gap: 8px; }
+.almanac-nav .coelum-chip { flex: none; min-width: 42px; min-height: 42px; margin: 0; padding: 0 12px; font-size: 16px; }
+.almanac-nav input { min-width: 0; width: 100%; max-width: 210px; padding: 10px; border: 1px solid var(--c-line); border-radius: 10px; background: #15223a; color: var(--c-ink); font: inherit; font-variant-numeric: tabular-nums; text-align: center; }
+.almanac-place { font-size: 17px; margin: 18px 0; overflow-wrap: anywhere; }
+.almanac-place span { display: block; color: var(--c-muted); font-size: 12px; margin-top: 5px; }
+.almanac-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.almanac-card { padding: 18px; border: 1px solid var(--c-line); border-radius: 16px; background: #111e33; margin-bottom: 12px; }
+.almanac-card h4 { margin: 0 0 14px; font-size: 13px; letter-spacing: .06em; color: var(--c-muted); }
+.almanac-sun { border-top-color: #d8ac66; }
+.almanac-moon { border-top-color: #a2bceb; }
+.almanac-big { font-size: 28px; margin: 0 0 14px; font-variant-numeric: tabular-nums; }
+.almanac-big small { display: block; font-size: 13px; color: var(--c-muted); margin-top: 4px; }
+.almanac-phase { font-size: 13px; line-height: 1.5; }
+.almanac-card dl { margin: 0; font-size: 14px; }
+.almanac-card dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--c-line); }
+.almanac-card dt { color: var(--c-muted); }
+.almanac-card dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.almanac-shower { margin: 12px 0; font-size: 14px; }
+.almanac-shower span { display: block; margin-top: 4px; font-size: 12px; color: var(--c-muted); }
+.almanac-card a { color: var(--c-accent); }
+@media (max-width: 540px) { .almanac-cards { grid-template-columns: 1fr; gap: 0; } .almanac-card { padding: 15px; } }

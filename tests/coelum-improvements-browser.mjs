@@ -68,6 +68,27 @@ try {
   assert.equal(await page.locator('.coelum-time-zone').first().innerText().then((s) => s.split('\n')[0]), 'Time');
   assert.deepEqual(await page.locator('[data-time-zone] option').allTextContents(), ['UTC', 'device', 'selected location']);
   assert.equal(await page.locator('[data-set-time="original"]').count(), 0);
+  // Two events per row at phone widths; touching a chip does not leave hover paint.
+  for (const width of [320, 375, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    const boxes = await page.locator('.coelum-events [data-time-event]').evaluateAll((buttons) => buttons.slice(0, 4).map((b) => { const r = b.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width }; }));
+    assert.ok(boxes.length >= 4);
+    assert.ok(Math.abs(boxes[0].y - boxes[1].y) < 1 && boxes[1].x > boxes[0].x, `Two events share a row at ${width}px`);
+    assert.ok(boxes[2].y > boxes[0].y);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: '/private/tmp/coelum-day-events-two-columns.png' });
+  const chip = page.locator('[data-time-event]').first();
+  const normalPaint = await chip.evaluate((el) => getComputedStyle(el).backgroundColor);
+  await chip.tap();
+  await page.waitForTimeout(200);
+  assert.equal(await chip.evaluate((el) => getComputedStyle(el).backgroundColor), normalPaint, 'No sticky hover after a touch');
+  const toolbarButton = page.locator('[data-action="forward"]');
+  const toolbarPaint = await toolbarButton.evaluate((el) => getComputedStyle(el).backgroundColor);
+  await toolbarButton.tap(); await page.waitForTimeout(200);
+  assert.equal(await toolbarButton.evaluate((el) => getComputedStyle(el).backgroundColor), toolbarPaint);
+  await page.click('[data-set-time="now"]');
+
   assert.doesNotMatch(await page.locator('.coelum-events').textContent(), /Astronomical|Nautical/);
   await page.click('[data-action="time"]');
   await page.click('[data-action="events"]');
@@ -245,19 +266,19 @@ try {
   assert.equal(await mount.textContent(), 'AZ');
   await mount.click(); assert.equal(await mount.textContent(), 'EQ');
   await mount.click(); assert.equal(await mount.textContent(), 'GA');
-  await third.page.waitForTimeout(3100);
+  await third.page.waitForTimeout(1100);
   await mount.click(); assert.equal(await mount.textContent(), 'AZ');
-  await third.page.waitForTimeout(3100);
+  await third.page.waitForTimeout(1100);
   await mount.click(); assert.equal(await mount.textContent(), 'GA');
   // GA -> AZ -> EQ is a new burst: slow clicks must now use GA/EQ.
-  await third.page.waitForTimeout(3100);
+  await third.page.waitForTimeout(1100);
   await mount.click(); assert.equal(await mount.textContent(), 'AZ');
   await mount.click(); assert.equal(await mount.textContent(), 'EQ');
-  await third.page.waitForTimeout(3100);
+  await third.page.waitForTimeout(1100);
   await mount.click(); assert.equal(await mount.textContent(), 'GA');
-  await third.page.waitForTimeout(3100);
+  await third.page.waitForTimeout(1100);
   await mount.click(); assert.equal(await mount.textContent(), 'EQ');
-  await third.page.waitForTimeout(3100);
+  await third.page.waitForTimeout(1100);
   await mount.click(); await mount.click(); await mount.click();
   assert.equal(await mount.textContent(), 'EQ', 'Three fast clicks preserve the mode');
   const pair = await third.page.evaluate(() => JSON.parse(localStorage.getItem('imks-coelum-mount-pair')));
@@ -279,16 +300,17 @@ try {
     return { x: Number(e.getAttribute('x')), y: Number(e.getAttribute('y')) };
   }, star.name);
   assert.ok(Math.hypot(after.x - star.x, after.y - star.y) < 0.2, 'Galactic mount keeps star positions fixed');
-  // A hold follows the same next-mode rule and sets the environment for its destination.
+  // Holds choose the paired destination, with no second action on release.
+  await third.page.evaluate(() => {
+    localStorage.setItem('imks-coelum-mount', 'galactic');
+    localStorage.setItem('imks-coelum-mount-pair', JSON.stringify(['galactic', 'altaz']));
+  });
+  await third.page.reload(); await third.page.waitForSelector('.coelum-full');
   await mount.hover(); await third.page.mouse.down(); await third.page.waitForTimeout(900); await third.page.mouse.up();
   assert.equal(await mount.textContent(), 'AZ');
   assert.equal(await third.page.locator('[data-layer="ground"]').isChecked(), true);
   await third.page.click('[data-view="sky"]');
   assert.equal(await third.page.locator('[data-layer="atmosphere"]').isChecked(), true);
-  await mount.hover(); await third.page.mouse.down(); await third.page.waitForTimeout(900); await third.page.mouse.up();
-  assert.equal(await mount.textContent(), 'EQ');
-  assert.equal(await third.page.locator('[data-layer="ground"]').isChecked(), false);
-  assert.equal(await third.page.locator('[data-layer="atmosphere"]').isChecked(), false);
   // With GA/EQ as the pair, a slow hold of GA must choose EQ without ground.
   await third.page.evaluate(() => {
     localStorage.setItem('imks-coelum-mount', 'galactic');
