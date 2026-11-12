@@ -4,9 +4,11 @@
 // history entry, a list) or mounted in a sheet to explore.
 //
 // The host of a sheet: { store: { get, set }, utc (times in UTC only),
-// toast(message), sky(t, place, focus)?: Show in the sky, calc(place)?:
+// toast(message), sky(t, place, focus, options)?: Show in the sky, calc(place)?:
 // Calculate here, onResize(fn)?: fn on resizing the window }
 import { mapSVG, mapView, unproject } from "./eclipsemap.js";
+import { lunarAppearance, moonTexture } from './coelumsky.js';
+import { planetMap } from './skyview.js';
 import { osmMap, TILES } from "./osmmap.js";
 import { shadowMap, solarContacts, solarLocal, solarPhase, occultationLocal, horizontal } from "./astro.js";
 
@@ -102,39 +104,36 @@ function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
   const views = [["diagram", "Diagram"], ["sim", "Simulation"]];
   root.innerHTML = `${head}
       <div class="seg lunar-views" role="tablist">${views.map(([v, n]) => `<button data-lunar-view="${v}" role="tab">${n}</button>`).join("")}</div>
+      <div class="lunar-contacts" aria-label="Eclipse event times (UTC)">${d.marks.map((m) => `<span><b>${m.name}</b> ${host.sky ? `<button type="button" class="lunar-event-time" data-lunar-event="${m.t}" aria-label="Show Moon in Sky at ${m.name}, ${hhmm(m.t)} UTC">${hhmm(m.t)}</button>` : hhmm(m.t)}</span>`).join("")}<small>UTC</small></div>
       <div class="lunar-diagram">${lunarHTML(d).replace('class="lunar-svg"', 'class="lunar-svg lunar-full"')}
       <p class="sky-hint">The Moon at the contacts, with their times (UTC): P penumbral, U umbral</p></div>
       <div class="lunar-sim">
       <svg class="lunar-svg lunar-full" viewBox="0 0 ${W} ${H}" role="img" aria-label="The lunar eclipse"></svg>
       <div class="lunar-play"><button class="chip" data-lunar="play" aria-label="Play">▶</button><input type="range" class="lunar-time" min="${span.from}" max="${span.to}" step="30" value="${d.marks.find((m) => m.name === "max")?.t ?? span.from}" aria-label="Time"></div>
       <div class="sky-time lunar-chips">${d.marks.map((m) => `<button class="chip" data-lunar-t="${m.t}">${m.name}</button>`).join("")}${d.place && host.sky ? `<button class="chip" data-lunar-sky>Show in the sky</button>` : ""}</div>
-      <div class="lunar-view"><svg class="lunar-close" viewBox="0 0 140 140" role="img" aria-label="The Moon"></svg><p class="lunar-when"></p></div>
+      <div class="lunar-view"><canvas class="lunar-close" width="280" height="280" role="img" aria-label="The Moon at the selected eclipse time"></canvas><p class="lunar-when"></p></div>
       <p class="sky-hint">Drag the slider or tap a contact: P penumbral, U umbral; times as the eclipse is seen anywhere the Moon is up</p></div>`;
   const svg = root.querySelector(".lunar-sim .lunar-full"), close = root.querySelector(".lunar-close"), slider = root.querySelector(".lunar-time"), when = root.querySelector(".lunar-when");
   const r = d.moon * k, cx0 = f1(X(0)), cy0 = f1(Y(0));
-  // Both drawings are built once and only moved on each frame: an <image>
-  // made anew every frame would not be decoded in time, and the play would
-  // show the plain disk under it
-  // the penumbra darkens toward the umbra; the near side (img/moon.webp,
-  // over a plain disk if it is missing), dimmed by the penumbra, and copper
-  // in the umbra (multiplied, so that the maria show)
+  // Keep the schematic path drawing stable during playback; the lower
+  // appearance canvas is independently traced at the selected time.
   svg.innerHTML = `<defs><clipPath id="lunar-disk"><circle class="lunar-clip" r="${f1(r)}"/></clipPath>
     <radialGradient id="lunar-pg" gradientUnits="userSpaceOnUse" cx="${cx0}" cy="${cy0}" r="${f1(d.penumbra * k)}">
       <stop offset="${(d.umbra / d.penumbra).toFixed(3)}" stop-color="#000" stop-opacity="0.5"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient></defs>` + base +
     `<g class="lunar-body"><circle r="${f1(r)}" class="lunar-disk"/><image href="${MOON_IMAGE}" width="${f1(2 * r)}" height="${f1(2 * r)}"/>` +
     `<g clip-path="url(#lunar-disk)" class="lunar-shade"><circle cx="${cx0}" cy="${cy0}" r="${f1(d.penumbra * k)}" fill="url(#lunar-pg)"/><circle cx="${cx0}" cy="${cy0}" r="${f1(d.umbra * k)}" class="lunar-umbra-on"/></g></g>` +
     `<text class="sky-label" x="${W - 8}" y="14" text-anchor="end">N ↑ E ←</text>`;
-  // the Moon close, as it looks: the shadow across the near side, its
-  // edges soft, the umbra darker inside
-  const s = 62 / d.moon;
-  close.innerHTML = `<defs><clipPath id="lunar-c"><circle cx="70" cy="70" r="62"/></clipPath>
-    <radialGradient id="lunar-cp" gradientUnits="userSpaceOnUse" r="${(d.penumbra * s).toFixed(1)}"><stop offset="${(d.umbra / d.penumbra).toFixed(3)}" stop-color="#000" stop-opacity="0.55"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
-    <radialGradient id="lunar-cu" gradientUnits="userSpaceOnUse" r="${(d.umbra * s).toFixed(1)}"><stop offset="0"/><stop offset="0.85"/><stop offset="0.95"/><stop offset="1" stop-opacity="0"/></radialGradient></defs>
-    <g class="lunar-body"><circle cx="70" cy="70" r="62" class="lunar-disk"/><image href="${MOON_IMAGE}" x="8" y="8" width="124" height="124"/>
-    <g clip-path="url(#lunar-c)" class="lunar-shade"><circle r="${(d.penumbra * s).toFixed(1)}" fill="url(#lunar-cp)"/><circle r="${(d.umbra * s).toFixed(1)}" fill="url(#lunar-cu)"/></g></g>`;
   const set = (el, a) => { for (const n in a) el.setAttribute(n, a[n]); };
   const big = { clip: svg.querySelector(".lunar-clip"), body: svg.querySelector(".lunar-body"), disk: svg.querySelector(".lunar-disk"), img: svg.querySelector("image") };
-  const near = { body: close.querySelector(".lunar-body"), cp: close.querySelector("#lunar-cp"), cu: close.querySelector("#lunar-cu"), shade: close.querySelectorAll(".lunar-shade circle") };
+  // Make the diagram's existing times navigable too. Preview drawings in
+  // history remain a single target opening the dedicated eclipse sheet.
+  if (host.sky) root.querySelectorAll('.lunar-diagram .sky-label').forEach((label, i) => {
+    if (!d.marks[i]) return;
+    const link = document.createElementNS('http://www.w3.org/2000/svg', 'a');
+    link.setAttribute('href', '#sky'); link.dataset.lunarEvent = d.marks[i].t;
+    link.setAttribute('aria-label', `Show Moon in Sky at ${d.marks[i].name}, ${hhmm(d.marks[i].t)} UTC`);
+    label.replaceWith(link); link.appendChild(label);
+  });
   // the time shown (the slider rounds it to its steps: the play keeps its own)
   let cur = 0;
   const draw = (t) => {
@@ -144,17 +143,7 @@ function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
     set(big.disk, { cx, cy });
     set(big.img, { x: f1(X(m.x) - r), y: f1(Y(m.y) - r) });
     big.body.classList.toggle("down", m.up === false);
-    // Keep the penumbral dimming continuous across the umbral contacts;
-    // brightening the whole image in partial phases would cancel it out.
-    // The umbra is a little darker in partial phases for contrast.
-    const sx = (70 + m.x * s).toFixed(1), sy = (70 + m.y * s).toFixed(1);
-    const part = (d.umbra + d.moon - dist) / (2 * d.moon), partial = part > 0 && part < 1;
-    const dim = (hex) => "#" + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) / (partial ? 1.2 : 1)).toString(16).padStart(2, "0")).join("");
-    set(near.cp, { cx: sx, cy: sy });
-    set(near.cu, { cx: sx, cy: sy });
-    ["#4a140c", "#93361f", "#b5462a", "#b5462a"].forEach((c, i) => near.cu.children[i].setAttribute("stop-color", dim(c)));
-    near.shade.forEach((c) => set(c, { cx: sx, cy: sy }));
-    near.body.classList.toggle("down", m.up === false);
+    lunarAppearance(close, t);
     const umbral = (d.umbra + d.moon - dist) / (2 * d.moon), penumbral = (d.penumbra + d.moon - dist) / (2 * d.moon);
     const phase = umbral >= 1 ? "total" : umbral > 0 ? "partial" : penumbral > 0 ? "penumbral" : "no eclipse";
     const mag = umbral > 0 ? `, umbral magnitude ${umbral.toFixed(3)}` : penumbral > 0 ? `, penumbral magnitude ${penumbral.toFixed(3)}` : "";
@@ -185,7 +174,11 @@ function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
   root.addEventListener("click", (ev) => {
     const v = ev.target.closest("[data-lunar-view]");
     if (v) return show(v.dataset.lunarView);
-    if (ev.target.closest("[data-lunar-sky]")) { stop(); return host.sky(cur, d.place, ["Moon"]); }
+    const event = ev.target.closest('[data-lunar-event]');
+    if (event || ev.target.closest('[data-lunar-sky]')) {
+      ev.preventDefault(); stop();
+      return host.sky(event ? Number(event.dataset.lunarEvent) : cur, d.place, ['Moon'], { mode: 'sky', fit: true, field: 1.2 });
+    }
     const b = ev.target.closest("[data-lunar], [data-lunar-t]");
     if (!b) return;
     if (b.dataset.lunarT) { stop(); slider.value = b.dataset.lunarT; draw(Number(b.dataset.lunarT)); return; }
@@ -198,6 +191,11 @@ function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
   slider.addEventListener("input", () => { stop(); draw(Number(slider.value)); });
   dragTrack(slider, (t) => { stop(); slider.value = t; draw(t); });
   draw(Number(slider.value));
+  // Repaint the current time when textures arrive, including a paused
+  // simulation opened before the GPU maps have finished loading.
+  Promise.all([moonTexture, planetMap('moon')?.ready]).then(() => {
+    if (close.isConnected) lunarAppearance(close, cur);
+  });
   show(host.store.get("lunarView", "sim"));
   // the picture to share: the diagram, or the simulation as it is
   return {

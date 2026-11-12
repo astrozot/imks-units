@@ -588,21 +588,38 @@ vec3 lunarColor(vec3 q) {
     float du = 1.0 / 1440.0, dv = 1.0 / 720.0, coslat = max(length(q.xy), 0.05);
     float sE = (heightAt(uv + vec2(du, 0.0)) - heightAt(uv - vec2(du, 0.0))) / (2.0 * du * 6.2831853 * coslat * MOON_KM);
     float sN = (heightAt(uv - vec2(0.0, dv)) - heightAt(uv + vec2(0.0, dv))) / (2.0 * dv * 3.14159265 * MOON_KM);
-    n = normalize(q - RELIEF * edge * (sE * E + sN * N));
+    vec3 slope = RELIEF * edge * (sE * E + sN * N);
+    // A shading normal must face the observer. The smooth sphere has no
+    // terrain visibility test to remove back-facing crater walls, and the
+    // limb fade alone does not guarantee this (especially near the poles).
+    // Retain at least 20% of the radial normal's facing component.
+    float toward = dot(slope, view), facing = max(dot(q, view), 0.0);
+    if (toward > 0.0) slope *= min(1.0, 0.8 * facing / toward);
+    n = normalize(q - slope);
   }
   float mu0 = dot(n, light), mu = max(dot(n, view), 0.0);
   float lit = mu0 > 0.0 && sphere > -0.03 ? min(1.6, 2.6 * mu0 / (mu0 + mu + 1e-4)) : 0.0;
   if (relief && lit > 0.0 && sphere < 0.35) {
-    float h0 = 1.0 + RELIEF * heightAt(uv) / MOON_KM, dist = 0.0, step = 0.0012, seen = 1.0;
+    float h0 = 1.0 + RELIEF * heightAt(uv) / MOON_KM, dist = 0.0, step = 0.0012;
+    float seen = 1.0, visible = 1.0;
     vec3 p = q * h0;
+    // Approximate shadow hiding on the bump-mapped sphere: crater floors
+    // hidden by a rim from the observer still have pixels. Trace the view
+    // with the same footprint as the Sun to remove their shared occlusion.
+    // At full Moon the rays coincide and all terrain shadows are hidden.
     for (int i = 0; i < 18; i++) {
       dist += step;
       step *= 1.25;
       vec3 r = p + light * dist;
       float rl = length(r), ground = 1.0 + RELIEF * heightAt(mapAt(r / rl, 0)) / MOON_KM;
       seen = min(seen, (rl - ground) / (0.00465 * dist));
+      vec3 v = p + view * dist;
+      float vl = length(v), foreground = 1.0 + RELIEF * heightAt(mapAt(v / vl, 0)) / MOON_KM;
+      visible = min(visible, (vl - foreground) / (0.00465 * dist));
     }
-    lit *= mix(1.0, clamp(0.5 + 0.5 * seen, 0.0, 1.0), edge);
+    float sunlight = clamp(0.5 + 0.5 * seen, 0.0, 1.0);
+    float sight = clamp(0.5 + 0.5 * visible, 0.0, 1.0);
+    lit *= mix(1.0, 1.0 - max(sight - sunlight, 0.0), edge);
   }
   // The Earth is a second, directional light source, using the same lunar
   // scattering law as sunlight. Slopes facing away from Earth receive none.

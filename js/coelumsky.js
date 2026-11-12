@@ -5,7 +5,7 @@
 import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
 import { covered, tracePlanet, planetMap, earthshineBrightness, lunarShadowLight, lunarShadowMean, lunarEclipseColor } from './skyview.js';
-import { moonDisk, moons, planetDisk } from './astro.js';
+import { moonDisk, moons, planetDisk, equatorial, earthShadow } from './astro.js';
 import { projectLunarFeatures, LUNAR_COLOR } from './lunarfeatures.js';
 import { projectMarsFeatures, MARS_COLOR } from './marsfeatures.js';
 
@@ -510,3 +510,19 @@ function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere, shado
   return textured;
 }
 
+// A geocentric, celestial-north-up close-up for the eclipse sheet. Use
+// exactly the Sky surface path, including libration, relief, eclipse light
+// and the Canvas fallback, without the horizon or observer's atmosphere.
+export function lunarAppearance(canvas, t) {
+  const W = canvas.width, H = canvas.height, q = { x: W / 2, y: H / 2 }, r = Math.min(W, H) * 62 / 140;
+  const moon = equatorial('moon', t), disk = moonDisk(t, moon), g = earthShadow(t);
+  const dra = ((g.center.ra - moon.ra + 540) % 360) - 180;
+  const x = -dra * Math.cos(moon.dec * R) / g.moon.r, y = (g.center.dec - moon.dec) / g.moon.r;
+  const d = Math.hypot(x, y), shadow = d <= g.penumbra / g.moon.r + 1
+    ? { umbra: g.umbra / g.moon.r, penumbra: g.penumbra / g.moon.r, d } : null;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  drawMoon(ctx, { phase: Math.acos(Math.max(-1, Math.min(1, disk.sun[2]))) / R, shadow }, q, r,
+    { x: q.x + disk.sun[0], y: q.y - disk.sun[1] }, { x: q.x, y: q.y - 1 }, { day: 0 }, false,
+    shadow && { x: q.x + x * r, y: q.y - y * r }, { W, H }, disk);
+}

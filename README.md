@@ -157,7 +157,13 @@ LRO colours, and `moon-heights.jpg`, LOLA heights at 4 pixels a degree,
 0–255 for −9 to +11 km; public domain), turned by the IAU's rotation
 (`moonDisk` in `js/astro.js`, the librations checked against JPL
 Horizons), lit by the Lommel–Seeliger law, with its relief (twice as
-steep) and soft shadows marched toward the Sun near the terminator. The planets have
+steep) and soft shadows marched toward the Sun near the terminator. The
+relief normals stay facing the observer, and a matching march toward the
+observer hides shared terrain occlusion: crater rims must not paint false
+dark shadows at the full Moon's limb. `node tests/lunar-relief-browser.mjs`
+checks full and nearly full phases, both limbs and polar lighting, and
+preserves deep quarter-Moon shadows (set `LUNAR_RELIEF_SCREENSHOT` to save
+a preview). The planets have
 maps of their surfaces or clouds (`img/planets/`, from Solar System
 Scope, CC BY 4.0, based on NASA's missions; Venus's clouds at a third of
 their contrast, Uranus and Neptune reduced to their bands, Neptune in the
@@ -442,12 +448,17 @@ point on the Moon, plus faint atmospheric red light that fades toward the
 umbra's center. Lighting and exposure are calculated in floating-point linear
 RGB before conversion to the display; totality increases the disk's exposure
 smoothly, while the surrounding sky follows the Moon's actual integrated
-illumination. The GPU and Canvas fallback share this model. Atmospheric
-colours represent a typical eclipse; clouds and volcanic aerosols can make
+illumination. The GPU and Canvas fallback share this model. The lunar eclipse
+sheet's Simulation close-up uses the same surface renderer, with libration
+and relief. Click an event time in either tab to open Sky at that instant,
+centered on the Moon at a close-up zoom; worldwide events keep the current
+observing location. Atmospheric colours represent a typical eclipse; clouds and volcanic aerosols can make
 real eclipses brighter or darker. `node tests/lunar-eclipse.mjs` checks the
 light model against numerical solar-disk integration;
 `node tests/lunar-eclipse-browser.mjs` checks rendered lighting, crop/rotation
 and the fallback (`ECLIPSE_SCREENSHOT=/path/to/preview.png` saves a preview).
+`node tests/lunar-page-browser.mjs` checks the eclipse sheet, image export,
+and event navigation in Coelum and iMKS.
 
 At high zoom in Sky, sunlit lunar features appear in blue when Labels is on.
 Tap a feature (also with Labels off) for its name, type, size and coordinates.

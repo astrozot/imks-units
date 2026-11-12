@@ -4060,7 +4060,7 @@ function eventHost(e) {
     store,
     utc: state.settings.utc,
     toast,
-    sky: (t, place, focus) => coelumAt(t, place, e.input, focus),
+    sky: (t, place, focus, options) => coelumAt(t, place, e.input, focus, options),
     onResize: (fn) => { plotViewResize = () => { if (!sheet.hidden) fn(); }; },
   };
 }
@@ -4108,7 +4108,7 @@ function calculateEvent(kind, x, place) {
 
 // the sky chart of a coelum(…) result, or of an event seen from a place
 // (focus: the names of the objects to center, the first one found)
-function openCoelum(e, focus = []) {
+function openCoelum(e, focus = [], focusOptions) {
   let explorer;
   const formatTime = (t) => env().format(dateQ(env(), UNum.of(Math.round(t))));
   openSheet("Coelum", (root) => {
@@ -4123,9 +4123,14 @@ function openCoelum(e, focus = []) {
       panels: [eventsPanel({ store, utc: state.settings.utc, formatTime, opens: "its calculation, with its map or drawing", open: calculateEvent })],
     });
   }, () => ({ root: explorer.snapshot(), caption: [e.input, sheetBody.querySelector(".coelum-status").textContent], name: "coelum" }));
-  for (const name of focus) if (explorer.focus(name)) break;
+  for (const name of focus) if (explorer.focus(name, focusOptions)) break;
 }
-const coelumAt = (t, place, input, focus) => openCoelum({ input, coelum: { t: Math.round(t), place: [...place], label: `${place[0].toFixed(3)}°, ${place[1].toFixed(3)}°` } }, focus);
+const coelumAt = (t, place, input, focus, options) => {
+  // A worldwide event uses the saved observing location, or Greenwich.
+  const saved = state.settings.location;
+  place ??= saved ? [saved.lat, saved.lon, saved.h || 0] : [51.4769, -0.0005, 46];
+  openCoelum({ input, coelum: { t: Math.round(t), place: [...place], label: `${place[0].toFixed(3)}°, ${place[1].toFixed(3)}°` } }, focus, options);
+};
 
 function openSky(e) {
   openSheet("Moons", (root) => {

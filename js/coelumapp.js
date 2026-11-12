@@ -116,15 +116,16 @@ const sheetHost = (explorer) => ({
   store, get utc() { return clockZone() === 'UTC'; }, toast,
   formatClock: clockWithZone,
   onResize: (fn) => { onResize = fn; },
-  sky: async (t, p, focus) => {
+  sky: async (t, p, focus, options) => {
     closeSheet();
     explorer.closePanel();
     const here = explorer.place;
+    p ??= here;
     if (Math.abs(p[0] - here[0]) > 1e-4 || Math.abs(p[1] - here[1]) > 1e-4) {
       await explorer.setPlace({ lat: p[0], lon: p[1], h: Number.isFinite(p[2]) ? p[2] : null, name: `${p[0].toFixed(3)}°, ${p[1].toFixed(3)}°` });
     }
     explorer.setTime(t);
-    for (const name of focus) if (explorer.focus(name)) break;
+    for (const name of focus) if (explorer.focus(name, options)) break;
   },
 });
 

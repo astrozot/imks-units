@@ -1732,7 +1732,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   const explorer = {
     // Center an object on opening (an eclipse's Sun, an occultation's Moon).
-    focus(name, options) { const o = findObject(frame, name); if (o) { select(o.name); goTo(o, options); } return Boolean(o); },
+    focus(name, { mode: targetMode, ...options } = {}) {
+      const o = findObject(frame, name);
+      if (o) {
+        if (targetMode === 'sky' || targetMode === 'chart') setMode(targetMode);
+        select(o.name); goTo(o, options);
+      }
+      return Boolean(o);
+    },
     // Frame a conjunction around the spherical midpoint, with room for
     // both disks and their labels, independently of the previous zoom.
     focusPair(first, second) {
