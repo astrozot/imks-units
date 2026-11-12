@@ -25,10 +25,11 @@ try {
   await page.goto(`http://localhost:${server.address().port}/coelum/`);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const result = await page.evaluate(async () => {
-    const { planetMap, tracePlanet } = await import('/js/skyview.js');
+  const result = await page.evaluate(async (high) => {
+    const { planetMap, tracePlanet, downloadMoonDetail } = await import('/js/skyview.js');
     const { moonDisk } = await import('/js/astro.js');
     const map = planetMap('moon'); await map.ready;
+    if (high) await downloadMoonDetail();
     if (!map.img || !map.heights) throw Error('Lunar albedo and elevation maps must load');
     const { skyFrame } = await import('/js/coelum.js');
     const t = Date.parse('2026-11-24T21:00:00Z') / 1000;
@@ -65,7 +66,7 @@ try {
       const card = document.createElement('div'); card.append(`${angle}° phase · ${bearing}° bearing`, copy); document.body.append(card);
     }
     return results;
-  });
+  }, Boolean(process.env.LUNAR_DETAIL_HIGH));
   assert.deepEqual(errors, []);
   for (const r of result) {
     if (r.angle === 0) assert.ok(r.maxError <= 2, `Full Moon has no false relief shadows: ${JSON.stringify(r)}`);

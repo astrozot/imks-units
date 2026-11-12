@@ -163,7 +163,47 @@ observer hides shared terrain occlusion: crater rims must not paint false
 dark shadows at the full Moon's limb. `node tests/lunar-relief-browser.mjs`
 checks full and nearly full phases, both limbs and polar lighting, and
 preserves deep quarter-Moon shadows (set `LUNAR_RELIEF_SCREENSHOT` to save
-a preview). The planets have
+a preview). At deep zoom, magnified map texels use one filtered ray per
+pixel; the silhouette retains four-ray smoothing. This removes three
+quarters of the repeated terrain shading work in the interior.
+
+Deep close-ups also keep a GPU lighting cache, separate from the albedo
+texture and eclipse illumination. Small pans and zooms reuse a padded
+rectangle. Its grid has three lighting samples per elevation texel at the
+disk center, independent of display resolution, and is limited to
+2048 × 2048 RGBA texels per renderer (16 MiB). Lighting is interpolated;
+the colour texture remains sampled at display resolution. Near the limb,
+the renderer retains direct shading and four-ray edge smoothing.
+Every change of Sun direction, observer direction, libration or elevation
+map rebuilds the lighting grid immediately. Animation therefore still
+benefits from a smaller terrain pass, without holding outdated shadows.
+Earthshine brightness, eclipse geometry and exposure remain live in the
+display pass. If the optional target is unsupported, direct shading is
+retained. `node tests/lunar-cache-browser.mjs` checks image differences,
+cache reuse/invalidation, actual lunar motion, live eclipses, GPU recovery
+and both repeated-frame and changing-light rendering costs. Set
+`LUNAR_CACHE_SCREENSHOT` to save the direct/cached image comparison.
+
+**Layers → Moon detail → Download high resolution** adds an optional
+34.2 MB offline download: an 8192 × 4096 colour map and 5760 × 2880 LOLA
+elevations from [NASA's CGI Moon Kit](https://svs.gsfc.nasa.gov/4720/).
+Elevation spacing improves from about 7.6 km to 1.9 km at the equator.
+The default JPEG has 8-bit heights (about 78 m per level); the optional
+lossless PNG preserves NASA's 16-bit half-metre increments in its red
+and green channels. These are height increments, not an accuracy claim.
+NASA's floating-point version encodes the same measurements; additional
+numeric precision would not add terrain detail. The finer map uses actual
+slopes rather than the default map's doubled relief, and finer shadow
+steps. Terrain still shades a spherical surface; this is not a displaced
+mesh or a model of mountain silhouettes for grazing occultations.
+Devices with smaller GPU texture limits use scaled maps. Both apps share
+the download; it survives app updates and can be removed in Layers.
+`tools/lunarmaps.py` reproduces the assets from NASA's
+`lroc_color_poles_8k.tif` and `ldem_16_uint.tif` (Pillow and numpy required).
+`node tests/lunar-detail-browser.mjs` checks height-map selection, deep-zoom
+rendering against four rays, offline restoration and download failures.
+
+The planets have
 maps of their surfaces or clouds (`img/planets/`, from Solar System
 Scope, CC BY 4.0, based on NASA's missions; Venus's clouds at a third of
 their contrast, Uranus and Neptune reduced to their bands, Neptune in the

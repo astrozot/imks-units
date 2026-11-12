@@ -17,7 +17,7 @@ import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
 import { storedHorizon, computeHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
 import { skyView as moonSystem } from './sky.js';
-import { moonsView, planetMap } from './skyview.js';
+import { moonsView, planetMap, moonDetailStored, downloadMoonDetail, removeMoonDetail } from './skyview.js';
 import { pickLunarFeature, lunarFeatureDetails, findLunarFeature, lunarFeatureTarget, LUNAR_MIN_RADIUS } from './lunarfeatures.js';
 import { pickMarsFeature, marsFeatureDetails, findMarsFeature, marsFeatureTarget, marsFeatureState, projectMarsFeatures, MARS_MIN_RADIUS } from './marsfeatures.js';
 
@@ -293,6 +293,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-downloads coelum-satellites"><h3>Satellites</h3>
           <div class="coelum-switches">${SAT_GROUPS.map(([g, label]) => `<label><input type="checkbox" role="switch" data-satellite-group="${g}"><span>${label}</span></label>`).join('')}</div>
           <p class="coelum-panel-note coelum-satellite-note"></p><button type="button" class="coelum-chip" data-satellites="update">Update now</button></div>
+        <div class="coelum-downloads"><h3>Moon detail</h3><p class="coelum-panel-note" data-moon-detail-note>NASA LRO colour at 8192 × 4096 and elevation at 5760 × 2880 (16-bit). 34.2 MB download, kept for offline use.</p><button type="button" class="coelum-chip" data-moon-detail="download">Download high resolution</button> <button type="button" class="coelum-chip" data-moon-detail="remove" hidden>Remove download</button></div>
         <div class="coelum-downloads coelum-star-downloads"><h3>Fainter stars</h3><p class="coelum-panel-note coelum-faint-note"></p>
           <div class="coelum-catalog-choices" role="radiogroup" aria-label="Downloaded star catalog">${Object.keys(STAR_FILES).map((k) => `<label><span><input type="radio" name="${id}-catalog" value="${k}" data-download="${k}"> ${k}</span><small data-catalog-space="${k}"></small></label>`).join('')}</div><label class="coelum-catalog-select">Magnitude limit <select data-catalog-select><option value="" disabled>Choose a catalog</option>${Object.keys(STAR_FILES).map((k) => `<option value="${k}">${k}</option>`).join('')}</select></label><button type="button" class="coelum-chip" data-download="remove">Remove</button></div>
       </div>
@@ -896,6 +897,29 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     for (const control of root.querySelectorAll('[data-download], [data-catalog-select]')) control.disabled = false;
     animator = null; draw(true);
   };
+  let moonDetailBusy = false, moonDetailHigh = false;
+  const showMoonDetail = (message) => {
+    const high = moonDetailHigh;
+    $('[data-moon-detail-note]').textContent = message || (high
+      ? 'High-resolution Moon stored for offline use: 8K colour and 16-bit elevation, about 1.9 km per elevation pixel at the equator.'
+      : 'NASA LRO colour at 8192 × 4096 and elevation at 5760 × 2880 (16-bit). 34.2 MB download, kept for offline use.');
+    $('[data-moon-detail="download"]').hidden = Boolean(high);
+    $('[data-moon-detail="remove"]').hidden = !high;
+    for (const button of root.querySelectorAll('[data-moon-detail]')) button.disabled = moonDetailBusy;
+  };
+  const changeMoonDetail = async (action) => {
+    if (moonDetailBusy) return;
+    moonDetailBusy = true; showMoonDetail();
+    let error;
+    try {
+      if (action === 'remove') await removeMoonDetail();
+      else await downloadMoonDetail(showMoonDetail);
+    } catch (e) { error = `${e.message}. The current Moon maps are still available; try again when online or free some device storage.`; }
+    moonDetailHigh = await moonDetailStored();
+    moonDetailBusy = false; showMoonDetail(error);
+    animator = null; draw(true);
+  };
+  moonDetailStored().then((high) => { if (root.isConnected && !moonDetailBusy) { moonDetailHigh = high; showMoonDetail(); } });
   // Satellites: the groups chosen, how many, how old their elements are;
   // a new catalog redraws the sky.
   const satelliteNote = $('.coelum-satellite-note');
@@ -1478,6 +1502,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) for (const hold of controlHolds.values()) hold.cancel(); });
   root.addEventListener('click', async (ev) => {
+    const moonDetailButton = ev.target.closest('[data-moon-detail]');
+    if (moonDetailButton) { await changeMoonDetail(moonDetailButton.dataset.moonDetail); return; }
     if (ev.target.closest('[data-download="remove"]')) { await changeFaintCatalog('remove'); return; }
     const timeEvent = ev.target.closest('[data-time-event]')?.dataset.timeEvent;
     if (timeEvent) { setTime(Number(timeEvent)); return; }

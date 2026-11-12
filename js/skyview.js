@@ -268,6 +268,74 @@ const MAPS = {
   jupiter: { file: "jupiter.jpg", moons: "galilean.jpg", u0: (t) => [GRS.u + grsLon(t) / 360, GRS.u + (GRS.lon + EZ) / 360], zones: true },
 };
 const maps = new Map();
+const MOON_DETAIL_CACHE = 'imks-data-moon-detail-v1';
+const MOON_DETAIL_FILES = ['moon-8k.jpg', 'moon-heights-16.png'];
+const moonDetailURL = (file) => new URL(`../img/planets/${file}`, import.meta.url).href;
+const decodeMoonDetail = (responses) => Promise.all(responses.map(async (r) =>
+  createImageBitmap(await r.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' })));
+
+async function moonDetailStored() {
+  if (maps.has('moon')) {
+    await maps.get('moon').ready;
+    return Boolean(maps.get('moon').highResolution);
+  }
+  try {
+    const cache = await caches.open(MOON_DETAIL_CACHE);
+    return (await Promise.all(MOON_DETAIL_FILES.map((f) => cache.match(moonDetailURL(f))))).every(Boolean);
+  } catch { return false; }
+}
+
+// An optional pair, separate from the small default maps. Only switch after
+// both images decode; interrupted downloads never replace the working Moon.
+async function restoreMoonDetail(e) {
+  e.baseImages = [e.img, e.heights];
+  try {
+    const cache = await caches.open(MOON_DETAIL_CACHE);
+    const responses = await Promise.all(MOON_DETAIL_FILES.map((f) => cache.match(moonDetailURL(f))));
+    if (responses.every(Boolean)) {
+      [e.img, e.heights] = await decodeMoonDetail(responses);
+      e.highResolution = true;
+    }
+  } catch { /* default maps remain usable without persistent storage */ }
+}
+
+async function downloadMoonDetail(progress = () => {}) {
+  const e = planetMap('moon');
+  await e.ready;
+  if (!e.img) throw new Error('Could not load the Moon');
+  const responses = [];
+  for (const [i, file] of MOON_DETAIL_FILES.entries()) {
+    progress(i ? 'Downloading lunar elevation…' : 'Downloading lunar colour…');
+    const res = await fetch(moonDetailURL(file), { cache: 'no-store' });
+    if (!res.ok) throw new Error(`Moon download failed (${res.status})`);
+    responses.push(new Response(await res.blob()));
+  }
+  const images = await decodeMoonDetail(responses.map((r) => r.clone()));
+  // Persistence is part of the download contract: report quota/storage
+  // failures and leave the current maps in use so the button can retry.
+  try {
+    const cache = await caches.open(MOON_DETAIL_CACHE);
+    await Promise.all(MOON_DETAIL_FILES.map((f, i) => cache.put(moonDetailURL(f), responses[i])));
+  } catch (error) {
+    images.forEach((img) => img.close());
+    await caches.delete(MOON_DETAIL_CACHE).catch(() => {});
+    throw error;
+  }
+  if (e.highResolution) { e.img.close(); e.heights.close(); }
+  [e.img, e.heights] = images;
+  e.highResolution = true;
+}
+
+async function removeMoonDetail() {
+  const e = planetMap('moon');
+  await e.ready;
+  await caches.delete(MOON_DETAIL_CACHE);
+  if (e.highResolution) {
+    e.img.close(); e.heights.close();
+    [e.img, e.heights] = e.baseImages;
+    e.highResolution = false;
+  }
+}
 // { img, heights, rings, moons (the images of MAPS), ready (a promise) },
 // or null
 function planetMap(planet) {
@@ -289,6 +357,7 @@ function planetMap(planet) {
         return createImageBitmap(await res.blob());
       };
       [e.img, e.heights, e.rings, e.moons] = await Promise.all([m.file, m.heights, m.rings, m.moons].map((f) => f ? load(f) : null));
+      if (planet === 'moon') await restoreMoonDetail(e);
       return e;
     })().catch(() => null);
     maps.set(planet, e);
@@ -471,8 +540,14 @@ uniform int nBands;
 uniform vec4 rings[4];
 uniform vec2 ringEdges[4];
 uniform sampler2D surface, heights, ringMap, moonMaps;
+uniform sampler2D lunarLightingMap;
+uniform bool lunarCached;
+uniform vec4 lunarCacheBounds; // left, bottom, width, height in projected radii
 uniform bool mapped, zones, lunar, relief, ringMapped;
 uniform float moonEdge;
+uniform vec2 heightTexel;
+uniform float lunarMinFacing;
+uniform bool fineHeights, lunarSingleRay;
 uniform float earthshine;
 uniform vec3 earth;
 uniform vec4 lunarShadow; // center (west, north), umbra, penumbra
@@ -568,7 +643,8 @@ vec3 sampleMap(vec3 q, int k) {
 }
 // The Moon: the heights (km) of its map
 float heightAt(vec2 uv) {
-  return -9.0 + 20.0 * texture2D(heights, uv).r;
+  vec2 h = texture2D(heights, vec2(fract(uv.x), clamp(uv.y, 0.0, 1.0))).rg;
+  return fineHeights ? -10.0 + dot(h, vec2(65280.0, 255.0)) * 0.0005 : -9.0 + 20.0 * h.r;
 }
 // The Moon at a point q of its surface, lit by the Sun as the Moon is
 // (Lommel–Seeliger: its full disk as bright at the limb as in the middle),
@@ -577,18 +653,19 @@ float heightAt(vec2 uv) {
 // and crater walls, the Sun's disk hidden by the heights toward it (half
 // a degree across); the night side faint with earthshine
 const float MOON_KM = 1737.4, RELIEF = 2.0;
-vec3 lunarColor(vec3 q) {
+#ifndef LUNAR_CACHED_PASS
+vec2 lunarLighting(vec3 q) {
   vec2 uv = mapAt(q, 0);
-  vec3 albedo = texture2D(surface, uv).rgb, n = q;
+  vec3 n = q;
   // (the relief fading toward the limb, where its slopes are not seen and
   // would only turn the surface away from a Sun behind the observer)
   float sphere = dot(q, light), edge = smoothstep(0.0, 0.3, dot(q, view));
   if (relief) {
     vec3 E = normalize(vec3(-q.y, q.x, 0.0) + vec3(1e-6, 0.0, 0.0)), N = cross(q, E);
-    float du = 1.0 / 1440.0, dv = 1.0 / 720.0, coslat = max(length(q.xy), 0.05);
+    float du = heightTexel.x, dv = heightTexel.y, coslat = max(length(q.xy), 0.05);
     float sE = (heightAt(uv + vec2(du, 0.0)) - heightAt(uv - vec2(du, 0.0))) / (2.0 * du * 6.2831853 * coslat * MOON_KM);
     float sN = (heightAt(uv - vec2(0.0, dv)) - heightAt(uv + vec2(0.0, dv))) / (2.0 * dv * 3.14159265 * MOON_KM);
-    vec3 slope = RELIEF * edge * (sE * E + sN * N);
+    vec3 slope = (fineHeights ? 1.0 : RELIEF) * edge * (sE * E + sN * N);
     // A shading normal must face the observer. The smooth sphere has no
     // terrain visibility test to remove back-facing crater walls, and the
     // limb fade alone does not guarantee this (especially near the poles).
@@ -600,21 +677,23 @@ vec3 lunarColor(vec3 q) {
   float mu0 = dot(n, light), mu = max(dot(n, view), 0.0);
   float lit = mu0 > 0.0 && sphere > -0.03 ? min(1.6, 2.6 * mu0 / (mu0 + mu + 1e-4)) : 0.0;
   if (relief && lit > 0.0 && sphere < 0.35) {
-    float h0 = 1.0 + RELIEF * heightAt(uv) / MOON_KM, dist = 0.0, step = 0.0012;
+    float terrainScale = fineHeights ? 1.0 : RELIEF;
+    float h0 = 1.0 + terrainScale * heightAt(uv) / MOON_KM, dist = 0.0, step = fineHeights ? 0.0003 : 0.0012;
     float seen = 1.0, visible = 1.0;
     vec3 p = q * h0;
     // Approximate shadow hiding on the bump-mapped sphere: crater floors
     // hidden by a rim from the observer still have pixels. Trace the view
     // with the same footprint as the Sun to remove their shared occlusion.
     // At full Moon the rays coincide and all terrain shadows are hidden.
-    for (int i = 0; i < 18; i++) {
+    for (int i = 0; i < 24; i++) {
+      if (!fineHeights && i >= 18) break;
       dist += step;
       step *= 1.25;
       vec3 r = p + light * dist;
-      float rl = length(r), ground = 1.0 + RELIEF * heightAt(mapAt(r / rl, 0)) / MOON_KM;
+      float rl = length(r), ground = 1.0 + terrainScale * heightAt(mapAt(r / rl, 0)) / MOON_KM;
       seen = min(seen, (rl - ground) / (0.00465 * dist));
       vec3 v = p + view * dist;
-      float vl = length(v), foreground = 1.0 + RELIEF * heightAt(mapAt(v / vl, 0)) / MOON_KM;
+      float vl = length(v), foreground = 1.0 + terrainScale * heightAt(mapAt(v / vl, 0)) / MOON_KM;
       visible = min(visible, (vl - foreground) / (0.00465 * dist));
     }
     float sunlight = clamp(0.5 + 0.5 * seen, 0.0, 1.0);
@@ -625,7 +704,25 @@ vec3 lunarColor(vec3 q) {
   // scattering law as sunlight. Slopes facing away from Earth receive none.
   float muE = dot(n, earth);
   float earthlit = muE > 0.0 ? min(1.6, 2.6 * muE / (muE + mu + 1e-4)) : 0.0;
-  vec3 color = albedo * (lit + earthshine * earthlit);
+  return vec2(lit, earthlit);
+}
+#endif
+vec3 lunarColor(vec3 q) {
+  vec2 lighting;
+  vec2 position = vec2(dot(q, toP[0]), dot(q, toP[1]));
+  vec2 cachedAt = (position - lunarCacheBounds.xy) / lunarCacheBounds.zw;
+#ifdef LUNAR_CACHED_PASS
+  lighting = 1.6 * texture2D(lunarLightingMap, cachedAt).rg;
+#else
+  // Keep the limb exact: the projected surface has an unbounded derivative
+  // at the silhouette, so a uniformly spaced lighting map cannot resolve it.
+  if (lunarCached && dot(q, view) > 0.3 &&
+      all(greaterThan(cachedAt, vec2(0.0))) && all(lessThan(cachedAt, vec2(1.0)))) {
+    lighting = 1.6 * texture2D(lunarLightingMap, cachedAt).rg;
+  } else lighting = lunarLighting(q);
+#endif
+  vec3 albedo = texture2D(surface, mapAt(q, 0)).rgb;
+  vec3 color = albedo * (lighting.x + earthshine * lighting.y);
   if (lunarShadow.w <= 0.0) return color;
   vec2 xy = vec2(dot(q, toP[0]), dot(q, toP[1]));
   float d = length(xy - lunarShadow.xy);
@@ -743,20 +840,56 @@ vec4 trace(vec2 xy) {
   }
   return c;
 }
+#ifdef LUNAR_LIGHT_PASS
+void main() {
+  vec2 px = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y);
+  vec2 xy = origin + vec2(px.x, -px.y) / scale;
+  float r2 = dot(xy, xy);
+  if (r2 >= 1.0) { gl_FragColor = vec4(0.0); return; }
+  vec3 q = toP * vec3(xy, sqrt(1.0 - r2));
+  gl_FragColor = vec4(lunarLighting(q) / 1.6, 0.0, 1.0);
+}
+#elif defined(LUNAR_CACHED_PASS)
+vec4 cachedTrace(vec2 xy) {
+  vec3 q = toP * vec3(xy, sqrt(max(0.0, 1.0 - dot(xy, xy))));
+  return vec4(lunarColor(q), 1.0);
+}
+void main() {
+  vec2 px = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y);
+  vec2 point = origin + vec2(px.x, -px.y) / scale;
+  if (lunarSingleRay && dot(point, point) < 1.0 - lunarMinFacing * lunarMinFacing) {
+    gl_FragColor = cachedTrace(point); return;
+  }
+  vec4 c = cachedTrace(origin + vec2(px.x + 0.125, -(px.y - 0.375)) / scale);
+  c += cachedTrace(origin + vec2(px.x - 0.375, -(px.y - 0.125)) / scale);
+  c += cachedTrace(origin + vec2(px.x - 0.125, -(px.y + 0.375)) / scale);
+  c += cachedTrace(origin + vec2(px.x + 0.375, -(px.y + 0.125)) / scale);
+  gl_FragColor = c / 4.0;
+}
+#else
 void main() {
   // the pixel from the top left corner, and the sky there
   vec2 px = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y);
+  // Magnified map texels are already bilinearly filtered. One ray retains
+  // their detail; keep four rays at the silhouette and where foreshortening
+  // makes texels smaller than pixels.
+  vec2 point = origin + vec2(px.x, -px.y) / scale;
+  if (lunarSingleRay && dot(point, point) < min(pow(1.0 - 2.0 / scale, 2.0), 1.0 - lunarMinFacing * lunarMinFacing)) {
+    gl_FragColor = trace(point);
+    return;
+  }
   vec4 c = vec4(0.0);
   c += trace(origin + vec2(px.x + 0.125, -(px.y - 0.375)) / scale);
   c += trace(origin + vec2(px.x - 0.375, -(px.y - 0.125)) / scale);
   c += trace(origin + vec2(px.x - 0.125, -(px.y + 0.375)) / scale);
   c += trace(origin + vec2(px.x + 0.375, -(px.y + 0.125)) / scale);
   gl_FragColor = c / 4.0;
-}`;
+}
+#endif`;
 const VERTEX = "attribute vec2 at; void main() { gl_Position = vec4(at, 0.0, 1.0); }";
 
 // the program on a WebGL context, its uniforms (an error if it fails)
-function planetProgram(gl) {
+function planetProgram(gl, pass = '') {
   const shader = (type, src) => {
     const sh = gl.createShader(type);
     gl.shaderSource(sh, src);
@@ -766,7 +899,8 @@ function planetProgram(gl) {
   };
   const prog = gl.createProgram();
   gl.attachShader(prog, shader(gl.VERTEX_SHADER, VERTEX));
-  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FRAGMENT));
+  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, (pass ? `#define ${pass}\n` : "") + FRAGMENT));
+  gl.bindAttribLocation(prog, 0, "at");
   gl.linkProgram(prog);
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
@@ -776,10 +910,10 @@ function planetProgram(gl) {
   gl.enableVertexAttribArray(at);
   gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
   const u = {};
-  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "relief", "earthshine", "earth", "lunarShadow", "lunarExposure", "moonsAt", "moonsLook", "nMoons", "near", "moonsOnly"]) u[name] = gl.getUniformLocation(prog, name);
+  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "heightTexel", "lunarMinFacing", "fineHeights", "lunarSingleRay", "lunarLightingMap", "lunarCached", "lunarCacheBounds", "relief", "earthshine", "earth", "lunarShadow", "lunarExposure", "moonsAt", "moonsLook", "nMoons", "near", "moonsOnly"]) u[name] = gl.getUniformLocation(prog, name);
   gl.uniform4fv(u.rings, RINGS.flatMap(([, , a, c]) => [...c.map((x) => x / 255), a]));
   gl.uniform2fv(u.ringEdges, RINGS.flatMap(([a, b]) => [a, b]));
-  return u;
+  return { u, prog };
 }
 // Tried first on a canvas of its own: a canvas given a WebGL context
 // cannot be drawn in 2D any more
@@ -796,13 +930,21 @@ function webglWorks() {
   return glWorks;
 }
 const renderers = new WeakMap();
+const rendererCanvases = new WeakSet();
 function glRenderer(canvas) {
   if (renderers.has(canvas)) return renderers.get(canvas);
   let r = null;
   if (webglWorks()) {
     try {
       const gl = canvas.getContext("webgl", GL_OPTIONS);
-      if (gl) r = { gl, u: planetProgram(gl), textures: new Map() };
+      if (gl) {
+        r = { gl, ...planetProgram(gl), textures: new Map() };
+        if (!rendererCanvases.has(canvas)) {
+          canvas.addEventListener('webglcontextlost', (event) => event.preventDefault());
+          canvas.addEventListener('webglcontextrestored', () => renderers.delete(canvas));
+          rendererCanvases.add(canvas);
+        }
+      }
     } catch { r = null; }
   }
   renderers.set(canvas, r);
@@ -812,10 +954,17 @@ function glRenderer(canvas) {
 // The planet traced on the GPU over the canvas, w × h pixels whose top left
 // corner is the point (x0, y0) of the sky, s pixels per radius; false
 // without WebGL
-function tracePlanet(canvas, sky, x0, y0, w, h, s) {
+function tracePlanet(canvas, sky, x0, y0, w, h, s, { lunarCache = true } = {}) {
   const r = glRenderer(canvas);
   if (!r || r.gl.isContextLost()) return false;
   const { gl, u } = r, m = planetModel(sky, s);
+  gl.useProgram(r.prog);
+  if (m.planet === 'moon' && r.moonQuality !== Boolean(m.map?.e.highResolution)) {
+    for (const [key, tex] of r.textures) if (key.startsWith('moon:')) {
+      gl.deleteTexture(tex); r.textures.delete(key);
+    }
+    r.moonQuality = Boolean(m.map?.e.highResolution);
+  }
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   gl.viewport(0, 0, w, h);
   gl.uniform2f(u.origin, x0, y0);
@@ -852,8 +1001,9 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s) {
   if (m.map) {
     const img = m.map.e.img;
     let tw = img.width;
+    while (tw > gl.getParameter(gl.MAX_TEXTURE_SIZE)) tw /= 2;
     while (tw > 64 && tw / 2 >= 2 * Math.PI * s * 2) tw /= 2;
-    const key = `${m.planet}:${tw}`;
+    const key = `${m.planet}:${m.map.e.highResolution ? "high:" : ""}${tw}`;
     let tex = r.textures.get(key);
     if (!tex) {
       let source = img;
@@ -902,30 +1052,130 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s) {
   // the Moon: its heights (once), and its earthshine
   const lunar = m.planet === "moon" && Boolean(m.map), hm = lunar && m.map.e.heights;
   gl.uniform1i(u.lunar, lunar ? 1 : 0);
+  gl.uniform1i(u.lunarSingleRay, lunar && 2 * Math.PI * s > m.map.e.img.width * 2 ? 1 : 0);
+  gl.uniform1f(u.lunarMinFacing, lunar ? m.map.e.img.width / (Math.PI * s) : 1);
+  gl.uniform1i(u.fineHeights, lunar && m.map.e.highResolution ? 1 : 0);
   gl.uniform1i(u.relief, hm ? 1 : 0);
   gl.uniform1f(u.earthshine, earthshineBrightness(sky));
   const eclipse = sky.eclipse;
   gl.uniform4f(u.lunarShadow, eclipse?.x || 0, eclipse?.y || 0, eclipse?.umbra || 0, eclipse?.penumbra || 0);
   gl.uniform1f(u.lunarExposure, eclipse?.exposure || 1);
   gl.uniform3fv(u.earth, sky.earth ? m.toP(sky.earth) : m.view);
+  let heightSize;
   if (hm) {
-    gl.activeTexture(gl.TEXTURE1);
-    let tex = r.textures.get("moon:heights");
-    if (!tex) {
-      tex = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, gl.LUMINANCE, gl.UNSIGNED_BYTE, hm);
-      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
-      r.textures.set("moon:heights", tex);
-    }
-    gl.bindTexture(gl.TEXTURE_2D, tex);
+    const max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const factor = Math.min(1, max / hm.width, max / hm.height);
+    const w = Math.floor(hm.width * factor), h = Math.floor(hm.height * factor);
+    heightSize = [w, h];
+    bindScaled(r, `moon:heights:${m.map.e.highResolution ? 'high' : 'base'}:${w}`, hm, w, h, 1, false);
+    gl.uniform2f(u.heightTexel, 1 / w, 1 / h);
     gl.uniform1i(u.heights, 1);
-    gl.activeTexture(gl.TEXTURE0);
+  }
+  gl.uniform1i(u.lunarCached, 0);
+  if (lunarCache && hm && !sky.moonsOnly && !r.lunarCacheFailed) try {
+    const cached = cacheLunarLighting(r, m, sky, x0, y0, w, h, s, heightSize);
+    // An interior close-up needs no silhouette or generic planet machinery.
+    // Compile that common path separately so the GPU does not reserve the
+    // registers of the terrain marcher for every display pixel.
+    const farX = Math.max(Math.abs(x0), Math.abs(x0 + w / s)) + 1 / s;
+    const farY = Math.max(Math.abs(y0), Math.abs(y0 - h / s)) + 1 / s;
+    if (cached && farX * farX + farY * farY < 0.91) {
+      r.lunarDisplay ||= planetProgram(gl, 'LUNAR_CACHED_PASS');
+      gl.useProgram(r.lunarDisplay.prog);
+      const v = r.lunarDisplay.u;
+      gl.uniform2f(v.origin, x0, y0); gl.uniform2f(v.size, w, h); gl.uniform1f(v.scale, s);
+      gl.uniformMatrix3fv(v.toP, false, [0, 1, 2].flatMap((k) => [m.e1[k], m.e2[k], m.p[k]]));
+      gl.uniform3fv(v.view, m.view); gl.uniform2fv(v.lon0, m.map.lon0); gl.uniform2fv(v.u0, m.map.u0);
+      gl.uniform1i(v.surface, 0); gl.uniform1i(v.lunarLightingMap, 4);
+      gl.uniform1i(v.lunarSingleRay, 2 * Math.PI * s > m.map.e.img.width * 2 ? 1 : 0);
+      gl.uniform1f(v.lunarMinFacing, m.map.e.img.width / (Math.PI * s));
+      gl.uniform4f(v.lunarCacheBounds, cached.left, cached.bottom, cached.right - cached.left, cached.top - cached.bottom);
+      gl.uniform1f(v.earthshine, earthshineBrightness(sky));
+      gl.uniform4f(v.lunarShadow, eclipse?.x || 0, eclipse?.y || 0, eclipse?.umbra || 0, eclipse?.penumbra || 0);
+      gl.uniform1f(v.lunarExposure, eclipse?.exposure || 1);
+    }
+  } catch {
+    // The cache is optional. A shader/target unsupported by a particular
+    // driver must not take away the direct Moon renderer.
+    r.lunarCacheFailed = true;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.useProgram(r.prog);
+    gl.viewport(0, 0, w, h); gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(u.lunarCached, 0);
   }
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   return true;
+}
+
+// Cache illumination, not the colour image: albedo, eclipse contacts,
+// exposure and Earthlight brightness are still evaluated at display resolution.
+// The grid follows the elevation data rather than the screen. A time change
+// rebuilds this much smaller grid, so playback benefits even without hits.
+// One padded rectangle per renderer bounds memory and permits small pans/zooms.
+function cacheLunarLighting(r, m, sky, x0, y0, w, h, s, heightSize) {
+  const { gl, u } = r;
+  const density = 1.5 * heightSize[0] / Math.PI;
+  if (s < 2 * density || r.lunarCacheFailed) return;
+  const left = Math.max(-1, x0), right = Math.min(1, x0 + w / s);
+  const top = Math.min(1, y0), bottom = Math.max(-1, y0 - h / s);
+  if (left >= right || bottom >= top) return;
+  const key = JSON.stringify([sky.pole, sky.sun, sky.earth, m.map.lon0, m.map.u0]);
+  let c = r.lunarLighting;
+  const covered = c && c.density === density && c.heights === m.map.e.heights &&
+    left >= c.left + 1 / density && right <= c.right - 1 / density &&
+    bottom >= c.bottom + 1 / density && top <= c.top - 1 / density;
+  if (!covered || c.key !== key) {
+    // Keep the existing rectangle during playback. Only a camera move that
+    // leaves its padded interior changes the allocation and grid alignment.
+    const pad = Math.max(4, Math.ceil(Math.max(right - left, top - bottom) * density / 16));
+    const L = covered ? c.left : (Math.floor(left * density) - pad) / density;
+    const T = covered ? c.top : (Math.ceil(top * density) + pad) / density;
+    const cols = covered ? c.cols : Math.ceil((right - L) * density) + pad;
+    const rows = covered ? c.rows : Math.ceil((T - bottom) * density) + pad;
+    if (cols > Math.min(2048, gl.getParameter(gl.MAX_TEXTURE_SIZE)) || rows > Math.min(2048, gl.getParameter(gl.MAX_TEXTURE_SIZE))) return;
+    if (!c) {
+      c = r.lunarLighting = { texture: gl.createTexture(), framebuffer: gl.createFramebuffer(), ...planetProgram(gl, 'LUNAR_LIGHT_PASS') };
+    }
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, c.texture);
+    if (cols !== c.cols || rows !== c.rows) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, cols, rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, c.framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, c.texture, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      // A device may support the main renderer but not this target. Keep
+      // direct shading available, without retrying a failing allocation.
+      r.lunarCacheFailed = true;
+      gl.deleteTexture(c.texture); gl.deleteFramebuffer(c.framebuffer); gl.deleteProgram(c.prog);
+      r.lunarLighting = null;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.useProgram(r.prog); gl.activeTexture(gl.TEXTURE0);
+      return;
+    }
+    gl.useProgram(c.prog);
+    const v = c.u;
+    gl.viewport(0, 0, cols, rows);
+    gl.uniform2f(v.origin, L, T); gl.uniform2f(v.size, cols, rows); gl.uniform1f(v.scale, density);
+    gl.uniformMatrix3fv(v.toP, false, [0, 1, 2].flatMap((k) => [m.e1[k], m.e2[k], m.p[k]]));
+    gl.uniform3fv(v.view, m.view); gl.uniform3fv(v.light, m.light);
+    gl.uniform3fv(v.earth, sky.earth ? m.toP(sky.earth) : m.view);
+    gl.uniform2fv(v.lon0, m.map.lon0); gl.uniform2fv(v.u0, m.map.u0);
+    gl.uniform1i(v.heights, 1); gl.uniform1i(v.relief, 1);
+    gl.uniform1i(v.fineHeights, m.map.e.highResolution ? 1 : 0);
+    gl.uniform2f(v.heightTexel, 1 / heightSize[0], 1 / heightSize[1]);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    Object.assign(c, { left: L, top: T, right: L + cols / density, bottom: T - rows / density, cols, rows, density, key, heights: m.map.e.heights });
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(r.prog); gl.viewport(0, 0, w, h);
+  }
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, c.texture);
+  gl.uniform1i(u.lunarLightingMap, 4);
+  gl.uniform4f(u.lunarCacheBounds, c.left, c.bottom, c.right - c.left, c.top - c.bottom);
+  gl.uniform1i(u.lunarCached, 1);
+  gl.activeTexture(gl.TEXTURE0);
+  return c;
 }
 
 // An image (or pixels: { w, h, data }) as the texture of a renderer r in
@@ -1191,4 +1441,4 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
   };
 }
 
-export { lunarShadowLight, lunarShadowMean, lunarEclipseColor, surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap, solarSegment, globeCoverage, ringCoverage };
+export { moonDetailStored, downloadMoonDetail, removeMoonDetail, lunarShadowLight, lunarShadowMean, lunarEclipseColor, surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap, solarSegment, globeCoverage, ringCoverage };
