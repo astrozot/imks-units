@@ -34,7 +34,23 @@ for (const [date, pattern] of [['2026-08-12T12:00Z', /solar eclipse/], ['2026-03
   assert.ok(events.some((e) => pattern.test(e.name)), date);
   for (const e of events) assert.ok(e.t >= day.start && e.t < day.end);
 }
-assert.ok(meteorShowers(t('2026-12-31T12:00Z'), 'UTC').some(([n]) => n === 'Quadrantids'));
-assert.ok(meteorShowers(t('2026-01-01T12:00Z'), 'UTC').some(([n]) => n === 'Quadrantids'));
+assert.ok(meteorShowers(t('2026-12-31T12:00Z'), 'UTC').some((s) => s.name === 'Quadrantids'));
+assert.ok(meteorShowers(t('2026-01-01T12:00Z'), 'UTC').some((s) => s.name === 'Quadrantids'));
 assert.equal(meteorShowers(t('2026-03-01T12:00Z'), 'UTC').length, 0);
 console.log('Almanac: civil days, polar daylight, Moon crossings, phases, eclipses, seasons and meteor windows passed');
+
+// Independent IMO published maxima: correct J2000 frame, leap-year and
+// calendar drift. Agreement within 30 min of the rounded published times.
+import { meteorPeak } from '../js/meteors.js';
+for (const [year, longitude, expected] of [
+  [2026, 283.15, '2026-01-03T21:00Z'],
+  [2026, 140, '2026-08-13T02:00Z'],
+  [2026, 235.27, '2026-11-17T23:45Z'],
+  [2026, 262.2, '2026-12-14T14:00Z'],
+  [2027, 283.15, '2027-01-04T03:25Z'],
+  [2027, 262.2, '2027-12-14T20:00Z'],
+]) assert.ok(Math.abs(meteorPeak(year, longitude) - t(expected)) < 1800, expected);
+const dec = meteorShowers(t('2026-12-31T12:00Z'), 'UTC').find((s) => s.name === 'Quadrantids');
+assert.equal(new Date(dec.peak * 1000).getUTCFullYear(), 2027);
+assert.deepEqual(meteorShowers(t('0001-01-01T12:00Z'), 'UTC'), []);
+console.log('Meteor peaks match independent IMO 2026/2027 predictions');

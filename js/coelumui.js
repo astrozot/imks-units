@@ -9,6 +9,7 @@ import { PhoneOrientation } from './phoneorientation.js';
 import { followGuide } from './followguide.js';
 import { moonEventsPanel } from './mooneventspanel.js';
 import { ALMANAC_ICON, renderAlmanac } from './almanac.js';
+import { setSkyDateInput, openSkyDatePicker, calendarSkyTime } from './skydateinput.js';
 import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, satelliteList, satelliteStatus } from './satellites.js';
 import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius, horizonToGalactic } from './coelum.js';
 import { riseSet, planetOf, siderealTime } from './astro.js';
@@ -300,7 +301,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-panel-body"></div></div>`).join('')}
       <div class="coelum-panel coelum-timepanel" id="${id}-time" role="group" aria-label="Date and time" hidden>
         <div class="coelum-panel-head"><h3>Date and time</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close date and time">${ICONS.close}</button></div>
-        <div class="coelum-time-row"><input type="text" placeholder="YYYY-MM-DD HH:mm" spellcheck="false" data-time-input aria-label="Date and time in the selected timezone"><button type="button" class="coelum-chip" data-set-time="now">Now</button></div>
+        <div class="coelum-time-row"><input type="datetime-local" spellcheck="false" data-time-input aria-label="Date and time in the selected timezone"><button type="button" class="coelum-chip" data-set-time="now">Now</button></div>
+        <button type="button" class="coelum-chip coelum-date-mode" data-time-date-mode>B.C. / signed year</button>
         ${options.standalone ? `<label class="coelum-time-zone">Time <select data-time-zone aria-label="Time"><option value="utc">UTC</option><option value="device">device</option><option value="location">selected location</option></select></label>
         <label class="coelum-time-zone" data-place-zone-row hidden><span>Location timezone</span><span class="coelum-location-zone-controls"><input type="text" data-place-zone list="${id}-zones" aria-label="Location timezone" placeholder="Europe/Rome or UTC+02:00"><button type="button" class="coelum-chip" data-reset-place-zone>Automatic</button></span></label>
         <datalist id="${id}-zones">${(Intl.supportedValuesOf?.('timeZone') || ['Europe/Rome', 'America/New_York', 'Asia/Tokyo']).map((zone) => `<option value="${esc(zone)}"></option>`).join('')}</datalist>` : ''}
@@ -937,7 +939,6 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const pad = (n) => String(n).padStart(2, '0');
   const timeZone = () => { const zone = options.timeZone?.() || 'device'; return zone === 'utc' ? 'UTC' : zone; };
   const timeUTC = () => timeZone() === 'UTC';
-  const localInput = (time) => skyTimeInput(time, timeZone());
   const clock = (time) => skyClock(time, timeZone());
   const EVENTS = [
     ['Astr. dawn', 'sun', true, -18], ['Naut. dawn', 'sun', true, -12], ['Civil dawn', 'sun', true, -6], ['Sunrise', 'sun', true, null],
@@ -945,8 +946,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     ['Moonrise', 'moon', true, null], ['Moonset', 'moon', false, null],
   ];
   let eventsDay = null;
+  let extendedDate = false;
+  const syncDateInput = () => {
+    const signed = setSkyDateInput(timeInput, t, timeZone(), { extended: extendedDate });
+    $('[data-time-date-mode]').textContent = signed ? 'Use calendar' : 'B.C. / signed year';
+  };
   const showTime = () => {
-    if (document.activeElement !== timeInput) timeInput.value = localInput(t);
+    if (document.activeElement !== timeInput) syncDateInput();
     const zone = skyTimeZone(t, timeZone()), mode = options.timeMode?.() || (timeUTC() ? 'utc' : 'device');
     const zoneSelect = $('[data-time-zone]');
     if (zoneSelect) zoneSelect.value = mode;
@@ -956,7 +962,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       zoneRow.hidden = mode !== 'location';
       if (document.activeElement !== $('[data-place-zone]')) $('[data-place-zone]').value = locationZone.override || locationZone.detected;
     }
-    $('.coelum-zone-note').textContent = `${mode === 'location' ? `Selected location: ${zone}. ${locationZone?.override ? 'Manual timezone override.' : 'Estimated from the offline timezone map.'} Named zones apply daylight-saving rules; use UTC+HH:mm or UTC−HH:mm for a fixed offset.` : mode === 'utc' ? 'UTC for every place.' : `Device time: ${zone}; does not follow the place viewed.`} YYYY-MM-DD HH:mm; signed years (0 = 1 BCE, −1 = 2 BCE). Supported UTC years: −1000 to 3000.`;
+    $('.coelum-zone-note').textContent = `${mode === 'location' ? `Selected location: ${zone}. ${locationZone?.override ? 'Manual timezone override.' : 'Estimated from the offline timezone map.'} Named zones apply daylight-saving rules; use UTC+HH:mm or UTC−HH:mm for a fixed offset.` : mode === 'utc' ? 'UTC for every place.' : `Device time: ${zone}; does not follow the place viewed.`} ${timeInput.type === 'text' ? 'Signed years: 0 = 1 BCE, −1 = 2 BCE. Format: YYYY-MM-DD HH:mm.' : 'Use the calendar and time picker, or choose B.C. / signed year.'} Supported UTC years: −1000 to 3000.`;
     const [start, end] = skyDayBounds(t, timeZone()), key = `${start},${end},${place.join(',')}`;
     if (key === eventsDay) return;
     eventsDay = key;
@@ -975,7 +981,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
   $('[data-time-zone]')?.addEventListener('change', (ev) => {
     options.onTimeZone?.(ev.target.value);
-    eventsDay = null; timeInput.setCustomValidity(''); timeInput.value = localInput(t);
+    eventsDay = null; timeInput.setCustomValidity(''); syncDateInput();
     showTime(); updateUI(true);
   });
   $('[data-place-zone]')?.addEventListener('input', (ev) => ev.target.setCustomValidity(''));
@@ -983,12 +989,22 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const value = ev.target.value.trim();
     if (!validSkyZone(value)) { ev.target.setCustomValidity('Enter an IANA timezone such as Europe/Rome, or a fixed offset such as UTC+02:00.'); ev.target.reportValidity(); return; }
     options.onPlaceTimeZone?.(value);
-    eventsDay = null; timeInput.value = localInput(t); showTime(); updateUI(true);
+    eventsDay = null; syncDateInput(); showTime(); updateUI(true);
   });
   $('[data-reset-place-zone]')?.addEventListener('click', () => {
     options.onPlaceTimeZone?.(null);
     $('[data-place-zone]').setCustomValidity(''); eventsDay = null;
-    timeInput.value = localInput(t); showTime(); updateUI(true);
+    syncDateInput(); showTime(); updateUI(true);
+  });
+  timeInput.addEventListener('click', () => openSkyDatePicker(timeInput));
+  $('[data-time-date-mode]').addEventListener('click', () => {
+    if (timeInput.type === 'text') {
+      extendedDate = false;
+      // A system calendar has no B.C. dates. Open it at the same month/day
+      // in year 1; the sky changes only after the user selects a date.
+      setSkyDateInput(timeInput, calendarSkyTime(t, timeZone()), timeZone());
+      $('[data-time-date-mode]').textContent = 'B.C. / signed year';
+    } else { extendedDate = true; syncDateInput(); }
   });
   timeInput.addEventListener('input', () => timeInput.setCustomValidity(''));
   timeInput.addEventListener('change', () => {

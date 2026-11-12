@@ -1794,3 +1794,7 @@ body.coelum-app { background: #000; }
 .almanac-shower span { display: block; margin-top: 4px; font-size: 12px; color: var(--c-muted); }
 .almanac-card a { color: var(--c-accent); }
 @media (max-width: 540px) { .almanac-cards { grid-template-columns: 1fr; gap: 0; } .almanac-card { padding: 15px; } }
+
+/* Let the platform render its familiar calendar and time selectors. */
+.coelum-time-row input, .almanac-nav input { color-scheme: dark; }
+.coelum-date-mode { margin-top: 8px; font-size: 11px; color: var(--c-muted); }

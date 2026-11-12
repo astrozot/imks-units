@@ -42,8 +42,10 @@ location in Settings. The table gives the solar-system bodies' geometric
 altitudes and azimuths, including those below the horizon. Dates from year
 −1000 through 3000 are supported (UTC). These are signed astronomical
 years in the proleptic Gregorian calendar: 0 is 1 BCE, −1 is 2 BCE, and
-−1000 is 1001 BCE. The date panel accepts `YYYY-MM-DD HH:mm`, including a
-negative year. Standalone Coelum defaults to device time. The date panel offers device
+−1000 is 1001 BCE. The date panel uses the system calendar and time picker
+for positive years. **B.C. / signed year** enables `YYYY-MM-DD HH:mm` entry
+for year zero and negative years; **Use calendar** returns to native controls.
+Standalone Coelum defaults to device time. The date panel offers device
 time, UTC, and the selected location’s timezone. The date panel and event timestamps identify
 the zone and UTC offset; date entry and events follow the same choice.
 The compact bottom bar omits the timezone and stays within its original height.
@@ -306,12 +308,19 @@ today)` for one of several with a name).
 
 The calendar-and-sun button on the right rail opens the **Daily almanac**,
 a separate view that starts on today in the selected sky timezone. Previous,
-Next, Today and direct date entry browse civil days without changing the sky.
+Next, Today and the system calendar browse civil days without changing the sky.
+Opening the page focuses its close button, keeping mobile keyboards closed.
+An optional signed-year field supports B.C. dates.
 It summarizes sunrise, sunset, daylight duration, solar noon, three levels of
 twilight, Moon rise/set, lunar age and illumination at noon. Daily highlights
 cover Moon phases, seasons, eclipses, planetary conjunctions, oppositions and
-greatest elongations; tap one to show its time in the sky. A seasonal meteor
-shower guide links to the IMO calendar and labels peaks as approximate.
+greatest elongations; tap one to show its time in the sky. Meteor maxima are
+calculated separately for each year (2000–2100) by solving for the Sun's
+geometric longitude in the J2000 ecliptic at the IMO 2027 working-list value.
+The view gives the date/time in the selected timezone, marks peaks on the
+current day, and shows Moon illumination at maximum. These are nominal regular
+maxima, not dust-trail/outburst forecasts; broad peaks and timing uncertainty
+are identified. The parameters and source link live in `js/meteors.js`.
 The same almanac is available in iMKS's sky explorer and works offline.
 Rise/set assumes an unobstructed horizon; dates with no crossing say so.
 

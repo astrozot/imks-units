@@ -1887,4 +1887,16 @@ function season(year, k) {
 // The apparent longitude of the Sun (degrees) at the Unix time t
 const solarLongitude = (t) => planetEcliptic("sun", centuries(t)).lon;
 
+// Geometric geocentric solar longitude in the fixed J2000 ecliptic. Meteor
+// stream reference longitudes use this frame, rather than the moving equinox
+// and apparent longitude used for seasons. Undo precession with the transpose
+// of its orthogonal matrix, then rotate the J2000 equator to its ecliptic.
+export function solarLongitudeJ2000(t) {
+  const T = centuries(t), p = heliocentric('earth', T).map((x) => -x);
+  const e = nutation(T).eps0 * RAD, e0 = 23.439291111 * RAD;
+  const q = [p[0], p[1] * Math.cos(e) - p[2] * Math.sin(e), p[1] * Math.sin(e) + p[2] * Math.cos(e)];
+  const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((axis) => dot(precessVector(axis, T), q));
+  return mod360(Math.atan2(v[1] * Math.cos(e0) + v[2] * Math.sin(e0), v[0]) / RAD);
+}
+
 export { MOON_RADIUS, planetDisk, greatestElongation, conjunction, opposition, occultationCandidate, occultation, occultationLocal, occultationTrack, orbitPosition, orbitAge, satellitePosition, satellitePasses, horizonRefraction, aspect, magnitude, diameter, transit, moons, moonEvents, planetOf, lunarEclipse, lunarDiagram, earthShadow, moonDisk, solarEclipse, shadowAt, solarLocal, eclipseTrack, shadowMap, solarContacts, solarPhase, elongation, solarLongitude, equatorial, topocentric, ecliptic, centuries, nutation, horizontal, riseSet, crossing, nextPhase, moonPhase, siderealTime, season, hourAngle, deltaT, deltaTError };
