@@ -1,0 +1,10 @@
+{
+  "name": "astrolabium-ephemeris",
+  "main": "index.js",
+  "compatibility_date": "2026-11-13",
+  "workers_dev": true,
+  "vars": {
+    // Replace with the actual app origins before deployment.
+    "ALLOWED_ORIGINS": "http://localhost:8000"
+  }
+}

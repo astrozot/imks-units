@@ -1,12 +1,14 @@
 // Loaded only on explicit refinement. Optional downloads never
 // enter either app's unbounded service-worker asset cache.
 import { readPrecisionPack, PRECISION_LIMITS } from './precisionpack.js';
+import { EPHEMERIS_SERVICE } from './precisionconfig.js';
 export const PRECISION_CACHE = 'imks-data-precision-v1';
 const BASE = new URL('../data/precision/', import.meta.url);
+export const precisionYearRange = EPHEMERIS_SERVICE ? [1550, 2650] : [1900, 2100];
 
 export async function boundedBytes(response, limit) {
-  if (!response?.ok) throw new Error('Precision data unavailable; connect once to download this year');
-  if (Number(response.headers.get('Content-Length')) > limit) throw new Error('Precision download exceeds its size limit');
+  if (!response?.ok) { await response?.body?.cancel(); throw new Error('Precision data unavailable; connect once to download this date'); }
+  if (Number(response.headers.get('Content-Length')) > limit) { await response.body?.cancel(); throw new Error('Precision download exceeds its size limit'); }
   if (!response.body) throw new Error('Streaming downloads are unavailable in this browser');
   const reader = response.body.getReader(), chunks = [];
   let length = 0;
@@ -28,7 +30,7 @@ export async function boundedBytes(response, limit) {
 
 // Serialise writes across tabs where Web Locks is available. A failed
 // persistent cache (quota/private browsing) must not prevent a calculation.
-async function save(cache, url, bytes, type) {
+export async function savePrecisionData(cache, url, bytes, type, checksum = null) {
   if (!cache) return;
   const write = async () => {
     let size = bytes.byteLength;
@@ -43,7 +45,7 @@ async function save(cache, url, bytes, type) {
       if (size <= PRECISION_LIMITS.diskBytes) break;
       await cache.delete(key); size -= n;
     }
-    await cache.put(String(url), new Response(bytes, { headers: { 'Content-Type': type, 'Content-Length': String(bytes.byteLength) } }));
+    await cache.put(String(url), new Response(bytes, { headers: { 'Content-Type': type, 'Content-Length': String(bytes.byteLength), ...(checksum ? { 'X-Ephemeris-SHA256': checksum } : {}) } }));
   };
   try {
     if (globalThis.navigator?.locks) await navigator.locks.request(PRECISION_CACHE, write);
@@ -89,7 +91,43 @@ export async function loadPrecisionYear(year, progress = () => {}, signal) {
   // Touch a reused year as well, so frequently used offline data survives
   // eviction of the oldest downloads.
   progress('Updating the bounded event data cache…');
-  await save(cache, url, result.bytes, 'application/octet-stream');
-  await save(cache, indexURL, manifestBytes, 'application/json');
+  await savePrecisionData(cache, url, result.bytes, 'application/octet-stream');
+  await savePrecisionData(cache, indexURL, manifestBytes, 'application/json');
   return { buffer: result.bytes, fromCache };
+}
+
+// New path: request a date interval from the service, never a yearly file.
+export async function loadPrecisionEvent(job, progress = () => {}, signal, endpoint = EPHEMERIS_SERVICE) {
+  if (!endpoint) return loadPrecisionYear(new Date(job.t * 1000).getUTCFullYear(), progress, signal);
+  const url = new URL('/v1/pack', endpoint), day = Math.floor(job.t / 86400) + 2440587.5;
+  url.searchParams.set('day', String(day)); url.searchParams.set('model', 'de440');
+  const system = job.system || (job.kind === 'occultation' ? [job.front, job.target].find(b => ['mars','jupiter','saturn','uranus','neptune'].includes(b)) : null);
+  if (system) url.searchParams.set('system', system);
+  const bodies = [...new Set([job.body, job.front, job.target].filter(b => ['mercury','venus','mars','jupiter','saturn','uranus','neptune'].includes(b)))];
+  if (bodies.length) url.searchParams.set('body', bodies.join(','));
+  let cache = null; try { cache = await caches.open(PRECISION_CACHE); } catch { /* usable online without persistent storage */ }
+  const validate = async (response) => {
+    const expected = response.headers.get('X-Ephemeris-SHA256');
+    if (!/^[0-9a-f]{64}$/.test(expected || '')) throw new Error('Missing native ephemeris checksum');
+    const buffer = await boundedBytes(response, PRECISION_LIMITS.fileBytes), hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)), x => x.toString(16).padStart(2,'0')).join('');
+    if (hash !== expected) throw new Error('Native ephemeris integrity check failed');
+    const pack = readPrecisionPack(buffer);
+    if (pack.header.native !== true || pack.header.source !== 'DE440' || pack.header.year !== new Date(job.t * 1000).getUTCFullYear() || !(pack.header.fromJD <= day && pack.header.toJD >= day + 1)) throw new Error('Wrong native ephemeris interval or model');
+    return buffer;
+  };
+  const saved = await cache?.match(url.href);
+  if (saved) {
+    try { const buffer = await validate(saved); progress('Using downloaded native ephemeris data…'); return { buffer, fromCache: true }; }
+    catch { await cache.delete(url.href); }
+  }
+  progress('Downloading native JPL coefficients for this event…');
+  const response = await fetch(url, { cache: 'no-store', signal });
+  if (!response.ok) throw new Error(response.status === 422 ? 'This date or satellite system is outside the available native coverage' : 'Ephemeris service unavailable; retry when connected');
+  const checksum = response.headers.get('X-Ephemeris-SHA256'), buffer = await validate(response);
+  if (cache) {
+    // Reuse the same 8 MiB budget as legacy packs. The checksum is stored
+    // with the response, not in an ever-growing per-date manifest.
+    await savePrecisionData(cache, url, buffer, 'application/octet-stream', checksum);
+  }
+  return { buffer, fromCache: false };
 }

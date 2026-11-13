@@ -1,0 +1,8 @@
+{
+  "name": "astrolabium-ephemeris-data",
+  "compatibility_date": "2026-11-13",
+  "workers_dev": true,
+  // No main script or Functions: every request serves a static asset.
+  // Override with --assets /absolute/path/to/prepared-data at deployment.
+  "assets": { "directory": "./public", "not_found_handling": "404-page" }
+}

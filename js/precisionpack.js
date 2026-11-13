@@ -13,6 +13,7 @@ export function readPrecisionPack(buffer) {
   const segments = new Map();
   for (const s of header.segments) {
     if (![s.center, s.target, s.count, s.degree, s.offset].every(Number.isSafeInteger) || s.count <= 0 || s.count > 512 || s.degree < 1 || s.degree > 32 || s.offset < 0 || !(s.step > 0) || !Number.isFinite(s.step) || !Number.isFinite(s.start) || s.start > header.fromJD || s.start + s.step * s.count < header.toJD || s.offset + s.count * 3 * (s.degree + 1) > data.length || segments.has(`${s.center}:${s.target}`)) throw new Error('Invalid precision record');
+    if (s.velocityOffset !== undefined && (!Number.isSafeInteger(s.velocityOffset) || s.velocityOffset < 0 || s.velocityOffset + s.count * 3 * (s.degree + 1) > data.length)) throw new Error('Invalid native velocity record');
     segments.set(`${s.center}:${s.target}`, s);
   }
   if (data.some((x) => !Number.isFinite(x))) throw new Error('Non-finite precision coefficient');
@@ -39,6 +40,11 @@ export function readPrecisionPack(buffer) {
         b2 = b1; b1 = b0; d2 = d1; d1 = d0;
       }
       position.push(x * b1 - b2 + data[at]); velocity.push((b1 + x * d1 - d2) * 2 / s.step);
+      if (s.velocityOffset !== undefined) {
+        const vi = s.velocityOffset + (record * 3 + axis) * n; let a = 0, b = 0;
+        for (let k = s.degree; k >= 1; k--) { const c = 2 * x * a - b + data[vi + k]; b = a; a = c; }
+        velocity[axis] = x * a - b + data[vi];
+      }
     }
     return { position, velocity };
   };
@@ -56,5 +62,5 @@ export function readPrecisionPack(buffer) {
     if (Math.abs(u2 - u1) > 0.5) u2 -= Math.round(u2 - u1);
     return { xp: data[at + 1] + f * (data[at + 5] - data[at + 1]), yp: data[at + 2] + f * (data[at + 6] - data[at + 2]), dut1: u1 + f * (u2 - u1) };
   };
-  return { header, byteLength: buffer.byteLength, native, orientation };
+  return { header, byteLength: buffer.byteLength, native, orientation, has: (center, target) => segments.has(`${center}:${target}`) };
 }

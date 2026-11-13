@@ -1,0 +1,16 @@
+{
+  "before": {
+    "frames": 36,
+    "p95GapMs": 50.10000000000002,
+    "maxGapMs": 50.10000000000002
+  },
+  "during": {
+    "frames": 36,
+    "p95GapMs": 66.59999999999991,
+    "maxGapMs": 66.59999999999991
+  },
+  "cpuThrottleRate": 6,
+  "serviceRequests": 1,
+  "annualRequests": 0,
+  "errors": []
+}

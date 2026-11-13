@@ -1,0 +1,13 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": ["https://astrozot.github.io", "http://localhost:8000"],
+        "methods": ["GET", "HEAD"],
+        "headers": ["Range", "If-Range"]
+      },
+      "exposeHeaders": ["Content-Range", "ETag", "Content-Length", "Last-Modified", "Accept-Ranges"],
+      "maxAgeSeconds": 86400
+    }
+  ]
+}

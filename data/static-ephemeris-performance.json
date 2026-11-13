@@ -1,0 +1,22 @@
+{
+  "before": {
+    "frames": 25,
+    "p95GapMs": 66.70000000000027,
+    "maxGapMs": 83.40000000000009
+  },
+  "during": {
+    "frames": 172,
+    "p95GapMs": 66.80000000000109,
+    "maxGapMs": 100.10000000000036
+  },
+  "coldRequests": 14,
+  "transport": "static",
+  "source": "https://astrolabium-ephemeris-data.marco-lombardi.workers.dev/",
+  "downloadedBytes": 2898688,
+  "fullKernelBytes": 119799808,
+  "cpuThrottleRate": 6,
+  "reuse": "Offline",
+  "serviceRequests": 15,
+  "annualRequests": 0,
+  "errors": []
+}

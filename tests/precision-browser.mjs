@@ -13,6 +13,8 @@ if(!engines) throw new Error('Install Playwright or set PLAYWRIGHT');
 const root=fileURLToPath(new URL('../',import.meta.url));
 const harness='<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/styles.css"><main style="padding:12px"><div id="event"></div></main>';
 const server=http.createServer((req,res)=>{
+  // This suite specifically verifies the retained yearly-pack fallback.
+  if(req.url==='/js/precisionconfig.js'){res.writeHead(200,{'Content-Type':'text/javascript'}).end("export const STATIC_DATA_URL='';export const R2_DATA_URL='';export const EPHEMERIS_SERVICE='';export const EPHEMERIS_YEARS=[1900,2100];");return;}
   if(req.url==='/coelum/precision-test') {res.writeHead(200,{'Content-Type':'text/html'}).end(harness);return;}
   const file=path.join(root,new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));
   if(!file.startsWith(root)||!fs.existsSync(file)) {res.writeHead(404).end();return;}

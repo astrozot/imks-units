@@ -609,6 +609,53 @@ Preparation tools contact no service at app runtime. DE440s and the full
 DE440 have the same solution within the smaller kernel's interval.
 DE441 and dates outside 1900–2100 are not part of this optional feature.
 
+The preferred replacement is free static hosting: see
+[`workers/ephemeris-static`](workers/ephemeris-static/README.md). Verified
+original DE440 and IERS files are split once into exact 256 KiB chunks;
+phones request the chunks for the selected date on explicit refinement.
+The original native coefficients are preserved, with per-chunk SHA-256
+verification. There are no yearly extracts on this path. Extraction and
+calculations run in a background worker, with at most 1 MiB of resident
+raw chunks and an 8 MiB persistent payload cache. No R2 bucket or server
+calculation is used; static asset requests use Cloudflare's free hosting.
+The initial pilot includes DE440 and IERS only (1550 to early 2650);
+satellite kernels and DE441 are future additions. `STATIC_DATA_URL` in
+`js/precisionconfig.js` selects this path. Existing yearly data remains
+available as an alternative configuration and is not requested with a
+static URL configured.
+
+`node tests/precision-static.mjs` checks native extraction, offline reuse,
+checksum verification, cancellation, cross-chunk reads and cache eviction.
+Set `STATIC_STAGED` to test the full data against 13 independent event
+references. `tests/precision-static-browser.mjs` exercises the actual app
+against a separate CORS-enabled static server, or a live `STATIC_URL`.
+Desktop animation measurements are in `data/static-ephemeris-performance.json`
+and `data/static-ephemeris-webkit-performance.json`; real iPhone memory and
+animation checks remain necessary before public release. The previous
+R2 range transport remains optional; see [`tools/r2`](tools/r2/README.md).
+
+The earlier extraction Worker prototype is retained in
+[`workers/ephemeris`](workers/ephemeris/README.md), named
+`astrolabium-ephemeris` for the intended Astrolabium branding. It reads
+bounded native SPK byte ranges from JPL and returns only a short date-window
+extract; it needs no yearly production files or full-kernel phone
+downloads. It also supports separate planetary-satellite kernels.
+To use that prototype instead, set `EPHEMERIS_SERVICE` in
+`js/precisionconfig.js` with both static and R2 URLs empty. With a service configured,
+DE440 dates are offered from 1550 through early 2650 where native coverage
+exists; satellite coverage is the intersection with the selected kernel.
+DE441 extraction is present in the service catalogue for future work,
+but historical DE441 events are not enabled or validated in the app.
+
+`node tests/ephemeris-service.mjs` checks 140 native states against
+independent jplephem evaluations, type 2/3 records, exact native planet
+centres and satellite positions, bounded range reads, origin restrictions,
+checksum validation and offline cache reuse. The native service browser
+test runs the actual app at 6× CPU throttling and verifies zero annual-file
+requests; see `data/native-ephemeris-performance.json`. Satellite event
+searches still use their existing compact models; supplying native
+satellite positions does not yet switch those event searches.
+
 `js/catalog.js` holds the stars named by the IAU (IAU Catalog of Star
 Names, with proper motions and parallaxes from the HYG database), the
 Messier and other named deep-sky objects (OpenNGC, CC BY-SA 4.0) and the
