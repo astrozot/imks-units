@@ -256,10 +256,29 @@ function moonEcliptic(T) {
 // of a star: moved by its proper motion and radial velocity to the date,
 // precessed to the mean equator of the date and turned to its ecliptic,
 // seen from the Earth (the annual parallax, where known) as it moves
-// (aberration), with nutation. Without a parallax, 1e18 km (about a
+// (aberration), with solar light deflection and nutation. Without a
+// parallax, 1e18 km (about a
 // hundred light years), far enough for no parallax from the surface
 const MAS = RAD / 3.6e6;
-function starEcliptic(s, T) {
+
+// Solar monopole deflection for distant sources, before aberration. The
+// observer position is heliocentric, in au. Use the ERFA/SOFA angular
+// limiter inside the opaque solar disk: finite everywhere and zero on axis.
+// See ERFA ldsun/ld and data/precision/ERFA-LICENSE.txt.
+export function solarDeflectionState(position) {
+  const distance = Math.hypot(...position), limiter = 1e-6 / Math.max(1, distance * distance);
+  const strength = 1.97412574336e-8 / distance;
+  return { direction: position.map((x) => x / distance), strength, limiter, maxShift: strength * Math.sqrt(2 / limiter) };
+}
+
+// Preserve the input vector's distance scale; its direction is corrected.
+export function solarDeflection(v, state) {
+  const r = Math.hypot(...v), e = state.direction, pe = (v[0] * e[0] + v[1] * e[1] + v[2] * e[2]) / r;
+  const w = state.strength / Math.max(1 + pe, state.limiter);
+  return v.map((x, i) => x + w * (r * e[i] - pe * x));
+}
+
+function starEcliptic(s, T, observer = null) {
   const y = T * 100, u = unit(s.ra, s.dec);
   const e = [-sin(s.ra), cos(s.ra), 0], n = [-sin(s.dec) * cos(s.ra), -sin(s.dec) * sin(s.ra), cos(s.dec)];
   // the radial velocity as a relative change of the distance per year
@@ -267,12 +286,22 @@ function starEcliptic(s, T) {
   const p = u.map((x, k) => x + y * (MAS * ((s.pmra || 0) * e[k] + (s.pmdec || 0) * n[k]) + vr * x));
   const [qx, qy, qz] = precessVector(p, T), eps0 = nutation(T).eps0;
   let g = [qx, qy * cos(eps0) + qz * sin(eps0), -qy * sin(eps0) + qz * cos(eps0)];
-  const [E, V] = heliocentric("earth", T, true);
+  const [earth, V] = heliocentric("earth", T, true);
+  let E = earth;
+  if (observer) {
+    // True equatorial km -> mean ecliptic au, undoing nutation in longitude.
+    const [x, y, z] = observer, n = nutation(T);
+    const b = y * cos(n.eps) + z * sin(n.eps), c = -y * sin(n.eps) + z * cos(n.eps);
+    const offset = [x * cos(n.dpsi) + b * sin(n.dpsi), -x * sin(n.dpsi) + b * cos(n.dpsi), c];
+    E = earth.map((v, i) => v + offset[i] / AU);
+  }
   // Scale the propagated vector by the catalog distance; normalizing it
   // here would discard the distance change from space motion.
   const d = s.plx > 0 ? 206264806 / s.plx : 0;
   if (d) g = g.map((x, k) => x * d - E[k]);
-  const r = Math.hypot(...g), a = g.map((x, k) => x + r * V[k] / C_AU);
+  const r = Math.hypot(...g);
+  const natural = solarDeflection(g, solarDeflectionState(E));
+  const a = natural.map((x, k) => x + r * V[k] / C_AU);
   const lon = Math.atan2(a[1], a[0]) / RAD, lat = Math.atan2(a[2], Math.hypot(a[0], a[1])) / RAD;
   return { lon: mod360(lon + nutation(T).dpsi), lat, dist: d ? r * AU : 1e18 };
 }
@@ -381,8 +410,9 @@ const orbitAge = (body, t) => Math.min(...body.orbits.map((o) => Math.abs(o[0] -
 const satellitePosition = (body, t) => sgp4(body.sgp4, (t - body.epoch) / 60);
 
 // Right ascension and declination (degrees) of a body, its distance (km):
-// apparent, geocentric
-function equatorial(body, t, ephemeris = null) {
+// apparent, geocentric by default. The internal observer offset (true
+// equatorial km) reduces stars from a local place before diurnal aberration.
+function equatorial(body, t, ephemeris = null, observer = null) {
   if (ephemeris) { const p = ephemeris.equatorial(body, t); if (p) return p; }
   const T = centuries(t);
   if (body.sgp4) {
@@ -393,7 +423,7 @@ function equatorial(body, t, ephemeris = null) {
     const n = nutation(T);
     return { ra: mod360(Math.atan2(p[1], p[0]) / RAD + n.dpsi * cos(n.eps)), dec: Math.atan2(p[2], Math.hypot(p[0], p[1])) / RAD, dist: Math.hypot(...p) };
   }
-  const p = ecliptic(body, T);
+  const p = observer ? starEcliptic(body, T, observer) : ecliptic(body, T);
   const eps = nutation(T).eps;
   return {
     ra: mod360(Math.atan2(sin(p.lon) * cos(eps) - Math.tan(p.lat * RAD) * sin(eps), cos(p.lon)) / RAD),
@@ -416,8 +446,11 @@ export function surfaceObserver(t, [lat, lon, h = 0]) {
 // already include both effects and return before this compact reduction.
 function topocentric(body, t, place, ephemeris = null) {
   if (ephemeris) { const p = ephemeris.topocentric(body, t, place); if (p) return p; }
-  const { ra, dec, dist } = equatorial(body, t), obs = surfaceObserver(t, place);
-  const g = unit(ra, dec).map((x, k) => dist * x - obs.position[k]), r = Math.hypot(...g);
+  const obs = surfaceObserver(t, place), stellar = typeof body === 'object' && !body.orbit && !body.orbits && !body.sgp4;
+  // Stellar deflection uses the local Sun-observer ray; parallax is already
+  // included by that reduction. Other bodies retain their own models.
+  const { ra, dec, dist } = equatorial(body, t, null, stellar ? obs.position : null);
+  const g = unit(ra, dec).map((x, k) => dist * x - (stellar ? 0 : obs.position[k])), r = Math.hypot(...g);
   // SGP4 coordinates are geometric and retain their existing convention.
   const a = body.sgp4 ? g : g.map((x, k) => x + r * obs.beta[k]);
   return { ra: mod360(Math.atan2(a[1], a[0]) / RAD), dec: Math.atan2(a[2], Math.hypot(a[0], a[1])) / RAD, dist: r };

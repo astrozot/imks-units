@@ -6,7 +6,7 @@
 import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { CHART_STARS } from './stardata.js';
 import { DEEP } from './catalog.js';
-import { heliocentric, surfaceObserver, precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
+import { heliocentric, surfaceObserver, solarDeflectionState, precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
 import { satelliteLight } from './satellites.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
@@ -281,7 +281,8 @@ function catalogObserver(t, place, matrix) {
   };
   const obs = surfaceObserver(t, place), E = rotate(earth), V = rotate(velocity);
   const position = E.map((x, i) => x + obs.position[i] / 149597870.7), beta = V.map((x, i) => x / 173.1446327 + obs.beta[i]);
-  return { position, beta, positionJ2000: matrix.map((col) => dot3(col, position)), betaJ2000: matrix.map((col) => dot3(col, beta)) };
+  const positionJ2000 = matrix.map((col) => dot3(col, position));
+  return { position, beta, positionJ2000, betaJ2000: matrix.map((col) => dot3(col, beta)), deflection: solarDeflectionState(position), deflectionJ2000: solarDeflectionState(positionJ2000) };
 }
 
 // Propagated catalog vectors need not have unit length. Retaining that
@@ -291,7 +292,10 @@ function apparentCatalogVector(v, parallax, frame) {
   let x = m[0][0] * v[0] + m[1][0] * v[1] + m[2][0] * v[2] - px * o.position[0];
   let y = m[0][1] * v[0] + m[1][1] * v[1] + m[2][1] * v[2] - px * o.position[1];
   let z = m[0][2] * v[0] + m[1][2] * v[1] + m[2][2] * v[2] - px * o.position[2];
-  const r = Math.sqrt(x * x + y * y + z * z);
+  const r = Math.sqrt(x * x + y * y + z * z), solar = o.deflection, e = solar.direction;
+  const pe = (x * e[0] + y * e[1] + z * e[2]) / r;
+  const w = solar.strength / Math.max(1 + pe, solar.limiter);
+  x += w * (r * e[0] - pe * x); y += w * (r * e[1] - pe * y); z += w * (r * e[2] - pe * z);
   x += r * o.beta[0]; y += r * o.beta[1]; z += r * o.beta[2];
   const norm = Math.sqrt(x * x + y * y + z * z);
   return [x / norm, y / norm, z / norm];
@@ -541,7 +545,7 @@ export function readStars(buffer) {
   const aliasStar = new Uint32Array(buffer, o, A), alias = new Uint32Array(buffer, o + 4 * A, A);
   // v2 appends exact Gaia DR3 IDs as low/high words, zero for AT-HYG stars.
   const gaia = head[1] === 2 ? new Uint32Array(buffer, o + 8 * A, 2 * n) : null;
-  const center = new Float32Array(3 * T), reach = new Float32Array(T);
+  const center = new Float64Array(3 * T), reach = new Float32Array(T);
   let depth = 0, fastest = 0;
   for (let t = 0; t < T; t++) {
     const [a, d, sa, sd] = box.subarray(4 * t, 4 * t + 4);
@@ -600,8 +604,9 @@ export function eachFaint(frame, limit, visit, cone = null) {
   const H = horizonToJ2000(frame), top = limit * 20, years = centuries(frame.t) * 100, k = years * R / 3.6e6;
   // the cone's axis in J2000; from J2000 to the horizon by the transpose
   const c = cone && [0, 1, 2].map((i) => H[3 * i] * cone.v[0] + H[3 * i + 1] * cone.v[1] + H[3 * i + 2] * cone.v[2]);
-  const obs = frame.observer, beta = obs.betaJ2000, earth = obs.positionJ2000;
-  const margin = cone ? cone.radius + S.fastest * Math.abs(years) + Math.hypot(...beta) * 1.01 + S.maxParallax / 206264806 * Math.hypot(...earth) : 0;
+  const obs = frame.observer, beta = obs.betaJ2000, earth = obs.positionJ2000, solar = obs.deflectionJ2000, sun = solar.direction;
+  // Double-precision tile centres keep tiny cones safe at arcsecond zoom.
+  const margin = cone ? cone.radius + 1e-7 + S.fastest * Math.abs(years) + (Math.hypot(...beta) + solar.maxShift) * 1.01 + S.maxParallax / 206264806 * Math.hypot(...earth) : 0;
   for (let t = 0; t < S.T; t++) {
     const first = S.start[t], end = S.start[t + 1];
     if (first === end || S.mag[first] > top) continue;
@@ -615,6 +620,9 @@ export function eachFaint(frame, limit, visit, cone = null) {
       const px = S.plx[j] * 0.02 / 206264806;
       x -= px * earth[0]; y -= px * earth[1]; z -= px * earth[2];
       const distance = Math.sqrt(x * x + y * y + z * z);
+      const pe = (x * sun[0] + y * sun[1] + z * sun[2]) / distance;
+      const w = solar.strength / Math.max(1 + pe, solar.limiter);
+      x += w * (distance * sun[0] - pe * x); y += w * (distance * sun[1] - pe * y); z += w * (distance * sun[2] - pe * z);
       x += distance * beta[0]; y += distance * beta[1]; z += distance * beta[2];
       const norm = Math.sqrt(x * x + y * y + z * z); x /= norm; y /= norm; z /= norm;
       visit(j, [H[0] * x + H[3] * y + H[6] * z, H[1] * x + H[4] * y + H[7] * z, H[2] * x + H[5] * y + H[8] * z], S.mag[j] / 20, S.bv[j] === -128 ? 0.6 : S.bv[j] / 50);
@@ -1260,8 +1268,18 @@ const preciseAngle=(value,hours=false,signed=false)=>{
  const digits=hours?3:2,scale=10**digits,total=Math.round(Math.abs(value)*3600*scale),a=Math.floor(total/(3600*scale)),b=Math.floor(total/(60*scale))%60,c=(total/scale%60).toFixed(digits).padStart(digits+3,'0'),sign=value<0?'−':signed?'+':'';
  return hours?`${String(a%24).padStart(2,'0')}h ${String(b).padStart(2,'0')}m ${c}s`:`${sign}${a}° ${String(b).padStart(2,'0')}′ ${c}″`;
 };
+// The physical offset is useful in the selected object's card. Calculate
+// it on demand rather than storing another value for every drawn star.
+function catalogSolarDeflection(o, frame) {
+  if (!o.catalogVector || !frame?.observer || o.type === 'constellation' || o.preciseSource) return null;
+  const px = o.parallax > 0 ? o.parallax / 206264806 : 0, m = frame.matrix, v = o.catalogVector;
+  const g = [0, 1, 2].map((i) => m[0][i] * v[0] + m[1][i] * v[1] + m[2][i] * v[2] - px * frame.observer.position[i]);
+  const solar = frame.observer.deflection, pe = clamp(dot3(g, solar.direction) / Math.hypot(...g));
+  return Math.atan(solar.strength * Math.sqrt(Math.max(0, 1 - pe * pe)) / Math.max(1 + pe, solar.limiter)) / R * 3600;
+}
 export function objectDetails(o, frame = null) {
   const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`;
+  const deflection = catalogSolarDeflection(o, frame);
   const angle=(value,hours=false,signed=false)=>o.preciseSource ? preciseAngle(value,hours,signed) : sexagesimal(value,hours,signed);
   const g = frame && galacticCoordinates(o, o.coordinateMatrix?{matrix:o.coordinateMatrix}:frame);
   const galacticRows = g ? row('Galactic longitude (l)', angle(g.lon)) + row('Galactic latitude (b)', angle(g.lat, false, true)) : '';
@@ -1274,6 +1292,7 @@ export function objectDetails(o, frame = null) {
     ${o.description ? `<p>${esc(o.description)}</p>` : ''}<dl>
     ${row('Right ascension (RA)', angle(o.ra / 15, true))}
     ${row('Declination (Dec)', angle(o.dec, false, true))}
+    ${deflection !== null ? row('Solar light deflection', `${deflection.toFixed(3)}″ (included)`) : ''}
     ${galacticRows}
     ${Number.isFinite(o.alt) ? row('Altitude (Alt)', angle(o.alt, false, true)) : ''}
     ${Number.isFinite(o.apparentAlt) ? row('Apparent altitude', angle(o.apparentAlt, false, true)) : ''}

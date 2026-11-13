@@ -87,6 +87,7 @@ try {
   await input.fill(sample.name); await input.press('Enter');
   await page.waitForFunction((name) => document.querySelector('.coelum-detail h3')?.textContent === name, sample.name);
   assert.match(await page.locator('.coelum-detail').textContent(), /estimated from Gaia/);
+  assert.match(await page.locator('.coelum-detail').textContent(), /Solar light deflection.*included/);
   if (process.env.GAIA_SCREENSHOT) await page.screenshot({ path: process.env.GAIA_SCREENSHOT });
   const measurements = await page.evaluate(async () => {
     const { skyFrame, skyChart, lookAt } = await import('/js/coelum.js');

@@ -352,13 +352,25 @@ license is retained in the generated file). To regenerate, download
 `data/constellations.bounds.json`, `data/mw.json` and `LICENSE` from that
 repository into a directory, then run `node tools/coelum.mjs <directory>`.
 Chart positions include precession, nutation, proper motion, annual stellar
-parallax where known, and annual and diurnal aberration. Earth position and
-velocity are shared across a frame; downloaded stars retain tile culling,
+parallax where known, solar gravitational light deflection, and annual and
+diurnal aberration. Earth position and velocity are shared across a frame; downloaded stars retain tile culling,
 with bounds expanded for these corrections. Playback caches catalog space
-motion for at most a day while updating parallax and aberration each frame.
+motion for at most a day while updating parallax, deflection and aberration each frame.
 Coordinate grids retain their geometric rotations. Standard local `altaz`
-and `radec` positions also include diurnal aberration; geocentric positions
-exclude it. Artificial satellites retain their geometric SGP4 convention.
+and `radec` stellar positions include solar light deflection, and local
+positions include diurnal aberration; geocentric positions exclude the latter.
+Stellar detail cards report the included solar deflection. The solar monopole
+model uses the ERFA angular limiter inside the opaque solar disk; magnification,
+multiple images and planetary gravitational deflection are not simulated.
+Full-model ERFA checks span 1900–2099, with a sampled maximum discrepancy of
+0.1681″; this is not an all-date accuracy guarantee. The compact engine retains
+its approximate nutation/precession and heliocentric Earth state.
+Solar-deflection performance measurements are in
+`data/solar-deflection-performance.json`. Artificial satellites retain their
+geometric SGP4 convention. Stellarium desktop's
+[Accuracy chapter](https://github.com/Stellarium/stellarium/blob/master/guide/app_accuracy.tex)
+explicitly excludes solar light deflection, so near-Sun apparent stellar
+positions can intentionally differ from Stellarium.
 
 Satellites (`js/satellites.js`) come from CelesTrak's groups: the space
 stations and the brightest ones by default, science, amateur radio and
@@ -444,7 +456,8 @@ a cache of its own.
 `node tests/coelum.mjs` checks sky-chart geometry and catalog positions at
 northern, southern and polar locations, and calculator integration.
 `node tests/stellar-positions.mjs` compares stellar positions with independent
-ERFA references, isolates diurnal aberration, and checks annual parallax,
+ERFA references, isolates diurnal aberration and solar light deflection,
+and checks annual parallax,
 tile culling, selection and forward/reverse playback. Regenerate those
 references with `python tools/stellar-reference.py` (development dependency:
 pyerfa). `node tools/stellar-benchmark.mjs /path/to/baseline-checkout` measures

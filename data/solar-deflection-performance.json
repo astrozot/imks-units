@@ -1,0 +1,84 @@
+{
+  "cpuSlowdown": 4,
+  "viewport": "390x844",
+  "stars": 2308825,
+  "method": "Interleaved before/after medians after warmup; desktop Chromium, no network or catalog loading in measured sections",
+  "skyCanvasMedianMs": [
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 1,
+      "before": 16.5,
+      "after": 16.9
+    },
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 32,
+      "before": 6.8,
+      "after": 7.5
+    },
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 256,
+      "before": 8.9,
+      "after": 9.3
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 1,
+      "before": 12.8,
+      "after": 13.5
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 32,
+      "before": 3.4,
+      "after": 3.5
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 256,
+      "before": 3,
+      "after": 3.3
+    },
+    {
+      "ra": 226.148,
+      "dec": -17.362,
+      "scale": 1,
+      "before": 12.8,
+      "after": 13.1
+    },
+    {
+      "ra": 226.148,
+      "dec": -17.362,
+      "scale": 32,
+      "before": 4.2,
+      "after": 4
+    },
+    {
+      "ra": 226.148,
+      "dec": -17.362,
+      "scale": 256,
+      "before": 4.3,
+      "after": 4.2
+    }
+  ],
+  "playbackUpdateMedianMs": {
+    "stars": {
+      "before": 4.1,
+      "after": 3.9
+    },
+    "default": {
+      "before": 8.8,
+      "after": 9.4
+    }
+  },
+  "baselineRevision": "d8cdf6c84ab6ad1499f4e7a6f5bbf9c718aaa888",
+  "change": "Solar light deflection in all catalog drawing and playback paths; conservative, double-precision star-tile culling",
+  "limitation": "Desktop CPU throttling and a phone-sized viewport are not physical mobile hardware. Playback updates are timed separately from drawing."
+}

@@ -12,7 +12,7 @@ for (const name of [process.env.PLAYWRIGHT && path.join(process.env.PLAYWRIGHT, 
 }
 if (!chromium) throw new Error('Playwright required');
 if (!process.argv[2]) throw new Error('Supply a baseline checkout containing js/');
-const root = fileURLToPath(new URL('../', import.meta.url)), before = path.resolve(process.argv[2]);
+const root = path.resolve(fileURLToPath(new URL('../', import.meta.url))), before = path.resolve(process.argv[2]);
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost').pathname;
   if (url === '/') { res.end('<html></html>'); return; }
@@ -44,7 +44,8 @@ try {
     const median = (values) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
     const results = [];
     // Interleave baseline/current, reversing order each round, after warmup.
-    for (const [ra, dec] of [[270, -29], [180, 60]]) for (const scale of [1, 32, 256]) {
+    const sun = versions.after.frame.bodies.find((o) => o.body === 'sun');
+    for (const [ra, dec] of [[270, -29], [180, 60], [sun.ra, sun.dec]]) for (const scale of [1, 32, 256]) {
       const measures = { before: [], after: [] };
       for (let i = 0; i < 11; i++) for (const label of i % 2 ? ['after', 'before'] : ['before', 'after']) {
         const { a, skyScene, frame, ctx } = versions[label], o = frame.catalog(ra, dec);
