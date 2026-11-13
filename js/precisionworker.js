@@ -1,7 +1,7 @@
 // One event, one year buffer, then the main thread terminates this worker.
 import { readPrecisionPack } from './precisionpack.js';
 import { makePrecisionEphemeris } from './precisionephem.js';
-import { solarLocal, lunarEclipse, occultationLocal, deltaTError, horizontal } from './astro.js';
+import { solarLocal, lunarEclipse, lunarDiagram, occultationLocal, deltaTError, horizontal } from './astro.js';
 import { PLANET_IDS,HISTORICAL_YEARS,NATIVE_MOONS } from './precisioncatalog.js';
 
 export async function calculatePrecisionEvent(job, pack) {
@@ -31,7 +31,7 @@ export async function calculatePrecisionEvent(job, pack) {
   const clock = ephemeris.clock(event?.max ?? t);
   const ids = { mars:4, jupiter:5, saturn:6, uranus:7, neptune:8 };
   const planetModel = kind === 'occultation' && [target, front].some((b) => ids[b] && !pack.has(ids[b], ids[b] * 100 + 99));
-  return { kind, event, source, year, native, earthOrientation: clock.eop ? 'IERS daily UT1 and polar motion (observations/predictions)' : 'Modelled Earth rotation (ΔT)', rotationErrorSeconds: clock.eop ? null : deltaTError(2000 + (clock.utcJD - 2451545) / 365.25), planetModel, residentBytes: pack.byteLength, calculationMs: performance.now() - start };
+  return { kind, event, ...(kind==='lunar'&&event?{diagram:lunarDiagram(event,place??null,ephemeris)}:{}), source, year, native, earthOrientation: clock.eop ? 'IERS daily UT1 and polar motion (observations/predictions)' : 'Modelled Earth rotation (ΔT)', rotationErrorSeconds: clock.eop ? null : deltaTError(2000 + (clock.utcJD - 2451545) / 365.25), planetModel, residentBytes: pack.byteLength, calculationMs: performance.now() - start };
 }
 
 let nextRange=0;const ranges=new Map();

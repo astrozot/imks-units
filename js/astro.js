@@ -1017,16 +1017,16 @@ function lunarEclipse(t, ephemeris = null, until = Infinity) {
 // from the center of the shadow (degrees, to the east and to the north)
 // every five minutes and at the contacts; with a place, whether the Moon is
 // up there
-function lunarDiagram(e, place = null) {
+function lunarDiagram(e, place = null, ephemeris = null) {
   const at = (t) => {
-    const m = vec(equatorial("moon", t)), S = equatorial("sun", t);
+    const m = vec(equatorial("moon", t, ephemeris)), S = equatorial("sun", t, ephemeris);
     const ra = S.ra + 180, dec = -S.dec, a = [cos(dec) * cos(ra), cos(dec) * sin(ra), sin(dec)];
     const east = [-sin(ra), cos(ra), 0], north = [-sin(dec) * cos(ra), -sin(dec) * sin(ra), cos(dec)], along = dot(m, a);
     const p = { x: Math.atan2(dot(m, east), along) / RAD, y: Math.atan2(dot(m, north), along) / RAD };
-    if (place) p.up = horizontal("moon", t, place).alt > -0.8;
+    if (place) p.up = horizontal("moon", t, place, ephemeris).alt > -0.8;
     return p;
   };
-  const g = lunarAt(e.max), path = [];
+  const g = lunarAt(e.max, ephemeris), path = [];
   for (let t = e.P1 - 1800; t <= e.P4 + 1800; t += 300) path.push({ t, ...at(t) });
   const marks = [["P1", e.P1], ["U1", e.U1], ["U2", e.U2], ["max", e.max], ["U3", e.U3], ["U4", e.U4], ["P4", e.P4]]
     .filter(([, t]) => t !== null).map(([name, t]) => ({ name, t, ...at(t) }));

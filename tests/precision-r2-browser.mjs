@@ -79,23 +79,22 @@ try{
   const before=await sample(),root=document.createElement('div');root.id='native-result';root.style.cssText='position:fixed;inset:10px 10px auto;max-height:80vh;overflow:auto;background:white;color:black;padding:10px;z-index:9999';document.body.append(root);
   const {mountPrecision}=await import('/js/precisionui.js');
   window.nativeJob={kind:'solar',t:Date.parse('2024-04-08T18:42:00Z')/1000,place:[32.7767,-96.797,130]};
-  window.nativeView=mountPrecision(root,nativeJob);window.nativeStopFrames=false;window.nativeFrames=sample(true);return {before};
+  const controls=document.createElement('div'),field=document.createElement('p');field.dataset.nativeContact='';field.textContent='Approximate contact';root.append(controls,field);window.nativeView=mountPrecision(controls,nativeJob,r=>{field.textContent=r?new Date(Math.round(r.event.C2)*1000).toISOString():'Approximate contact';});window.nativeStopFrames=false;window.nativeFrames=sample(true);return {before};
  });
- await page.locator('[data-precision-run]').click();
- await page.waitForFunction(()=>document.querySelector('[data-precision-status]').textContent.includes('Calculation complete'));
+ await page.locator('#native-result [data-precision-run]').click();
+ await page.waitForFunction(()=>document.querySelector('#native-result [data-precision-run]').getAttribute('aria-pressed')==='true');
  report.during=await page.evaluate(()=>{nativeStopFrames=true;return nativeFrames;});
- assert.match(await page.locator('[data-precision-status]').textContent(),/Loaded native data/);
- assert.match(await page.locator('[data-precision-result]').textContent(),/18:40:41/);
+ assert.match(await page.locator('#native-result [data-precision-status]').textContent(),/DE440/);
+ assert.match(await page.locator('[data-native-contact]').textContent(),/18:40:41/);
  assert.equal(await page.evaluate(()=>workers),0);assert.ok(serviceRequests>1);assert.deepEqual(annual,[],'No yearly ephemeris files are used');
  assert.ok(report.during.p95GapMs<=Math.max(100,report.before.p95GapMs*1.5));
- const coldRequests=serviceRequests;if(!safari)await context.setOffline(true);await page.evaluate(()=>document.querySelector('[data-precision-run]').click());
- await page.waitForFunction(()=>document.querySelector('[data-precision-status]').textContent.startsWith('Used downloaded native'));
+ const coldRequests=serviceRequests;if(!safari)await context.setOffline(true);await page.evaluate(()=>document.querySelector('#native-result [data-precision-run]').click());
+ assert.equal(await page.locator('#native-result [data-precision-run]').getAttribute('aria-pressed'),'false');await page.locator('#native-result [data-precision-run]').click();assert.equal(await page.locator('#native-result [data-precision-run]').getAttribute('aria-pressed'),'true');
  assert.equal(await page.evaluate(()=>workers),0);assert.equal(serviceRequests,coldRequests);
  await context.setOffline(false);
  report.coldRequests=coldRequests;
  // Wait until an actual native-data request is pending before cancelling.
- await page.locator('[data-precision-clear]').click();
- await page.waitForFunction(()=>document.querySelector('[data-precision-status]').textContent.includes('data cleared'));
+ await page.evaluate(async()=>{await (await import('/js/precisionui.js')).clearPrecisionData();});
  // WebKit routing misses fetches forwarded by a service worker. Hold the
  // page's Fetch API instead and verify its AbortSignal, in both engines.
  await page.evaluate(()=>{
@@ -112,14 +111,14 @@ try{
  await page.evaluate(async()=>{
   nativeView.destroy();const {mountPrecision}=await import('/js/precisionui.js');
   // A different year guarantees uncached coefficient chunks.
-  nativeView=mountPrecision(document.querySelector('#native-result'),{...nativeJob,t:Date.parse('2000-01-21T04:00:00Z')/1000});document.querySelector('[data-precision-run]').click();
+  nativeView=mountPrecision(document.querySelector('#native-result'),{...nativeJob,t:Date.parse('2000-01-21T04:00:00Z')/1000});document.querySelector('#native-result [data-precision-run]').click();
  });
  await page.waitForFunction(()=>workers===1);
  await page.waitForFunction(()=>heldNativeRequests>0);
- await page.evaluate(()=>document.querySelector('[data-precision-run]').click());
+ await page.evaluate(()=>document.querySelector('#native-result [data-precision-run]').click());
  assert.equal(await page.evaluate(()=>workers),0);
  assert.ok(await page.evaluate(()=>abortedNativeRequests>0),'Cancel aborts pending data I/O');
- await page.evaluate(()=>document.querySelector('[data-precision-run]').click());
+ await page.evaluate(()=>document.querySelector('#native-result [data-precision-run]').click());
  await page.waitForFunction(()=>heldNativeRequests>1);
  await page.evaluate(()=>document.querySelector('#native-result').hidden=true);
  await page.waitForFunction(()=>workers===0&&abortedNativeRequests>1);

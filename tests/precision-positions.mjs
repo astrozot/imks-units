@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import {geocentricPosition} from '../js/precisionpositions.js';
+import {equatorial,topocentric} from '../js/astro.js';
 import {openSpk} from '../js/spk.js';
 import {nativeEphemerisPack} from '../js/precisionnative.js';
 import {readPrecisionPack} from '../js/precisionpack.js';
@@ -10,6 +12,8 @@ const files={de440:bsp,jup365:jup,sat441:sat,iers},descriptors=Object.fromEntrie
 const read=async(id,offset,length)=>new Uint8Array(files[id].subarray(offset,offset+length));
 const t=Date.parse('2024-04-08T18:42:00Z')/1000,place=[45.4642,9.19,120],refs=JSON.parse(await fs.readFile(new URL('precision-events.json',fixtures)));
 for(const body of ['sun','moon','mercury','venus']){
+ const geo=geocentricPosition(topocentric(body,t,place),t,place),expectedGeo=equatorial(body,t);
+ assert.ok(Math.abs(geo.ra-expectedGeo.ra)<1e-10&&Math.abs(geo.dec-expectedGeo.dec)<1e-10&&Math.abs(geo.dist-expectedGeo.dist)<1e-5,'Approximate coordinate-origin switch reverses the observer translation');
  const job={kind:'position',body,t,place},pack=readPrecisionPack(await nativeEphemerisPack(job,descriptors,read)),r=await calculatePrecisionEvent(job,pack),expected=refs.positions.find(p=>p.t===t&&p.body===body&&p.place?.[0]===place[0]);
  const error=Math.hypot((r.position.ra-expected.ra)*Math.cos(expected.dec*Math.PI/180),r.position.dec-expected.dec)*3600;
  assert.ok(error<.005,`${body}: ${error} arcsec vs Skyfield`);assert.ok(Math.abs(r.position.dist-expected.dist)<.002);

@@ -42,6 +42,7 @@ function lunarFrame(d, W) {
   return { H, k, X, Y, f1, svg };
 }
 const hhmm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+const precisionNote=r=>`${r.source} · smooth mean limbs${r.rotationErrorSeconds!==null?` · estimated Earth-rotation uncertainty ${r.rotationErrorSeconds.toFixed(1)} s`:''}`;
 
 // A time slider moved by a touch anywhere on its track, not only on its
 // thumb (iOS selects the bar instead); set(t) gets the time there
@@ -99,11 +100,13 @@ function lunarAtTime(d, t) {
 // the umbra, with the phase and the umbral magnitude then. It returns
 // { share() }, the picture to share, with caption under it
 function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
+  d=structuredClone(d); // Keep the caller’s compact-model diagram immutable.
   const W = 360, { H, k, X, Y, f1, svg: base } = lunarFrame(d, W);
   const span = lunarAtTime(d, 0);
   const local = (t) => host.formatClock ? host.formatClock(t) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
   const views = [["diagram", "Diagram"], ["sim", "Simulation"]];
   root.innerHTML = `${head}
+      <div class="lunar-precision"></div>
       <div class="seg lunar-views" role="tablist">${views.map(([v, n]) => `<button data-lunar-view="${v}" role="tab">${n}</button>`).join("")}</div>
       <div class="lunar-contacts" aria-label="Eclipse event times (UTC)">${d.marks.map((m) => `<span><b>${m.name}</b> ${host.sky ? `<button type="button" class="lunar-event-time" data-lunar-event="${m.t}" aria-label="Show Moon in Sky at ${m.name}, ${hhmm(m.t)} UTC">${hhmm(m.t)}</button>` : hhmm(m.t)}</span>`).join("")}<small>UTC</small></div>
       <div class="lunar-diagram">${lunarHTML(d).replace('class="lunar-svg"', 'class="lunar-svg lunar-full"')}
@@ -198,9 +201,22 @@ function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
     if (close.isConnected) lunarAppearance(close, cur);
   });
   show(host.store.get("lunarView", "sim"));
-  const precisionRoot = document.createElement('div');
-  root.append(precisionRoot);
-  const precision = mountPrecision(precisionRoot, { kind: 'lunar', t: d.marks.find((m) => m.name === 'max')?.t });
+  const precisionRoot=root.querySelector('.lunar-precision'),original=structuredClone(d),lunarHint=root.querySelector('.lunar-sim > .sky-hint'),originalHint=lunarHint.textContent;
+  const precision=mountPrecision(precisionRoot,{kind:'lunar',t:d.marks.find(m=>m.name==='max')?.t,...(d.place?{place:[...d.place]}:{})},result=>{
+    stop();
+    root.querySelector('.lunar-views').hidden=Boolean(result&&!result.event);
+    if(result&&!result.event){root.querySelector('.lunar-contacts').textContent='No lunar eclipse with JPL ephemeris at this date.';root.querySelector('.lunar-diagram').hidden=true;root.querySelector('.lunar-sim').hidden=true;return;}
+    Object.assign(d,result?.diagram||original);
+    lunarHint.textContent=originalHint+(result?' · '+precisionNote(result):'');
+    const contacts=root.querySelector('.lunar-contacts');
+    contacts.innerHTML=d.marks.map(m=>`<span><b>${m.name}</b> ${host.sky?`<button type="button" class="lunar-event-time" data-lunar-event="${m.t}">${hhmm(m.t)}</button>`:hhmm(m.t)}</span>`).join('')+`<small>${result&&result.rotationErrorSeconds!==null?'Estimated UT':'UTC'}</small>`;
+    root.querySelector('.lunar-chips').innerHTML=d.marks.map(m=>`<button class="chip" data-lunar-t="${m.t}">${m.name}</button>`).join('')+(d.place&&host.sky?'<button class="chip" data-lunar-sky>Show in the sky</button>':'');
+    root.querySelector('.lunar-diagram .lunar-svg').outerHTML=lunarHTML(d).replace('class="lunar-svg"','class="lunar-svg lunar-full"');
+    if(host.sky)root.querySelectorAll('.lunar-diagram .sky-label').forEach((label,i)=>{
+      if(!d.marks[i])return;const m=d.marks[i],link=document.createElementNS('http://www.w3.org/2000/svg','a');link.setAttribute('href','#sky');link.dataset.lunarEvent=m.t;link.setAttribute('aria-label',`Show Moon in Sky at ${m.name}, ${hhmm(m.t)} UTC`);label.replaceWith(link);link.append(label);
+    });
+    Object.assign(span,lunarAtTime(d,0));slider.min=span.from;slider.max=span.to;slider.value=d.marks.find(m=>m.name==='max')?.t??span.from;draw(Number(slider.value));show(host.store.get('lunarView','sim'));
+  });
   // the picture to share: the diagram, or the simulation as it is
   return {
     destroy: () => { precision.destroy(); stop(); },
@@ -249,11 +265,12 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   const c = canSim ? solarContacts(m.t) : null;
   let l = canPick && place ? localAt(place) : null;
   const marks = () => [["P1", c.P1], ["U1", c.U1], ["max", m.t], ["U4", c.U4], ["P4", c.P4], ...(l ? [["C1", l.C1], ["C2", l.C2], ["C3", l.C3], ["C4", l.C4]] : [])]
-    .filter(([, t]) => t !== null).map(([n, t]) => [n, t + (/[12]$/.test(n) ? 2 : /[34]$/.test(n) ? -2 : 0)]).sort((a, b) => a[1] - b[1]);
+    .filter(([, t]) => Number.isFinite(t)).map(([n, t]) => [n, t + (/[12]$/.test(n) ? 2 : /[34]$/.test(n) ? -2 : 0)]).sort((a, b) => a[1] - b[1]);
   const chips = () => (canSim ? marks().map(([n, t]) => `<button class="chip" data-map-t="${t}">${n}</button>`).join("") : "");
   const from = canSim ? (c.P1 ?? m.t - 3 * 3600) - 600 : 0, to = canSim ? (c.P4 ?? m.t + 3 * 3600) + 600 : 0;
   const modes = [["map", "Map"], ["sim", "Simulation"]];
   root.innerHTML = `${head}
+      <div class="map-precision"></div>
       ${canSim ? `<div class="seg map-modes" role="tablist">${modes.map(([v, n]) => `<button data-map-mode="${v}" role="tab">${n}</button>`).join("")}</div>` : ""}
       <label class="map-views">Map <select class="map-select" aria-label="Map">${views.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
       <svg class="map-svg map-full" role="img" aria-label="Map of the ${what}"></svg><div class="osm-map" hidden></div>
@@ -262,7 +279,6 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
       <div class="lunar-play"><button class="chip" data-map="play" aria-label="Play">▶</button><input type="range" class="map-slider" min="${from}" max="${to}" step="30" value="${m.t}" aria-label="Time"></div>
       <div class="sky-time lunar-chips">${chips()}</div></div>
       <div class="map-local"></div>
-      <div class="map-precision"></div>
       <p class="sky-hint map-hint">Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back</p>`;
   const svg = root.querySelector(".map-svg"), osm = root.querySelector(".osm-map"), hint = root.querySelector(".map-hint");
   const slider = root.querySelector(".map-slider"), when = root.querySelector(".map-when"), localBox = root.querySelector(".map-local");
@@ -270,7 +286,12 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   let precision = null;
   const showPrecision = () => {
     precision?.destroy(); precisionRoot.replaceChildren();
-    if (!locationPicker && place && Number.isFinite(m.t)) precision = mountPrecision(precisionRoot, { kind: occ ? 'occultation' : 'solar', t: m.t, place: [...place], ...(occ ? { target: occ.target, front: occ.front } : {}) });
+    const approximate=l;
+    if (!locationPicker && place && Number.isFinite(m.t)) precision = mountPrecision(precisionRoot, { kind: occ ? 'occultation' : 'solar', t: m.t, place: [...place], ...(occ ? { target: occ.target, front: occ.front } : {}) },result=>{
+      l=result?result.event:approximate;showLocal();
+      if(result){localBox.querySelector('p')?.append(document.createTextNode(' · '+precisionNote(result)));if(result.rotationErrorSeconds!==null)localBox.querySelectorAll('th').forEach(cell=>{if(cell.textContent==='UTC')cell.textContent='Estimated UT';});}
+      root.querySelector('.lunar-chips').innerHTML=chips();
+    });
   };
   let sim = false, at = null;
   // the view of the globe, and whether it is one chosen (then kept by the
@@ -365,10 +386,10 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     const up = (a) => a !== null && a > -0.833;
     if (!l) { localBox.innerHTML = `<p>${head}: no eclipse</p>`; return; }
     const seen = up(l.altC1) || up(l.altMax) || up(l.altC4);
-    const hms = (t) => new Date(t * 1000).toISOString().slice(11, 19);
+    const hms = (t) => new Date(Math.round(t) * 1000).toISOString().slice(11, 19);
     const lt = (t) => host.formatClock ? host.formatClock(t, place, true) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
     const rows = [["begins", l.C1, l.altC1], [`${l.kind} begins`, l.C2], ["maximum", l.max, l.altMax], [`${l.kind} ends`, l.C3], ["ends", l.C4, l.altC4]]
-      .filter(([, t]) => t !== null)
+      .filter(([, t]) => Number.isFinite(t))
       .map(([n, t, a]) => `<tr><td>${n}${a !== undefined && !up(a) ? " (Sun down)" : ""}</td><td>${hms(t)}</td>${host.utc ? "" : `<td>${lt(t)}</td>`}</tr>`).join("");
     localBox.innerHTML = `<p>${head}: ${l.kind} eclipse${seen ? "" : ", the Sun down"}, magnitude ${l.magnitude.toFixed(3)}, ${(l.obscuration * 100).toFixed(l.obscuration > 0.995 && l.obscuration < 1 ? 1 : 0)}% of the Sun covered, the Sun ${Math.round(l.altMax)}° high at the maximum</p>
       <table class="map-contacts"><tr><th></th><th>UTC</th>${host.utc ? "" : (host.formatClock ? "<th>Selected time</th>" : "<th>Device time</th>")}</tr>${rows}</table>
@@ -380,11 +401,11 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     const TN = occName(occ);
     if (!l) { localBox.innerHTML = `<p>${head}: no occultation</p>`; return; }
     const alt = (t) => horizontal(occ.target, t, place).alt, up = (t) => alt(t) > -0.5;
-    const hms = (t) => new Date(t * 1000).toISOString().slice(11, 19);
+    const hms = (t) => new Date(Math.round(t) * 1000).toISOString().slice(11, 19);
     const lt = (t) => host.formatClock ? host.formatClock(t, place, true) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
     const rows = (l.r ? [["first contact", l.first], [l.covers ? "disappears" : "second contact", l.C2], [l.covers ? "reappears" : "third contact", l.C3], ["last contact", l.last]]
       : [["disappears", l.first], ["reappears", l.last]])
-      .filter(([, t]) => t !== null)
+      .filter(([, t]) => Number.isFinite(t))
       .map(([n, t]) => `<tr><td>${n}${up(t) ? "" : ` (${esc(TN)} down)`}</td><td>${hms(t)}</td>${host.utc ? "" : `<td>${lt(t)}</td>`}</tr>`).join("");
     const seen = [l.first, l.max, l.last].some(up), sun = horizontal("sun", l.max, place).alt;
     localBox.innerHTML = `<p>${head}: ${esc(TN)} occulted${seen ? `, ${Math.round(alt(l.max))}° high` : ", below the horizon"}, the Sun ${Math.abs(Math.round(sun))}° ${sun < 0 ? "below the horizon" : "high"}</p>

@@ -543,7 +543,8 @@ terrain-dependent contacts or Baily's beads. Earth-rotation uncertainty
 still limits long-range eclipse geography. Precise stellar occultations
 by Uranus and Neptune need a better planetary ephemeris than VSOP87.
 
-Event detail sheets now offer **Refine contacts with DE440** for 1900–2100.
+Event detail sheets offer a fixed-size **JPL Ephemeris** switch. DE440 is
+preferred in its coverage; DE441 supplies the supported historical dates.
 It computes local solar-eclipse or occultation contacts at the selected
 place, or geocentric lunar-eclipse contacts, in a dedicated worker. The
 sky, maps, calculator results and all animations keep their compact
@@ -582,8 +583,9 @@ proper-motion and parallax limitations. Lunar terrain and atmospheric
 limb effects remain outside this refinement; lunar eclipses retain the
 existing enlarged-Earth shadow convention. Seconds displayed are not an
 accuracy guarantee for observed contacts.
-The cached index pins the downloaded snapshot: clear downloaded event
-data to pick up a newer hosted Earth-orientation snapshot.
+The cached index pins the downloaded Earth-orientation snapshot. Published
+endpoint versions provide updated snapshots; old fragments are evicted
+automatically within the bounded cache.
 
 `node tests/precision.mjs` checks all yearly checksums and boundaries,
 588 native SPK states, ERFA frame matrices, 108 independent Skyfield
@@ -639,13 +641,19 @@ animation checks remain necessary before public release. The previous
 R2 range transport remains optional; see [`tools/r2`](tools/r2/README.md).
 
 Planet, Sun, Moon and natural-moon detail cards offer a precise-position
-button, with apparent coordinates seen from the selected place or Earth's
-centre. Results are timestamped snapshots, flag changes to the clock/place,
-and identify a system barycentre or compact planet-centre correction when
+switch at the top, alongside a one-line Local/Geocentric selector that
+works for both models. JPL updates the existing fields; switching to
+Approx. Ephem. restores the compact model without a download or worker.
+Results are timestamped snapshots while the sky clock runs. Changing the
+object or place resets the result; completed snapshots
+identify a system barycentre or compact planet-centre correction when
 native centre data is unavailable. No download or numeric worker starts
 merely by opening a card or playing the animation. Natural-moon event
 searches retain their compact models. Extended numerical checks and
 phone-sized browser checks are documented with the static-data service.
+During loading the same button reads Downloading…; clicking it cancels the
+job and discards its new fragments, retaining previously cached ephemerides.
+There is no manual clear-cache control; the bounded cache evicts old data.
 
 The earlier extraction Worker prototype is retained in
 [`workers/ephemeris`](workers/ephemeris/README.md), named

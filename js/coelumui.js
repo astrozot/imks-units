@@ -357,13 +357,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <button type="button" class="coelum-btn" data-action="orient" aria-pressed="false" aria-label="Follow the phone's orientation" title="Follow the phone's orientation"${orientationSupported() ? '' : ' hidden'}>${ICONS.orient}</button>
       </div>
     </div>
-    <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><div data-object-basic><p>Tap an object or its label to see its characteristics.</p></div><div data-object-precision hidden></div></div></section>
+    <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><div data-object-heading></div><div data-object-precision hidden></div><div data-object-basic><p>Tap an object or its label to see its characteristics.</p></div></div></section>
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
     <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars and deep-sky objects: the app’s IAU / HYG / OpenNGC catalogs. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   root.appendChild($('.coelum-map-panel'));
   const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('[data-object-basic]'), viewport = $('.coelum-viewport');
-  const precisePosition=precisePositionControls($('[data-object-precision]'),formatTime);
+  const precisePosition=precisePositionControls($('[data-object-precision]'),formatTime,()=>updateUI(true));
   const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results'), searchDropdown = $('.coelum-search-dropdown'), searchKey = $('.coelum-search-key'), searchHint = $('.coelum-search-hint');
   const layers = { chart: { ...DEFAULT_LAYERS }, sky: { ...SKY_LAYERS } };
   const views = { chart: { scale: 1, rotation: [...SKY_IDENTITY] }, sky: null };
@@ -478,10 +478,16 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (statusCondition.textContent !== conditionText) statusCondition.textContent = conditionText;
     if (selected) {
       const o = findObject(frame, selected);
-      const html = feature ? (feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o, frame);
-      // unchanged, the card stays (a tap on its button is not lost)
-      if (html && html !== detailHTML) detail.innerHTML = detailHTML = html;
       precisePosition.update({body:o&&!feature?(o.planet?o.name:o.body):null,t,place,visible:detailShown&&!root.classList.contains('coelum-show-options')&&!root.classList.contains('coelum-moons-open')});
+      const displayObject=o&&{...precisePosition.position(o,frame.matrix)};
+      if(displayObject&&mode==='sky'&&atmosphereOn()&&Number.isFinite(displayObject.alt))displayObject.apparentAlt=displayObject.alt+refraction(displayObject.alt,place[2]||0);
+      const html = feature ? (feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : displayObject && objectDetails(displayObject, frame);
+      // unchanged, the card stays (a tap on its button is not lost)
+      if (html && html !== detailHTML) {
+        detail.innerHTML = detailHTML = html;
+        const heading=detail.querySelector(':scope > .coelum-object-head');
+        $('[data-object-heading]').replaceChildren(...(heading?[heading]:[]));
+      }
     }else precisePosition.update(null);
   };
   const currentView = () => (mode === 'sky' ? skyView() : views.chart);

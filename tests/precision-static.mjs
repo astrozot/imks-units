@@ -61,6 +61,14 @@ try{
   await assert.rejects(()=>bad.read('de440',0,8),/checksum/);
  }
  const aborted=new AbortController();aborted.abort();const cancelled=await createStaticSession('https://static.test/data/',()=>{},aborted.signal,fetcher);await assert.rejects(()=>cancelled.read('de440',0,8),{name:'AbortError'});
+ // Cancel rolls back this job's new fragments, without clearing other jobs.
+ const retained=[...store.entries.keys()];
+ const cancel=new AbortController(),partial=await createStaticSession('https://static.test/cancel/',()=>{},cancel.signal,fetcher);
+ await partial.read('de440',0,8);assert.ok([...store.entries.keys()].some(k=>k.includes('/cancel/')));
+ cancel.abort();await Promise.resolve();assert.ok(![...store.entries.keys()].some(k=>k.includes('/cancel/')));
+ for(const key of retained)assert.ok(store.entries.has(key),'Cancellation retains previously cached ephemerides');
+ const complete=new AbortController(),kept=await createStaticSession('https://static.test/committed/',()=>{},complete.signal,fetcher);
+ await kept.read('de440',0,8);kept.commit();complete.abort();assert.ok([...store.entries.keys()].some(k=>k.includes('/committed/')),'Completed data survives worker cleanup');
  // Simulate a full cache; a new chunk must evict older payloads.
  const filler=new Uint8Array(chunkBytes);for(let i=0;i<32;i++)await store.put(`https://static.test/old/${i}`,new Response(filler,{headers:{'Content-Length':String(chunkBytes)}}));
  const bounded=await createStaticSession('https://static.test/data/',()=>{},undefined,fetcher);await bounded.read('probe',chunkBytes*2,10);

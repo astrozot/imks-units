@@ -28,10 +28,14 @@ export async function createDataSession(endpoint, progress = ()=>{}, signal, fet
   const blockSize=id=>mode==='static'?descriptors[id].chunkBytes:DATA_LIMITS.blockBytes;
   const stats={networkRequests:0,networkBytes:0,residentBytes:0,peakResidentBytes:0,indexBytes:0,peakIndexBytes:0},resident=new Map(),pending=new Map(),etags=new Map(),sizes=new Map(),indexes=new Map(),indexPending=new Map();
   let cache=null;try{cache=await caches.open(PRECISION_CACHE);}catch{/* online calculations still work */}
+  const created=new Set();let committed=false,discarded=false;
+  const discard=()=>{if(committed)return;discarded=true;for(const key of created){cache?.delete(key).catch(()=>{});recent.delete(key);}created.clear();};
+  signal?.addEventListener('abort',discard,{once:true});
   const remember=(key,n)=>{sizes.set(key,n);touch(key);};
   const put = async(key, bytes, extra={}) => {
-    if(!cache||signal?.aborted)return;
+    if(!cache||signal?.aborted||discarded)return;
     const write=async()=>{
+      if(signal?.aborted||discarded)return;
       // Reuse known header sizes; only inspect newly discovered entries.
       // This avoids rescanning hundreds of response headers per fragment.
       const keys=await cache.keys(),present=new Set(keys.map(k=>k.url));
@@ -44,7 +48,10 @@ export async function createDataSession(endpoint, progress = ()=>{}, signal, fet
       const oldest=[...sizes.keys()].filter(k=>k!==key).sort((a,b)=>(recent.get(a)||0)-(recent.get(b)||0));
       for(const k of oldest){if(total<=PRECISION_LIMITS.diskBytes)break;await cache.delete(k);total-=sizes.get(k);sizes.delete(k);recent.delete(k);}
       const hash=await sha(bytes);
+      if(signal?.aborted||discarded)return;
+      const fresh=!present.has(key);if(fresh)created.add(key);
       await cache.put(key,new Response(bytes,{headers:{...extra,'Content-Length':String(bytes.byteLength),'X-Ephemeris-SHA256':hash}}));remember(key,bytes.byteLength);
+      if((signal?.aborted||discarded)&&!committed&&fresh){await cache.delete(key);created.delete(key);recent.delete(key);}
     };
     try{if(globalThis.navigator?.locks)await navigator.locks.request(PRECISION_CACHE,write);else {const next=cacheWrites.then(write,write);cacheWrites=next.catch(()=>{});await next;}}catch{/* quota/private mode: don't lose the calculation */}
   };
@@ -138,5 +145,5 @@ export async function createDataSession(endpoint, progress = ()=>{}, signal, fet
     while(at<length){if(signal?.aborted)throw signal.reason;const pos=offset+at,b=await getBlock(id,Math.floor(pos/blockBytes)),within=pos%blockBytes,n=Math.min(length-at,b.length-within);result.set(b.subarray(within,within+n),at);at+=n;}
     return result;
   };
-  return {descriptors,read,stats,fromCache:()=>stats.networkRequests===0,dispose(){resident.clear();indexes.clear();stats.residentBytes=0;stats.indexBytes=0;}};
+  return {descriptors,read,stats,fromCache:()=>stats.networkRequests===0,commit(){committed=true;created.clear();signal?.removeEventListener('abort',discard);},discard,dispose(){signal?.removeEventListener('abort',discard);resident.clear();indexes.clear();stats.residentBytes=0;stats.indexBytes=0;}};
 }

@@ -1209,10 +1209,15 @@ function satelliteDetails(o, row, galacticRows) {
     ${row('Elements', `${age < 48 ? `${Math.max(0, Math.round(age))} hours` : `${Math.round(age / 24)} days`} old (CelesTrak)`)}
     </dl><p class="coelum-coordinate-note">Seen from the place (topocentric), without refraction in the chart · SGP4 positions, good to a few km while the elements are fresh · brightness from the standard magnitude for the distance and the phase; tumbling and flares are not modeled${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
 }
+const preciseAngle=(value,hours=false,signed=false)=>{
+ const digits=hours?3:2,scale=10**digits,total=Math.round(Math.abs(value)*3600*scale),a=Math.floor(total/(3600*scale)),b=Math.floor(total/(60*scale))%60,c=(total/scale%60).toFixed(digits).padStart(digits+3,'0'),sign=value<0?'−':signed?'+':'';
+ return hours?`${String(a%24).padStart(2,'0')}h ${String(b).padStart(2,'0')}m ${c}s`:`${sign}${a}° ${String(b).padStart(2,'0')}′ ${c}″`;
+};
 export function objectDetails(o, frame = null) {
   const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`;
-  const g = frame && galacticCoordinates(o, frame);
-  const galacticRows = g ? row('Galactic longitude (l)', sexagesimal(g.lon)) + row('Galactic latitude (b)', sexagesimal(g.lat, false, true)) : '';
+  const angle=(value,hours=false,signed=false)=>o.preciseSource ? preciseAngle(value,hours,signed) : sexagesimal(value,hours,signed);
+  const g = frame && galacticCoordinates(o, o.coordinateMatrix?{matrix:o.coordinateMatrix}:frame);
+  const galacticRows = g ? row('Galactic longitude (l)', angle(g.lon)) + row('Galactic latitude (b)', angle(g.lat, false, true)) : '';
   if (o.satellite) return satelliteDetails(o, row, galacticRows);
   const notes = [o.double && 'double or multiple', o.variable && 'variable'].filter(Boolean);
   // a planet, or a planet's moon: a button for the close-up of the planet
@@ -1220,12 +1225,12 @@ export function objectDetails(o, frame = null) {
   const system = hasMoons(o) || o.body === 'mercury' || o.body === 'venus' ? o.body : o.planet ? planetOf(o.name) : null;
   return `<div class="coelum-object-head"><h3>${esc(o.name)}</h3><span>${esc(o.type)}</span></div>
     ${o.description ? `<p>${esc(o.description)}</p>` : ''}<dl>
-    ${row('Right ascension (RA)', sexagesimal(o.ra / 15, true))}
-    ${row('Declination (Dec)', sexagesimal(o.dec, false, true))}
+    ${row('Right ascension (RA)', angle(o.ra / 15, true))}
+    ${row('Declination (Dec)', angle(o.dec, false, true))}
     ${galacticRows}
-    ${row('Altitude (Alt)', sexagesimal(o.alt, false, true))}
-    ${Number.isFinite(o.apparentAlt) ? row('Apparent altitude', sexagesimal(o.apparentAlt, false, true)) : ''}
-    ${row('Azimuth (Az)', sexagesimal(o.az))}
+    ${Number.isFinite(o.alt) ? row('Altitude (Alt)', angle(o.alt, false, true)) : ''}
+    ${Number.isFinite(o.apparentAlt) ? row('Apparent altitude', angle(o.apparentAlt, false, true)) : ''}
+    ${Number.isFinite(o.az) ? row('Azimuth (Az)', angle(o.az)) : ''}
     ${o.type === 'constellation' ? '' : row('Visual magnitude', Number.isFinite(o.mag) ? o.mag.toFixed(2) + (o.estimatedPhotometry ? ' (estimated)' : '') : 'Not available')}
     ${apparentDiameter(o) > 0 ? row(o.body === 'saturn' ? 'Apparent diameter (globe)' : 'Apparent diameter', angleText(apparentDiameter(o))) : ''}
     ${o.size ? row('Apparent size', o.size.map((x) => `${x < 10 ? Number(x.toFixed(1)) : Math.round(x)}′`).filter((x, i, all) => !i || x !== all[0]).join(' × ')) : ''}
@@ -1235,11 +1240,11 @@ export function objectDetails(o, frame = null) {
     ${o.spect ? row('Spectral type', o.spect) : ''}
     ${o.parallax > 0 ? row('Parallax', `${o.parallax.toFixed(o.parallax < 10 ? 3 : 2)} mas`) + row('Distance', distanceText(1000 / o.parallax)) : ''}
     ${Number.isFinite(o.pmra) && (o.pmra || o.pmdec) ? row('Proper motion', motionText(o.pmra, o.pmdec)) : ''}
-    ${o.body && Number.isFinite(o.dist) ? row('Distance', o.dist > 1e7 ? `${(o.dist / 149597870.7).toFixed(3)} au` : `${Math.round(o.dist).toLocaleString('en')} km`) : ''}
+    ${(o.body || o.planet) && Number.isFinite(o.dist) ? row('Distance', o.preciseSource ? (o.dist>1e7?`${(o.dist/149597870.7).toFixed(10)} au`:`${o.dist.toLocaleString('en',{maximumFractionDigits:3})} km`) : o.dist > 1e7 ? `${(o.dist / 149597870.7).toFixed(3)} au` : `${Math.round(o.dist).toLocaleString('en')} km`) : ''}
     ${(o.body === 'moon' || o.type === 'planet') && Number.isFinite(o.phase) ? row('Illuminated', `${((1 + Math.cos(o.phase * R)) * 50).toFixed(1)} %`) : ''}
     ${o.type === 'planet' && Number.isFinite(o.phase) ? row('Phase angle', `${o.phase.toFixed(1)}°`) : ''}
     ${o.type === 'planet' && Number.isFinite(o.elong) ? row('Solar elongation', `${Math.abs(o.elong).toFixed(1)}° ${o.elong < 0 ? 'west' : 'east'} (geocentric)`) : ''}
-    </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">Equatorial coordinates of date · ${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
+    </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">${esc(o.precisionNote || 'Equatorial coordinates of date')} · ${o.coordinateOrigin==='geocentric' ? 'Earth’s centre' : `${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}`}.</p>`;
 }
 
 // A star's colour index as a temperature (Ballesteros 2012), a rough

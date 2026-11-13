@@ -29,7 +29,7 @@ try{
  const safari=process.env.ENGINE==='webkit',engine=safari?'webkit':'chromium',executablePath=safari?process.env.WEBKIT:process.env.CHROME;
  browser=await engines[engine].launch(executablePath?{executablePath}:{});const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
  await context.route('https://celestrak.org/**',r=>r.fulfill({contentType:'application/json',body:'[]'}));
- await context.addInitScript(()=>{const Native=Worker;window.workers=0;window.Worker=class extends Native{constructor(...a){super(...a);workers++;this.alive=true;}terminate(){if(this.alive){workers--;this.alive=false;}super.terminate();}};});
+ await context.addInitScript(()=>{const Native=Worker;window.workers=0;window.Worker=class extends Native{constructor(...a){super(...a);workers++;this.alive=true;}terminate(){if(this.alive){workers--;this.alive=false;}super.terminate();}postMessage(message,...rest){if(message.kind==='position')window.lastPositionTime=message.t;return super.postMessage(message,...rest);}};});
  const page=await context.newPage(),errors=[];page.setDefaultTimeout(remote?60000:20000);page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(remote&&r.url().startsWith(remote))requests++;});
  await page.goto(`http://localhost:${server.address().port}/coelum/`);await page.waitForSelector('.coelum-full');await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
  assert.equal(requests,0);assert.equal(await page.evaluate(()=>workers),0);
@@ -46,29 +46,49 @@ try{
   window.measureFrames=untilDone=>new Promise(resolve=>{const gaps=[];let first=performance.now(),last=first;const frame=now=>{gaps.push(now-last);last=now;if(untilDone?!window.endPositionFrames:now-first<1200)requestAnimationFrame(frame);else{gaps.sort((a,b)=>a-b);resolve({frames:gaps.length,p95GapMs:gaps[Math.floor(gaps.length*.95)],maxGapMs:Math.max(...gaps)});}};requestAnimationFrame(frame);});
   const before=await measureFrames(false);window.endPositionFrames=false;window.positionFrames=measureFrames(true);return {before};
  });
- await page.locator('[data-precise-position]').click();await page.waitForFunction(()=>/Calculation complete|remain available/.test(document.querySelector('[data-precise-status]').textContent));
- assert.match(await page.locator('[data-precise-status]').textContent(),/Calculation complete/);
+ const button=page.locator('[data-precise-position]'),basic=page.locator('[data-object-basic]');
+ const initialBox=await button.boundingBox();
+ await button.click();await page.waitForFunction(()=>document.querySelector('[data-precise-position]').getAttribute('aria-pressed')==='true');
  responsiveness.during=await page.evaluate(()=>{endPositionFrames=true;return positionFrames;});
  assert.ok(responsiveness.during.p95GapMs<=Math.max(100,responsiveness.before.p95GapMs*1.5),'Precise detail calculation preserves the throttled animation budget');
- assert.match(await page.locator('[data-precise-result]').textContent(),historical?/DE441.*Right ascension.*Declination.*Altitude/:/DE440.*Right ascension.*Declination.*Altitude/);assert.equal(await page.evaluate(()=>workers),0);
- const topocentric=await page.locator('[data-precise-result]').textContent();await page.selectOption('[data-precise-frame]','geocentric');
- assert.notEqual(await page.locator('[data-precise-result]').textContent(),topocentric);assert.doesNotMatch(await page.locator('[data-precise-result]').textContent(),/Altitude \(Alt\)/);
- const count=requests;await page.evaluate(()=>explorer.setTime(startTime+30));await page.waitForFunction(()=>document.querySelector('[data-precise-stale]').textContent.includes('has changed'));
- assert.equal(requests,count,'Changing the clock never refreshes precise data automatically');
- await page.evaluate(()=>explorer.setTime(startTime));if(!safari)await context.setOffline(true);
- await page.locator('[data-precise-position]').click();await page.waitForFunction(()=>document.querySelector('[data-precise-status]').textContent.startsWith('Used downloaded'));
- assert.equal(requests,count);await context.setOffline(false);
+ await page.locator('[data-action="play"]').click();await page.evaluate(()=>explorer.setTime(lastPositionTime));
+ assert.match(await basic.textContent(),historical?/DE441/:/DE440/);assert.equal(await page.evaluate(()=>workers),0);
+ assert.equal(await page.locator('[data-precise-clear], [data-precise-result]').count(),0,'No extra result or clear-cache controls');
+ assert.equal((await button.boundingBox()).width,initialBox.width,'Button size stays fixed');
+ const topocentric=await basic.textContent();await page.selectOption('[data-precise-frame]','geocentric');
+ assert.notEqual(await basic.textContent(),topocentric);assert.doesNotMatch(await basic.textContent(),/Altitude \(Alt\)/);
+ const count=requests;
+ await button.click();assert.match(await button.textContent(),/Approx/);assert.doesNotMatch(await basic.textContent(),/DE440|DE441/);
+ const approxGeo=await basic.textContent();await page.selectOption('[data-precise-frame]','topocentric');assert.notEqual(await basic.textContent(),approxGeo);assert.match(await basic.textContent(),/Altitude \(Alt\)/);
+ if(!safari)await context.setOffline(true);await button.click();assert.equal(await button.getAttribute('aria-pressed'),'true');assert.equal(requests,count,'Switching models does not fetch or calculate');assert.equal(await page.evaluate(()=>workers),0);await context.setOffline(false);
+ await page.evaluate(()=>explorer.setTime(startTime+30));assert.equal(requests,count,'Changing the clock never downloads automatically');assert.match(await basic.textContent(),/DE440|DE441/,'JPL snapshot keeps its explicit timestamp during animation');
+ await button.click();assert.equal(await button.getAttribute('aria-pressed'),'false');assert.equal(await button.textContent(),'JPL Ephemeris','A changed epoch requests a fresh calculation on the next explicit click');assert.equal(requests,count);
  const extraBodies=historical?['Sun','Mercury','Venus','Jupiter']:['Jupiter','Io','Saturn','Titan'];
  for(const body of extraBodies){
-  await page.evaluate(name=>explorer.select(name,{details:true}),body);await page.locator('[data-precise-position]').waitFor({state:'visible'});
-  await page.locator('[data-precise-position]').click();await page.waitForFunction(()=>document.querySelector('[data-precise-status]').textContent.includes('Calculation complete'));
-  assert.match(await page.locator('[data-precise-result]').textContent(),historical&&body==='Jupiter'?/system barycentre is shown/:/Native body-centre position/);assert.equal(await page.evaluate(()=>workers),0);
+  await page.evaluate(name=>explorer.select(name,{details:true}),body);await button.waitFor({state:'visible'});
+  await button.click();await page.waitForFunction(()=>document.querySelector('[data-precise-position]').getAttribute('aria-pressed')==='true');
+  assert.match(await basic.textContent(),historical&&body==='Jupiter'?/system barycentre/:/DE440|DE441/);assert.equal(await page.evaluate(()=>workers),0);
  }
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Detail UI fits phone width');
+ const toolbar=await page.locator('[data-object-precision]').boundingBox(),selector=await page.locator('[data-precise-frame]').boundingBox(),toggleBox=await button.boundingBox();assert.ok(Math.abs(selector.y-toggleBox.y)<2,'Coordinates and toggle fit one line');assert.ok(toolbar.y<(await basic.boundingBox()).y,'Toolbar is above existing fields');
+ const headingBox=await page.locator('[data-object-heading]').boundingBox();assert.ok(headingBox.y+headingBox.height<=toolbar.y+1,'Name stays above the smaller ephemeris controls');
+ assert.ok(Number.parseFloat(await button.evaluate(el=>getComputedStyle(el).fontSize))<13);
+ assert.ok(Number.parseFloat(await page.locator('[data-precise-frame]').evaluate(el=>getComputedStyle(el).fontSize))<13);
  if(process.env.SCREENSHOT)await page.screenshot({path:process.env.SCREENSHOT,fullPage:true});
+ // Long lunar classifications must wrap without squeezing the feature name.
+ for(const width of [390,320]){
+  await page.setViewportSize({width,height:844});
+  const layout=await page.evaluate(async()=>{
+   const {lunarFeatureDetails,searchLunarFeatures}=await import('/js/lunarfeatures.js'),heading=document.querySelector('[data-object-heading]'),old=heading.innerHTML,holder=document.createElement('div');
+   holder.innerHTML=lunarFeatureDetails(searchLunarFeatures('Montes Jura')[0]);heading.replaceChildren(holder.firstElementChild);
+   const title=heading.querySelector('h3'),type=heading.querySelector('.coelum-object-head > span'),a=title.getBoundingClientRect(),b=type.getBoundingClientRect(),line=Number.parseFloat(getComputedStyle(title).lineHeight),box=heading.getBoundingClientRect();
+   const result={title:title.textContent,height:a.height,line,typeBelow:b.y>=a.bottom-1,fits:b.right<=box.right+1};heading.innerHTML=old;return result;
+  });
+  assert.equal(layout.title,'Montes Jura');assert.ok(layout.height<=layout.line*1.1,'Feature name stays on one readable line');assert.ok(layout.typeBelow&&layout.fits,'Long classification wraps below the name');
+ }
+ await page.setViewportSize({width:390,height:844});
  // Guarantee a pending Fetch API read, then close the detail card.
- await page.locator('[data-precise-clear]').click();
- await page.waitForFunction(()=>document.querySelector('[data-precise-status]').textContent.includes('cleared'));
+ await page.evaluate(async()=>{await (await import('/js/precisionui.js')).clearPrecisionData();explorer.select('Moon',{details:true});});
  await page.evaluate(()=>{
   window.realFetch=fetch;window.positionReads=0;window.positionAborts=0;
   window.fetch=(url,options={})=>(String(url).includes('/_native/')||String(url).includes('/kernels/'))?new Promise((resolve,reject)=>{positionReads++;options.signal.addEventListener('abort',()=>{positionAborts++;reject(new DOMException('Cancelled','AbortError'));},{once:true});}):realFetch(url,options);

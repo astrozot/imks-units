@@ -40,7 +40,12 @@ also requires extending/auditing the sky's other models and date controls.
 The object detail card offers on-demand precise positions for the Sun,
 Moon, planets and the 20 existing natural moons. Topocentric and
 geocentric apparent coordinates share one calculation. Results show the
-requested time and flag changes to the sky clock/place; no automatic
+requested time while the sky clock animates; changing the object/place
+resets them. A fixed-size JPL/Approx. toggle replaces the existing detail
+fields and event contact times, with no duplicate result block. The
+Local/Geocentric selector works with either model. Cancelling Downloading…
+discards the unfinished job’s new fragments. Old cached fragments are
+evicted automatically; there is no clear-cache button. No automatic
 download or recalculation runs during playback. When native planet-centre
 data is unavailable, the result explicitly identifies the compact centre
 correction or the system barycentre. Native satellite-event searches are

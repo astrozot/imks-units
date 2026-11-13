@@ -53,10 +53,20 @@ export async function savePrecisionData(cache, url, bytes, type, checksum = null
   } catch { /* transient storage/quota failures: use the downloaded data */ }
 }
 
+// Roll back only new payloads from an unfinished request. Existing offline
+// ephemerides survive cancellation; successful worker completion commits them.
+function cacheTransaction(cache,signal){
+ const created=new Set();let committed=false;
+ const discard=()=>{if(!committed)for(const key of created)cache?.delete(key).catch(()=>{});};
+ signal?.addEventListener('abort',discard,{once:true});
+ return {remember(url,existed){if(!existed)created.add(url.href);},check(){if(signal?.aborted){discard();signal.throwIfAborted();}},commit(){committed=true;created.clear();signal?.removeEventListener('abort',discard);},discard};
+}
+
 export async function loadPrecisionYear(year, progress = () => {}, signal) {
   if (!Number.isInteger(year) || year < 1900 || year > 2100) throw new RangeError('DE440 event data covers 1900–2100');
   let cache = null;
   try { cache = await caches.open(PRECISION_CACHE); } catch { /* private browsing */ }
+  const transaction=cacheTransaction(cache,signal);transaction.check();
   const indexURL = new URL('index.json', BASE);
   // The index describes this version's immutable snapshot. A cached year
   // must start immediately offline, without waiting for a network timeout.
@@ -91,9 +101,10 @@ export async function loadPrecisionYear(year, progress = () => {}, signal) {
   // Touch a reused year as well, so frequently used offline data survives
   // eviction of the oldest downloads.
   progress('Updating the bounded event data cache…');
+  transaction.check();transaction.remember(url,fromCache);transaction.remember(indexURL,Boolean(savedIndex));
   await savePrecisionData(cache, url, result.bytes, 'application/octet-stream');
   await savePrecisionData(cache, indexURL, manifestBytes, 'application/json');
-  return { buffer: result.bytes, fromCache };
+  transaction.check();return { buffer: result.bytes, fromCache,commit:transaction.commit,discard:transaction.discard };
 }
 
 // New path: request a date interval from the service, never a yearly file.
@@ -120,6 +131,7 @@ export async function loadPrecisionEvent(job, progress = () => {}, signal, endpo
     try { const buffer = await validate(saved); progress('Using downloaded native ephemeris data…'); return { buffer, fromCache: true }; }
     catch { await cache.delete(url.href); }
   }
+  const transaction=cacheTransaction(cache,signal);transaction.check();
   progress('Downloading native JPL coefficients for this event…');
   const response = await fetch(url, { cache: 'no-store', signal });
   if (!response.ok) throw new Error(response.status === 422 ? 'This date or satellite system is outside the available native coverage' : 'Ephemeris service unavailable; retry when connected');
@@ -127,7 +139,8 @@ export async function loadPrecisionEvent(job, progress = () => {}, signal, endpo
   if (cache) {
     // Reuse the same 8 MiB budget as legacy packs. The checksum is stored
     // with the response, not in an ever-growing per-date manifest.
+    transaction.check();transaction.remember(url,false);
     await savePrecisionData(cache, url, buffer, 'application/octet-stream', checksum);
   }
-  return { buffer, fromCache: false };
+  transaction.check();return { buffer, fromCache: false,commit:transaction.commit,discard:transaction.discard };
 }
