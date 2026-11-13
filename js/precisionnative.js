@@ -16,7 +16,7 @@ export async function nativeEphemerisPack(job,descriptors,read,progress=()=>{}){
   const selected=selectNativeKernel(descriptors,tt,{fromJD,toJD});
   const requiredFrom=job.kind==='position'?tt:day,requiredTo=job.kind==='position'?tt+.001:day+1;
   const pairs=BASE_PAIRS.filter(([,target])=>job.kind!=='position'||target!==301||names.includes('moon')).map(x=>x.slice());
-  for(const body of new Set([...bodies,...names.filter(b=>NATIVE_MOONS[b]).map(systemOf)]))pairs.push([0,PLANETS[body]]);
+  for(const body of new Set([...(job.system?[job.system]:[]),...bodies,...names.filter(b=>NATIVE_MOONS[b]).map(systemOf)]))pairs.push([0,PLANETS[body]]);
   const groups=[{id:selected.id,pairs}],systems=new Set([...bodies.filter(b=>SYSTEMS[b]),...names.filter(b=>NATIVE_MOONS[b]).map(systemOf),...(job.system?[job.system]:[])]);
   for(const name of systems){
     const spec=SYSTEMS[name],d=descriptors[spec?.kernel],moons=names.filter(b=>systemOf(b)===name);

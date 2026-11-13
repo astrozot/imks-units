@@ -890,13 +890,14 @@ const planetOf = (name) => Object.keys(MOONS).find((p) => MOONS[p].moons[name]);
 // eclipses and shadows). contacts also contains umbral/full and center
 // crossings; null inner contacts denote a grazing/partial event.
 // Computation is to 0.1 s, not a statement of ephemeris accuracy.
-function moonEvents(name, t, days = 30) {
+function moonEvents(name, t, days = 30, ephemeris = null) {
   const planet = planetOf(name);
   if (!planet || !Number.isFinite(t) || !Number.isFinite(days) || days <= 0) return [];
-  if (Math.abs(centuries(t)) > 1) throw new RangeError("Moon event predictions cover 1900–2100. Choose a date within that interval.");
+  if (!ephemeris && Math.abs(centuries(t)) > 1) throw new RangeError("Moon event predictions cover 1900–2100. Choose a date within that interval.");
   const cache = new Map();
   const at = (x) => {
     if (!cache.has(x)) {
+      if(ephemeris){cache.set(x,ephemeris.moonGeometry(name,x));return cache.get(x);}
       const g = system(planet, x);
       // A moon behind its planet is seen at an earlier emission time.
       // This differential light time reaches several seconds for the
@@ -914,7 +915,7 @@ function moonEvents(name, t, days = 30) {
     }
     return cache.get(x);
   };
-  const out = [], end = Math.min(t + days * 86400, Date.UTC(2100, 0, 1) / 1000 - deltaT(2100));
+  const out = [], end = ephemeris?t+days*86400:Math.min(t + days * 86400, Date.UTC(2100, 0, 1) / 1000 - deltaT(2100));
   for (const kind of ["transit", "occulted", "eclipsed", "shadow"]) {
     for (const [begin, finish] of contactIntervals((x) => at(x)[kind], t - 86400, end + 86400)) {
       if (finish <= t || begin > end) continue;
@@ -932,7 +933,7 @@ function moonEvents(name, t, days = 30) {
       };
       const event = [kind, begin, finish];
       event.contacts = contacts;
-      event.errors = { begin: sigma(begin), end: sigma(finish) };
+      event.errors = ephemeris?{begin:null,end:null}:{ begin: sigma(begin), end: sigma(finish) };
       out.push(event);
     }
   }
@@ -1110,8 +1111,8 @@ function shadowGeo(g, x, y) {
 // eclipse is partial with a magnitude above each of levels (the penumbra
 // at 0), and of the umbra (total) or antumbra (annular) with its kind and
 // its center (or null when it misses the Earth)
-function shadowMap(t, levels = [0]) {
-  const g = shadowGeometry(t), S = equatorial("sun", t);
+function shadowMap(t, levels = [0], ephemeris = null) {
+  const g = shadowGeometry(t, null, ephemeris), S = equatorial("sun", t, ephemeris);
   // the radius of the penumbra (L1) and the signed one of the umbra (L2,
   // negative past its tip) at the height z
   const L1 = (z) => g.rm + (z - g.zm) * g.f1, L2 = (z) => g.rm - (z - g.zm) * g.f2;
@@ -1177,9 +1178,9 @@ function shadowMap(t, levels = [0]) {
 // Earth (made a sphere as in shadowGeometry): P1 and P4, the penumbra
 // first and last on the Earth, U1 and U4, the umbra (or antumbra; null
 // when it misses)
-function solarContacts(tmax) {
+function solarContacts(tmax, ephemeris = null) {
   const off = (sign) => (t) => {
-    const g = shadowGeometry(t), z = sign > 0 ? 0 : -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0));
+    const g = shadowGeometry(t, null, ephemeris), z = sign > 0 ? 0 : -Math.sqrt(Math.max(0, 1 - g.x0 * g.x0 - g.y0 * g.y0));
     return Math.hypot(g.x0, g.y0) - 1 - Math.abs(g.rm + sign * (z - g.zm) * (sign > 0 ? g.f1 : g.f2));
   };
   const c = (sign, side) => (side < 0 ? zero(off(sign), tmax - 5 * 3600, tmax) : zero(off(sign), tmax, tmax + 5 * 3600));
@@ -1189,10 +1190,10 @@ function solarContacts(tmax) {
 // A solar eclipse seen from a place at the time t: its phase (none,
 // partial, total, annular), magnitude, the part of the Sun covered, and
 // the Sun's altitude
-function solarPhase(t, place) {
-  const a = solarLocalAt(t, place), mag = Math.max(0, (a.sun + a.moon - a.d) / (2 * a.sun));
+function solarPhase(t, place, ephemeris = null) {
+  const a = solarLocalAt(t, place, ephemeris), mag = Math.max(0, (a.sun + a.moon - a.d) / (2 * a.sun));
   const phase = a.d >= a.sun + a.moon ? "none" : a.d < Math.abs(a.sun - a.moon) ? (a.moon > a.sun ? "total" : "annular") : "partial";
-  return { phase, magnitude: mag, obscuration: obscuration(a.sun, a.moon, a.d), alt: horizontal("sun", t, place).alt };
+  return { phase, magnitude: mag, obscuration: obscuration(a.sun, a.moon, a.d), alt: horizontal("sun", t, place, ephemeris).alt };
 }
 
 // The track of a solar eclipse on the Earth around its greatest phase at

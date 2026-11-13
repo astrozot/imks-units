@@ -1,7 +1,7 @@
 // One event, one year buffer, then the main thread terminates this worker.
 import { readPrecisionPack } from './precisionpack.js';
 import { makePrecisionEphemeris } from './precisionephem.js';
-import { solarLocal, lunarEclipse, lunarDiagram, occultationLocal, deltaTError, horizontal } from './astro.js';
+import { solarLocal, lunarEclipse, lunarDiagram, occultationLocal, deltaTError, horizontal, eclipseTrack, occultationTrack, solarContacts } from './astro.js';
 import { PLANET_IDS,HISTORICAL_YEARS,NATIVE_MOONS } from './precisioncatalog.js';
 
 export async function calculatePrecisionEvent(job, pack) {
@@ -9,11 +9,19 @@ export async function calculatePrecisionEvent(job, pack) {
   const native = pack.header.native === true, source=pack.header.source==='DE440s'?'DE440':pack.header.source;
   const [first,last]=source==='DE441'?HISTORICAL_YEARS:native?[1550,2650]:[1900,2100],year=new Date(t*1000).getUTCFullYear();
   if (!Number.isFinite(t) || year<first || year>last) throw new RangeError(`${source} refinement covers astronomical years ${first}–${last}`);
-  if (!['solar', 'lunar', 'occultation', 'position'].includes(kind)) throw new Error('Unsupported precision calculation');
-  if (kind !== 'lunar' && (!Array.isArray(place) || place.length < 2 || !place.every(Number.isFinite) || Math.abs(place[0]) > 90 || Math.abs(place[1]) > 180 || Math.abs(place[2] || 0) > 1e7)) throw new Error('Select a valid observing place first');
+  if (!['solar', 'lunar', 'occultation', 'position', 'moon-events'].includes(kind)) throw new Error('Unsupported precision calculation');
+  if (!['lunar','moon-events'].includes(kind) && (!Array.isArray(place) || place.length < 2 || !place.every(Number.isFinite) || Math.abs(place[0]) > 90 || Math.abs(place[1]) > 180 || Math.abs(place[2] || 0) > 1e7)) throw new Error('Select a valid observing place first');
   const ephemeris = makePrecisionEphemeris(pack,{allowBarycentres:kind==='position'});
   if (kind === 'occultation' && (!ephemeris.supports(target) || !ephemeris.supports(front))) throw new Error('DE440 refinement supports the Moon, major planets and catalog stars');
   const start = performance.now();
+  if(kind==='moon-events'){
+    const {nativePlanetMoonEvents}=await import('./precisionmoons.js');
+    const planet=job.system;if(!pack.header.native)throw new Error('Native satellite data is required');
+    const spec=planet==='jupiter'?[5,599]:planet==='saturn'?[6,699]:null;
+    if(!spec||!pack.has(...spec))throw new Error('Native planet centre is required');
+    const list=nativePlanetMoonEvents(ephemeris,planet,t,job.days??1),clock=ephemeris.clock(t);
+    return {kind,system:planet,t,days:job.days??1,list,source,kernels:pack.header.kernels.map(k=>k.id),native:true,earthOrientation:clock.eop?'IERS daily UT1':'Modelled Earth rotation (ΔT)',residentBytes:pack.byteLength,calculationMs:performance.now()-start};
+  }
   if(kind==='position'){
     const body=typeof job.body==='string'?job.body.toLowerCase():null;
     if(!body||!ephemeris.supports(body))throw new Error('Native position data is unavailable for this body');
@@ -28,10 +36,20 @@ export async function calculatePrecisionEvent(job, pack) {
     event = lunarEclipse(t - 86400, ephemeris, t + 86400);
     if (event && Math.abs(event.max - t) > 2 * 86400) throw new Error('The selected lunar eclipse could not be refined');
   } else event = occultationLocal(target, front, t, place, ephemeris);
+  let map=null;
+  if(job.map&&['solar','occultation'].includes(kind)){
+    const {samplePrecisionEphemeris}=await import('./precisioninterpolate.js');
+    const track=kind==='solar'?eclipseTrack(t,null,ephemeris):occultationTrack(target,front,t,ephemeris);
+    const contacts=kind==='solar'?solarContacts(t,ephemeris):null;
+    const from=contacts?(contacts.P1??t-5*3600)-600:t-6*3600,to=contacts?(contacts.P4??t+5*3600)+600:t+6*3600;
+    // Stars are immutable catalogue objects and need no sampled playback;
+    // occultation maps have no moving-shadow animation.
+    map={track,contacts,samples:kind==='solar'?samplePrecisionEphemeris(ephemeris,from,to):null};
+  }
   const clock = ephemeris.clock(event?.max ?? t);
   const ids = { mars:4, jupiter:5, saturn:6, uranus:7, neptune:8 };
   const planetModel = kind === 'occultation' && [target, front].some((b) => ids[b] && !pack.has(ids[b], ids[b] * 100 + 99));
-  return { kind, event, ...(kind==='lunar'&&event?{diagram:lunarDiagram(event,place??null,ephemeris)}:{}), source, year, native, earthOrientation: clock.eop ? 'IERS daily UT1 and polar motion (observations/predictions)' : 'Modelled Earth rotation (ΔT)', rotationErrorSeconds: clock.eop ? null : deltaTError(2000 + (clock.utcJD - 2451545) / 365.25), planetModel, residentBytes: pack.byteLength, calculationMs: performance.now() - start };
+  return { kind, event, ...(map?{map}:{}), ...(kind==='lunar'&&event?{diagram:lunarDiagram(event,place??null,ephemeris)}:{}), source, year, native, earthOrientation: clock.eop ? 'IERS daily UT1 and polar motion (observations/predictions)' : 'Modelled Earth rotation (ΔT)', rotationErrorSeconds: clock.eop ? null : deltaTError(2000 + (clock.utcJD - 2451545) / 365.25), planetModel, residentBytes: pack.byteLength, calculationMs: performance.now() - start };
 }
 
 let nextRange=0;const ranges=new Map();

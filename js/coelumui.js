@@ -503,7 +503,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // The lock: the object stays where it is on the screen as time runs (the
   // view turns with it); drags and flights move it, and it stays where they
   // leave it (its place in the camera's frame, or on the sky view's
-  // projection: spot, null to take it again); zooms keep it in place.
+  // projection: spot, null to take it again). Pinches move the zoom anchor
+  // with the object; buttons and ordinary wheel zooms keep the object in place.
   let lock = null;
   const applyLock = () => {
     const o = lock && findObject(frame, lock.name);
@@ -517,6 +518,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     } else {
       const now = [0, 1, 2].map((i) => dot3(v.rotation.slice(3 * i, 3 * i + 3), m));
       if (renew) { lock.spot = { mode, c: now }; return; }
+      // A paused redraw already has the right camera. Levelling again
+      // about the lock would change the roll chosen by the pinch anchor.
+      if (now.every((value, i) => Math.abs(value - lock.spot.c[i]) < 1e-14)) return;
       const r = rotateSky(v.rotation, now, lock.spot.c), rotation = levelChart(r, zenithSide(v.rotation) || zenithSide(r), lock.spot.c);
       if (rotation.every(Number.isFinite)) v.rotation = rotation;
     }
@@ -641,10 +645,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const k = chartRadius(size, height, s0) / chartRadius(size, height, s1), p = projectVector(lock.spot.c, SKY_IDENTITY);
     lock.spot.c = unprojectSky(p.x * k, p.y * k);
   };
-  const zoom = (factor, later = false) => {
+  const zoom = (factor, later = false, pinch = false) => {
     const v = currentView(), [lo, hi] = scaleLimits(), s0 = v.scale;
     v.auto = false; v.scale = Math.min(hi, Math.max(lo, v.scale * factor));
-    zoomLock(s0, v.scale);
+    if (!pinch) zoomLock(s0, v.scale);
     if (later) requestDraw(); else draw();
   };
   const fit = () => {
@@ -1590,11 +1594,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // Wheels and trackpads: a pinch arrives as a wheel with Ctrl (smaller
   // steps), or in Safari as gesture events. A pinch over the controls
   // zooms the sky too, not the page; over a panel, nothing.
-  svg.addEventListener('wheel', (ev) => { ev.preventDefault(); interact(200); zoom(Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.002)), true); }, { passive: false });
+  svg.addEventListener('wheel', (ev) => { ev.preventDefault(); interact(200); zoom(Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.002)), true, ev.ctrlKey); }, { passive: false });
   const overPanel = (ev) => ev.target.closest('.coelum-panel');
   for (const el of [viewport, $('.coelum-topbar'), $('.coelum-timebar')]) {
     el.addEventListener('gesturestart', (ev) => { ev.preventDefault(); pinchScale = pointers.size || overPanel(ev) ? 0 : currentView().scale; });
-    el.addEventListener('gesturechange', (ev) => { ev.preventDefault(); if (!pinchScale || pointers.size) return; interact(200); zoom(pinchScale * ev.scale / currentView().scale, true); });
+    el.addEventListener('gesturechange', (ev) => { ev.preventDefault(); if (!pinchScale || pointers.size) return; interact(200); zoom(pinchScale * ev.scale / currentView().scale, true, true); });
     el.addEventListener('gestureend', (ev) => { ev.preventDefault(); pinchScale = 0; });
     el.addEventListener('touchmove', (ev) => { if (ev.touches.length > 1) ev.preventDefault(); }, { passive: false });
   }
@@ -1656,11 +1660,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     }
     // Locked, the view follows the object: one finger moves the object's
     // place on the screen (and the sky with it), which it keeps as time
-    // runs; two fingers only zoom, leaving it where it is.
-    if (lock) {
+    // runs. Two fingers use the usual zoom anchor below, then capture the
+    // object's new place so playback follows from there.
+    if (lock && !distance) {
       const v = currentView(), prev = gesture.lockPrev || gesture;
-      if (distance) { zoomLock(v.scale, scale); v.scale = scale; v.auto = false; }
-      else if (lock.spot?.mode === mode) {
+      if (lock.spot?.mode === mode) {
         const dx = x - prev.x, dy = y - prev.y;
         if (mode === 'sky') { const r = skyRadius(size, height, v.scale); lock.spot.x += dx / r; lock.spot.y += dy / r; }
         else {
@@ -1673,11 +1677,18 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       return;
     }
     if (mode === 'sky') {
-      const v = skyView(), r0 = skyRadius(size, height, gesture.scale), r1 = skyRadius(size, height, scale);
-      gesture.grab ||= unprojectSky((gesture.x - size / 2) / r0, (gesture.y - height / 2) / r0, lookAt(gesture.az, gesture.alt), true);
-      const look = solveLook(gesture.grab, (x - size / 2) / r1, (y - height / 2) / r1, v.az, v.alt);
+      const v = skyView();
+      // During playback, take each step in the current tracked camera:
+      // a fixed world-space grab would undo the object's motion since touch-down.
+      const prev = lock && playing ? gesture.prev || gesture : gesture;
+      const r0 = skyRadius(size, height, prev.scale), r1 = skyRadius(size, height, scale);
+      const grab = lock && playing
+        ? unprojectSky((prev.x - size / 2) / r0, (prev.y - height / 2) / r0, lookAt(v.az, v.alt), true)
+        : (gesture.grab ||= unprojectSky((gesture.x - size / 2) / r0, (gesture.y - height / 2) / r0, lookAt(gesture.az, gesture.alt), true));
+      const look = solveLook(grab, (x - size / 2) / r1, (y - height / 2) / r1, v.az, v.alt);
       v.scale = scale; v.auto = false;
       if (Number.isFinite(look.az) && Number.isFinite(look.alt)) Object.assign(v, look);
+      gesture.prev = { x, y, scale };
     } else {
       // In small steps from the last position, each within 144° of the
       // center: a point dragged toward the projection's edge (its antipode)
@@ -1692,6 +1703,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       if (rotation.every(Number.isFinite)) views.chart.rotation = rotation;
       gesture.prev = { x, y, scale };
     }
+    if (lock) { lock.spot = null; applyLock(); }
     requestDraw();
   });
   const up = (ev) => {

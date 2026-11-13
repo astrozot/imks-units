@@ -11,6 +11,7 @@ import { lunarAppearance, moonTexture } from './coelumsky.js';
 import { planetMap } from './skyview.js';
 import { osmMap, TILES } from "./osmmap.js";
 import { shadowMap, solarContacts, solarLocal, solarPhase, occultationLocal, horizontal } from "./astro.js";
+import {interpolatedPrecisionEphemeris} from './precisioninterpolate.js';
 import { mountPrecision } from './precisionui.js';
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -251,6 +252,7 @@ const SHADES = [0, 0.2, 0.4, 0.6, 0.8];
 const zoomOf = (s, lat) => Math.log2((s * 2 * Math.PI * Math.cos(lat * Math.PI / 180)) / 256);
 const scaleOf = (zoom, lat) => (256 * 2 ** zoom) / (2 * Math.PI * Math.cos(lat * Math.PI / 180));
 function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null } = {}) {
+  const originalMap=m;let playbackEphemeris=null;
   const views = [["globe", "Globe"], ...Object.entries(TILES).map(([k, t]) => [k, t.name])];
   // an occultation: no simulation of the shadow (made for the Sun), but
   // places tapped for the occultation there
@@ -262,12 +264,12 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   let place = m.place || null;
   // the contacts on the Earth, and at the place; 2 s into the phase they
   // begin or end, not on its edge
-  const c = canSim ? solarContacts(m.t) : null;
+  const originalContacts=canSim?solarContacts(m.t):null;let c=originalContacts;
   let l = canPick && place ? localAt(place) : null;
   const marks = () => [["P1", c.P1], ["U1", c.U1], ["max", m.t], ["U4", c.U4], ["P4", c.P4], ...(l ? [["C1", l.C1], ["C2", l.C2], ["C3", l.C3], ["C4", l.C4]] : [])]
     .filter(([, t]) => Number.isFinite(t)).map(([n, t]) => [n, t + (/[12]$/.test(n) ? 2 : /[34]$/.test(n) ? -2 : 0)]).sort((a, b) => a[1] - b[1]);
   const chips = () => (canSim ? marks().map(([n, t]) => `<button class="chip" data-map-t="${t}">${n}</button>`).join("") : "");
-  const from = canSim ? (c.P1 ?? m.t - 3 * 3600) - 600 : 0, to = canSim ? (c.P4 ?? m.t + 3 * 3600) + 600 : 0;
+  let from = canSim ? (c.P1 ?? m.t - 3 * 3600) - 600 : 0, to = canSim ? (c.P4 ?? m.t + 3 * 3600) + 600 : 0;
   const modes = [["map", "Map"], ["sim", "Simulation"]];
   root.innerHTML = `${head}
       <div class="map-precision"></div>
@@ -287,8 +289,13 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   const showPrecision = () => {
     precision?.destroy(); precisionRoot.replaceChildren();
     const approximate=l;
-    if (!locationPicker && place && Number.isFinite(m.t)) precision = mountPrecision(precisionRoot, { kind: occ ? 'occultation' : 'solar', t: m.t, place: [...place], ...(occ ? { target: occ.target, front: occ.front } : {}) },result=>{
-      l=result?result.event:approximate;showLocal();
+    if (!locationPicker && place && Number.isFinite(m.t)) precision = mountPrecision(precisionRoot, { kind: occ ? 'occultation' : 'solar', t: originalMap.t, map:true, place: [...place], ...(occ ? { target: occ.target, front: occ.front } : {}) },result=>{
+      l=result?result.event:approximate;
+      m=result?.map?{...result.map.track,...(occ?{occ}:{}),place}:originalMap;
+      c=result?.map?.contacts??originalContacts;playbackEphemeris=result?.map?.samples?interpolatedPrecisionEphemeris(result.map.samples):null;
+      if(canSim){from=(c.P1??m.t-3*3600)-600;to=(c.P4??m.t+3*3600)+600;slider.min=from;slider.max=to;slider.value=Math.max(from,Math.min(to,cur));}
+      showLocal();if(sim)setTime(Number(slider.value));else redraw();
+      if(osmNow)show(root.querySelector('.map-select').value);
       if(result){localBox.querySelector('p')?.append(document.createTextNode(' · '+precisionNote(result)));if(result.rotationErrorSeconds!==null)localBox.querySelectorAll('th').forEach(cell=>{if(cell.textContent==='UTC')cell.textContent='Estimated UT';});}
       root.querySelector('.lunar-chips').innerHTML=chips();
     });
@@ -355,12 +362,12 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   let cur = m.t;
   const setTime = (t) => {
     cur = t;
-    at = shadowMap(t, SHADES);
+    at = shadowMap(t, SHADES, playbackEphemeris);
     const u = at.umbra, kind = u && (u.kind === "total" ? "umbra" : "antumbra");
     let text = `${hhmm(t)} UTC${host.utc ? "" : ` (${localTime(t)}${host.formatClock ? '' : ' device time'})`}: `;
     text += u ? (u.center ? `the ${kind} at ${ll(u.center)}` : `the ${kind} at the edge of the Earth`) : at.partial.length ? "partial eclipse only" : "the shadow misses the Earth";
     if (place) {
-      const p = solarPhase(t, place);
+      const p = solarPhase(t, place, playbackEphemeris);
       text += p.alt < -0.833 ? " · the Sun is down at the place"
         : p.phase === "none" ? " · no eclipse at the place"
         : ` · at the place: ${p.phase}, magnitude ${p.magnitude.toFixed(3)}, ${(p.obscuration * 100).toFixed(p.obscuration > 0.995 && p.obscuration < 1 ? 1 : 0)}% of the Sun covered`;
@@ -413,6 +420,8 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
       ${actions}`;
   };
   function pick(p) {
+    m=originalMap;c=originalContacts;playbackEphemeris=null;
+    if(canSim){from=(c.P1??m.t-3*3600)-600;to=(c.P4??m.t+3*3600)+600;slider.min=from;slider.max=to;}
     place = [Math.round(p[0] * 1e4) / 1e4, Math.round(p[1] * 1e4) / 1e4];
     l = canPick ? localAt(place) : null;
     showLocal();
