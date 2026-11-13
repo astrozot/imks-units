@@ -489,7 +489,7 @@ const MOON_REFS = [
 ];
 for (const [planet, jd, name, east, north, code] of MOON_REFS) {
   const m = A.moons(planet, (jd - 2440587.5) * 86400), o = m.moons.find((x) => x.name === name);
-  const d = Math.hypot(o.east * 3600 - east, o.north * 3600 - north), tol = name === "Iapetus" ? 1 : 0.2;
+  const d = Math.hypot(o.east * 3600 - east, o.north * 3600 - north), tol = name === "Iapetus" ? 0.05 : 0.02;
   if (!(d <= tol)) fail(`${name} at JD ${jd}: ${d.toFixed(2)}″ from Horizons`);
   const got = o.eclipsed ? "u" : o.occulted ? "O" : o.transit ? "t" : "*";
   if (got !== code) fail(`${name} at JD ${jd}: ${got}, not ${code}`);
@@ -498,7 +498,7 @@ for (const [planet, jd, name, east, north, code] of MOON_REFS) {
 // those of its first and last contacts in Horizons (to the minute, UT)
 {
   const ev = A.moonEvents("Io", Date.UTC(2026, 10, 1) / 1000, 2);
-  const at = (kind, i) => ev.find((e) => e[0] === kind)[i];
+  const at = (kind, i) => ev.find((e) => e[0] === kind).contacts[i === 1 ? "centerBegin" : "centerEnd"];
   for (const [kind, i, lo, hi] of [["eclipsed", 1, [2, 1, 42], [2, 1, 46]], ["occulted", 2, [2, 5, 14], [2, 5, 18]],
     ["transit", 1, [1, 5, 45], [1, 5, 49]], ["transit", 2, [1, 8, 3], [1, 8, 7]]]) {
     const t = at(kind, i), from = Date.UTC(2026, 10, ...lo) / 1000, to = Date.UTC(2026, 10, ...hi) / 1000;

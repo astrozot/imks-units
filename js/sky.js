@@ -26,7 +26,7 @@ const MOON_PLANETS = ["mars", "jupiter", "saturn", "uranus", "neptune"];
 
 // Errors of the apparent geocentric positions (arcseconds), from the
 // comparison with JPL Horizons over 1600 to 2400 (VSOP87 itself drifts for
-// Uranus and Neptune; the Moon 3″ near 1600, 10″ outside), and of the
+// Uranus and Neptune; the Moon 2″ near the interval ends, 10″ outside), and of the
 // distances (relative)
 const POS_ERR = { sun: 0.3, moon: 1.5, mercury: 1, venus: 1, mars: 1.5, jupiter: 1, saturn: 1.5, uranus: 4, neptune: 6 };
 const DIST_ERR = { moon: 1e-5 };
@@ -63,6 +63,10 @@ function orbitError(body, t) {
 }
 function posError(body, t, dist) {
   let e = POS_ERR[body];
+  if (body === "moon") {
+    const T = Math.abs(centuries(t));
+    e = T > 4 ? 10 : T > 3 ? 2 : e;
+  }
   if (typeof body === "object") {
     if (body.sgp4) return Math.min(SAT_KM(Math.abs(t - body.epoch) / 86400) / dist / RAD, 180);
     e = body.orbits ? orbitError(body, t) : 0.3;
@@ -93,8 +97,8 @@ const doing = (o) => ["transit", "occulted", "eclipsed", "shadow"].filter((k) =>
 function skyView(planet, t, m = MOON_PLANETS.includes(planet) ? moons(planet, t) : planetDisk(planet, t)) {
   const r5 = (x) => Math.round(x * 1e5) / 1e5;
   return {
-    planet, t, radius: r5(m.radius * 3600), pole: m.pole.map(r5), sun: m.sun.map(r5),
-    moons: m.moons.map((o) => ({ name: o.name, x: r5(o.view.x), y: r5(o.view.y), z: r5(o.view.z), r: r5(o.view.r), doing: doing(o) })),
+    planet, t, radius: r5(m.radius * 3600), pole: m.pole.map(r5), sun: m.sun.map(r5), sunAngle: m.sunAngle,
+    moons: m.moons.map((o) => ({ name: o.name, x: r5(o.view.x), y: r5(o.view.y), z: r5(o.view.z), r: r5(o.view.r), shadow: o.view.shadow && Object.fromEntries(Object.entries(o.view.shadow).map(([k, v]) => [k, r5(v)])), doing: doing(o) })),
     ...(m.facing && { facing: Object.fromEntries(Object.entries(m.facing).map(([k, v]) => [k, Math.round(v * 100) / 100])) }),
   };
 }
@@ -389,29 +393,25 @@ function skyBuiltins(env, b) {
   // The next events of a moon from t on, one of each kind (within 30
   // days): a table of their beginnings and ends; with a kind ("eclipse", "occultation", "transit",
   // "shadow"), the beginning and the end of the next one. Times of the
-  // moon's center, with the error of its position over its speed, and 20 s
-  // for the shadow taken as a cylinder
+  // finite moon's first/last contacts (including penumbra for shadows and
+  // eclipses), with position errors divided by the normal contact speed.
   const KINDS = { transit: "transit", shadow: "shadow", eclipse: "eclipsed", eclipsed: "eclipsed", occultation: "occulted", occulted: "occulted" };
   const KIND_TEXT = { transit: "transit", shadow: "shadow", eclipsed: "eclipse", occulted: "occultation" };
   b.moonevents = (x, t, kind) => {
-    const moon = moonOf("moonevents", x), u = when("moonevents", t, '"Io", '), planet = planetOf(moon);
+    const moon = moonOf("moonevents", x), u = when("moonevents", t, '"Io", ');
+    if (Math.abs(centuries(u)) > 1) throw new UnitError("moonevents: predictions cover 1900–2100; choose a date within that interval");
     const want = kind === undefined ? null : KINDS[typeof kind === "string" ? kind.trim().toLowerCase() : ""];
     if (kind !== undefined && !want) throw new UnitError('moonevents: the kinds are "eclipse", "occultation", "transit" and "shadow"');
     // the next of each kind
     const events = moonEvents(moon, u).filter((e, i, all) => (!want || e[0] === want) && all.findIndex((f) => f[0] === e[0]) === i);
-    const sigma = (time) => {
-      const a = moons(planet, time - 30).moons.find((m) => m.name === moon), c = moons(planet, time + 30).moons.find((m) => m.name === moon);
-      const speed = Math.hypot(c.east - a.east, c.north - a.north) / 60;
-      return Math.min(3600, 20 + (speed > 0 ? a.err / speed : 3600));
-    };
-    const date = (time) => dateQ(env, UNum.uncertain(time, sigma(time)));
+    const date = (event, index) => dateQ(env, UNum.uncertain(event[index], Math.hypot(2, utError(event[index]), event.errors[index === 1 ? "begin" : "end"])));
     if (want) {
       if (!events.length) throw new UnitError(`moonevents: no ${kind} of ${moon} within 30 days`);
-      return [date(events[0][1]), date(events[0][2])];
+      return [date(events[0], 1), date(events[0], 2)];
     }
     if (!events.length) throw new UnitError(`moonevents: no events of ${moon} within 30 days`);
     const text = (k) => (k === "shadow" ? `shadow on ${Name(planet)}` : KIND_TEXT[k]);
-    const v = [events.flatMap((e) => [date(e[1]), date(e[2])])];
+    const v = [events.flatMap((e) => [date(e, 1), date(e, 2)])];
     v.heads = [moon];
     v.rows = events.flatMap((e) => [`${text(e[0])} begins`, `${text(e[0])} ends`]);
     return v;

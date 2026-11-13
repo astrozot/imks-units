@@ -1,0 +1,32 @@
+{
+  "sky": {
+    "before": {
+      "frames": 92,
+      "p95GapMs": 18,
+      "maxGapMs": 18
+    },
+    "during": {
+      "frames": 91,
+      "p95GapMs": 18,
+      "maxGapMs": 18
+    },
+    "residentBytes": 120232
+  },
+  "firstResultMs": 82,
+  "heartbeat": {
+    "maxGapMs": 21,
+    "ticks": 4
+  },
+  "cache": {
+    "bytes": 141465,
+    "files": 2
+  },
+  "fullCache": {
+    "bytes": 8317241,
+    "files": 70
+  },
+  "engine": "webkit",
+  "errors": [],
+  "cpuThrottleRate": 1,
+  "offlineMethod": "Cache-only reuse online; actual offline reuse unverified because the offline emulator prevents local worker startup"
+}

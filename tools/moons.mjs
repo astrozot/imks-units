@@ -2,6 +2,11 @@
 // Uranus and Neptune, fitted to JPL Horizons over 1900 to 2100:
 //
 //   node tools/moons.mjs <directory>
+//   node tools/moons.mjs <directory> --fetch     training + baseline cache
+//   node tools/moons.mjs <directory> --validate  shipped series, 402 dates
+//   node tools/moons.mjs <directory> --audit     fresh independent 1002 dates
+// Refine with tools/refine-moons.py; its fitting dependencies are offline
+// development tools, never required by the browser.
 //
 // The positions of each moon from its planet (geometric, ICRF, km) at
 // random dates are fetched once into the directory. In the frame of the
@@ -13,9 +18,11 @@
 // error is below a fraction of the planet's radius.
 
 import fs from "node:fs";
+import { pathToFileURL } from "node:url";
+import { MOONS } from "../js/moons.js";
+import { moonSeriesPosition } from "../js/moonposition.js";
 
 const dir = process.argv[2];
-if (!dir) throw new Error("usage: node tools/moons.mjs <directory>");
 
 // planet: Horizons id, equatorial radius (km), north pole (J2000, degrees);
 // moons: Horizons id and period (days)
@@ -35,17 +42,20 @@ const J0 = 2415020.5, J1 = 2488069.5, SAMPLES = 2400;
 // Fetching
 
 // the same random dates for every run
-function dates(seed) {
+function dates(seed, count = SAMPLES) {
   let s = seed;
   const rnd = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648);
-  return Array.from({ length: SAMPLES }, () => J0 + (J1 - J0) * rnd()).sort((a, b) => a - b);
+  // Stratification covers the whole interval even with a small test set.
+  // Never take the first N of an already sorted, larger random set.
+  return Array.from({ length: count }, (_, i) => J0 + (J1 - J0) * (i + rnd()) / count);
 }
 
 // by the batch interface of Horizons, which takes long lists of dates
 async function fetchMoon(id, center, test = false) {
-  const file = `${dir}/${id}${test ? "-test" : ""}.json`;
+  const audit = test === "audit";
+  const file = `${dir}/${id}${audit ? "-audit-v1" : test ? "-test-v2" : "-train-v2"}.json`;
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
-  const jds = test ? dates(id + 7919).slice(0, 300) : dates(id), rows = [];
+  const jds = audit ? [J0, ...dates(id + 104729, 1000), J1] : test ? [J0, ...dates(id + 7919, 400), J1] : dates(id), rows = [];
   for (let k = 0; k < jds.length; k += 1200) {
     const input = ["!$$SOF", `COMMAND='${id}'`, `CENTER='500@${center}'`, "OBJ_DATA=NO", "MAKE_EPHEM=YES", "EPHEM_TYPE=VECTORS",
       "REF_PLANE=FRAME", "REF_SYSTEM=ICRF", "VEC_TABLE=1", "VEC_CORR=NONE", "OUT_UNITS=KM-S", "CSV_FORMAT=YES", "TLIST_TYPE=JD",
@@ -209,6 +219,45 @@ function fitMoon(name, rows, sys, period) {
   return { name, zf, za, wf, wa, worst };
 }
 
+async function main() {
+if (!dir) throw new Error("usage: node tools/moons.mjs <directory> [planet | --fetch | --validate | --audit]");
+fs.mkdirSync(dir, { recursive: true });
+if (process.argv.includes("--fetch")) {
+  for (const [planet, sys] of Object.entries(SYSTEMS)) {
+    for (const [name, [id]] of Object.entries(sys.moons)) {
+      await fetchMoon(id, sys.id);
+      console.log(`Fetched ${planet}: ${name}`);
+    }
+  }
+  if (!fs.existsSync(`${dir}/moons-baseline-series.json`)) fs.writeFileSync(`${dir}/moons-baseline-series.json`, JSON.stringify(MOONS));
+  fs.writeFileSync(`${dir}/series.json`, JSON.stringify(MOONS));
+  fs.writeFileSync(`${dir}/systems.json`, JSON.stringify(SYSTEMS));
+  return;
+}
+if (process.argv.includes("--validate") || process.argv.includes("--audit")) {
+  const audit = process.argv.includes("--audit");
+  const report = {};
+  for (const [planet, sys] of Object.entries(SYSTEMS)) {
+    const axes = frame(sys.pole);
+    for (const [name, [id]] of Object.entries(sys.moons)) {
+      const rows = await fetchMoon(id, sys.id, audit ? "audit" : true), model = MOONS[planet].moons[name], old = model[2];
+      let max = 0, sum = 0;
+      const bins = Array(8).fill(0);
+      for (const [jd, ...r] of rows) {
+        const [x, y, zv] = moonSeriesPosition(model, jd - 2451545);
+        const err = Math.hypot(...r.map((v, k) => x * axes[0][k] + y * axes[1][k] + zv * axes[2][k] - v));
+        max = Math.max(max, err); sum += err * err;
+        const bin = Math.min(7, Math.floor(8 * (jd - J0) / (J1 - J0)));
+        bins[bin] = Math.max(bins[bin], err);
+      }
+      report[name] = { planet, samples: rows.length, firstJD: rows[0][0], lastJD: rows.at(-1)[0], oldKm: old, maxKm: max, rmsKm: Math.sqrt(sum / rows.length), binsKm: bins };
+      console.log(`${name}: max ${max.toFixed(1)} km (stored ${old}), RMS ${report[name].rmsKm.toFixed(1)} km`);
+      fsWriteReport();
+    }
+  }
+  function fsWriteReport() { fs.writeFileSync(`${dir}/moons-${audit ? "audit" : "validation"}.json`, JSON.stringify(report, null, 2) + "\n"); }
+  return;
+}
 const out = {};
 for (const [planet, sys] of Object.entries(SYSTEMS)) {
   if (process.argv[3] && process.argv[3] !== planet) continue;
@@ -234,7 +283,7 @@ for (const [planet, sys] of Object.entries(SYSTEMS)) {
 // for each moon the flat lists f, a, b of the terms of x + i y and of z,
 // and its largest error at other dates (km);
 // all the planets only when none was named
-if (process.argv[3]) process.exit(0);
+if (process.argv[3]) return;
 const terms = (fs, amp) => fs.flatMap((f, k) => [f.toPrecision(15), amp[2 * k].toFixed(2), amp[2 * k + 1].toFixed(2)]).join(",");
 const report = [], body = Object.entries(out).map(([planet, { sys, moons }]) => {
   report.push(...moons.map((m) => `${m.name} ${(m.test / sys.radius).toFixed(4)}`));
@@ -255,3 +304,7 @@ export const MOONS = {
 ${body}
 };
 `);
+}
+
+export { SYSTEMS, J0, J1, dates, frame, evaluate, amplitudes, bestIn, fetchMoon };
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

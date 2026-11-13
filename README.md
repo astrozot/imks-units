@@ -239,7 +239,8 @@ they are not part of the offline download. Saturn's globe and rings cast
 finite-Sun penumbras on each other. Solar-disk sampling starts above
 256 rendering pixels per Saturn radius, and only where the estimated
 transition spans at least 0.75 pixels; smaller shadows use the single ray.
-The Sun's angular radius uses Saturn's mean distance, as for moon shadows.
+The Sun's angular radius uses the planet's current distance, as for moon
+shadows; older saved views retain the mean-distance fallback.
 `facing` in `js/astro.js`
 gives the longitude below the Earth: the IAU prime meridians (checked
 against JPL Horizons; Venus's clouds turn in 4 days), Meeus's Systems I and II for
@@ -417,7 +418,10 @@ transits, shadow transits, eclipses and occultations of that planet's
 moons, computed by the same engine as `moonevents()`. It searches a day
 at a time; More extends the list. Tap an event to show the system at its
 midpoint, keeping the telescope page open. Events already underway are
-included. The button disappears when the telescope page closes and is
+included. Times span first to last limb contact, including the penumbra
+for eclipses and shadow transits; a second line gives the full phase when
+there is one. Predictions are geocentric and cover 1900–2100. The button
+disappears when the telescope page closes and is
 absent from Mercury and Venus close-ups.
 Each occultation or eclipse opens the same map or drawing as
 `occultation`, `solareclipse` and `lunareclipse` in iMKS, and Show in the
@@ -472,12 +476,138 @@ from JPL Horizons and astropy). It needs no packages and takes a few seconds.
 … `VSOP87D.nep` of ftp.imcce.fr/pub/ephem/planets/vsop87/ in `<dir>`.
 
 `js/moons.js` holds series for the major moons of Mars, Jupiter, Saturn,
-Uranus and Neptune: `node tools/moons.mjs <dir>` fetches their positions
-from JPL Horizons into `<dir>` (once) and fits the series, in about a
-quarter of an hour. `js/moonseries.js`, the Moon, comes the same way from
-`node tools/moon.mjs <dir> 2` (about 10 minutes), and `js/coast.js`, the
-coastlines of the maps of the eclipses, from Natural Earth with
+Uranus and Neptune, fitted to Horizons over 1900–2100. Their periodic
+amplitudes have cubic secular terms, sharing the base series' trigonometric
+evaluations. To regenerate them, use `node tools/moons.mjs <dir> --fetch`,
+then `OPENBLAS_NUM_THREADS=1 python tools/refine-moons.py <dir>` (development
+dependencies: NumPy, SciPy and FINUFFT). The original constant-amplitude
+fitter remains available as `node tools/moons.mjs <dir>`.
+
+`js/moonseries.js`, the Moon over 1600–2400, has linear secular amplitudes.
+Use `node tools/moon.mjs <dir> --fetch`, then
+`OPENBLAS_NUM_THREADS=1 python tools/refine-moon.py <dir>` (NumPy and SciPy).
+The original lunar fitter remains `node tools/moon.mjs <dir> 2`.
+The training samples begin in 1601; the independent audit explicitly
+includes both 1600 and 2400. `js/coast.js`, the coastlines of the maps of
+the eclipses, comes from Natural Earth with
 `node tools/coast.mjs ne_110m_coastline.geojson`.
+
+Independent audits and reproducible comparisons are in
+`data/astronomy-accuracy.json`. On the same 1,002 audit dates per body,
+the Moon's maximum geometric error falls from 3.47″ to 1.42″ (RMS 0.59″
+to 0.37″). Every planetary moon improves by at least a factor of two;
+Io's maximum is 21 km, Europa's 22 km and Triton's 4 km. Hyperion and
+Iapetus remain approximate (about 2,727 km and 1,122 km). These are sampled
+errors, not certified bounds or statistical confidence intervals.
+
+Moon event calculations account for finite moon disks, planetary
+flattening, the Sun's actual angular size, umbra and penumbra, visible
+shadow contacts at the Earth-facing limb, and differential light travel
+time. They refine local minima between coarse samples to catch short
+grazes. Returned event arrays retain `[kind, begin, end]`, with `contacts`
+(C1–C4, penumbral P1/P4, center crossings) and `errors` properties.
+Contact uncertainties use the motion perpendicular to the boundary, so
+they increase for grazing events. Atmospheric limbs, mutual moon events,
+rings covering moons, and local-observer parallax are not modeled here.
+
+The satellite apparent offsets match Horizons' convention
+`(RA_moon − RA_planet) cos(Dec_planet), Dec_moon − Dec_planet`; drawing
+coordinates remain tangent-plane coordinates. The reduction includes
+nutation, differential annual aberration, and the moon's and parent's
+motion during differential light travel time. Rendered shadows use their
+own casting positions and the current solar angular radius.
+
+For an independent comparison, `tools/stellarium-check.py <dir> <sources>
+--fetch` downloads and compiles the pinned Stellarium analytic ephemerides
+(C compiler and NumPy needed). The report names the revision and exact
+configuration: VSOP87/ELP82B, MarsSat, L1.2, TASS 1.7 and GUST86. Stellarium
+using DE440/441 is a different configuration. Differences between these
+older satellite theories and current Horizons are recorded, rather than
+assumed to be errors in this app. Triton has no matching routine in this
+comparison. The C sources remain in the development cache and are not
+shipped in the app.
+
+Run `node tools/moons.mjs <dir> --audit` and
+`node tools/moon.mjs <lunar-dir> --audit`, then
+`node tools/astronomy-accuracy.mjs <dir> <lunar-dir>` to regenerate the
+budget and compact offline fixtures. The audit dates are independent of
+the fitting and initial validation samples. Satellite validation uses
+stratified dates over the entire interval, fixing the former
+sorted-then-sliced date selection. `tools/astronomy-benchmark.mjs` measures
+frame calculations and event searches; an optional baseline directory
+allows interleaved comparisons (`data/astronomy-performance.json`).
+
+Solar eclipses and lunar occultations still use a smooth mean lunar limb.
+The refined ephemeris improves their positional input, but does not predict
+terrain-dependent contacts or Baily's beads. Earth-rotation uncertainty
+still limits long-range eclipse geography. Precise stellar occultations
+by Uranus and Neptune need a better planetary ephemeris than VSOP87.
+
+Event detail sheets now offer **Refine contacts with DE440** for 1900–2100.
+It computes local solar-eclipse or occultation contacts at the selected
+place, or geocentric lunar-eclipse contacts, in a dedicated worker. The
+sky, maps, calculator results and all animations keep their compact
+ephemerides. Refinement is explicit; opening a sheet or playing the sky
+does not download a year or start a precision worker. Selecting another
+place invalidates the refined contacts. Closing the sheet, cancelling,
+starting another refinement or finishing the calculation releases the
+worker. A stalled job times out after 60 seconds.
+
+`data/precision/1900.bin` through `2100.bin` retain the native Float64
+Chebyshev records from JPL DE440s, with three-day overlaps at the year
+boundaries. The largest year is 122,440 bytes; all years together occupy
+about 21.5 MiB on the host. The phone loads one year per calculation.
+Downloads are streamed with a 512 KiB file limit and checked against the
+index's exact size and SHA-256. The separate `imks-data-precision-v1`
+CacheStorage cache, shared by both apps, is limited to 8 MiB and evicts
+older downloads. Neither service worker puts these data in its app asset
+cache. The clear button removes downloaded event data; a cached year can
+be reused offline. These buffer/storage limits do not describe the whole
+JavaScript worker heap, which also contains code and compact models.
+Asynchronous streaming, integrity checks and cache access run in the page;
+the validated buffer is transferred to the worker without copying. This
+also avoids WebKit cache inconsistencies between restarted workers.
+
+The optional reduction uses barycentric light time, solar light
+deflection, relativistic aberration, IAU 2006 precession and IAU 2000B
+nutation. IERS daily UT1 and polar motion are included where available;
+elsewhere the app retains its ΔT model and reports rotation uncertainty.
+The packed IERS series includes both observations and predictions, not a
+live feed. Future civil-time labels outside that series are estimated UT;
+unknown future leap seconds are not predicted. Planetary system
+barycentres are corrected using the compact satellite models; this does
+not supply precise orbits for individual satellites or make outer-planet
+occultations authoritative. Stellar positions retain the catalog's own
+proper-motion and parallax limitations. Lunar terrain and atmospheric
+limb effects remain outside this refinement; lunar eclipses retain the
+existing enlarged-Earth shadow convention. Seconds displayed are not an
+accuracy guarantee for observed contacts.
+The cached index pins the downloaded snapshot: clear downloaded event
+data to pick up a newer hosted Earth-orientation snapshot.
+
+`node tests/precision.mjs` checks all yearly checksums and boundaries,
+588 native SPK states, ERFA frame matrices, 108 independent Skyfield
+apparent positions and 13 event cases (including a no-event case).
+Sampled position discrepancies are below 0.0017″ and contact differences
+below 0.08 s, using common time/radius/shadow assumptions; these measure
+implementation agreement, not DE440's physical uncertainty over two
+centuries. The detailed report is `data/precision-accuracy.json`.
+`tests/precision-browser.mjs` checks phone layout, CPU-throttled animation,
+worker cancellation/release, checksum recovery, bounded cache eviction,
+and offline reuse in both apps using Chromium. WebKit verifies online
+calculation and cache-only reuse; its test browser's offline emulator
+prevents even a trivial local worker from starting, so actual offline
+behavior on iPhone remains to be checked. Reports record this limitation.
+Desktop browser throttling does not replace testing
+on an actual iPhone 12.
+
+Regenerate the year files with `python tools/precision-data.py de440s.bsp
+--eop finals2000A.all` (NumPy and jplephem). Generate independent references
+with `python tools/precision-reference.py de440s.bsp --eop finals2000A.all`
+(Skyfield, SciPy and ERFA), then `node tests/precision.mjs --report`.
+Preparation tools contact no service at app runtime. DE440s and the full
+DE440 have the same solution within the smaller kernel's interval.
+DE441 and dates outside 1900–2100 are not part of this optional feature.
 
 `js/catalog.js` holds the stars named by the IAU (IAU Catalog of Star
 Names, with proper motions and parallaxes from the HYG database), the
@@ -588,6 +718,13 @@ conditions, local horizon filtering, average heights, Moon illumination,
 seasons, chronological order, pagination and cancellation.
 `node tests/mooneventspanel.mjs` checks planetary moon events, their
 midpoint states, chronological order, ongoing events and cancellation.
+`node tests/moon-contacts.mjs` checks finite disks and shadows, projected
+ellipses, visible shadow contacts, short grazes and validation-date coverage.
+`node tests/astronomy-accuracy.mjs` checks the Moon and all 20 planetary
+moons against independent Horizons samples and pinned Stellarium references.
+`node tests/moon-events-browser.mjs` checks the contact UI on a phone,
+full-phase times, ongoing events, pagination and offline use, with the same
+Playwright options as the other browser checks.
 
 `node tests/browser.mjs` checks the app in Chromium at phone size, with
 simulated sensors (position, motion, compass, microphone). It needs

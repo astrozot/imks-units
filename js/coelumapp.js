@@ -140,7 +140,7 @@ function openOccultation(x, place, explorer) {
     requestAnimationFrame(() => setTimeout(() => {
       if (!root.isConnected) return;
       const occ = { target: x.target, front: "moon", names: [x.name, "Moon"], covers: x.e ? x.e.covers : x.covers };
-      view = mountMap(root, { ...occultationTrack(x.target, "moon", x.e ? x.e.max : x.max), ...(place && { place: place.slice(0, 2) }), occ }, sheetHost(explorer), { head, caption });
+      view = mountMap(root, { ...occultationTrack(x.target, "moon", x.e ? x.e.max : x.max), ...(place && { place: [...place] }), occ }, sheetHost(explorer), { head, caption });
     }, 0));
   }, () => view?.share());
 }
@@ -158,7 +158,7 @@ function openEvent(kind, x, place, explorer) {
     root.innerHTML = `${head}<p class="coelum-panel-note">Drawing the map…</p>`;
     requestAnimationFrame(() => setTimeout(() => {
       if (!root.isConnected) return;
-      view = mountMap(root, { ...eclipseTrack(x.e.max), ...(place && { place: place.slice(0, 2) }) }, host, { head, caption });
+      view = mountMap(root, { ...eclipseTrack(x.e.max), ...(place && { place: [...place] }) }, host, { head, caption });
     }, 0));
   }, () => view?.share());
 }

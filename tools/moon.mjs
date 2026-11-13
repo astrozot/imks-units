@@ -13,10 +13,10 @@
 // remains (the planets).
 
 import fs from "node:fs";
+import { pathToFileURL } from "node:url";
 
 const dir = process.argv[2];
 const goal = Number(process.argv[3] || 0.5);
-if (!dir) throw new Error("usage: node tools/moon.mjs <directory> [arcseconds]");
 
 const J0 = 2305813.5, J1 = 2597641.5, SAMPLES = 4000, TESTS = 400;
 const RAD = Math.PI / 180, AS = RAD / 3600;
@@ -34,6 +34,7 @@ async function fetchMoon(name, seed, n) {
   const file = `${dir}/${name}.json`;
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
   const jds = dates(seed, n), rows = [];
+  if (name.includes("audit")) { jds.unshift(2305447.5); jds.push(J1); }
   for (let k = 0; k < jds.length; k += 1000) {
     const input = ["!$$SOF", "COMMAND='301'", "CENTER='500@399'", "OBJ_DATA=NO", "MAKE_EPHEM=YES", "EPHEM_TYPE=VECTORS",
       "REF_PLANE=FRAME", "REF_SYSTEM=ICRF", "VEC_TABLE=1", "VEC_CORR=NONE", "OUT_UNITS=KM-S", "CSV_FORMAT=YES", "TLIST_TYPE=JD",
@@ -172,6 +173,7 @@ function fit(S, y, { parityF, poly, goal, cap }) {
   const worst = () => res.reduce((w, x) => Math.max(w, Math.abs(x)), 0);
   const span = t[N - 1] - t[0], top = 3 * 0.23;
   while (worst() > goal && cols.length < cap) {
+    if (cols.length % 50 < 2) console.log(`  ${cols.length} coefficients, residual ${(worst() / goal).toFixed(1)} times target`);
     // the best Delaunay term: the part of the residual its sine and cosine explain
     let best = null;
     for (const v of cands) {
@@ -226,7 +228,28 @@ const samples = (rows) => rows.map((r) => {
   return { T, ...a, dl, lat, dist };
 });
 
+async function main() {
+if (!dir) throw new Error("usage: node tools/moon.mjs <directory> [arcseconds | --fetch | --audit]");
+fs.mkdirSync(dir, { recursive: true });
+if (process.argv.includes("--audit")) {
+  const { ecliptic, nutation } = await import("../js/astro.js");
+  const rows = await fetchMoon("moon-audit-v1", 104729, 1000), S = samples(rows), errors = [];
+  for (const s of S) {
+    const p = ecliptic("moon", s.T), lon = (p.lon - nutation(s.T).dpsi + 13.176358 / 86400 * p.dist / 299792.458) * RAD;
+    const dl = lon - s.L - s.dl;
+    errors.push({ jd: 2451545 + s.T * 36525, arcsec: Math.hypot(Math.atan2(Math.sin(dl), Math.cos(dl)) * Math.cos(s.lat), p.lat * RAD - s.lat) / AS, distanceKm: Math.abs(p.dist - s.dist) });
+  }
+  const report = { samples: rows.length, maxArcsec: Math.max(...errors.map((r) => r.arcsec)), rmsArcsec: Math.sqrt(errors.reduce((s, r) => s + r.arcsec ** 2, 0) / errors.length), maxDistanceKm: Math.max(...errors.map((r) => r.distanceKm)), errors };
+  fs.writeFileSync(`${dir}/moon-audit.json`, JSON.stringify(report, null, 2) + "\n");
+  console.log(`Moon audit: ${report.maxArcsec.toFixed(3)}″ max, ${report.rmsArcsec.toFixed(3)}″ RMS, distance ${report.maxDistanceKm.toFixed(3)} km`);
+  return;
+}
 const train = samples(await fetchMoon("moon", 301, SAMPLES)), test = samples(await fetchMoon("moon-test", 7301, TESTS));
+if (process.argv.includes("--fetch")) {
+  const { MOON } = await import("../js/moonseries.js");
+  if (!fs.existsSync(`${dir}/moon-baseline-series.json`)) fs.writeFileSync(`${dir}/moon-baseline-series.json`, JSON.stringify(MOON));
+  return;
+}
 const km = goal * AS * 385000, cache = `${dir}/fit-${goal}.json`;
 let fits;
 if (fs.existsSync(cache)) fits = JSON.parse(fs.readFileSync(cache, "utf8"));
@@ -291,3 +314,7 @@ export const MOON = {
   dist: ${write(fits[2], "km")},
 };
 `);
+}
+
+export { samples, value, args, ecliptic, fetchMoon };
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

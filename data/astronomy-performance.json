@@ -1,0 +1,27 @@
+{
+  "runtime": "v24.21.0",
+  "unit": "milliseconds",
+  "method": "Median of 5 warmed runs; baseline and current interleaved; excludes rendering and network",
+  "results": {
+    "1000 Jupiter system frames": {
+      "before": 20.5,
+      "after": 53.3
+    },
+    "1000 Saturn system frames": {
+      "before": 32.1,
+      "after": 91.3
+    },
+    "1000 lunar positions": {
+      "before": 21.5,
+      "after": 14.1
+    },
+    "One day of all Jupiter moon events": {
+      "before": 65.2,
+      "after": 266.4
+    },
+    "Thirty days of Io events": {
+      "before": 180.5,
+      "after": 1408.9
+    }
+  }
+}

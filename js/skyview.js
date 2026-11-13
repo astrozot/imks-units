@@ -467,14 +467,14 @@ function planetModel(sky, s) {
   const toP = (v) => [dot(v, e1), dot(v, e2), dot(v, p)];
   // the Earth's direction and the Sun's, on the planet's axes
   const view = toP([0, 0, 1]), light = toP(sun);
-  const shadows = moons.filter((m) => m.r > 0).map((m) => ({ c: toP([m.x, m.y, m.z]), r: Math.max(m.r, 0.7 / s) }));
+  const shadows = moons.filter((m) => m.r > 0).map((m) => { const p = m.shadow || m; return { c: toP([p.x, p.y, p.z]), r: Math.max(m.r, 0.7 / s) }; });
   const loaded = planetMap(planet), e = loaded?.img ? loaded : null, moonMaps = e?.moons || null;
   const bodies = (sky.hideMoons ? [] : moons).filter((m) => m.r > 0).map((m) => {
     const look = MOON_LOOK[m.name] || MOON_LOOK.other;
     return { c: toP([m.x, m.y, m.z]), r: m.r, look: moonMaps && m.name in MOON_MAPS ? [look[0], 3 + MOON_MAPS[m.name]] : look };
   });
   const map = e && sky.facing ? { e, lon0: [sky.facing.clouds ?? sky.facing.lon, sky.facing.lon1 ?? sky.facing.lon], u0: MAPS[planet].u0(sky.t), zones: Boolean(MAPS[planet].zones) } : null;
-  return { planet, f, e1, e2, p, toP, view, light, shadows, bodies, map, rings: e?.rings || null, moonMaps, sunAngle: SUN_ANGLE[planet] || 0, sat: planet === "saturn", litFace: Math.sign(light[2]) === Math.sign(view[2]) };
+  return { planet, f, e1, e2, p, toP, view, light, shadows, bodies, map, rings: e?.rings || null, moonMaps, sunAngle: sky.sunAngle ?? SUN_ANGLE[planet] ?? 0, sat: planet === "saturn", litFace: Math.sign(light[2]) === Math.sign(view[2]) };
 }
 
 // Display exposure for faint earthlight, separate from the physical

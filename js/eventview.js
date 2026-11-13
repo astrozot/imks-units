@@ -11,6 +11,7 @@ import { lunarAppearance, moonTexture } from './coelumsky.js';
 import { planetMap } from './skyview.js';
 import { osmMap, TILES } from "./osmmap.js";
 import { shadowMap, solarContacts, solarLocal, solarPhase, occultationLocal, horizontal } from "./astro.js";
+import { mountPrecision } from './precisionui.js';
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 // the Moon's near side, wherever the page is
@@ -197,8 +198,12 @@ function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
     if (close.isConnected) lunarAppearance(close, cur);
   });
   show(host.store.get("lunarView", "sim"));
+  const precisionRoot = document.createElement('div');
+  root.append(precisionRoot);
+  const precision = mountPrecision(precisionRoot, { kind: 'lunar', t: d.marks.find((m) => m.name === 'max')?.t });
   // the picture to share: the diagram, or the simulation as it is
   return {
+    destroy: () => { precision.destroy(); stop(); },
     share: () => (root.querySelector(".lunar-diagram").hidden
       ? { root: root.querySelector(".lunar-sim"), hide: ".lunar-play, .lunar-chips, .sky-hint", text: ".lunar-when", caption, name: "lunar-eclipse" }
       : { root: root.querySelector(".lunar-diagram"), hide: ".sky-hint", caption, name: "lunar-eclipse" }),
@@ -257,9 +262,16 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
       <div class="lunar-play"><button class="chip" data-map="play" aria-label="Play">▶</button><input type="range" class="map-slider" min="${from}" max="${to}" step="30" value="${m.t}" aria-label="Time"></div>
       <div class="sky-time lunar-chips">${chips()}</div></div>
       <div class="map-local"></div>
+      <div class="map-precision"></div>
       <p class="sky-hint map-hint">Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back</p>`;
   const svg = root.querySelector(".map-svg"), osm = root.querySelector(".osm-map"), hint = root.querySelector(".map-hint");
   const slider = root.querySelector(".map-slider"), when = root.querySelector(".map-when"), localBox = root.querySelector(".map-local");
+  const precisionRoot = root.querySelector('.map-precision');
+  let precision = null;
+  const showPrecision = () => {
+    precision?.destroy(); precisionRoot.replaceChildren();
+    if (!locationPicker && place && Number.isFinite(m.t)) precision = mountPrecision(precisionRoot, { kind: occ ? 'occultation' : 'solar', t: m.t, place: [...place], ...(occ ? { target: occ.target, front: occ.front } : {}) });
+  };
   let sim = false, at = null;
   // the view of the globe, and whether it is one chosen (then kept by the
   // maps of tiles; else they show the whole eclipse)
@@ -383,6 +395,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     place = [Math.round(p[0] * 1e4) / 1e4, Math.round(p[1] * 1e4) / 1e4];
     l = canPick ? localAt(place) : null;
     showLocal();
+    showPrecision();
     root.querySelector(".lunar-chips").innerHTML = chips();
     if (osmNow) osmNow.setPlace(place);
     if (sim) setTime(cur);
@@ -437,6 +450,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   slider.addEventListener("input", () => { stop(); setTime(Number(slider.value)); });
   dragTrack(slider, (t) => { stop(); slider.value = t; setTime(t); });
   showLocal();
+  showPrecision();
   mode(host.store.get("solarView", "sim"));
   // A calculator sheet is mounted while hidden. Measure again once it is
   // visible, and when its available width changes (including rotation).
@@ -502,7 +516,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   // the simulation
   return {
     resize: size,
-    destroy: () => { ++shown; observer.disconnect(); stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
+    destroy: () => { precision?.destroy(); ++shown; observer.disconnect(); stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
     share: () => {
       const cap = sim ? [...caption, when.textContent] : caption, name = occ ? "occultation" : "solar-eclipse";
       return osm.hidden

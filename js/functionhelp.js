@@ -259,7 +259,7 @@ const notes = {
   mag: ['Planetary magnitudes follow Mallama and Hilton (2018), including the contribution of Saturn’s rings.', 'Minor-planet magnitudes use the H–G model. Comet magnitudes use approximate total-brightness estimates.', 'For stars and other catalog objects, the result is the catalog V-band magnitude.'],
   passes: ['The visibility flag indicates whether the satellite is sunlit while the observing sky is dark.'],
   moonpos: ['The supported moons are the same major planetary moons shown by the moons function.'],
-  moonevents: ['The search covers the next 30 days. Event times refer to the moon’s center.'],
+  moonevents: ['Predictions cover 1900–2100. The search covers the next 30 days, as seen from Earth’s center. Times span first to last limb contact; eclipses and shadows include the penumbra.'],
   lunareclipse: ['With place supplied, the search finds the next eclipse visible there. The table marks contacts below the horizon and includes any moonrise or moonset during the eclipse, together with the Moon’s altitude.'],
   solareclipse: ['The local table includes contact times, maximum eclipse, any sunrise or sunset during the event, magnitude, obscured fraction, and the Sun’s altitude.', 'The map shows the eclipse path, UTC time contours for the beginning and end, and locations where maximum eclipse occurs at sunrise or sunset.'],
   opposition: ['The apparent ecliptic longitudes differ by 180°; angular separation need not be 180°.', 'A place selects a topocentric calculation and adds the altitude of the first body at greatest separation. Without a place, the calculation is geocentric.'],

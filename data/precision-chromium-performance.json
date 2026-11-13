@@ -1,0 +1,32 @@
+{
+  "sky": {
+    "before": {
+      "frames": 30,
+      "p95GapMs": 66.70000000000005,
+      "maxGapMs": 66.70000000000005
+    },
+    "during": {
+      "frames": 30,
+      "p95GapMs": 66.70000000000027,
+      "maxGapMs": 83.30000000000018
+    },
+    "residentBytes": 120232
+  },
+  "firstResultMs": 506,
+  "heartbeat": {
+    "maxGapMs": 54.5,
+    "ticks": 21
+  },
+  "cache": {
+    "bytes": 141465,
+    "files": 2
+  },
+  "fullCache": {
+    "bytes": 8317241,
+    "files": 70
+  },
+  "engine": "chromium",
+  "errors": [],
+  "cpuThrottleRate": 6,
+  "offlineMethod": "Browser offline emulation"
+}
