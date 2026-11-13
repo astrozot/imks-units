@@ -2,17 +2,21 @@
 // CacheStorage stays in the page (not in a restarted WebKit worker).
 import { boundedBytes, PRECISION_CACHE } from './precisionload.js';
 import { PRECISION_LIMITS } from './precisionpack.js';
-export const DATA_LIMITS = Object.freeze({ blockBytes:16384, chunkBytes:262144, residentBlocks:4, networkRequests:64, manifestBytes:65536, indexBytes:524288 });
+export const DATA_LIMITS = Object.freeze({ blockBytes:16384, chunkBytes:262144, residentBlocks:4, residentBytes:1048576, networkRequests:64, manifestBytes:65536, indexBytes:524288 });
 const recent = new Map(), sha = async bytes => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),x=>x.toString(16).padStart(2,'0')).join('');
 const touch = key => {recent.delete(key);recent.set(key,performance.now());while(recent.size>1024)recent.delete(recent.keys().next().value);};
 let cacheWrites=Promise.resolve();
 
 function validateManifest(value, base, mode) {
-  if(value?.version!==(mode==='static'?2:1)||!value.kernels?.de440||Object.keys(value.kernels).length>8)throw new Error('Invalid ephemeris manifest');
+  if(!(mode==='static'?[2,3].includes(value?.version):value?.version===1)||!value.kernels?.de440||Object.keys(value.kernels).length>12)throw new Error('Invalid ephemeris manifest');
   const entries = {...value.kernels,...(value.earthOrientation?{iers:value.earthOrientation}:{})};
   for(const [id,d] of Object.entries(entries)) {
-    if(!/^[a-z0-9-]{1,30}$/.test(id)||!d||!Number.isSafeInteger(d.bytes)||d.bytes<188||d.bytes>4*1024**3||!/^[0-9a-f]{64}$/.test(d.sha256)||typeof d.path!=='string'||!/^(kernels|iers)\/[a-zA-Z0-9._-]+$/.test(d.path)||!d.path.includes(d.sha256))throw new Error('Invalid ephemeris object descriptor');
-    if(mode==='static'&&(value.chunkBytes!==DATA_LIMITS.chunkBytes||!/^[0-9a-f]{64}$/.test(d.indexSha256)||!Number.isInteger(d.indexBytes)||d.indexBytes!==Math.ceil(d.bytes/DATA_LIMITS.chunkBytes)*32||d.indexBytes>DATA_LIMITS.indexBytes))throw new Error('Invalid static ephemeris index');
+    const identity=d?.partial===true&&value.version===3?d.indexSha256:d?.sha256;
+    if(!/^[a-z0-9-]{1,30}$/.test(id)||!d||!Number.isSafeInteger(d.bytes)||d.bytes<188||d.bytes>4*1024**3||!/^[0-9a-f]{64}$/.test(identity)||typeof d.path!=='string'||!/^(kernels|iers)\/[a-zA-Z0-9._-]+$/.test(d.path)||!d.path.includes(identity))throw new Error('Invalid ephemeris object descriptor');
+    const chunkBytes=d.chunkBytes??value.chunkBytes;
+    if(mode==='static'&&(![262144,524288].includes(chunkBytes)||!/^[0-9a-f]{64}$/.test(d.indexSha256)||!Number.isInteger(d.indexBytes)||d.indexBytes!==Math.ceil(d.bytes/chunkBytes)*32||d.indexBytes>DATA_LIMITS.indexBytes))throw new Error('Invalid static ephemeris index');
+    if(mode==='static')d.chunkBytes=chunkBytes;
+    if(d.fromJD!==undefined&&(!Number.isFinite(d.fromJD)||!Number.isFinite(d.toJD)||d.toJD<=d.fromJD))throw new Error('Invalid native kernel coverage');
     d.url=new URL(d.path,base).href;
   }
   return entries;
@@ -21,7 +25,7 @@ function validateManifest(value, base, mode) {
 export async function createDataSession(endpoint, progress = ()=>{}, signal, fetcher = fetch, mode='range') {
   const base=new URL(endpoint.endsWith('/')?endpoint:endpoint+'/');
   if(base.protocol!=='https:'&&!['localhost','127.0.0.1'].includes(base.hostname))throw new Error('Ephemeris data requires HTTPS');
-  const blockBytes=mode==='static'?DATA_LIMITS.chunkBytes:DATA_LIMITS.blockBytes;
+  const blockSize=id=>mode==='static'?descriptors[id].chunkBytes:DATA_LIMITS.blockBytes;
   const stats={networkRequests:0,networkBytes:0,residentBytes:0,peakResidentBytes:0,indexBytes:0,peakIndexBytes:0},resident=new Map(),pending=new Map(),etags=new Map(),sizes=new Map(),indexes=new Map(),indexPending=new Map();
   let cache=null;try{cache=await caches.open(PRECISION_CACHE);}catch{/* online calculations still work */}
   const remember=(key,n)=>{sizes.set(key,n);touch(key);};
@@ -91,6 +95,7 @@ export async function createDataSession(endpoint, progress = ()=>{}, signal, fet
     })();indexPending.set(id,task);try{return await task;}finally{indexPending.delete(id);}
   };
   const getBlock=async(id,index)=>{
+    const blockBytes=blockSize(id);
     const d=descriptors[id],offset=index*blockBytes,end=Math.min(d.bytes,offset+blockBytes)-1;
     const key=new URL(mode==='static'?`${d.url}/${String(index).padStart(6,'0')}.bin`:d.url);
     if(mode!=='static')key.searchParams.set('__astrolabium_range',`${offset}-${end}`);const address=key.href;
@@ -100,6 +105,7 @@ export async function createDataSession(endpoint, progress = ()=>{}, signal, fet
       let bytes;let old=await cached(address,end-offset+1);
       const hashes=mode==='static'?await getIndex(id):null;
       const expected=hashes?Array.from(hashes.subarray(index*32,index*32+32),x=>x.toString(16).padStart(2,'0')).join(''):null;
+      if(expected==='0'.repeat(64))throw new RangeError('Native data for this body and date is outside the hosted coverage');
       if(old&&expected&&(old.bytes.byteLength!==end-offset+1||await sha(old.bytes)!==expected)){await cache?.delete(address);old=null;}
       if(old){if(mode!=='static')pinETag(id,old.response.headers.get('ETag'));bytes=old.bytes;}
       else {
@@ -117,7 +123,8 @@ export async function createDataSession(endpoint, progress = ()=>{}, signal, fet
         if(expected&&await sha(bytes)!==expected)throw new Error('Static ephemeris chunk failed checksum verification');
         await put(address,bytes,{'Content-Type':'application/octet-stream',...(mode==='static'?{}:{'ETag':etags.get(id)})});
       }
-      resident.set(address,new Uint8Array(bytes));while(resident.size>DATA_LIMITS.residentBlocks)resident.delete(resident.keys().next().value);
+      resident.set(address,new Uint8Array(bytes));
+      while(resident.size>DATA_LIMITS.residentBlocks||[...resident.values()].reduce((n,b)=>n+b.byteLength,0)>DATA_LIMITS.residentBytes)resident.delete(resident.keys().next().value);
       stats.residentBytes=[...resident.values()].reduce((n,b)=>n+b.byteLength,0);stats.peakResidentBytes=Math.max(stats.peakResidentBytes,stats.residentBytes);
       return resident.get(address);
     })();
@@ -127,6 +134,7 @@ export async function createDataSession(endpoint, progress = ()=>{}, signal, fet
     const d=descriptors[id];
     if(!d||!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(length)||length<1||length>PRECISION_LIMITS.fileBytes||offset+length>d.bytes)throw new RangeError('Invalid ephemeris byte range');
     const result=new Uint8Array(length);let at=0;
+    const blockBytes=blockSize(id);
     while(at<length){if(signal?.aborted)throw signal.reason;const pos=offset+at,b=await getBlock(id,Math.floor(pos/blockBytes)),within=pos%blockBytes,n=Math.min(length-at,b.length-within);result.set(b.subarray(within,within+n),at);at+=n;}
     return result;
   };

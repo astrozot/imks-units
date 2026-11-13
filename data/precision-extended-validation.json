@@ -1,0 +1,10 @@
+{
+  "nativeStates": 161,
+  "maxPositionKm": 0,
+  "maxVelocityKmDay": 4.656612873077393e-10,
+  "nativeMoonPositions": 20,
+  "apparentPositions": 48,
+  "maxApparentArcsec": 0.00203343614091624,
+  "maxApparentRangeKm": 0.0009995996952056885,
+  "maxRawBytes": 1048576
+}

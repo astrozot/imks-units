@@ -5,13 +5,13 @@ import { deltaT } from './astro.js';
 import { MOONS } from './moons.js';
 import { moonSeriesPosition } from './moonposition.js';
 import { SYSTEM_GM } from './precision-gm.js';
+import { NATIVE_MOONS as SATELLITES } from './precisioncatalog.js';
 const RAD = Math.PI / 180, AU = 149597870.7, C = 299792.458, AS = RAD / 3600;
 const dot = (a, b) => a.reduce((s, x, i) => s + x * b[i], 0);
 const add = (a, b, scale = 1) => a.map((x, i) => x + scale * b[i]);
 const unit = (a) => { const n = Math.hypot(...a); return a.map((x) => x / n); };
 const cross = (a, b) => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 const IDS = { mercury: 1, venus: 2, mars: 4, jupiter: 5, saturn: 6, uranus: 7, neptune: 8 };
-const SATELLITES = { phobos:[4,401],deimos:[4,402],io:[5,501],europa:[5,502],ganymede:[5,503],callisto:[5,504],mimas:[6,601],enceladus:[6,602],tethys:[6,603],dione:[6,604],rhea:[6,605],titan:[6,606],hyperion:[6,607],iapetus:[6,608],miranda:[7,705],ariel:[7,701],umbriel:[7,702],titania:[7,703],oberon:[7,704],triton:[8,801] };
 const LEAPS = [[1972,1,10],[1972,7,11],[1973,1,12],[1974,1,13],[1975,1,14],[1976,1,15],[1977,1,16],[1978,1,17],[1979,1,18],[1980,1,19],[1981,7,20],[1982,7,21],[1983,7,22],[1985,7,23],[1988,1,24],[1990,1,25],[1991,1,26],[1992,7,27],[1993,7,28],[1994,7,29],[1996,1,30],[1997,7,31],[1999,1,32],[2006,1,33],[2009,1,34],[2012,7,35],[2015,7,36],[2017,1,37]].map(([y,m,d]) => [Date.UTC(y,m-1,1)/86400000+2440587.5,d]);
 
 export function precisionClock(pack, t) {
@@ -26,11 +26,17 @@ export function precisionClock(pack, t) {
     ut1JD = utcJD; ttJD = utcJD + deltaT(2000 + (utcJD-2451545)/365.25) / 86400;
   }
   const g = (357.53 + 0.9856003 * (ttJD-2451545)) * RAD;
-  const tdbJD = ttJD + (0.001657*Math.sin(g)+0.000022*Math.sin(2*g))/86400;
+  // USNO Circular 179 eq. 2.6 retains secular and planetary terms for
+  // historical DE441 dates; the established modern path is unchanged.
+  const T=(ttJD-2451545)/36525;
+  const periodic=pack.header?.source==='DE441'?
+    .001657*Math.sin(628.3076*T+6.2401)+.000022*Math.sin(575.3385*T+4.2970)+.000014*Math.sin(1256.6152*T+6.1969)+.000005*Math.sin(606.9777*T+4.0212)+.000005*Math.sin(52.9691*T+.4444)+.000002*Math.sin(21.3299*T+5.5431)+.000010*T*Math.sin(628.3076*T+4.2490):
+    .001657*Math.sin(g)+.000022*Math.sin(2*g);
+  const tdbJD = ttJD + periodic/86400;
   return { utcJD, ttJD, tdbJD, ut1JD, eop };
 }
 
-export function makePrecisionEphemeris(pack, { satelliteState = null } = {}) {
+export function makePrecisionEphemeris(pack, { satelliteState = null, allowBarycentres = false } = {}) {
   let time = NaN, context = null;
   const centre = (body, jd) => {
     const satellite = SATELLITES[body.toLowerCase()];
@@ -52,7 +58,10 @@ export function makePrecisionEphemeris(pack, { satelliteState = null } = {}) {
       return { position:add(state.position,p.position), velocity:add(state.velocity,p.velocity) };
     }
     if (!sys) return state;
-    if (jd < 2415020.5 || jd > 2488434.5) throw new RangeError('A native satellite kernel is required for this planet centre outside 1900–2100');
+    if (jd < 2415020.5 || jd > 2488434.5) {
+      if(allowBarycentres)return state;
+      throw new RangeError('A native satellite kernel is required for this planet centre outside 1900–2100');
+    }
     // DE440 carries system barycentres. Correct to the planet centre with
     // mass-weighted satellite vectors. Omitted small moons limit this
     // correction (notably Nereid: up to a few km), explicitly audited.
@@ -109,5 +118,5 @@ export function makePrecisionEphemeris(pack, { satelliteState = null } = {}) {
     return { ra:(Math.atan2(v[1],v[0])/RAD+360)%360, dec:Math.atan2(v[2],Math.hypot(v[0],v[1]))/RAD, dist };
   };
   return { equatorial:(body,t)=>apparent(body,t,null), topocentric:apparent, siderealTime:(t,lon=0)=>{const c=at(t);return c.frame.sidereal(c.ut1JD,lon);}, clock:(t)=>at(t), centre,
-    supports:(body)=>typeof body==='string' ? body==='sun'||body==='moon'||body in IDS||Boolean(SATELLITES[body.toLowerCase()]&&pack.has(...SATELLITES[body.toLowerCase()])) : Boolean(body && Number.isFinite(body.ra)&&Number.isFinite(body.dec)&&!body.orbit&&!body.orbits&&!body.sgp4) };
+    supports:(body)=>typeof body==='string' ? body==='sun'?pack.has(0,10):body==='moon'?pack.has(0,3)&&pack.has(3,301):body in IDS?pack.has(0,IDS[body]):Boolean(SATELLITES[body.toLowerCase()]&&pack.has(0,SATELLITES[body.toLowerCase()][0])&&pack.has(...SATELLITES[body.toLowerCase()])) : Boolean(body && Number.isFinite(body.ra)&&Number.isFinite(body.dec)&&!body.orbit&&!body.orbits&&!body.sgp4) };
 }

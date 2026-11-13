@@ -1,0 +1,29 @@
+{
+  "engine": "chromium",
+  "source": "https://astrolabium-ephemeris-data.marco-lombardi.workers.dev/v3/",
+  "cpuThrottleRate": 6,
+  "responsiveness": {
+    "before": {
+      "frames": 20,
+      "p95GapMs": 83.40000000000009,
+      "maxGapMs": 83.40000000000009
+    },
+    "during": {
+      "frames": 140,
+      "p95GapMs": 83.30000000000018,
+      "maxGapMs": 100
+    }
+  },
+  "requests": 20,
+  "autoDownloads": 0,
+  "positionCases": [
+    "Moon",
+    "Sun",
+    "Mercury",
+    "Venus",
+    "Jupiter"
+  ],
+  "offline": "Passed",
+  "cancel": "Fetch aborted and worker terminated",
+  "errors": []
+}

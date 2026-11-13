@@ -1,0 +1,29 @@
+{
+  "engine": "webkit",
+  "source": "https://astrolabium-ephemeris-data.marco-lombardi.workers.dev/v3/",
+  "cpuThrottleRate": 1,
+  "responsiveness": {
+    "before": {
+      "frames": 74,
+      "p95GapMs": 18,
+      "maxGapMs": 20
+    },
+    "during": {
+      "frames": 138,
+      "p95GapMs": 18,
+      "maxGapMs": 18
+    }
+  },
+  "requests": 32,
+  "autoDownloads": 0,
+  "positionCases": [
+    "Moon",
+    "Jupiter",
+    "Io",
+    "Saturn",
+    "Titan"
+  ],
+  "offline": "Cache-only reuse (WebKit emulator limitation)",
+  "cancel": "Fetch aborted and worker terminated",
+  "errors": []
+}

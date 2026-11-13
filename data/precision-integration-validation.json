@@ -1,0 +1,22 @@
+{
+  "newFeatureChecks": {
+    "nativeStatesAndHistoricalApparentPositions": "Passed; see precision-extended-validation.json",
+    "liveData": "Passed for DE440 preference, historical/future DE441 and all five satellite systems",
+    "originalEndpointCompatibility": "Passed",
+    "detailCardsChromium": "Passed, including real offline reuse and cancellation",
+    "detailCardsWebKit": "Passed, including cache-only reuse and cancellation",
+    "solarEclipseV3Browser": "Passed",
+    "legacyNumericalChecks": "Passed",
+    "boundedCacheAndPartialIndexes": "Passed"
+  },
+  "existingBroadSkySuite": {
+    "status": "Pre-existing test failure reproduced with unchanged HEAD coelumui.js",
+    "test": "tests/coelum-browser.mjs",
+    "location": "Search-selection section: click on hidden data-action=deselect button",
+    "reason": "Search focuses and selects without opening the detail card; the broad test assumes its close button is visible. The original test has been retained. New detail tests explicitly open the card before testing its controls."
+  },
+  "limits": [
+    "WebKit's offline emulator prevents module workers starting, so its reuse check runs online with zero new data requests.",
+    "Desktop CPU throttling is not an iPhone RAM or battery measurement; real iPhone 12 validation remains necessary."
+  ]
+}

@@ -14,6 +14,7 @@ export function readPrecisionPack(buffer) {
   for (const s of header.segments) {
     if (![s.center, s.target, s.count, s.degree, s.offset].every(Number.isSafeInteger) || s.count <= 0 || s.count > 512 || s.degree < 1 || s.degree > 32 || s.offset < 0 || !(s.step > 0) || !Number.isFinite(s.step) || !Number.isFinite(s.start) || s.start > header.fromJD || s.start + s.step * s.count < header.toJD || s.offset + s.count * 3 * (s.degree + 1) > data.length || segments.has(`${s.center}:${s.target}`)) throw new Error('Invalid precision record');
     if (s.velocityOffset !== undefined && (!Number.isSafeInteger(s.velocityOffset) || s.velocityOffset < 0 || s.velocityOffset + s.count * 3 * (s.degree + 1) > data.length)) throw new Error('Invalid native velocity record');
+    if(s.leftBoundaries!==undefined&&(!header.native||!Array.isArray(s.leftBoundaries)||s.leftBoundaries.length>32||s.leftBoundaries.some(i=>!Number.isSafeInteger(i)||i<1||i>=s.count)))throw new Error('Invalid native epoch boundaries');
     segments.set(`${s.center}:${s.target}`, s);
   }
   if (data.some((x) => !Number.isFinite(x))) throw new Error('Non-finite precision coefficient');
@@ -28,7 +29,8 @@ export function readPrecisionPack(buffer) {
   const native = (center, target, jd) => {
     const s = segments.get(`${center}:${target}`);
     if (!s || !Number.isFinite(jd) || jd < header.fromJD || jd > header.toJD) throw new RangeError('Date outside the loaded precision interval');
-    const record = Math.min(s.count - 1, Math.floor((jd - s.start) / s.step));
+    let record = Math.min(s.count - 1, Math.floor((jd - s.start) / s.step));
+    if(s.leftBoundaries?.includes(record)&&jd===s.start+record*s.step)record--;
     if (record < 0 || record >= s.count) throw new RangeError('Precision record unavailable');
     const x = 2 * (jd - s.start - record * s.step) / s.step - 1, n = s.degree + 1;
     const position = [], velocity = [];

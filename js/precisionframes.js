@@ -1,14 +1,24 @@
-// IAU 2006 frame bias/precession and IAU 2000B nutation. Optional event
+// IAU 2006 frame bias/precession and 77-term nutation: IAU 2000B within
+// DE440's interval, full IERS arguments and CIO rotation outside it. Optional
 // calculations only; not imported by the sky or any animation.
 // Formulae/series adapted from ERFA; see data/precision/ERFA-LICENSE.txt.
 import { NUTATION_2000B as TERMS } from './precision-nutation.js';
+import { equationOrigins } from './precision-cio.js';
 const AS = Math.PI / (180 * 3600);
 export const rotateX = (a, [x, y, z]) => [x, Math.cos(a) * y + Math.sin(a) * z, -Math.sin(a) * y + Math.cos(a) * z];
 export const rotateZ = (a, [x, y, z]) => [Math.cos(a) * x + Math.sin(a) * y, -Math.sin(a) * x + Math.cos(a) * y, z];
 const poly = (t, c) => c.reduceRight((sum, a) => sum * t + a, 0);
 export function precisionFrame(ttJD) {
   const T = (ttJD - 2451545) / 36525;
-  const arguments_ = [[485868.249036,1717915923.2178],[1287104.79305,129596581.0481],[335779.526232,1739527262.8478],[1072260.70369,1602961601.2090],[450160.398036,-6962890.5431]].map(([a,b]) => ((a + b * T) % 1296000) * AS);
+  // IAU 2000B linearises its fundamental arguments for modern dates.
+  // That drifts by tenths of an arcsecond in historical apparent places.
+  // Outside DE440's interval retain the same bounded 77-term series but
+  // evaluate the complete IERS 2003 arguments (ERFA fa[l,lp,f,d,om]03).
+  const full=ttJD<2287184.5||ttJD>2688976.5;
+  const arguments_ = (full?
+    [[485868.249036,1717915923.2178,31.8792,.051635,-.00024470],[1287104.793048,129596581.0481,-.5532,.000136,-.00001149],[335779.526232,1739527262.8478,-12.7512,-.001037,.00000417],[1072260.703692,1602961601.2090,-6.3706,.006593,-.00003169],[450160.398036,-6962890.5431,7.4722,.007702,-.00005939]]:
+    [[485868.249036,1717915923.2178],[1287104.79305,129596581.0481],[335779.526232,1739527262.8478],[1072260.70369,1602961601.2090],[450160.398036,-6962890.5431]])
+    .map(c => (poly(T,c) % 1296000) * AS);
   let dp = 0, de = 0;
   for (let i = TERMS.length - 11; i >= 0; i -= 11) {
     let a = 0;
@@ -24,7 +34,19 @@ export function precisionFrame(ttJD) {
   const eps = poly(T, [84381.406,-46.836769,-.0001831,.0020034,-.000000576,-.0000000434]) * AS;
   const apply = (v) => rotateX(-eps - deps, rotateZ(-psi - dpsi, rotateX(phi, rotateZ(gamma, v))));
   const inverse = (v) => rotateZ(-gamma, rotateX(-phi, rotateZ(psi + dpsi, rotateX(eps + deps, v))));
+  let origins=null;
+  if(full){
+    const columns=[[1,0,0],[0,1,0],[0,0,1]].map(apply),matrix=[0,1,2].map(row=>columns.map(c=>c[row]));
+    origins=equationOrigins(T,arguments_,matrix);
+  }
   const sidereal = (ut1JD, lon = 0) => {
+    if(origins!==null){
+      // The polynomial GMST + dpsi*cos(eps) approximation accumulates a
+      // significant rotation error over millennia. Use ERA minus the
+      // IAU 2006 equation of the origins for the historical path.
+      const era=2*Math.PI*(ut1JD%1+.7790572732640+.00273781191135448*(ut1JD-2451545));
+      return (((era-origins)*180/Math.PI+lon)%360+360)%360;
+    }
     const era = 2 * Math.PI * (0.7790572732640 + 1.00273781191135448 * (ut1JD - 2451545));
     const gmst = era + poly(T, [.014506,4612.156534,1.3915817,-.00000044,-.000029956,-.0000000368]) * AS;
     return ((gmst + dpsi * Math.cos(eps) + lon * Math.PI / 180) * 180 / Math.PI % 360 + 360) % 360;

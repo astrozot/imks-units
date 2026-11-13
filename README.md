@@ -607,19 +607,23 @@ with `python tools/precision-reference.py de440s.bsp --eop finals2000A.all`
 (Skyfield, SciPy and ERFA), then `node tests/precision.mjs --report`.
 Preparation tools contact no service at app runtime. DE440s and the full
 DE440 have the same solution within the smaller kernel's interval.
-DE441 and dates outside 1900–2100 are not part of this optional feature.
+The retained yearly-pack path covers 1900–2100; the native path below
+provides the extended dates and bodies.
 
 The preferred replacement is free static hosting: see
 [`workers/ephemeris-static`](workers/ephemeris-static/README.md). Verified
-original DE440 and IERS files are split once into exact 256 KiB chunks;
+original ephemeris and IERS files are split once into exact 256/512 KiB chunks;
 phones request the chunks for the selected date on explicit refinement.
 The original native coefficients are preserved, with per-chunk SHA-256
 verification. There are no yearly extracts on this path. Extraction and
 calculations run in a background worker, with at most 1 MiB of resident
 raw chunks and an 8 MiB persistent payload cache. No R2 bucket or server
 calculation is used; static asset requests use Cloudflare's free hosting.
-The initial pilot includes DE440 and IERS only (1550 to early 2650);
-satellite kernels and DE441 are future additions. `STATIC_DATA_URL` in
+The versioned catalogue adds DE441 outside DE440, through the sky's existing
+astronomical-year range −1000–3000, plus MAR099, JUP365, SAT441, URA184 and
+NEP097 for native planet centres and 20 natural moons within their coverage.
+DE440 remains preferred whenever it covers the requested interval.
+`STATIC_DATA_URL` in
 `js/precisionconfig.js` selects this path. Existing yearly data remains
 available as an alternative configuration and is not requested with a
 static URL configured.
@@ -634,6 +638,15 @@ and `data/static-ephemeris-webkit-performance.json`; real iPhone memory and
 animation checks remain necessary before public release. The previous
 R2 range transport remains optional; see [`tools/r2`](tools/r2/README.md).
 
+Planet, Sun, Moon and natural-moon detail cards offer a precise-position
+button, with apparent coordinates seen from the selected place or Earth's
+centre. Results are timestamped snapshots, flag changes to the clock/place,
+and identify a system barycentre or compact planet-centre correction when
+native centre data is unavailable. No download or numeric worker starts
+merely by opening a card or playing the animation. Natural-moon event
+searches retain their compact models. Extended numerical checks and
+phone-sized browser checks are documented with the static-data service.
+
 The earlier extraction Worker prototype is retained in
 [`workers/ephemeris`](workers/ephemeris/README.md), named
 `astrolabium-ephemeris` for the intended Astrolabium branding. It reads
@@ -644,8 +657,8 @@ To use that prototype instead, set `EPHEMERIS_SERVICE` in
 `js/precisionconfig.js` with both static and R2 URLs empty. With a service configured,
 DE440 dates are offered from 1550 through early 2650 where native coverage
 exists; satellite coverage is the intersection with the selected kernel.
-DE441 extraction is present in the service catalogue for future work,
-but historical DE441 events are not enabled or validated in the app.
+The active historical DE441 implementation uses the versioned static
+catalogue above rather than this prototype service.
 
 `node tests/ephemeris-service.mjs` checks 140 native states against
 independent jplephem evaluations, type 2/3 records, exact native planet

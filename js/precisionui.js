@@ -4,6 +4,7 @@ import { EPHEMERIS_SERVICE, EPHEMERIS_YEARS, R2_DATA_URL, STATIC_DATA_URL } from
 const CACHE = 'imks-data-precision-v1';
 let active = null;
 const abortError = () => new DOMException('Calculation cancelled', 'AbortError');
+export async function clearPrecisionData(){active?.cancel();await caches.delete(CACHE);}
 
 export function precisionEvent(job, progress = () => {}) {
   active?.cancel();
@@ -57,15 +58,17 @@ export function precisionEvent(job, progress = () => {}) {
 export function mountPrecision(root, job) {
   const year = new Date(job.t * 1000).getUTCFullYear();
   if (year < EPHEMERIS_YEARS[0] || year > EPHEMERIS_YEARS[1] || !Number.isFinite(job.t)) return { destroy() {} };
-  root.innerHTML = '<p><button type="button" class="chip" data-precision-run>Refine contacts with DE440</button> <button type="button" class="chip" data-precision-clear>Clear downloaded event data</button></p><p class="sky-hint" data-precision-status aria-live="polite">Downloads about 120 KiB for this year when needed. Stored event data is limited to 8 MiB.</p><div data-precision-result></div>';
+  const jd=job.t/86400+2440587.5,model=jd<2287184.5||jd>2688976.5?'DE441':'DE440';
+  root.innerHTML = '<p><button type="button" class="chip" data-precision-run>Refine contacts with DE440</button> <button type="button" class="chip" data-precision-clear>Clear downloaded ephemerides</button></p><p class="sky-hint" data-precision-status aria-live="polite">Downloads about 120 KiB for this year when needed. Stored ephemeris data is limited to 8 MiB.</p><div data-precision-result></div>';
   const run = root.querySelector('[data-precision-run]'), clear = root.querySelector('[data-precision-clear]'), status = root.querySelector('[data-precision-status]'), result = root.querySelector('[data-precision-result]');
+  run.textContent=`Refine contacts with ${model}`;
   if (STATIC_DATA_URL || R2_DATA_URL || EPHEMERIS_SERVICE) status.textContent = 'Downloads only the ephemeris fragments needed for this date. Stored event data is limited to 8 MiB.';
   let pending = null, observer = null, serial = 0;
-  const stop = () => { ++serial; pending?.cancel(); pending = null; observer?.disconnect(); observer = null; run.textContent = 'Refine contacts with DE440'; };
+  const stop = () => { ++serial; pending?.cancel(); pending = null; observer?.disconnect(); observer = null; run.textContent = `Refine contacts with ${model}`; };
   const show = (r) => {
     result.replaceChildren();
     const note = document.createElement('p');
-    note.textContent = r.event ? `${r.source}: ${r.event.kind || 'occultation'} contacts${job.place && job.kind !== 'lunar' ? ` at ${job.place[0].toFixed(4)}°, ${job.place[1].toFixed(4)}°` : ''}.` : 'DE440: no event at this place.';
+    note.textContent = r.event ? `${r.source}: ${r.event.kind || 'occultation'} contacts${job.place && job.kind !== 'lunar' ? ` at ${job.place[0].toFixed(4)}°, ${job.place[1].toFixed(4)}°` : ''}.` : `${r.source}: no event at this place.`;
     result.append(note);
     if (r.event) {
       const table = document.createElement('table'); table.className = 'map-contacts';
@@ -75,7 +78,7 @@ export function mountPrecision(root, job) {
       for (const name of names) {
         const t = r.event[name]; if (!Number.isFinite(t)) continue;
         const row = table.insertRow(); row.insertCell().textContent = name === 'max' ? 'Maximum' : name;
-        row.insertCell().textContent = new Date(Math.round(t) * 1000).toISOString().replace('T', ' ').slice(0, 19);
+        row.insertCell().textContent = new Date(Math.round(t) * 1000).toISOString().replace('T', ' ').replace(/\.000Z$/, '');
       }
       result.append(table);
     }
@@ -88,7 +91,7 @@ export function mountPrecision(root, job) {
   run.addEventListener('click', async () => {
     if (pending) { stop(); status.textContent = 'Calculation cancelled.'; return; }
     const token = ++serial;
-    run.textContent = 'Cancel DE440 calculation'; result.replaceChildren(); status.textContent = 'Loading DE440 event data…';
+    run.textContent = `Cancel ${model} calculation`; result.replaceChildren(); status.textContent = `Loading ${model} event data…`;
     // Sheet implementations can hide, empty or replace their body. Watch
     // only this element and its ancestors, and only while a job is active.
     observer = new MutationObserver(() => {
@@ -100,11 +103,11 @@ export function mountPrecision(root, job) {
       const r = await pending.promise;
       if (token === serial && root.isConnected) show(r);
     } catch (error) { if (token === serial) status.textContent = error.name === 'AbortError' ? 'Calculation cancelled.' : `${error.message}. Compact calculations remain available.`; }
-    finally { if (token === serial) { pending = null; observer?.disconnect(); observer = null; run.textContent = 'Refine contacts with DE440'; } }
+    finally { if (token === serial) { pending = null; observer?.disconnect(); observer = null; run.textContent = `Refine contacts with ${model}`; } }
   });
   clear.addEventListener('click', async () => {
     stop(); active?.cancel();
-    try { await caches.delete(CACHE); status.textContent = 'Downloaded event data cleared.'; }
+    try { await caches.delete(CACHE); status.textContent = 'Downloaded ephemeris data cleared.'; }
     catch { status.textContent = 'Browser storage is unavailable.'; }
   });
   return { destroy: stop };

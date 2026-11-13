@@ -2,6 +2,7 @@
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
 import { MountSwitcher } from './mountswitch.js';
+import { precisePositionControls } from './precisionpositions.js';
 import { preventPageZoom } from './pagezoom.js';
 import { mountMap } from './eventview.js';
 import { skyTimeInput, parseSkyInput, skyTimeZone, validSkyZone, skyDayBounds, skyClock } from './coelumtime.js';
@@ -356,12 +357,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <button type="button" class="coelum-btn" data-action="orient" aria-pressed="false" aria-label="Follow the phone's orientation" title="Follow the phone's orientation"${orientationSupported() ? '' : ' hidden'}>${ICONS.orient}</button>
       </div>
     </div>
-    <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><p>Tap an object or its label to see its characteristics.</p></div></section>
+    <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><div data-object-basic><p>Tap an object or its label to see its characteristics.</p></div><div data-object-precision hidden></div></div></section>
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
     <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars and deep-sky objects: the app’s IAU / HYG / OpenNGC catalogs. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   root.appendChild($('.coelum-map-panel'));
-  const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('.coelum-detail-body'), viewport = $('.coelum-viewport');
+  const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('[data-object-basic]'), viewport = $('.coelum-viewport');
+  const precisePosition=precisePositionControls($('[data-object-precision]'),formatTime);
   const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results'), searchDropdown = $('.coelum-search-dropdown'), searchKey = $('.coelum-search-key'), searchHint = $('.coelum-search-hint');
   const layers = { chart: { ...DEFAULT_LAYERS }, sky: { ...SKY_LAYERS } };
   const views = { chart: { scale: 1, rotation: [...SKY_IDENTITY] }, sky: null };
@@ -479,7 +481,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       const html = feature ? (feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : o && objectDetails(mode === 'sky' && atmosphereOn() ? { ...o, apparentAlt: o.alt + refraction(o.alt, place[2] || 0) } : o, frame);
       // unchanged, the card stays (a tap on its button is not lost)
       if (html && html !== detailHTML) detail.innerHTML = detailHTML = html;
-    }
+      precisePosition.update({body:o&&!feature?(o.planet?o.name:o.body):null,t,place,visible:detailShown&&!root.classList.contains('coelum-show-options')&&!root.classList.contains('coelum-moons-open')});
+    }else precisePosition.update(null);
   };
   const currentView = () => (mode === 'sky' ? skyView() : views.chart);
   // The view's state, also as attributes (for tests and snapshots).
@@ -722,6 +725,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       $(`[data-action="${key}"]`)?.setAttribute('aria-expanded', String(on));
     }
     root.classList.toggle('coelum-show-options', panelOpen() && panels.legend.hidden);
+    updateUI(true);
     if (name === 'time' && !panels.time.hidden) showTime();
     if (name === 'place' && !panels.place.hidden) { placeInput.value = ''; showPlaces(''); }
     const more = extra.find((p) => p.key === name);
@@ -782,7 +786,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const restore = !moons.wasImmersive;
     moons = null; moonsLayer.hidden = true; root.classList.remove('coelum-moons-open');
     if (restore) fullscreen(false);
-    draw();
+    draw(true);
   };
   const moonsData = () => {
     const o = frame.bodies.find((b) => b.body === moons.planet);
@@ -856,6 +860,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const wasImmersive = moons ? moons.wasImmersive : immersive();
     if (!immersive()) fullscreen(true);
     moonsLayer.hidden = false; root.classList.add('coelum-moons-open');
+    updateUI(true);
     moons = { planet, t, wasImmersive, view: moonsView(stage, sky, { onTap: (m) => { closeMoons(); select(m.name, { details: true }); const o = findObject(frame, m.name); if (o) goTo(o); draw(); }, bar: false, onScale: showRuler, top: 64, onOverlay: surface?.overlay, onPoint: surface?.pick }), surface };
     sizeMoons(); moonsData();
     if (feature) surface?.focus(feature);
@@ -1758,7 +1763,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { stopAlmanac?.(); placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { precisePosition.destroy(); stopAlmanac?.(); placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   const explorer = {
@@ -1794,7 +1799,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     setTime,
     setPlace: (p) => setPlace(p),
     setSpeed: (v) => setSpeed(v),
-    select: (name) => { select(name); draw(); },
+    select: (name, options) => { select(name, options); draw(); },
     closePanel: () => showPanel(null),
     snapshot() {
       // Export the current frame as SVG even while the canvas is moving;

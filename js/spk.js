@@ -33,13 +33,26 @@ export async function openSpk(read) {
     if (!Number.isFinite(init) || !(step > 0) || !Number.isFinite(step) || !integer(size) || !integer(count) || !integer(terms) || terms < 2 || terms > 33 || count * size + 4 !== s.last - s.first + 1) throw new Error('Invalid SPK record directory');
     return s.layout = { init, step, size, count, terms };
   };
-  const extract = async (center, target, fromJD, toJD) => {
+  const extract = async (center, target, fromJD, toJD, depth=0) => {
     if (!Number.isFinite(fromJD) || !(toJD > fromJD) || toJD - fromJD > 32) throw new RangeError('SPK extraction needs an interval of at most 32 days');
     const from = (fromJD - J2000) * DAY, to = (toJD - J2000) * DAY;
-    // SPICE gives later summaries precedence. Keep a request within one
-    // continuous native segment; never extrapolate a polynomial.
+    // SPICE gives later summaries precedence. Join only compatible continuous
+    // native record grids; never extrapolate a polynomial.
     const s = segments.findLast((s) => s.center === center && s.target === target && s.from <= from && s.to >= to);
-    if (!s) throw new RangeError(`No native SPK coverage for ${center} → ${target} over the requested interval`);
+    if (!s) {
+      // Satellite solutions can split a continuous series into several
+      // epochs. Join original records only when their grids agree exactly.
+      const cuts=segments.filter(s=>s.center===center&&s.target===target).flatMap(s=>[s.from,s.to]).filter(t=>t>from&&t<to).sort((a,b)=>a-b);
+      if(!cuts.length||depth>=16)throw new RangeError(`No continuous native SPK coverage for ${center} → ${target} over the requested interval`);
+      const split=J2000+cuts[0]/DAY,a=await extract(center,target,fromJD,split,depth+1),b=await extract(center,target,split,toJD,depth+1);
+      const count=a.count+b.count,size=a.positions.byteLength+b.positions.byteLength+(a.velocities?.byteLength||0)+(b.velocities?.byteLength||0);
+      if(a.degree!==b.degree||a.step!==b.step||a.start+a.count*a.step!==b.start||Boolean(a.velocities)!==Boolean(b.velocities)||count>512||size>512*1024)throw new RangeError('Native SPK epoch boundaries use incompatible record grids');
+      const concatenate=(x,y)=>{const values=new Float64Array(x.length+y.length);values.set(x);values.set(y,x.length);return values;};
+      const leftBoundaries=[...(a.leftBoundaries||[]),...(b.leftBoundaries||[]).map(i=>i+a.count)];
+      // SPICE prefers the later summary even at a shared inclusive epoch.
+      if(a.sourcePriorityEnd>b.sourcePriorityStart)leftBoundaries.push(a.count);
+      return {...a,count,positions:concatenate(a.positions,b.positions),velocities:a.velocities?concatenate(a.velocities,b.velocities):null,leftBoundaries,sourcePriorityEnd:b.sourcePriorityEnd};
+    }
     const l = await layout(s), first = Math.max(0, Math.floor((from - l.init) / l.step)), last = Math.min(l.count, Math.floor((to - l.init) / l.step) + 1), count = last - first;
     if (count < 1 || count > 512 || l.init + first * l.step > from || l.init + last * l.step < to || count * l.size * 8 > 512 * 1024) throw new RangeError('Requested SPK interval is too large or crosses native coverage');
     const raw = await read((s.first - 1 + first * l.size) * 8, count * l.size * 8), view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
@@ -54,7 +67,7 @@ export async function openSpk(read) {
         else velocities[(i * 3 + axis - 3) * l.terms + k] = x * DAY;
       }
     }
-    return { center, target, start: J2000 + (l.init + first * l.step) / DAY, step: l.step / DAY, count, degree: l.terms - 1, positions, velocities };
+    return { center, target, start: J2000 + (l.init + first * l.step) / DAY, step: l.step / DAY, count, degree: l.terms - 1, positions, velocities,sourcePriorityStart:segments.indexOf(s),sourcePriorityEnd:segments.indexOf(s) };
   };
   return { segments, extract };
 }
@@ -66,6 +79,7 @@ export function encodeSpkPack(records, metadata, orientation = []) {
   let offset = 0;
   for (const { positions, velocities, ...record } of records) {
     const s = { ...record, offset }; payload.push(positions); offset += positions.length;
+    delete s.sourcePriorityStart;delete s.sourcePriorityEnd;
     if (velocities) { s.velocityOffset = offset; payload.push(velocities); offset += velocities.length; }
     header.segments.push(s);
   }

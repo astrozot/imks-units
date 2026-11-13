@@ -6,5 +6,6 @@ export const EPHEMERIS_SERVICE = '';
 // r2.dev URL is for the initial pilot; use a custom domain for production.
 export const R2_DATA_URL = '';
 // Free static hosting with immutable, checksum-verified native SPK chunks.
-export const STATIC_DATA_URL = 'https://astrolabium-ephemeris-data.marco-lombardi.workers.dev/';
-export const EPHEMERIS_YEARS = STATIC_DATA_URL || R2_DATA_URL || EPHEMERIS_SERVICE ? [1550, 2650] : [1900, 2100];
+export const STATIC_DATA_URL = 'https://astrolabium-ephemeris-data.marco-lombardi.workers.dev/v3/';
+// Match the sky's existing astronomical-year limits; year 0 is 1 BCE.
+export const EPHEMERIS_YEARS = STATIC_DATA_URL ? [-1000, 3000] : R2_DATA_URL || EPHEMERIS_SERVICE ? [1550, 2650] : [1900, 2100];

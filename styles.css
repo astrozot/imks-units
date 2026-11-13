@@ -586,6 +586,11 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-detail dt { color: var(--muted); }
 .coelum-detail dd { margin: 0; font-variant-numeric: tabular-nums; }
 .coelum-detail .coelum-coordinate-note { margin-top: 8px; color: var(--muted); font-size: 12px; }
+[data-object-precision] { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--c-line, var(--line)); }
+[data-object-precision] > p:first-child { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+[data-object-precision] > label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+[data-object-precision] select { max-width: 100%; min-height: 32px; padding: 4px 8px; border: 1px solid var(--c-line, var(--line)); border-radius: 8px; background: var(--c-bg, var(--surface)); color: inherit; font: inherit; }
+[data-precise-result] > p:first-child { margin-top: 10px; font-weight: 600; }
 .coelum-explorer > .sky-hint { margin-top: 4px; }
 .coelum-credit { color: var(--muted); font-size: 11px; line-height: 1.6; }
 .coelum-credit a { color: var(--accent-ink); }
