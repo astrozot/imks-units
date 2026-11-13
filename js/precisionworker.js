@@ -1,7 +1,7 @@
 // One event, one year buffer, then the main thread terminates this worker.
 import { readPrecisionPack } from './precisionpack.js';
 import { makePrecisionEphemeris } from './precisionephem.js';
-import { solarLocal, lunarEclipse, lunarDiagram, occultationLocal, deltaTError, horizontal, eclipseTrack, occultationTrack, solarContacts } from './astro.js';
+import { solarLocal, lunarEclipse, lunarDiagram, occultationLocal, deltaTError, horizontal, eclipseTrack, occultationTrack, solarContacts, solarEclipse } from './astro.js';
 import { PLANET_IDS,HISTORICAL_YEARS,NATIVE_MOONS } from './precisioncatalog.js';
 
 export async function calculatePrecisionEvent(job, pack) {
@@ -20,7 +20,7 @@ export async function calculatePrecisionEvent(job, pack) {
     const spec=planet==='jupiter'?[5,599]:planet==='saturn'?[6,699]:null;
     if(!spec||!pack.has(...spec))throw new Error('Native planet centre is required');
     const list=nativePlanetMoonEvents(ephemeris,planet,t,job.days??1),clock=ephemeris.clock(t);
-    return {kind,system:planet,t,days:job.days??1,list,source,kernels:pack.header.kernels.map(k=>k.id),native:true,earthOrientation:clock.eop?'IERS daily UT1':'Modelled Earth rotation (ΔT)',residentBytes:pack.byteLength,calculationMs:performance.now()-start};
+    return {kind,system:planet,t,days:job.days??1,list,source:source+' + '+(planet==='jupiter'?'JUP365':'SAT441'),kernels:pack.header.kernels.map(k=>k.id),native:true,earthOrientation:clock.eop?'IERS daily UT1':'Modelled Earth rotation (ΔT)',residentBytes:pack.byteLength,calculationMs:performance.now()-start};
   }
   if(kind==='position'){
     const body=typeof job.body==='string'?job.body.toLowerCase():null;
@@ -39,8 +39,9 @@ export async function calculatePrecisionEvent(job, pack) {
   let map=null;
   if(job.map&&['solar','occultation'].includes(kind)){
     const {samplePrecisionEphemeris}=await import('./precisioninterpolate.js');
-    const track=kind==='solar'?eclipseTrack(t,null,ephemeris):occultationTrack(target,front,t,ephemeris);
-    const contacts=kind==='solar'?solarContacts(t,ephemeris):null;
+    const global=kind==='solar'?solarEclipse(t-86400,ephemeris,t+86400):null;
+    const track=kind==='solar'?eclipseTrack(global?.max??t,null,ephemeris):occultationTrack(target,front,t,ephemeris);
+    const contacts=kind==='solar'?solarContacts(global?.max??t,ephemeris):null;
     const from=contacts?(contacts.P1??t-5*3600)-600:t-6*3600,to=contacts?(contacts.P4??t+5*3600)+600:t+6*3600;
     // Stars are immutable catalogue objects and need no sampled playback;
     // occultation maps have no moving-shadow animation.

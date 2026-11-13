@@ -1058,9 +1058,9 @@ function shadowAt(t, ephemeris = null) {
 // The next solar eclipse after t (by the new moons): kind (total, annular,
 // hybrid, partial), the time of greatest eclipse (the shadow's axis closest
 // to the Earth's center), gamma and the magnitude there
-function solarEclipse(t, ephemeris = null) {
+function solarEclipse(t, ephemeris = null, until = Infinity) {
   let nm = nextPhase(t, 0);
-  for (let n = 0; n < 60; n++, nm = nextPhase(nm + 86400, 0)) {
+  for (let n = 0; n < 60 && nm < until; n++, nm = nextPhase(nm + 86400, 0)) {
     const max = least((x) => Math.abs(shadowAt(x, ephemeris).gamma), nm, 0.3 * 86400), g = shadowAt(max, ephemeris), a = Math.abs(g.gamma);
     if (a > 1 + g.penumbra || max < t) continue;
     // the umbra still open (positive) at the Earth: total; past its tip: annular

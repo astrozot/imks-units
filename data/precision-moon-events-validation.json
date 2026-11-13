@@ -1,0 +1,103 @@
+{
+  "moonEvents": [
+    {
+      "system": "jupiter",
+      "t": 1712534400,
+      "events": 6,
+      "calculationMs": 236.746916,
+      "packBytes": 10880
+    },
+    {
+      "system": "saturn",
+      "t": 1712534400,
+      "events": 10,
+      "calculationMs": 488.50458299999997,
+      "packBytes": 18000
+    },
+    {
+      "system": "jupiter",
+      "t": -2195942400,
+      "events": 6,
+      "calculationMs": 211.503875,
+      "packBytes": 11560
+    },
+    {
+      "system": "saturn",
+      "t": -2195942400,
+      "events": 0,
+      "calculationMs": 139.1840830000001,
+      "packBytes": 17120
+    },
+    {
+      "system": "jupiter",
+      "t": 959817600,
+      "events": 4,
+      "calculationMs": 199.3963329999999,
+      "packBytes": 11648
+    },
+    {
+      "system": "saturn",
+      "t": 959817600,
+      "events": 0,
+      "calculationMs": 141.136125,
+      "packBytes": 18744
+    },
+    {
+      "system": "jupiter",
+      "t": 1252022400,
+      "events": 6,
+      "calculationMs": 232.5468330000001,
+      "packBytes": 12544
+    },
+    {
+      "system": "saturn",
+      "t": 1252022400,
+      "events": 12,
+      "calculationMs": 589.0323750000002,
+      "packBytes": 16768
+    },
+    {
+      "system": "jupiter",
+      "t": 1742688000,
+      "events": 2,
+      "calculationMs": 156.5066670000001,
+      "packBytes": 12856
+    },
+    {
+      "system": "saturn",
+      "t": 1742688000,
+      "events": 14,
+      "calculationMs": 496.67504199999985,
+      "packBytes": 17080
+    },
+    {
+      "system": "jupiter",
+      "t": 4083955200,
+      "events": 7,
+      "calculationMs": 248.26808399999982,
+      "packBytes": 12328
+    },
+    {
+      "system": "saturn",
+      "t": 4083955200,
+      "events": 12,
+      "calculationMs": 479.6125000000002,
+      "packBytes": 17864
+    }
+  ],
+  "maps": [
+    {
+      "kind": "solar",
+      "sampleBytes": 37016,
+      "maxArcsec": 0.0003307577397931851,
+      "maxShadowKm": 0.0007186317913016343,
+      "calculationMs": 297.5295420000002
+    },
+    {
+      "kind": "occultation",
+      "calculationMs": 38.88545900000054
+    }
+  ],
+  "independentContacts": 114,
+  "maxReferenceSeconds": 0.0366358757019043
+}

@@ -48,8 +48,53 @@ discards the unfinished job’s new fragments. Old cached fragments are
 evicted automatically; there is no clear-cache button. No automatic
 download or recalculation runs during playback. When native planet-centre
 data is unavailable, the result explicitly identifies the compact centre
-correction or the system barycentre. Native satellite-event searches are
-not enabled: moon-event lists and animations still use their compact models.
+correction or the system barycentre. Jupiter and Saturn moon-event panels now offer native refinement for one
+day at a time, including transits, occultations, eclipses and visible shadow
+transits. Other systems and unrefined searches retain the compact models.
+The search requires native planet-centre records and uses separate
+planet/moon emission epochs and the additional shadow light path. Radii,
+fixed adopted poles, oblateness and smooth limbs still limit physical
+accuracy; atmospheres and mutual satellite events are not modelled.
+
+Eclipse and occultation refinement also returns native global map tracks.
+Solar playback uses a bounded 30-second apparent-position grid generated
+in the worker, with no SPK/frame computation on animation frames. Exact
+selected-location contacts remain worker calculations. Tapping a new
+place returns the map/contacts to the compact model until JPL is explicitly
+requested there. No new hosted assets or service calculations are needed.
+
+`tests/precision-moon-events.mjs` checks six epochs (1900, 2000, 2009, 2024,
+2025, 2099) with `EXTENDED_STAGED` pointing to the published v3 snapshot.
+It checks each event boundary and midpoint, null full contacts, the raw
+1 MiB cap, native maps and sampled solar-shadow playback. The committed
+reference fixture has 114 limb/penumbral contacts independently solved
+with jplephem and SciPy, using the same declared physical and clock models.
+The maximum timing difference is recorded in
+[`../../data/precision-moon-events-validation.json`](../../data/precision-moon-events-validation.json).
+This is a seeded comparison, not a proof that every event is found, nor an
+observational accuracy guarantee. Visible shadow contacts have regression
+checks but no independent external timing comparison yet. Stellarium
+comparison still needs a pinned version and matching kernel/model settings;
+no numerical parity with Stellarium is claimed.
+
+Regenerate independent contacts from authenticated requested chunks:
+
+```sh
+EXTENDED_STAGED=/path/to/release/v3 \
+  SEEDS=/tmp/native-moon-seeds.json \
+  REFERENCE_KERNELS=/tmp/native-moon-reference-kernels \
+  node tests/precision-moon-events.mjs
+/path/to/python tools/native-moon-contacts-reference.py \
+  /tmp/native-moon-seeds.json tests/fixtures/native-moon-contacts.json \
+  /tmp/native-moon-reference-kernels
+```
+
+Remove the seed file before regenerating to avoid accumulating duplicate
+seeds. The sparse BSPs are development-only: they contain only the native
+chunks requested by these cases and must never be published as full kernels.
+The standalone browser test `tests/precision-moon-events-browser.mjs`
+checks Jupiter/Saturn at phone width, explicit downloads, cache-only
+switching and cancellation in Chromium and WebKit.
 
 ## Hosting and cost
 

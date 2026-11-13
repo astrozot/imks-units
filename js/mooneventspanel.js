@@ -36,15 +36,15 @@ function moonEventsPanel(body, { formatTime, onSelect, onClose }) {
   };
   const render = () => {
     if (!state) return;
-    const s = state,events=s.preciseList??s.list;
+    const s = state,events=s.preciseList??s.list,error=s.preciseList?null:s.error,days=s.preciseList?1:s.days;
     const full = (e) => e.contacts.C2 === null ? '' : `<small>${FULL[e.kind]}: ${esc(formatTime(e.contacts.C2))} – ${esc(formatTime(e.contacts.C3))}</small>`;
     body.innerHTML = `<button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-moon-events-close aria-label="Close moon events">×</button>
       <h3>Events of ${esc(s.planet[0].toUpperCase() + s.planet.slice(1))}'s moons</h3>
       <div data-moon-precision-slot></div>
-      <p class="coelum-panel-note">After ${esc(formatTime(s.from))}. First to last contact, as seen from Earth's center. Eclipses and shadows include the penumbra. Tap an event to show the system at its midpoint.${s.preciseList?' Native orbits; adopted radii and poles, smooth limbs and finite Sun. Atmospheres and mutual moon events are not included. Displayed seconds are resolution, not an accuracy guarantee.':''}</p>
+      <p class="coelum-panel-note">After ${esc(formatTime(s.from))}. First to last contact, as seen from Earth's center. Eclipses and shadows include the penumbra. Tap an event to show the system at its midpoint.${s.preciseList?` Native orbits; adopted radii and poles, smooth limbs and finite Sun.${s.preciseClock?.startsWith('Modelled')?' Times use modelled ΔT.':''} Atmospheres and mutual moon events are not included. Displayed seconds are resolution, not an accuracy guarantee.`:''}</p>
       <div class="coelum-event-list">${events.slice(0, s.shown).map((e, i) => `<button type="button" class="coelum-event" data-moon-event="${i}"><b>${esc(e.moon)} ${LABEL[e.kind]}</b><span>${esc(formatTime(e.begin))} – ${esc(formatTime(e.end))}</span>${e.begin < s.from ? '<small>Already in progress</small>' : ''}${full(e)}</button>`).join("")}
-      ${s.busy ? `<p class="coelum-panel-note" role="status">Searching… ${Math.round(100 * (job?.done || 0))}%</p>` : s.error ? `<p class="coelum-panel-note" role="status">${esc(s.error)}</p>` : `${events.length ? '' : `<p class="coelum-panel-note">None within ${s.days === 1 ? 'a day' : `${s.days} days`}.</p>`}<button type="button" class="coelum-chip" data-moon-events-more>${s.preciseList&&s.shown>=events.length?'Next day':'More'}</button>`}</div>`;
-    if(s.controls){body.querySelector('[data-moon-precision-slot]').replaceWith(s.controls);s.controls.hidden=s.busy||s.days!==1;}
+      ${s.busy ? `<p class="coelum-panel-note" role="status">Searching… ${Math.round(100 * (job?.done || 0))}%</p>` : error ? `<p class="coelum-panel-note" role="status">${esc(error)}</p>` : `${events.length ? '' : `<p class="coelum-panel-note">None within ${days === 1 ? 'a day' : `${days} days`}.</p>`}<button type="button" class="coelum-chip" data-moon-events-more>${s.preciseList&&s.shown>=events.length?'Next day':'More'}</button>`}</div>`;
+    if(s.controls){body.querySelector('[data-moon-precision-slot]').replaceWith(s.controls);s.controls.hidden=s.busy||s.days>1;}
   };
   const search = async () => {
     const s = state, current = job = { done: 0, progress: render };
@@ -85,7 +85,7 @@ function moonEventsPanel(body, { formatTime, onSelect, onClose }) {
     if(['jupiter','saturn'].includes(planet)){
       s.controls=document.createElement('div');
       s.precision=mountEphemerisSwitch(s.controls,()=>({kind:'moon-events',system:planet,t:from,days:1}),result=>{
-        if(state!==s)return;s.preciseList=result?.list??null;s.shown=10;render();
+        if(state!==s)return;s.preciseList=result?.list??null;s.preciseClock=result?.earthOrientation;s.shown=10;render();
       });
     }
     body.hidden=false;search();

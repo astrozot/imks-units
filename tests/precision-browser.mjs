@@ -94,12 +94,13 @@ try {
   };
   await mount();
   const toggle=page.locator('[data-precision-run]'),contacts=page.locator('.map-local');
-  const original=await contacts.textContent(),box=await toggle.boundingBox();
+  const original=await contacts.textContent(),box=await toggle.boundingBox(),originalPath=await page.locator('.map-full .map-center').getAttribute('d');
   await toggle.click();await page.waitForFunction(()=>document.querySelector('[data-precision-run]').getAttribute('aria-pressed')==='true');
+  await page.waitForFunction(old=>document.querySelector('.map-full .map-center').getAttribute('d')!==old,originalPath);
   assert.match(await contacts.textContent(),/18:40:41/);assert.notEqual(await contacts.textContent(),original);assert.equal(await page.evaluate(()=>precisionWorkers),0);
   assert.equal((await toggle.boundingBox()).width,box.width);
   assert.equal(await page.locator('[data-precision-result], [data-precision-clear]').count(),0);
-  const count=requests.length;await networkDown(true);await toggle.click();assert.equal(await contacts.textContent(),original);await toggle.click();assert.equal(requests.length,count);await networkDown(false);
+  const count=requests.length;await networkDown(true);await toggle.click();assert.equal(await contacts.textContent(),original);await page.waitForFunction(old=>document.querySelector('.map-full .map-center').getAttribute('d')===old,originalPath);await toggle.click();assert.equal(requests.length,count);await networkDown(false);
   await mount('lunar','2025-03-14T06:59:00Z');
   const lunarBefore=await page.locator('.lunar-contacts').textContent(),lunarBeforeTime=await page.locator('.lunar-contacts [data-lunar-event]').first().getAttribute('data-lunar-event');
   await toggle.click();await page.waitForFunction(()=>document.querySelector('[data-precision-run]').getAttribute('aria-pressed')==='true');

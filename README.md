@@ -547,8 +547,10 @@ Event detail sheets offer a fixed-size **JPL Ephemeris** switch. DE440 is
 preferred in its coverage; DE441 supplies the supported historical dates.
 It computes local solar-eclipse or occultation contacts at the selected
 place, or geocentric lunar-eclipse contacts, in a dedicated worker. The
-sky, maps, calculator results and all animations keep their compact
-ephemerides. Refinement is explicit; opening a sheet or playing the sky
+sky and calculator retain their compact ephemerides. With JPL selected,
+eclipse/occultation maps and local contacts use the same native provider.
+Solar-shadow playback interpolates a small worker-generated position grid
+instead of evaluating native coefficients on animation frames. Refinement is explicit; opening a sheet or playing the sky
 does not download a year or start a precision worker. Selecting another
 place invalidates the refined contacts. Closing the sheet, cancelling,
 starting another refinement or finishing the calculation releases the
@@ -648,8 +650,10 @@ Results are timestamped snapshots while the sky clock runs. Changing the
 object or place resets the result; completed snapshots
 identify a system barycentre or compact planet-centre correction when
 native centre data is unavailable. No download or numeric worker starts
-merely by opening a card or playing the animation. Natural-moon event
-searches retain their compact models. Extended numerical checks and
+merely by opening a card or playing the animation. The first day of Jupiter/Saturn moon events also offers JPL refinement
+using native planet-centre and satellite records. Other systems, the
+calculator and unrefined searches retain the compact models. Native
+searches run one day at a time; Next day opens a new explicit request. Extended numerical checks and
 phone-sized browser checks are documented with the static-data service.
 During loading the same button reads Downloading…; clicking it cancels the
 job and discards its new fragments, retaining previously cached ephemerides.
