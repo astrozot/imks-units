@@ -6,10 +6,10 @@
       "numpy": "2.1.3"
     },
     "orbits": "Original native JPL records, independently evaluated with jplephem; sparse development files contain only authenticated requested source chunks",
-    "solver": "SciPy Brent roots, independent projected-ellipse minimization",
+    "solver": "SciPy Brent roots, independent projected-ellipse minimization; 192-bracket visible-shadow limb search",
     "clock": "Shared declared app TT offset at each contact (IERS/leap seconds where available; modelled \u0394T elsewhere), and declared TDB convention",
-    "scope": "Seeded external limb and eclipse penumbral contacts; completeness and visible shadow contacts are not independently validated",
-    "physicalModel": "Same adopted oblate-planet shape, pole and spherical moon radii; numerical agreement is not observational accuracy"
+    "scope": "Seeded external limb, eclipse penumbral, and visible shadow penumbral/umbral/full contacts; search completeness is not independently validated",
+    "physicalModel": "Same adopted oblate-planet shape, pole and spherical moon radii; shadows use the Earth-to-planet viewing ray. Numerical agreement is not observational accuracy"
   },
   "contacts": [
     {
@@ -38,11 +38,35 @@
     },
     {
       "system": "jupiter",
+      "moon": "Europa",
+      "kind": "shadow",
+      "epoch": 1712534400,
+      "begin": 1712571760.763441,
+      "end": 1712580704.362854,
+      "C1": 1712571872.0838811,
+      "C2": 1712572043.4206195,
+      "C3": 1712580422.5027175,
+      "C4": 1712580594.1734836
+    },
+    {
+      "system": "jupiter",
       "moon": "Io",
       "kind": "transit",
       "epoch": 1712534400,
       "begin": 1712612442.6299472,
       "end": 1712620551.922391
+    },
+    {
+      "system": "jupiter",
+      "moon": "Io",
+      "kind": "shadow",
+      "epoch": 1712534400,
+      "begin": 1712614861.071299,
+      "end": 1712622932.002745,
+      "C1": 1712614909.3945131,
+      "C2": 1712615089.2995567,
+      "C3": 1712622703.9714127,
+      "C4": 1712622884.5615273
     },
     {
       "system": "saturn",
@@ -59,6 +83,18 @@
       "epoch": 1712534400,
       "begin": 1712555742.508586,
       "end": 1712564416.2245593
+    },
+    {
+      "system": "saturn",
+      "moon": "Dione",
+      "kind": "shadow",
+      "epoch": 1712534400,
+      "begin": 1712558838.7024999,
+      "end": 1712567809.9979174,
+      "C1": 1712558890.755938,
+      "C2": 1712559003.8937886,
+      "C3": 1712567644.6619143,
+      "C4": 1712567757.6411455
     },
     {
       "system": "saturn",
@@ -87,10 +123,34 @@
     {
       "system": "saturn",
       "moon": "Mimas",
+      "kind": "shadow",
+      "epoch": 1712534400,
+      "begin": 1712595727.094679,
+      "end": 1712603942.926994,
+      "C1": 1712595739.2648127,
+      "C2": 1712595756.9130619,
+      "C3": 1712603913.1178455,
+      "C4": 1712603930.5135105
+    },
+    {
+      "system": "saturn",
+      "moon": "Mimas",
       "kind": "transit",
       "epoch": 1712534400,
       "begin": 1712596285.9270232,
       "end": 1712604652.3085635
+    },
+    {
+      "system": "saturn",
+      "moon": "Tethys",
+      "kind": "shadow",
+      "epoch": 1712534400,
+      "begin": 1712603405.278434,
+      "end": 1712613176.1254544,
+      "C1": 1712603433.2065358,
+      "C2": 1712603513.688153,
+      "C3": 1712613067.6470368,
+      "C4": 1712613147.9383492
     },
     {
       "system": "saturn",
@@ -107,6 +167,18 @@
       "epoch": -2195942400,
       "begin": -2195921390.723182,
       "end": -2195913360.3836513
+    },
+    {
+      "system": "jupiter",
+      "moon": "Io",
+      "kind": "shadow",
+      "epoch": -2195942400,
+      "begin": -2195921047.325008,
+      "end": -2195912911.7057395,
+      "C1": -2195921002.206643,
+      "C2": -2195920819.9827714,
+      "C3": -2195913139.053273,
+      "C4": -2195912956.736552
     },
     {
       "system": "jupiter",
@@ -131,6 +203,30 @@
       "epoch": -2195942400,
       "begin": -2195869199.971198,
       "end": -2195860577.984751
+    },
+    {
+      "system": "jupiter",
+      "moon": "Europa",
+      "kind": "shadow",
+      "epoch": -2195942400,
+      "begin": -2195868479.2471557,
+      "end": -2195859523.6902285,
+      "C1": -2195868376.0562735,
+      "C2": -2195868198.8596478,
+      "C3": -2195859803.8320465,
+      "C4": -2195859626.4149113
+    },
+    {
+      "system": "jupiter",
+      "moon": "Io",
+      "kind": "shadow",
+      "epoch": 959817600,
+      "begin": 959809556.5146931,
+      "end": 959817607.3506768,
+      "C1": 959809604.3410593,
+      "C2": 959809784.5759187,
+      "C3": 959817379.2344222,
+      "C4": 959817559.0902164
     },
     {
       "system": "jupiter",
@@ -163,6 +259,18 @@
       "epoch": 1252022400,
       "begin": 1252025626.1010072,
       "end": 1252034144.1833057
+    },
+    {
+      "system": "jupiter",
+      "moon": "Io",
+      "kind": "shadow",
+      "epoch": 1252022400,
+      "begin": 1252027456.8823197,
+      "end": 1252036018.9250114,
+      "C1": 1252027502.2589352,
+      "C2": 1252027671.139032,
+      "C3": 1252035804.6928062,
+      "C4": 1252035974.149248
     },
     {
       "system": "jupiter",
@@ -206,11 +314,35 @@
     },
     {
       "system": "saturn",
+      "moon": "Titan",
+      "kind": "shadow",
+      "epoch": 1252022400,
+      "begin": 1252020794.5453236,
+      "end": 1252042570.849321,
+      "C1": 1252021003.6040401,
+      "C2": 1252021716.662146,
+      "C3": 1252041649.2238047,
+      "C4": 1252042361.9271836
+    },
+    {
+      "system": "saturn",
       "moon": "Dione",
       "kind": "transit",
       "epoch": 1252022400,
       "begin": 1252040043.0459635,
       "end": 1252052225.0009418
+    },
+    {
+      "system": "saturn",
+      "moon": "Dione",
+      "kind": "shadow",
+      "epoch": 1252022400,
+      "begin": 1252040801.6163204,
+      "end": 1252052999.1031897,
+      "C1": 1252040838.6877198,
+      "C2": 1252040915.1018324,
+      "C3": 1252052885.6211758,
+      "C4": 1252052962.1272197
     },
     {
       "system": "saturn",
@@ -238,11 +370,35 @@
     },
     {
       "system": "saturn",
+      "moon": "Enceladus",
+      "kind": "shadow",
+      "epoch": 1252022400,
+      "begin": 1252062189.964849,
+      "end": 1252071868.187217,
+      "C1": 1252062208.4754689,
+      "C2": 1252062231.1440685,
+      "C3": 1252071827.0035436,
+      "C4": 1252071849.8125865
+    },
+    {
+      "system": "saturn",
       "moon": "Tethys",
       "kind": "transit",
       "epoch": 1252022400,
       "begin": 1252078488.3956487,
       "end": 1252089241.8975573
+    },
+    {
+      "system": "saturn",
+      "moon": "Tethys",
+      "kind": "shadow",
+      "epoch": 1252022400,
+      "begin": 1252079012.74352,
+      "end": 1252089750.248521,
+      "C1": 1252079038.5530071,
+      "C2": 1252079109.2053747,
+      "C3": 1252089653.8520718,
+      "C4": 1252089724.559243
     },
     {
       "system": "saturn",
@@ -253,12 +409,36 @@
       "end": 1252098119.6079826
     },
     {
+      "system": "saturn",
+      "moon": "Mimas",
+      "kind": "shadow",
+      "epoch": 1252022400,
+      "begin": 1252089651.3604128,
+      "end": 1252098387.8139937,
+      "C1": 1252089664.4977062,
+      "C2": 1252089681.125957,
+      "C3": 1252098358.0941303,
+      "C4": 1252098374.6703844
+    },
+    {
       "system": "jupiter",
       "moon": "Io",
       "kind": "transit",
       "epoch": 1742688000,
       "begin": 1742734969.4328003,
       "end": 1742743196.2430682
+    },
+    {
+      "system": "jupiter",
+      "moon": "Io",
+      "kind": "shadow",
+      "epoch": 1742688000,
+      "begin": 1742739511.443367,
+      "end": 1742747727.236284,
+      "C1": 1742739557.9572563,
+      "C2": 1742739734.7753854,
+      "C3": 1742747504.2843585,
+      "C4": 1742747682.2251894
     },
     {
       "system": "saturn",
@@ -311,10 +491,34 @@
     {
       "system": "saturn",
       "moon": "Enceladus",
+      "kind": "shadow",
+      "epoch": 1742688000,
+      "begin": 1742715763.8016095,
+      "end": 1742725412.4326913,
+      "C1": 1742715781.846454,
+      "C2": 1742715804.9327402,
+      "C3": 1742725371.3014586,
+      "C4": 1742725394.3276894
+    },
+    {
+      "system": "saturn",
+      "moon": "Enceladus",
       "kind": "transit",
       "epoch": 1742688000,
       "begin": 1742716018.0301752,
       "end": 1742725663.621273
+    },
+    {
+      "system": "saturn",
+      "moon": "Mimas",
+      "kind": "shadow",
+      "epoch": 1742688000,
+      "begin": 1742725201.4721742,
+      "end": 1742733673.7575886,
+      "C1": 1742725213.5417168,
+      "C2": 1742725230.3702471,
+      "C3": 1742733644.8813655,
+      "C4": 1742733661.536005
     },
     {
       "system": "saturn",
@@ -390,11 +594,35 @@
     },
     {
       "system": "jupiter",
+      "moon": "Callisto",
+      "kind": "shadow",
+      "epoch": 4083955200,
+      "begin": 4084026992.062005,
+      "end": 4084036696.60579,
+      "C1": 4084027819.2439356,
+      "C2": 4084028287.581023,
+      "C3": 4084035420.2423434,
+      "C4": 4084035884.353091
+    },
+    {
+      "system": "jupiter",
       "moon": "Io",
       "kind": "transit",
       "epoch": 4083955200,
       "begin": 4084029228.177114,
       "end": 4084037658.7598324
+    },
+    {
+      "system": "jupiter",
+      "moon": "Io",
+      "kind": "shadow",
+      "epoch": 4083955200,
+      "begin": 4084033833.0164576,
+      "end": 4084042178.3944683,
+      "C1": 4084033875.9141808,
+      "C2": 4084034051.9812593,
+      "C3": 4084041959.7672195,
+      "C4": 4084042136.8569746
     },
     {
       "system": "saturn",
@@ -422,6 +650,18 @@
     },
     {
       "system": "saturn",
+      "moon": "Mimas",
+      "kind": "shadow",
+      "epoch": 4083955200,
+      "begin": 4083989318.6932096,
+      "end": 4083997014.53189,
+      "C1": 4083989333.474871,
+      "C2": 4083989353.0588355,
+      "C3": 4083996980.4608145,
+      "C4": 4083997000.042528
+    },
+    {
+      "system": "saturn",
       "moon": "Enceladus",
       "kind": "transit",
       "epoch": 4083955200,
@@ -430,11 +670,35 @@
     },
     {
       "system": "saturn",
+      "moon": "Enceladus",
+      "kind": "shadow",
+      "epoch": 4083955200,
+      "begin": 4083998884.7790513,
+      "end": 4084006664.195304,
+      "C1": 4083998908.3863955,
+      "C2": 4083998938.3594866,
+      "C3": 4084006610.7557516,
+      "C4": 4084006640.9639792
+    },
+    {
+      "system": "saturn",
       "moon": "Dione",
       "kind": "transit",
       "epoch": 4083955200,
       "begin": 4084007508.5805864,
       "end": 4084016820.2237926
+    },
+    {
+      "system": "saturn",
+      "moon": "Dione",
+      "kind": "shadow",
+      "epoch": 4083955200,
+      "begin": 4084013417.2585416,
+      "end": 4084017303.890811,
+      "C1": 4084013548.9125857,
+      "C2": 4084013859.941263,
+      "C3": 4084016861.1963243,
+      "C4": 4084017172.2468348
     },
     {
       "system": "saturn",

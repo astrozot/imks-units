@@ -29,8 +29,8 @@ for (const depth of [8, 10, 11, 12]) {
     let tile = 0;
     while (catalog.start[tile + 1] <= j) tile++;
     const offset = 4 * tile;
-    const expected = frame.catalog(catalog.box[offset] + catalog.ra[j] / 65535 * catalog.box[offset + 2],
-      catalog.box[offset + 1] + catalog.dec[j] / 65535 * catalog.box[offset + 3], catalog.pmra[j], catalog.pmdec[j]);
+    const expected = frame.apparentCatalog(catalog.box[offset] + catalog.ra[j] / 65535 * catalog.box[offset + 2],
+      catalog.box[offset + 1] + catalog.dec[j] / 65535 * catalog.box[offset + 3], catalog.pmra[j], catalog.pmdec[j], catalog.plx[j] * 0.02);
     assert.equal(star.ra, expected.ra, `V${depth}: correct component RA for ${name}`);
     assert.equal(star.dec, expected.dec, `V${depth}: correct component declination for ${name}`);
     assert.equal(searchSky(frame, name)[0]?.name, name);

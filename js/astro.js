@@ -268,8 +268,9 @@ function starEcliptic(s, T) {
   const [qx, qy, qz] = precessVector(p, T), eps0 = nutation(T).eps0;
   let g = [qx, qy * cos(eps0) + qz * sin(eps0), -qy * sin(eps0) + qz * cos(eps0)];
   const [E, V] = heliocentric("earth", T, true);
-  // in au, from the Earth
-  const d = s.plx > 0 ? 206264806 / s.plx / Math.hypot(...p) : 0;
+  // Scale the propagated vector by the catalog distance; normalizing it
+  // here would discard the distance change from space motion.
+  const d = s.plx > 0 ? 206264806 / s.plx : 0;
   if (d) g = g.map((x, k) => x * d - E[k]);
   const r = Math.hypot(...g), a = g.map((x, k) => x + r * V[k] / C_AU);
   const lon = Math.atan2(a[1], a[0]) / RAD, lat = Math.atan2(a[2], Math.hypot(a[0], a[1])) / RAD;
@@ -401,17 +402,25 @@ function equatorial(body, t, ephemeris = null) {
   };
 }
 
-// The same seen from a place on the surface (WGS 84, its height above sea
-// level taken as above the ellipsoid): the geocentric position minus the
-// place
-function topocentric(body, t, [lat, lon, h = 0], ephemeris = null) {
-  if (ephemeris) { const p = ephemeris.topocentric(body, t, [lat, lon, h]); if (p) return p; }
-  const { ra, dec, dist } = equatorial(body, t);
+// WGS 84 observer position (km) and rotational velocity / c in the true
+// equator/equinox of date. Height is treated as ellipsoidal, as elsewhere.
+export function surfaceObserver(t, [lat, lon, h = 0]) {
   const lst = siderealTime(t, lon), u = Math.atan(0.99664719 * Math.tan(lat * RAD));
   const rc = 6378.137 * Math.cos(u) + h / 1000 * cos(lat), rs = 6378.137 * 0.99664719 * Math.sin(u) + h / 1000 * sin(lat);
-  const x = dist * cos(dec) * cos(ra) - rc * cos(lst), y = dist * cos(dec) * sin(ra) - rc * sin(lst);
-  const z = dist * sin(dec) - rs;
-  return { ra: mod360(Math.atan2(y, x) / RAD), dec: Math.atan2(z, Math.hypot(x, y)) / RAD, dist: Math.hypot(x, y, z) };
+  const position = [rc * cos(lst), rc * sin(lst), rs], spin = 7.29211514670698e-5 / 299792.458;
+  return { position, beta: [-position[1] * spin, position[0] * spin, 0] };
+}
+
+// Local apparent position: translate to the observer, then include the
+// observer's rotational velocity (diurnal aberration). Precision providers
+// already include both effects and return before this compact reduction.
+function topocentric(body, t, place, ephemeris = null) {
+  if (ephemeris) { const p = ephemeris.topocentric(body, t, place); if (p) return p; }
+  const { ra, dec, dist } = equatorial(body, t), obs = surfaceObserver(t, place);
+  const g = unit(ra, dec).map((x, k) => dist * x - obs.position[k]), r = Math.hypot(...g);
+  // SGP4 coordinates are geometric and retain their existing convention.
+  const a = body.sgp4 ? g : g.map((x, k) => x + r * obs.beta[k]);
+  return { ra: mod360(Math.atan2(a[1], a[0]) / RAD), dec: Math.atan2(a[2], Math.hypot(a[0], a[1])) / RAD, dist: r };
 }
 
 // The hour angle of a body (degrees, −180 to 180), zero on the meridian

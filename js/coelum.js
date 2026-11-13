@@ -1,4 +1,4 @@
-// Offline whole-sky chart. Positions in this drawing are geometric (no
+// Offline whole-sky chart. Positions in this drawing are apparent (without
 // refraction). An azimuthal equidistant camera looks out from inside the
 // celestial sphere; its orientation is rotated by spherical drag gestures.
 // This module holds the geometry, the catalogs of a frame and the map-like
@@ -6,7 +6,7 @@
 import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { CHART_STARS } from './stardata.js';
 import { DEEP } from './catalog.js';
-import { precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
+import { heliocentric, surfaceObserver, precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
 import { satelliteLight } from './satellites.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
@@ -119,8 +119,8 @@ export const MIN_TIME = Date.parse('-001000-01-01T00:00:00Z') / 1000, MAX_TIME =
 export const limitTime = (t) => Math.min(MAX_TIME, Math.max(MIN_TIME, t));
 
 // A date's precession/nutation matrix is shared by the entire background.
-// Annual aberration/parallax (< a chart pixel) are omitted in this drawing;
-// the calculator's radec/altaz functions retain their full precision.
+// Aberration and parallax are applied separately to physical catalog objects;
+// coordinate grids retain this pure rotation.
 function dateRotation(t) {
   const T = centuries(t), n = nutation(T), c = Math.cos, s = Math.sin;
   return [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((v) => {
@@ -271,32 +271,65 @@ const BOUNDARY_POINTS = BOUNDARIES.map((line) => {
   return out;
 });
 
+// Shared by all catalog stars, including the tiled drawing path. The Earth
+// state is evaluated once per update, never inside the per-star loop.
+function catalogObserver(t, place, matrix) {
+  const T = centuries(t), n = nutation(T), [earth, velocity] = heliocentric('earth', T, true);
+  const rotate = ([x, y, z]) => {
+    const a = x * Math.cos(n.dpsi * R) - y * Math.sin(n.dpsi * R), b = x * Math.sin(n.dpsi * R) + y * Math.cos(n.dpsi * R);
+    return [a, b * Math.cos(n.eps * R) - z * Math.sin(n.eps * R), b * Math.sin(n.eps * R) + z * Math.cos(n.eps * R)];
+  };
+  const obs = surfaceObserver(t, place), E = rotate(earth), V = rotate(velocity);
+  const position = E.map((x, i) => x + obs.position[i] / 149597870.7), beta = V.map((x, i) => x / 173.1446327 + obs.beta[i]);
+  return { position, beta, positionJ2000: matrix.map((col) => dot3(col, position)), betaJ2000: matrix.map((col) => dot3(col, beta)) };
+}
+
+// Propagated catalog vectors need not have unit length. Retaining that
+// length also retains the small distance change due to transverse motion.
+function apparentCatalogVector(v, parallax, frame) {
+  const m = frame.matrix, o = frame.observer, px = parallax > 0 ? parallax / 206264806 : 0;
+  let x = m[0][0] * v[0] + m[1][0] * v[1] + m[2][0] * v[2] - px * o.position[0];
+  let y = m[0][1] * v[0] + m[1][1] * v[1] + m[2][1] * v[2] - px * o.position[1];
+  let z = m[0][2] * v[0] + m[1][2] * v[1] + m[2][2] * v[2] - px * o.position[2];
+  const r = Math.sqrt(x * x + y * y + z * z);
+  x += r * o.beta[0]; y += r * o.beta[1]; z += r * o.beta[2];
+  const norm = Math.sqrt(x * x + y * y + z * z);
+  return [x / norm, y / norm, z / norm];
+}
+
 export function skyFrame(t, place, rate = 0) {
   const matrix = dateRotation(t), lst = siderealTime(t, place[1]);
+  const state = { matrix, years: centuries(t) * 100, observer: catalogObserver(t, place, matrix) };
   const eq = (ra, dec, pmra = 0, pmdec = 0) => {
-    const v = vec(ra, dec), years = centuries(t) * 100, mas = R / 3600000;
+    const v = vec(ra, dec), years = state.years, mas = R / 3600000;
     const east = [-Math.sin(ra * R), Math.cos(ra * R), 0], north = [-Math.sin(dec * R) * Math.cos(ra * R), -Math.sin(dec * R) * Math.sin(ra * R), Math.cos(dec * R)];
     const u = v.map((x, i) => x + years * mas * (pmra * east[i] + pmdec * north[i]));
-    const w = [0, 1, 2].map((i) => matrix.reduce((sum, col, k) => sum + col[i] * u[k], 0));
-    return { ra: (Math.atan2(w[1], w[0]) / R + 360) % 360, dec: Math.atan2(w[2], Math.hypot(w[0], w[1])) / R };
+    const w = [0, 1, 2].map((i) => state.matrix.reduce((sum, col, k) => sum + col[i] * u[k], 0));
+    return { ra: (Math.atan2(w[1], w[0]) / R + 360) % 360, dec: Math.atan2(w[2], Math.hypot(w[0], w[1])) / R, catalogVector: u };
   };
   const hor = (p) => horizonPoint(p.ra, p.dec, place[0], lst);
-  const catalog = (ra, dec, pmra, pmdec) => { const p = eq(ra, dec, pmra, pmdec); return { ...p, ...hor(p) }; };
+  const catalog = (ra, dec, pmra, pmdec) => { const p = eq(ra, dec, pmra, pmdec); return { ...p, ...(state.hor || hor)(p) }; };
+  const apparentCatalog = (ra, dec, pmra = 0, pmdec = 0, parallax = 0) => {
+    const p = eq(ra, dec, pmra, pmdec), v = apparentCatalogVector(p.catalogVector, parallax, state);
+    p.ra = (Math.atan2(v[1], v[0]) / R + 360) % 360;
+    p.dec = Math.atan2(v[2], Math.hypot(v[0], v[1])) / R;
+    return { ...p, parallax, ...(state.hor || hor)(p) };
+  };
   const stars = CHART_STARS.map(([hip, ra, dec, mag, bv, flags, pmra, pmdec, parallax, proper, names, spect], i) => {
     // named by the IAU, or by the first designation (Bayer, Flamsteed, HIP)
     const { name, designations } = STAR_NAMES[i];
-    return { ...catalog(ra, dec, pmra, pmdec), name, designations, mag, bv: bv ?? undefined, type: 'star', named: Boolean(proper), parallax, pmra, pmdec, spect, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
+    return { ...apparentCatalog(ra, dec, pmra, pmdec, parallax), name, designations, mag, bv: bv ?? undefined, type: 'star', named: Boolean(proper), parallax, pmra, pmdec, spect, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
   });
   const bodies = [...solarBodies(t, place, hor, rate), ...(playbackBodyVisible('satellite', rate) ? satelliteBodies(t, place, hor) : [])];
-  const deep = DEEP.map(([names, ra, dec, mag, type, major, minor]) => ({ ...catalog(ra, dec), name: names[0], description: names.slice(1).join(' · '), mag, size: major ? [major, minor ?? major] : null, type }));
-  const constellations = CONSTELLATIONS.map(([name, ra, dec, lines]) => ({ name, type: 'constellation', ...catalog(ra, dec), lines: lines.map((line) => line.map(([a, d]) => catalog(a, d))) }));
+  const deep = DEEP.map(([names, ra, dec, mag, type, major, minor]) => ({ ...apparentCatalog(ra, dec), name: names[0], description: names.slice(1).join(' · '), mag, size: major ? [major, minor ?? major] : null, type }));
+  const constellations = CONSTELLATIONS.map(([name, ra, dec, lines]) => ({ name, type: 'constellation', ...apparentCatalog(ra, dec), lines: lines.map((line) => line.map(([a, d]) => apparentCatalog(a, d))) }));
   const ecliptic = ECLIPTIC.map(([a, d]) => catalog(a, d));
   const boundaries = BOUNDARY_POINTS.map((line) => line.map(([a, d]) => catalog(a, d)));
-  return { t, place, matrix, stars, bodies, deep, constellations, ecliptic, boundaries, hor, catalog };
+  return Object.assign(state, { t, place, stars, bodies, deep, constellations, ecliptic, boundaries, hor, catalog, apparentCatalog });
 }
 
-// Keep catalog reductions fixed for a day, rotate their equatorial vectors
-// with sidereal time each frame, and interpolate solar-system positions
+// Cache catalog space motion for a day; update the shared frame, parallax
+// and aberration each frame, and interpolate solar-system positions
 // between exact one-minute samples. No catalog rebuilds in the frame loop.
 export function createSkyAnimator(t, place, layers = { deep: true, constellations: true, equatorial: true, ecliptic: true, boundaries: true }, rate = 0) {
   let frame, catalogTime = -Infinity, sampleTime = -Infinity, left, right;
@@ -309,13 +342,20 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
     return { alt: Math.asin(clamp(vector[2])) / R, az: (Math.atan2(vector[0], vector[1]) / R + 360) % 360, vector };
   };
   const update = (p) => Object.assign(p, hor(p));
+  const updateStar = (p) => {
+    const v = apparentCatalogVector(p.catalogVector, p.parallax, frame);
+    p.ra = (Math.atan2(v[1], v[0]) / R + 360) % 360;
+    p.dec = Math.atan2(v[2], Math.hypot(v[0], v[1])) / R;
+    p.equatorialVector = v;
+    update(p);
+  };
   const curve = (line) => {
     const out = [];
     for (let i = 1; i < line.length; i++) {
-      const a = vec(line[i - 1].ra, line[i - 1].dec), b = vec(line[i].ra, line[i].dec);
+      const a = line[i - 1].catalogVector, b = line[i].catalogVector;
       for (let j = 0; j <= 12; j++) {
         const v = unit3(a.map((x, k) => x * (1 - j / 12) + b[k] * j / 12));
-        out.push({ ra: Math.atan2(v[1], v[0]) / R, dec: Math.asin(clamp(v[2])) / R, equatorialVector: v });
+        out.push({ ra: Math.atan2(v[1], v[0]) / R, dec: Math.asin(clamp(v[2])) / R, catalogVector: v });
       }
     }
     return out;
@@ -326,10 +366,12 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
       for (const c of frame.constellations) c.curves = c.lines.map(curve);
     }
     const lst = siderealTime(time, place[1]) * R; sl = Math.sin(lst); cl = Math.cos(lst);
-    frame.t = time; frame.hor = hor;
-    for (const p of frame.stars) update(p);
-    if (layers.deep) for (const p of frame.deep) update(p);
-    if (layers.constellations) for (const c of frame.constellations) { update(c); for (const line of c.curves) for (const p of line) update(p); }
+    frame.t = time; frame.hor = hor; frame.years = centuries(time) * 100;
+    frame.matrix = dateRotation(time);
+    frame.observer = catalogObserver(time, place, frame.matrix);
+    for (const p of frame.stars) updateStar(p);
+    if (layers.deep) for (const p of frame.deep) updateStar(p);
+    if (layers.constellations) for (const c of frame.constellations) { updateStar(c); for (const line of c.curves) for (const p of line) updateStar(p); }
     if (layers.ecliptic) for (const p of frame.ecliptic) update(p);
     if (layers.boundaries) for (const line of frame.boundaries) for (const p of line) update(p);
     const sample = Math.floor(time / 60) * 60;
@@ -521,7 +563,7 @@ export function readStars(buffer) {
     if (seenAliases.has(code)) sharedNames.add(`${code >= 2 ** 29 ? 'HD' : 'HIP'} ${code % 2 ** 28}`);
     seenAliases.add(code);
   }
-  return { n, T, box, start, tyc, ra, dec, pmra, pmdec, plx, mag, bv, aliasStar, alias, gaia, center, reach, depth, sharedNames, fastest: Math.SQRT2 * fastest * R / 3.6e6 };
+  return { n, T, box, start, tyc, ra, dec, pmra, pmdec, plx, mag, bv, aliasStar, alias, gaia, center, reach, depth, sharedNames, maxParallax: plx.reduce((a, b) => Math.max(a, b), 0) * 0.02, fastest: Math.SQRT2 * fastest * R / 3.6e6 };
 }
 // Stored star j: its J2000 vector at the epoch, its tile and data
 function storedStar(j) {
@@ -558,7 +600,8 @@ export function eachFaint(frame, limit, visit, cone = null) {
   const H = horizonToJ2000(frame), top = limit * 20, years = centuries(frame.t) * 100, k = years * R / 3.6e6;
   // the cone's axis in J2000; from J2000 to the horizon by the transpose
   const c = cone && [0, 1, 2].map((i) => H[3 * i] * cone.v[0] + H[3 * i + 1] * cone.v[1] + H[3 * i + 2] * cone.v[2]);
-  const margin = cone ? cone.radius + S.fastest * Math.abs(years) : 0;
+  const obs = frame.observer, beta = obs.betaJ2000, earth = obs.positionJ2000;
+  const margin = cone ? cone.radius + S.fastest * Math.abs(years) + Math.hypot(...beta) * 1.01 + S.maxParallax / 206264806 * Math.hypot(...earth) : 0;
   for (let t = 0; t < S.T; t++) {
     const first = S.start[t], end = S.start[t + 1];
     if (first === end || S.mag[first] > top) continue;
@@ -569,7 +612,11 @@ export function eachFaint(frame, limit, visit, cone = null) {
       const a = a0 + S.ra[j] * ka, d = d0 + S.dec[j] * kd, ca = Math.cos(a), sa = Math.sin(a), cd = Math.cos(d), sd = Math.sin(d);
       const e = S.pmra[j] * k, nn = S.pmdec[j] * k;
       let x = cd * ca - e * sa - nn * sd * ca, y = cd * sa + e * ca - nn * sd * sa, z = sd + nn * cd;
-      const norm = Math.hypot(x, y, z); x /= norm; y /= norm; z /= norm;
+      const px = S.plx[j] * 0.02 / 206264806;
+      x -= px * earth[0]; y -= px * earth[1]; z -= px * earth[2];
+      const distance = Math.sqrt(x * x + y * y + z * z);
+      x += distance * beta[0]; y += distance * beta[1]; z += distance * beta[2];
+      const norm = Math.sqrt(x * x + y * y + z * z); x /= norm; y /= norm; z /= norm;
       visit(j, [H[0] * x + H[3] * y + H[6] * z, H[1] * x + H[4] * y + H[7] * z, H[2] * x + H[5] * y + H[8] * z], S.mag[j] / 20, S.bv[j] === -128 ? 0.6 : S.bv[j] / 50);
     }
   }
@@ -581,7 +628,7 @@ export class FaintHit {
 }
 // Stored star j as an object (as the built-in stars), at the frame's time
 function faintObject(frame, j) {
-  const s = storedStar(j), [name, ...designations] = storedNames(j), p = frame.catalog(s.ra, s.dec, s.pmra, s.pmdec);
+  const s = storedStar(j), [name, ...designations] = storedNames(j), p = frame.apparentCatalog(s.ra, s.dec, s.pmra, s.pmdec, s.parallax);
   return { ...p, ...frame.hor(p), name, designations, type: 'star', mag: s.mag, bv: s.bv, parallax: s.parallax, pmra: s.pmra, pmdec: s.pmdec,
     estimatedPhotometry: Boolean(STORED.gaia && (STORED.gaia[2 * j] || STORED.gaia[2 * j + 1])) };
 }

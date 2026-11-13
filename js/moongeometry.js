@@ -86,7 +86,7 @@ function visibleShadow(v, w, observer, light, pole, radius, flattening, moonRadi
 // Finite moon and finite Sun. Penumbral contacts encompass any loss of
 // direct sunlight; C1/C4 mark umbral contact, C2/C3 complete immersion.
 // Shadows use the Sun's actual distance, not a cylindrical approximation.
-function moonContactGeometry({ v, eclipseVector = v, shadowVector = v, observer, light, pole, radius, flattening, moonRadius, sunDistance, sunRadius = 695700 }) {
+function moonContactGeometry({ v, eclipseVector = v, shadowVector = v, observer, shadowObserver = observer, light, pole, radius, flattening, moonRadius, sunDistance, sunRadius = 695700 }) {
   const behind = dot(v, observer), along = dot(eclipseVector, light), shadowAlong = dot(shadowVector, light);
   const disk = limbClearance(v, observer, pole, radius, flattening);
   const spread = Math.abs(along) * sunRadius / sunDistance;
@@ -99,7 +99,7 @@ function moonContactGeometry({ v, eclipseVector = v, shadowVector = v, observer,
   const shadow = limbClearance(shadowVector, w, pole, radius, flattening);
   const shadowSpread = Math.max(0, -dot(shadowVector, w)) * sunRadius / len;
   const umbraRadius = moonRadius - shadowSpread;
-  const visibility = shadowAlong < 0 && shadow < 2 * (moonRadius + shadowSpread) ? visibleShadow(shadowVector, w, observer, light, pole, radius, flattening, moonRadius, sunRadius / len, shadow) : null;
+  const visibility = shadowAlong < 0 && shadow < 2 * (moonRadius + shadowSpread) ? visibleShadow(shadowVector, w, shadowObserver, light, pole, radius, flattening, moonRadius, sunRadius / len, shadow) : null;
   const shadowOuter = visibility && !visibility.visible ? visibility.penumbra : shadow - moonRadius - shadowSpread;
   const shadowUmbra = visibility && !visibility.visible ? visibility.umbra : shadow - umbraRadius;
   const shadowFull = visibility ? (visibility.visible ? Math.max(shadow + umbraRadius, -visibility.umbra) : radius) : shadow + umbraRadius;

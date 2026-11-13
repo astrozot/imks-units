@@ -1,0 +1,62 @@
+{
+  "cpuSlowdown": 4,
+  "viewport": "390x844",
+  "stars": 2308825,
+  "skyCanvasMedianMs": [
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 1,
+      "before": 20.3,
+      "after": 19
+    },
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 32,
+      "before": 8.7,
+      "after": 8.7
+    },
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 256,
+      "before": 10.4,
+      "after": 10.2
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 1,
+      "before": 14.8,
+      "after": 13.3
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 32,
+      "before": 4.1,
+      "after": 4.3
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 256,
+      "before": 3.7,
+      "after": 3.5
+    }
+  ],
+  "playbackUpdateMedianMs": {
+    "stars": {
+      "before": 2.5,
+      "after": 4.2
+    },
+    "default": {
+      "before": 5.1,
+      "after": 9.5
+    }
+  },
+  "method": "Interleaved before/after medians after warmup; desktop Chromium with 4x CPU throttling. Drawing excludes catalog loading and network. Playback updates measured separately from drawing.",
+  "baseline": "Workspace JavaScript snapshot immediately before stellar aberration/parallax changes",
+  "limitation": "A phone-sized viewport and CPU throttling do not substitute for measurements on physical mobile hardware."
+}

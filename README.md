@@ -351,9 +351,14 @@ license is retained in the generated file). To regenerate, download
 `data/constellations.lines.json`, `data/constellations.json`,
 `data/constellations.bounds.json`, `data/mw.json` and `LICENSE` from that
 repository into a directory, then run `node tools/coelum.mjs <directory>`.
-Chart positions include precession, nutation and proper motion; they omit
-annual aberration and parallax. The existing `altaz` and `radec` functions
-retain their full precision.
+Chart positions include precession, nutation, proper motion, annual stellar
+parallax where known, and annual and diurnal aberration. Earth position and
+velocity are shared across a frame; downloaded stars retain tile culling,
+with bounds expanded for these corrections. Playback caches catalog space
+motion for at most a day while updating parallax and aberration each frame.
+Coordinate grids retain their geometric rotations. Standard local `altaz`
+and `radec` positions also include diurnal aberration; geocentric positions
+exclude it. Artificial satellites retain their geometric SGP4 convention.
 
 Satellites (`js/satellites.js`) come from CelesTrak's groups: the space
 stations and the brightest ones by default, science, amateur radio and
@@ -438,6 +443,14 @@ a cache of its own.
 
 `node tests/coelum.mjs` checks sky-chart geometry and catalog positions at
 northern, southern and polar locations, and calculator integration.
+`node tests/stellar-positions.mjs` compares stellar positions with independent
+ERFA references, isolates diurnal aberration, and checks annual parallax,
+tile culling, selection and forward/reverse playback. Regenerate those
+references with `python tools/stellar-reference.py` (development dependency:
+pyerfa). `node tools/stellar-benchmark.mjs /path/to/baseline-checkout` measures
+before/after drawing and playback with the magnitude-12 catalog in a phone
+viewport, using the browser-test Playwright settings and 4× CPU throttling.
+This desktop approximation does not replace measurements on a real phone.
 
 `node tests/coelum-browser.mjs` checks the chart and realistic views,
 search, layers, legend, fading full-screen controls, the eclipse link,
@@ -541,7 +554,12 @@ Solar eclipses and lunar occultations still use a smooth mean lunar limb.
 The refined ephemeris improves their positional input, but does not predict
 terrain-dependent contacts or Baily's beads. Earth-rotation uncertainty
 still limits long-range eclipse geography. Precise stellar occultations
-by Uranus and Neptune need a better planetary ephemeris than VSOP87.
+by Uranus and Neptune should use the native JPL refinement rather than
+the approximate VSOP87 positions. Independent moon-event checks now include
+246 limb, eclipse and visible-shadow contacts; the native shadow observer
+uses the Earth-to-planet ray. A pinned Stellarium 26.3 satellite-orbit
+comparison and the terrain-data requirements are documented in
+[`workers/ephemeris-static/README.md`](workers/ephemeris-static/README.md).
 
 Event detail sheets offer a fixed-size **JPL Ephemeris** switch. DE440 is
 preferred in its coverage; DE441 supplies the supported historical dates.

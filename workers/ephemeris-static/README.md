@@ -67,15 +67,17 @@ requested there. No new hosted assets or service calculations are needed.
 2025, 2099) with `EXTENDED_STAGED` pointing to the published v3 snapshot.
 It checks each event boundary and midpoint, null full contacts, the raw
 1 MiB cap, native maps and sampled solar-shadow playback. The committed
-reference fixture has 114 limb/penumbral contacts independently solved
+reference fixture has 246 limb, penumbral, umbral and full-shadow contacts independently solved
 with jplephem and SciPy, using the same declared physical and clock models.
 The maximum timing difference is recorded in
 [`../../data/precision-moon-events-validation.json`](../../data/precision-moon-events-validation.json).
 This is a seeded comparison, not a proof that every event is found, nor an
-observational accuracy guarantee. Visible shadow contacts have regression
-checks but no independent external timing comparison yet. Stellarium
-comparison still needs a pinned version and matching kernel/model settings;
-no numerical parity with Stellarium is claimed.
+observational accuracy guarantee. Shadow contacts use a separately implemented
+192-bracket limb search with SciPy minimization. This identified a native
+shadow-viewing correction: the illuminated planet is viewed along the
+Earth-to-planet ray, not the independently retarded moon ray. The largest
+change in these cases is about 0.50 s (a Callisto final contact in 2099).
+Compact animation geometry is unchanged.
 
 Regenerate independent contacts from authenticated requested chunks:
 
@@ -95,6 +97,93 @@ chunks requested by these cases and must never be published as full kernels.
 The standalone browser test `tests/precision-moon-events-browser.mjs`
 checks Jupiter/Saturn at phone width, explicit downloads, cache-only
 switching and cancellation in Chromium and WebKit.
+
+## Pinned Stellarium orbit comparison
+
+`tools/prepare-stellarium-comparison.py` downloads checksum-verified official
+Stellarium 26.3 source at commit
+`3f23cf3a1a59523a9c7b1ec4540c33bca77addfa` to an external directory and
+compiles its L1.2/TASS1.7 routines without Qt. Upstream source and the
+compiled library remain outside the app/repository. The wrapper confirms
+that these are Stellarium's Galilean/Saturnian satellite theories:
+[EphemWrapper.cpp](https://github.com/Stellarium/stellarium/blob/3f23cf3a1a59523a9c7b1ec4540c33bca77addfa/src/core/planetsephems/EphemWrapper.cpp).
+
+```sh
+python tools/prepare-stellarium-comparison.py /tmp/stellarium-comparison
+/path/to/python tools/stellarium-comparison.py \
+  /tmp/stellarium-comparison /tmp/native-moon-reference-kernels \
+  /tmp/native-moon-seeds.json data/stellarium-comparison-validation.json
+```
+
+The comparison uses six epochs from 1900 to 2099, geometric planet-centred
+ICRF positions, TT for analytic theories and TDB for SPK. Its frame
+conversion is checked against Stellarium's own documented J2000 matrix.
+These are sampled differences from JUP365/SAT441, not observed errors,
+interval-wide error bounds, apparent-coordinate comparisons, or a claim
+about Stellarium's optional JPL planetary modes.
+
+| Relative moon orbits | Samples | Stellarium maximum difference | App compact maximum difference |
+|---|---:|---:|---:|
+| Galilean moons | 24 | 428 km | 55 km |
+| Eight Saturnian moons | 48 | 6297 km | 2940 km |
+
+The app's compact series is closer to these reference kernels in 69 of
+72 samples, not every sample. Hyperion is a significant remaining compact
+model limitation. Native mode evaluates JUP365/SAT441 directly, avoiding
+these compact/theory approximation differences. Full per-moon vectors,
+source checksums and model settings are recorded in
+[`stellarium-comparison-validation.json`](../../data/stellarium-comparison-validation.json).
+No source routine is imported into the animation or delivered to phones.
+
+## Terrain stage: data and memory requirements
+
+The current optional display elevation maps are 2880 × 1440 on phones
+and 5760 × 2880 on desktop (about 3.8 km and 1.9 km equatorial sample
+spacing). Their 16-bit encoding does not restore narrow ridges/valleys lost
+to that sampling. Event corrections need a scientific DEM with traceable
+vertical units, no-data values, registration, and a matched lunar frame.
+
+The initial scientific target is roughly 50–100 m horizontal sampling and
+a few metres vertical accuracy, not a universal subsecond timing guarantee.
+NASA's [SLDEM2015](https://pgda.gsfc.nasa.gov/products/54) offers approximately
+60 m sampling and typical 3–4 m vertical accuracy between ±60° latitude;
+polar LOLA products are required to complete limb coverage. Height errors
+and horizontal misregistration both enter the silhouette error, with much
+greater timing sensitivity at grazing contacts.
+
+The orientation route is the DE440 lunar binary PCK plus the compatible
+[NAIF lunar frame kernel](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/fk/satellites/moon_de440_250416.tf).
+A ME-registered DEM must be transformed using its matching ME realization,
+rather than assuming a PA or IAU display frame. NASA's
+[LOLA frame discussion](https://pgda.gsfc.nasa.gov/products/95) illustrates
+why confusing these systems introduces hundreds of metres of error.
+
+Proposed implementation, pending scientific and device validation:
+
+- Add bounded binary-PCK orientation reads in the calculation worker and
+  validate orientation matrices independently with SPICE before using DEMs.
+- Repackage source elevations as independently checksummed 512 × 512
+  numeric tiles (512 KiB for a 16-bit tile), preserving the documented
+  source precision and datum. Group neighbouring tiles in small static
+  assets to stay below the hosting file-count limit; stream and retain only
+  needed tiles instead of decoding whole large elevation images.
+- Do not depend on HTTP byte ranges: the current static endpoint returned
+  a full 200 response to a small Range request in the delivery probe. A
+  grouped asset therefore needs bounded streaming and explicit download
+  accounting/cancellation, or the hosting layout must change first.
+- Compute observer-dependent limb sectors/profiles only on explicit event
+  refinement. Use the same bounded persistent-cache budget and keep the
+  display maps and animation path unchanged. Validate cache/memory use on
+  an actual iPhone 12 before claiming device performance.
+- Validate normal, grazing, polar and near-hybrid cases against independent
+  terrain-aware predictions, with separate spatial and timing error budgets.
+  The silhouette is a line-of-sight envelope of terrain, not simply the
+  elevation at a point on a spherical limb.
+
+These corrections are not enabled by the current release. The source/data
+preparation and orientation validation must precede a user-facing terrain
+accuracy option. No large DEM, new hosting deployment or paid service has
+been introduced by the validation work.
 
 ## Hosting and cost
 

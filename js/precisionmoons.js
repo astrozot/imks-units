@@ -21,7 +21,9 @@ export function nativeMoonGeometry(ephemeris,name,t){
  const p=emitted(ephemeris,planet,now,earth),m=emitted(ephemeris,name,now,earth);
  const v=sub(m.position,p.position),observer=unit(sub(m.position,earth));
  const [a,d]=sys.pole.map(x=>x*R),pole=[Math.cos(d)*Math.cos(a),Math.cos(d)*Math.sin(a),Math.sin(d)];
- const common={v,observer,pole,radius:sys.radius,flattening:flattening[planet],moonRadius:MOON_RADIUS[name]};
+ // The visible shadow is on the planet: its Earth ray differs from the
+ // separately observed moon ray used for transit/occultation contacts.
+ const common={v,observer,shadowObserver:unit(sub(p.position,earth)),pole,radius:sys.radius,flattening:flattening[planet],moonRadius:MOON_RADIUS[name]};
  const sunAtPlanet=emitted(ephemeris,'sun',p.jd,p.position),sunRay=sub(p.position,sunAtPlanet.position);
  const casting=emitted(ephemeris,name,p.jd,p.position),shadowVector=sub(casting.position,p.position);
  const disk=moonContactGeometry({...common,shadowVector,light:unit(sunRay),sunDistance:Math.hypot(...sunRay)});
