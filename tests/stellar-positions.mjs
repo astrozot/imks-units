@@ -1,7 +1,7 @@
 // Independent ERFA reductions, large-catalog culling and playback parity.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { horizontal, topocentric, equatorial, centuries, solarDeflection, solarDeflectionState } from '../js/astro.js';
+import { horizontal, topocentric, equatorial, centuries, solarDeflection, solarDeflectionState, apparentFrame, siderealTime } from '../js/astro.js';
 import { skyFrame, createSkyAnimator, horizontalVector, eachFaint, setFaintStars, findObject, pointVector, objectDetails } from '../js/coelum.js';
 
 const reference = JSON.parse(fs.readFileSync(new URL('fixtures/stellar-positions.json', import.meta.url)));
@@ -19,13 +19,13 @@ let maximum = 0, diurnalMaximum = 0;
 for (const r of reference.rows) {
   const s = r.star, frame = frameAt(r), p = frame.apparentCatalog(s.ra, s.dec, s.pmra, s.pmdec, s.plx);
   const compact = horizontal(s, r.t, r.place);
-  // The compact engine retains truncated nutation, historical precession,
-  // heliocentric Earth velocity and first-order aberration. This is an accuracy
+  // The compact engine retains heliocentric Earth velocity and first-order
+  // aberration. This is an accuracy
   // allowance against a distinct full model, not a subarcsecond guarantee.
   const error = separation(vector(p), vector(r));
   maximum = Math.max(maximum, error);
-  assert.ok(error < 0.2, `Full ERFA reduction: ${error} arcsec at ${r.t}`);
-  assert.ok(separation(vector(compact), vector(r)) < 0.2);
+  assert.ok(error < 0.015, `Full ERFA reduction: ${error} arcsec at ${r.t}`);
+  assert.ok(separation(vector(compact), vector(r)) < 0.015);
   assert.ok(separation(vector(p), vector(compact)) < 0.001, 'Drawing and calculator agree with zero radial velocity');
   if (s.ra === 90 && s.plx === 768) {
     const zero = reference.rows.find((q) => q.t === r.t && JSON.stringify(q.place) === JSON.stringify(r.place) && q.star.ra === 90 && q.star.plx === 0);
@@ -57,7 +57,22 @@ for (const r of reference.deflection) {
   const html = objectDetails({ ...p, name: 'Near-Sun reference', type: 'star' }, frame);
   assert.match(html, /Solar light deflection/);
   assert.match(html, /0\.9\d{2}″ \(included\)/, 'The detail card reports the included near-Sun offset');
-  assert.ok(separation(vector(p), vector(r)) < 0.06, 'The former 0.924 arcsec case improves');
+  assert.ok(separation(vector(p), vector(r)) < 0.015, 'The former 0.924 arcsec case improves');
+}
+// Independently validate the shared frame over the entire sky explorer date
+// range. The bounded 77-term model differs slightly from ERFA's full 2000A.
+let frameMaximum = 0, rotationMaximum = 0;
+for (const r of reference.frames) {
+  const T = (r.tt - 2451545) / 36525, f = apparentFrame(T);
+  assert.equal(apparentFrame(T), f, 'Objects at a timestamp reuse the frame');
+  for (let i = 0; i < 3; i++) {
+    const column = r.matrix.map((row) => row[i]), error = separation(f.columns[i], column);
+    frameMaximum = Math.max(frameMaximum, error);
+    assert.ok(error < 0.002, `Frame vs full ERFA at ${r.tt}: ${error} arcsec`);
+  }
+  const delta = ((siderealTime(r.t, 0) - r.gast * 180 / Math.PI + 540) % 360 - 180) * 3600;
+  rotationMaximum = Math.max(rotationMaximum, Math.abs(delta));
+  assert.ok(Math.abs(delta) < 0.002, 'Earth rotation uses the same modern equinox as the matrix');
 }
 // Retain the distance component of catalog space motion (not only its
 // angular direction) when converting parallax into a spatial position.
@@ -116,4 +131,4 @@ try {
     assert.ok(separation(found[0], vector(p)) < 0.00001);
   } finally { setFaintStars(null); }
 }
-console.log(`Stellar positions: ERFA full-model max ${maximum.toFixed(4)} arcsec; isolated diurnal max ${diurnalMaximum.toFixed(7)} arcsec; parallax, culling, selection and playback passed`);
+console.log(`Stellar positions: ERFA full-model max ${maximum.toFixed(4)} arcsec; frame max ${frameMaximum.toFixed(6)} arcsec; rotation max ${rotationMaximum.toFixed(6)} arcsec; isolated diurnal max ${diurnalMaximum.toFixed(7)} arcsec; parallax, culling, selection and playback passed`);

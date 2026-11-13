@@ -1,5 +1,6 @@
 // Native satellite event geometry, worker-only. All positions are ICRF km;
 // epochs are TDB. Never installs a provider in the animation or compact model.
+import {NATIVE_SYSTEMS} from './precisioncatalog.js';
 import {MOONS} from './moons.js';
 import {MOON_RADIUS,planetOf,moonEvents} from './astro.js';
 import {moonContactGeometry} from './moongeometry.js';
@@ -33,7 +34,7 @@ export function nativeMoonGeometry(ephemeris,name,t){
  return disk;
 }
 export function nativePlanetMoonEvents(ephemeris,planet,from,days=1){
- if(!['jupiter','saturn'].includes(planet)||!Number.isFinite(days)||days<=0||days>1)throw new RangeError('Native moon-event searches cover one day of Jupiter or Saturn');
+ if(!Object.hasOwn(NATIVE_SYSTEMS,planet)||!Number.isFinite(days)||days<=0||days>1)throw new RangeError('Native moon-event searches cover one day of an installed planetary system');
  const list=[];
  const provider={moonGeometry:(name,t)=>nativeMoonGeometry(ephemeris,name,t)};
  for(const moon of Object.keys(MOONS[planet].moons))for(const event of moonEvents(moon,from,days,provider)){

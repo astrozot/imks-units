@@ -18,10 +18,10 @@ async function pack(job){
  return readPrecisionPack(await nativeEphemerisPack(job,Object.fromEntries(Object.entries(files).map(([id,b])=>[id,{bytes:b.length}])),async(id,o,n)=>new Uint8Array(files[id].subarray(o,o+n))));
 }
 const t=Date.parse('2024-04-08T00:00Z')/1000,report={moonEvents:[],maps:[],independentContacts:0,maxReferenceSeconds:0};
-const dates=process.env.EXTENDED_STAGED?[t,...['1900-06-01','2000-06-01','2009-09-04','2025-03-23','2099-06-01'].map(s=>Date.parse(s+'T00:00Z')/1000)]:[t];
-for(const epoch of dates)for(const system of ['jupiter','saturn']){
+const dates=process.env.EXTENDED_STAGED?[t,...['1900-06-01','2000-06-01','2009-09-04','2025-03-23','2099-06-01','2007-12-07','2046-06-01','2046-06-04'].map(s=>Date.parse(s+'T00:00Z')/1000)]:[t];
+for(const epoch of dates)for(const system of (process.env.EXTENDED_STAGED?['mars','jupiter','saturn','uranus','neptune']:['jupiter','saturn'])){
  const job={kind:'moon-events',system,t:epoch,days:1},p=await pack(job),r=await calculatePrecisionEvent(job,p),ephemeris=makePrecisionEphemeris(p);
- if(epoch===t)assert.ok(r.list.length>0);assert.ok(r.residentBytes<524288);
+ if(epoch===t&&['jupiter','saturn'].includes(system))assert.ok(r.list.length>0);assert.ok(r.residentBytes<524288);
  for(const e of r.list){
   assert.ok(e.begin<e.end&&e.end>epoch&&e.begin<epoch+86400);assert.ok(nativeMoonGeometry(ephemeris,e.moon,e.t)[e.kind]<0);
   assert.ok(nativeMoonGeometry(ephemeris,e.moon,e.begin-1)[e.kind]>0);assert.ok(nativeMoonGeometry(ephemeris,e.moon,e.end+1)[e.kind]>0);
@@ -45,7 +45,7 @@ for(const job of [{kind:'solar',t:Date.parse('2024-04-08T18:42Z')/1000,place:[32
 }
 if(process.env.REFERENCE_KERNELS&&process.env.EXTENDED_STAGED){
  const manifest=JSON.parse(await fs.readFile(path.join(process.env.EXTENDED_STAGED,'manifest.json')));await fs.mkdir(process.env.REFERENCE_KERNELS,{recursive:true});
- for(const [id,d] of Object.entries(manifest.kernels).filter(([id])=>['de440','jup365','sat441'].includes(id))){
+ for(const [id,d] of Object.entries(manifest.kernels).filter(([id])=>['de440','mar099','jup365','sat441','ura184','nep097'].includes(id))){
   const handle=await fs.open(path.join(process.env.REFERENCE_KERNELS,id+'.bsp'),'w');try{await handle.truncate(d.bytes);const prefix='/'+d.path+'/';for(const key of blocks.keys())if(key.startsWith(prefix)){const data=await fs.readFile(path.join(process.env.EXTENDED_STAGED,key));await handle.write(data,0,data.length,Number(path.basename(key,'.bin'))*(d.chunkBytes??manifest.chunkBytes));}}finally{await handle.close();}
  }
 }

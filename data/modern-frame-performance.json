@@ -1,0 +1,84 @@
+{
+  "cpuSlowdown": 4,
+  "viewport": "390x844",
+  "stars": 2308825,
+  "method": "Interleaved before/after medians after warmup; desktop Chromium, no network or catalog loading in measured sections",
+  "skyCanvasMedianMs": [
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 1,
+      "before": 17.7,
+      "after": 17.4
+    },
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 32,
+      "before": 7.3,
+      "after": 7.3
+    },
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 256,
+      "before": 9.8,
+      "after": 9.5
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 1,
+      "before": 11.7,
+      "after": 12.4
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 32,
+      "before": 3.6,
+      "after": 3.5
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 256,
+      "before": 3.2,
+      "after": 3.4
+    },
+    {
+      "ra": 226.148,
+      "dec": -17.362,
+      "scale": 1,
+      "before": 13.8,
+      "after": 13.7
+    },
+    {
+      "ra": 226.148,
+      "dec": -17.362,
+      "scale": 32,
+      "before": 3.9,
+      "after": 3.9
+    },
+    {
+      "ra": 226.148,
+      "dec": -17.362,
+      "scale": 256,
+      "before": 4,
+      "after": 4
+    }
+  ],
+  "playbackUpdateMedianMs": {
+    "stars": {
+      "before": 4.2,
+      "after": 4
+    },
+    "default": {
+      "before": 9.7,
+      "after": 9.8
+    }
+  },
+  "baselineRevision": "eee3b5cfadffc8309513f635475cc69c88a17c5b",
+  "change": "Cached shared IAU 2006/2000B apparent frame and CIO rotation; compact ephemeris vectors converted from their legacy frame at output",
+  "limitation": "Desktop CPU throttling and a phone-sized viewport are not physical mobile hardware. Playback updates are timed separately from drawing."
+}

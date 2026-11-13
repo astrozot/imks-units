@@ -25,6 +25,12 @@ console.log(JSON.stringify(dates.map(d=>{
       ({star:{ra,dec},...equatorial({ra,dec},t,null,surfaceObserver(t,place).position)}))}))};
 })));
 """], cwd=root))
+frame_clocks = json.loads(subprocess.check_output([
+    'node', '--input-type=module', '-e', """
+import {centuries} from './js/astro.js';
+const dates=['-001000-06-01','0000-06-01','1000-06-01','1600-06-01','1900-03-21','2000-06-21','2026-03-21','2099-12-21','2400-06-01','3000-06-01'];
+console.log(JSON.stringify(dates.map(d=>{const t=Date.parse(d+'T12:00Z')/1000;return {t,tt:2451545+centuries(t)*36525,ut1:t/86400+2440587.5};})));
+"""], cwd=root))
 stars = [
     dict(ra=0, dec=0, pmra=0, pmdec=0, plx=0),
     dict(ra=90, dec=45, pmra=0, pmdec=0, plx=0),
@@ -70,7 +76,12 @@ for distance in [0.983, 1, 1.017]:
         natural = erfa.ldsun(source, e, distance)
         natural /= np.linalg.norm(natural)
         deflection.append(dict(observer=(e*distance).tolist(), source=source.tolist(), natural=natural.tolist()))
-out = dict(source=f'ERFA {erfa.__version__}: epv00, apco, atciq, atioq; isolated rotation via apio/atioq; deflection via ldsun',
+frames = []
+for clock in frame_clocks:
+    tt, ut1 = clock['tt'], clock['ut1']
+    frames.append(dict(**clock, matrix=erfa.pnm06a(2451545, tt-2451545).tolist(),
+                       gast=float(erfa.gst06a(2451545, ut1-2451545, 2451545, tt-2451545))))
+out = dict(source=f'ERFA {erfa.__version__}: epv00, apco, atciq, atioq; isolated rotation via apio/atioq; deflection via ldsun; frames via pnm06a/gst06a',
            scope='Independent full apparent positions; compact-model approximations remain. TT/UT1 clocks shared, zero refraction/polar motion, zero radial velocity.',
-           rows=rows, diurnal=diurnal, deflection=deflection)
+           rows=rows, diurnal=diurnal, deflection=deflection, frames=frames)
 (root/'tests/fixtures/stellar-positions.json').write_text(json.dumps(out, indent=2)+'\n')

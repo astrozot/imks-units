@@ -2,7 +2,7 @@
 import { readPrecisionPack } from './precisionpack.js';
 import { makePrecisionEphemeris } from './precisionephem.js';
 import { solarLocal, lunarEclipse, lunarDiagram, occultationLocal, deltaTError, horizontal, eclipseTrack, occultationTrack, solarContacts, solarEclipse } from './astro.js';
-import { PLANET_IDS,HISTORICAL_YEARS,NATIVE_MOONS } from './precisioncatalog.js';
+import { PLANET_IDS,HISTORICAL_YEARS,NATIVE_MOONS,NATIVE_SYSTEMS } from './precisioncatalog.js';
 
 export async function calculatePrecisionEvent(job, pack) {
   const { kind, t, place, target, front } = job;
@@ -17,10 +17,10 @@ export async function calculatePrecisionEvent(job, pack) {
   if(kind==='moon-events'){
     const {nativePlanetMoonEvents}=await import('./precisionmoons.js');
     const planet=job.system;if(!pack.header.native)throw new Error('Native satellite data is required');
-    const spec=planet==='jupiter'?[5,599]:planet==='saturn'?[6,699]:null;
+    const system=NATIVE_SYSTEMS[planet],spec=system?[system.center,system.center*100+99]:null;
     if(!spec||!pack.has(...spec))throw new Error('Native planet centre is required');
     const list=nativePlanetMoonEvents(ephemeris,planet,t,job.days??1),clock=ephemeris.clock(t);
-    return {kind,system:planet,t,days:job.days??1,list,source:source+' + '+(planet==='jupiter'?'JUP365':'SAT441'),kernels:pack.header.kernels.map(k=>k.id),native:true,earthOrientation:clock.eop?'IERS daily UT1':'Modelled Earth rotation (ΔT)',residentBytes:pack.byteLength,calculationMs:performance.now()-start};
+    return {kind,system:planet,t,days:job.days??1,list,source:source+' + '+system.kernel.toUpperCase(),kernels:pack.header.kernels.map(k=>k.id),native:true,earthOrientation:clock.eop?'IERS daily UT1':'Modelled Earth rotation (ΔT)',residentBytes:pack.byteLength,calculationMs:performance.now()-start};
   }
   if(kind==='position'){
     const body=typeof job.body==='string'?job.body.toLowerCase():null;

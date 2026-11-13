@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {moonEventTimes} from '../js/mooneventstime.js';
+const t=s=>Date.parse(s)/1000;
+const approx=moonEventTimes('UTC'),native=moonEventTimes('UTC',true);
+assert.equal(approx.clock(t('2024-04-08T12:34:56.78Z')),'12:34:57');
+assert.equal(native.clock(t('2024-04-08T12:34:56.78Z')),'12:34:56.8');
+assert.equal(native.clock(t('2024-04-08T23:59:59.96Z'),t('2024-04-08T23:00Z')),'00:00:00.0 (+1d)');
+assert.equal(native.date(t('2024-04-08T23:59:59.96Z')),'2024-04-09');
+const rome=moonEventTimes('Europe/Rome',true),mid=t('2024-04-09T00:10Z');
+assert.equal(rome.date(mid),'2024-04-09');
+assert.equal(rome.clock(t('2024-04-08T21:50Z'),mid),'23:50:00.0 (-1d)');
+assert.equal(rome.zone(t('2024-10-27T00:00Z'),t('2024-10-27T03:00Z')),'Europe/Rome (UTC+02:00 → UTC+01:00)');
+const fixed=moonEventTimes('+05:30',true);assert.equal(fixed.clock(t('2024-04-08T23:45Z')),'05:15:00.0');assert.equal(fixed.date(t('2024-04-08T23:45Z')),'2024-04-09');
+assert.equal(approx.zone(mid),'UTC');
+console.log('Moon event clocks: model resolution, rounding, midpoint dates, midnight, fixed offsets and DST zone labels passed');

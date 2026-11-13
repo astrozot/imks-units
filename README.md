@@ -4,6 +4,9 @@
 
 # iMKS Units
 
+For implemented astronomical corrections, validation results, remaining limits
+and future accuracy work, see [Astronomical accuracy](ACCURACY.md).
+
 A unit calculator for phones, tablets and computers: numbers carry units,
 `@` converts, uncertainties propagate, and it includes CODATA constants,
 solar-system data, cosmology and lensing functions, equation solving,
@@ -353,9 +356,17 @@ license is retained in the generated file). To regenerate, download
 repository into a directory, then run `node tools/coelum.mjs <directory>`.
 Chart positions include precession, nutation, proper motion, annual stellar
 parallax where known, solar gravitational light deflection, and annual and
-diurnal aberration. Earth position and velocity are shared across a frame; downloaded stars retain tile culling,
+diurnal aberration. The shared frame uses IAU 2006 bias/precession and a
+77-term IAU 2000B nutation series with full fundamental arguments and CIO
+Earth rotation. Its matrix is cached at each TT timestamp. The compact
+analytic ephemerides retain their original frame internally and are converted
+to this modern frame at their output; the precision provider already returns
+modern coordinates. The dated `radec`, `ecl`, `eq2ecl` and `ecl2eq` functions
+use the same equinox and obliquity, including longitude-event searches. Earth position and velocity are shared across a frame;
+downloaded stars retain tile culling,
 with bounds expanded for these corrections. Playback caches catalog space
-motion for at most a day while updating parallax, deflection and aberration each frame.
+motion for at most a day while updating the frame, parallax, deflection and
+aberration each frame.
 Coordinate grids retain their geometric rotations. Standard local `altaz`
 and `radec` stellar positions include solar light deflection, and local
 positions include diurnal aberration; geocentric positions exclude the latter.
@@ -363,8 +374,12 @@ Stellar detail cards report the included solar deflection. The solar monopole
 model uses the ERFA angular limiter inside the opaque solar disk; magnification,
 multiple images and planetary gravitational deflection are not simulated.
 Full-model ERFA checks span 1900–2099, with a sampled maximum discrepancy of
-0.1681″; this is not an all-date accuracy guarantee. The compact engine retains
-its approximate nutation/precession and heliocentric Earth state.
+0.0123″, improved from 0.1681″ with the older frame. This is not an all-date
+accuracy guarantee. Separate frame/rotation checks sample year −1000 through
+3000 and agree with ERFA's full IAU 2006/2000A model to within 0.001″ at those
+dates. The compact engine retains its heliocentric Earth state and first-order
+aberration, which dominate the remaining modern-date stellar residual.
+Frame-upgrade drawing/playback measurements are in `data/modern-frame-performance.json`.
 Solar-deflection performance measurements are in
 `data/solar-deflection-performance.json`. Artificial satellites retain their
 geometric SGP4 convention. Stellarium desktop's
@@ -456,14 +471,21 @@ a cache of its own.
 `node tests/coelum.mjs` checks sky-chart geometry and catalog positions at
 northern, southern and polar locations, and calculator integration.
 `node tests/stellar-positions.mjs` compares stellar positions with independent
-ERFA references, isolates diurnal aberration and solar light deflection,
-and checks annual parallax,
+ERFA references, checks the shared frame/rotation from year −1000 through
+3000, isolates diurnal aberration and solar light deflection, and checks annual
+parallax,
 tile culling, selection and forward/reverse playback. Regenerate those
 references with `python tools/stellar-reference.py` (development dependency:
 pyerfa). `node tools/stellar-benchmark.mjs /path/to/baseline-checkout` measures
 before/after drawing and playback with the magnitude-12 catalog in a phone
 viewport, using the browser-test Playwright settings and 4× CPU throttling.
 This desktop approximation does not replace measurements on a real phone.
+The saved Horizons RA/Dec checks in `tests/run.mjs` are normalized from their
+IAU76/80 observer frame with independent ERFA rotations in
+`tests/fixtures/horizons-frames.json`; regenerate these with
+`python tools/horizons-frame-reference.py`. Original Horizons values remain
+unchanged. After normalization, the compact Uranus sample peaks at 4.017″;
+its test allowance is 4.1″ instead of the previously rounded 4″.
 
 `node tests/coelum-browser.mjs` checks the chart and realistic views,
 search, layers, legend, fading full-screen controls, the eclipse link,

@@ -1,7 +1,9 @@
 // Events of a planet's moons, using the same limb-contact calculation
 // as iMKS's moonevents(). Search a day at a time, yielding between moons.
+import {moonEventTimes} from './mooneventstime.js';
 import { moonEvents } from "./astro.js";
 import {mountEphemerisSwitch} from './precisionui.js';
+import {NATIVE_SYSTEMS} from './precisioncatalog.js';
 import { MOONS } from "./moons.js";
 
 const DAY = 86400;
@@ -25,7 +27,7 @@ async function planetMoonEvents(planet, from, days = 1, job = {}) {
   return job.stop ? null : list.sort((a, b) => a.begin - b.begin || a.moon.localeCompare(b.moon) || a.kind.localeCompare(b.kind));
 }
 
-function moonEventsPanel(body, { formatTime, onSelect, onClose }) {
+function moonEventsPanel(body, { formatTime, timeZone=()=> 'device', onSelect, onClose }) {
   let state = null, job = null;
   const close = () => {
     if (job) job.stop = true;
@@ -37,12 +39,13 @@ function moonEventsPanel(body, { formatTime, onSelect, onClose }) {
   const render = () => {
     if (!state) return;
     const s = state,events=s.preciseList??s.list,error=s.preciseList?null:s.error,days=s.preciseList?1:s.days;
-    const full = (e) => e.contacts.C2 === null ? '' : `<small>${FULL[e.kind]}: ${esc(formatTime(e.contacts.C2))} – ${esc(formatTime(e.contacts.C3))}</small>`;
+    const times=moonEventTimes(timeZone(),Boolean(s.preciseList)),zone=times.zone(s.from,Math.max(s.from,...events.map(e=>e.end)));
+    const full = (e) => e.contacts.C2 === null ? '' : `<small>${FULL[e.kind]}: ${esc(times.clock(e.contacts.C2,e.t))} – ${esc(times.clock(e.contacts.C3,e.t))}</small>`;
     body.innerHTML = `<button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-moon-events-close aria-label="Close moon events">×</button>
       <h3>Events of ${esc(s.planet[0].toUpperCase() + s.planet.slice(1))}'s moons</h3>
       <div data-moon-precision-slot></div>
-      <p class="coelum-panel-note">After ${esc(formatTime(s.from))}. First to last contact, as seen from Earth's center. Eclipses and shadows include the penumbra. Tap an event to show the system at its midpoint.${s.preciseList?` Native orbits; adopted radii and poles, smooth limbs and finite Sun.${s.preciseClock?.startsWith('Modelled')?' Times use modelled ΔT.':''} Atmospheres and mutual moon events are not included. Displayed seconds are resolution, not an accuracy guarantee.`:''}</p>
-      <div class="coelum-event-list">${events.slice(0, s.shown).map((e, i) => `<button type="button" class="coelum-event" data-moon-event="${i}"><b>${esc(e.moon)} ${LABEL[e.kind]}</b><span>${esc(formatTime(e.begin))} – ${esc(formatTime(e.end))}</span>${e.begin < s.from ? '<small>Already in progress</small>' : ''}${full(e)}</button>`).join("")}
+      <p class="coelum-panel-note">Times in ${esc(zone)}. After ${esc(times.date(s.from))} ${esc(times.clock(s.from))}. Dates refer to event midpoints. First to last contact, as seen from Earth's center. Eclipses and shadows include the penumbra. Tap an event to show the system at its midpoint.${s.preciseList?` Native orbits; adopted radii and poles, smooth limbs and finite Sun.${s.preciseClock?.startsWith('Modelled')?' Times use modelled ΔT.':''} Atmospheres and mutual moon events are not included. Displayed seconds are resolution, not an accuracy guarantee.`:''}</p>
+      <div class="coelum-event-list">${events.slice(0, s.shown).map((e, i) => `<button type="button" class="coelum-event" data-moon-event="${i}"><b>${esc(e.moon)} ${LABEL[e.kind]}</b><span class="coelum-event-date">${esc(times.date(e.t))}</span><span>${esc(times.clock(e.begin,e.t))} – ${esc(times.clock(e.end,e.t))}</span>${e.begin < s.from ? '<small>Already in progress</small>' : ''}${full(e)}</button>`).join("")}
       ${s.busy ? `<p class="coelum-panel-note" role="status">Searching… ${Math.round(100 * (job?.done || 0))}%</p>` : error ? `<p class="coelum-panel-note" role="status">${esc(error)}</p>` : `${events.length ? '' : `<p class="coelum-panel-note">None within ${days === 1 ? 'a day' : `${days} days`}.</p>`}<button type="button" class="coelum-chip" data-moon-events-more>${s.preciseList&&s.shown>=events.length?'Next day':'More'}</button>`}</div>`;
     if(s.controls){body.querySelector('[data-moon-precision-slot]').replaceWith(s.controls);s.controls.hidden=s.busy||s.days>1;}
   };
@@ -82,7 +85,7 @@ function moonEventsPanel(body, { formatTime, onSelect, onClose }) {
   const open=(planet,from)=>{
     close();
     const s=state={planet,from,days:0,list:[],shown:10,busy:false,preciseList:null};
-    if(['jupiter','saturn'].includes(planet)){
+    if(Object.hasOwn(NATIVE_SYSTEMS,planet)){
       s.controls=document.createElement('div');
       s.precision=mountEphemerisSwitch(s.controls,()=>({kind:'moon-events',system:planet,t:from,days:1}),result=>{
         if(state!==s)return;s.preciseList=result?.list??null;s.preciseClock=result?.earthOrientation;s.shown=10;render();

@@ -781,7 +781,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   let moons = null;
   const moonsLayer = $('.coelum-moonsview');
   const moonEventsList = moonEventsPanel($('.coelum-moon-events'), {
-    formatTime,
+    formatTime, timeZone:()=>options.timeZone?.()||'device',
     onClose: () => $('[data-action="moon-events"]').setAttribute('aria-expanded', 'false'),
     onSelect: (event) => { setTime(event.t); moons?.view.fit(); },
   });

@@ -6,7 +6,7 @@
 import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { CHART_STARS } from './stardata.js';
 import { DEEP } from './catalog.js';
-import { heliocentric, surfaceObserver, solarDeflectionState, precessVector, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
+import { heliocentric, surfaceObserver, solarDeflectionState, apparentFrame, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
 import { satelliteLight } from './satellites.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
@@ -122,13 +122,7 @@ export const limitTime = (t) => Math.min(MAX_TIME, Math.max(MIN_TIME, t));
 // Aberration and parallax are applied separately to physical catalog objects;
 // coordinate grids retain this pure rotation.
 function dateRotation(t) {
-  const T = centuries(t), n = nutation(T), c = Math.cos, s = Math.sin;
-  return [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((v) => {
-    const [x, y, z] = precessVector(v, T), e0 = n.eps0 * R, e = n.eps * R, p = n.dpsi * R;
-    const q = y * c(e0) + z * s(e0), w = -y * s(e0) + z * c(e0);
-    const a = x * c(p) - q * s(p), b = x * s(p) + q * c(p);
-    return [a, b * c(e) - w * s(e), b * s(e) + w * c(e)];
-  });
+  return apparentFrame(centuries(t)).columns;
 }
 
 // The matrix (rows) from a horizontal vector [east, north, up] to J2000
@@ -279,7 +273,8 @@ function catalogObserver(t, place, matrix) {
     const a = x * Math.cos(n.dpsi * R) - y * Math.sin(n.dpsi * R), b = x * Math.sin(n.dpsi * R) + y * Math.cos(n.dpsi * R);
     return [a, b * Math.cos(n.eps * R) - z * Math.sin(n.eps * R), b * Math.sin(n.eps * R) + z * Math.cos(n.eps * R)];
   };
-  const obs = surfaceObserver(t, place), E = rotate(earth), V = rotate(velocity);
+  const f = apparentFrame(T);
+  const obs = surfaceObserver(t, place), E = f.fromLegacy(rotate(earth)), V = f.fromLegacy(rotate(velocity));
   const position = E.map((x, i) => x + obs.position[i] / 149597870.7), beta = V.map((x, i) => x / 173.1446327 + obs.beta[i]);
   const positionJ2000 = matrix.map((col) => dot3(col, position));
   return { position, beta, positionJ2000, betaJ2000: matrix.map((col) => dot3(col, beta)), deflection: solarDeflectionState(position), deflectionJ2000: solarDeflectionState(positionJ2000) };

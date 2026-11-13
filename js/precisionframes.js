@@ -1,6 +1,6 @@
 // IAU 2006 frame bias/precession and 77-term nutation: IAU 2000B within
-// DE440's interval, full IERS arguments and CIO rotation outside it. Optional
-// calculations only; not imported by the sky or any animation.
+// DE440's interval, full IERS arguments and CIO rotation outside it. The
+// shared sky frame explicitly selects full arguments and CIO at all dates.
 // Formulae/series adapted from ERFA; see data/precision/ERFA-LICENSE.txt.
 import { NUTATION_2000B as TERMS } from './precision-nutation.js';
 import { equationOrigins } from './precision-cio.js';
@@ -8,13 +8,12 @@ const AS = Math.PI / (180 * 3600);
 export const rotateX = (a, [x, y, z]) => [x, Math.cos(a) * y + Math.sin(a) * z, -Math.sin(a) * y + Math.cos(a) * z];
 export const rotateZ = (a, [x, y, z]) => [Math.cos(a) * x + Math.sin(a) * y, -Math.sin(a) * x + Math.cos(a) * y, z];
 const poly = (t, c) => c.reduceRight((sum, a) => sum * t + a, 0);
-export function precisionFrame(ttJD) {
+export function precisionFrame(ttJD, full = ttJD < 2287184.5 || ttJD > 2688976.5) {
   const T = (ttJD - 2451545) / 36525;
   // IAU 2000B linearises its fundamental arguments for modern dates.
   // That drifts by tenths of an arcsecond in historical apparent places.
   // Outside DE440's interval retain the same bounded 77-term series but
   // evaluate the complete IERS 2003 arguments (ERFA fa[l,lp,f,d,om]03).
-  const full=ttJD<2287184.5||ttJD>2688976.5;
   const arguments_ = (full?
     [[485868.249036,1717915923.2178,31.8792,.051635,-.00024470],[1287104.793048,129596581.0481,-.5532,.000136,-.00001149],[335779.526232,1739527262.8478,-12.7512,-.001037,.00000417],[1072260.703692,1602961601.2090,-6.3706,.006593,-.00003169],[450160.398036,-6962890.5431,7.4722,.007702,-.00005939]]:
     [[485868.249036,1717915923.2178],[1287104.79305,129596581.0481],[335779.526232,1739527262.8478],[1072260.70369,1602961601.2090],[450160.398036,-6962890.5431]])

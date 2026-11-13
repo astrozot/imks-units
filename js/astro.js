@@ -20,6 +20,7 @@ import { MOON } from "./moonseries.js";
 import { moonContactGeometry, contactIntervals } from "./moongeometry.js";
 import { moonSeriesPosition } from "./moonposition.js";
 import { sgp4 } from "./sgp4.js";
+import { precisionFrame } from "./precisionframes.js";
 
 const RAD = Math.PI / 180;
 const sin = (x) => Math.sin(x * RAD), cos = (x) => Math.cos(x * RAD);
@@ -93,13 +94,35 @@ function centuries(t) {
   return (jd + deltaT(2000 + (jd - 2451545) / 365.25) / 86400 - 2451545) / 36525;
 }
 
-// Nutation in longitude and obliquity, and the true obliquity (degrees)
+// Legacy analytic-theory nutation and obliquity (degrees). Final apparent
+// coordinates use apparentFrame; these terms retain the ephemerides' frame.
 function nutation(T) {
   const om = 125.04452 - 1934.136261 * T, ls = 280.4665 + 36000.7698 * T, lm = 218.3165 + 481267.8813 * T;
   const dpsi = (-17.2 * sin(om) - 1.32 * sin(2 * ls) - 0.23 * sin(2 * lm) + 0.21 * sin(2 * om)) / 3600;
   const deps = (9.2 * cos(om) + 0.57 * cos(2 * ls) + 0.1 * cos(2 * lm) - 0.09 * cos(2 * om)) / 3600;
   const eps0 = 23.439291111 - 0.013004167 * T - 1.639e-7 * T * T + 5.036e-7 * T ** 3;
   return { dpsi, eps: eps0 + deps, eps0 };
+}
+
+// Compact analytic ephemerides retain their original mean/ecliptic frame.
+// Convert their final vectors to the shared IAU 2006/2000B apparent frame.
+// Cache by TT century: all objects at a timestamp share the series/matrices.
+let frameCentury, frameCache;
+export function apparentFrame(T) {
+  if (T !== frameCentury) {
+    const modern = precisionFrame(2451545 + T * 36525, true);
+    const mean = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((v) => precessVector(v, T));
+    const legacy = mean.map((v) => nutateVector(v, T));
+    const columns = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map(modern.apply);
+    const fromLegacy = (v) => modern.apply(legacy.map((col) => dot(col, v)));
+    const toLegacy = (v) => {
+      const q = modern.inverse(v);
+      return [0, 1, 2].map((i) => legacy[0][i] * q[0] + legacy[1][i] * q[1] + legacy[2][i] * q[2]);
+    };
+    frameCache = { ...modern, columns, fromLegacy, toLegacy, fromMeanLegacy: (v) => modern.apply(mean.map((col) => dot(col, v))) };
+    frameCentury = T;
+  }
+  return frameCache;
 }
 
 // ---------------------------------------------------------------------
@@ -420,16 +443,23 @@ function equatorial(body, t, ephemeris = null, observer = null) {
     // equinoxes); NaN once SGP4 fails
     const p = satellitePosition(body, t);
     if (!p) return { ra: NaN, dec: NaN, dist: NaN };
-    const n = nutation(T);
-    return { ra: mod360(Math.atan2(p[1], p[0]) / RAD + n.dpsi * cos(n.eps)), dec: Math.atan2(p[2], Math.hypot(p[0], p[1])) / RAD, dist: Math.hypot(...p) };
+    return { ra: mod360(Math.atan2(p[1], p[0]) / RAD + siderealTime(t, 0) - gmst(t)), dec: Math.atan2(p[2], Math.hypot(p[0], p[1])) / RAD, dist: Math.hypot(...p) };
   }
-  const p = observer ? starEcliptic(body, T, observer) : ecliptic(body, T);
+  const frame = apparentFrame(T);
+  const p = observer ? starEcliptic(body, T, frame.toLegacy(observer)) : ecliptic(body, T);
   const eps = nutation(T).eps;
-  return {
-    ra: mod360(Math.atan2(sin(p.lon) * cos(eps) - Math.tan(p.lat * RAD) * sin(eps), cos(p.lon)) / RAD),
-    dec: Math.asin(sin(p.lat) * cos(eps) + cos(p.lat) * sin(eps) * sin(p.lon)) / RAD,
-    dist: p.dist,
-  };
+  const v = frame.fromLegacy([cos(p.lat) * cos(p.lon), cos(p.lat) * sin(p.lon) * cos(eps) - sin(p.lat) * sin(eps), cos(p.lat) * sin(p.lon) * sin(eps) + sin(p.lat) * cos(eps)]);
+  return { ra: mod360(Math.atan2(v[1], v[0]) / RAD), dec: Math.atan2(v[2], Math.hypot(v[0], v[1])) / RAD, dist: p.dist };
+}
+
+// Public ecliptic coordinates share the equinox of apparent RA/Dec. The
+// internal ecliptic(body, T) retains the analytic theories' original frame.
+export function apparentEcliptic(body, t, place = null) {
+  const p = place ? topocentric(body, t, place) : equatorial(body, t);
+  const f = apparentFrame(centuries(t)), eps = (f.eps + f.deps) / RAD;
+  const x = cos(p.dec) * cos(p.ra), y = cos(p.dec) * sin(p.ra) * cos(eps) + sin(p.dec) * sin(eps);
+  const z = -cos(p.dec) * sin(p.ra) * sin(eps) + sin(p.dec) * cos(eps);
+  return { lon: mod360(Math.atan2(y, x) / RAD), lat: Math.atan2(z, Math.hypot(x, y)) / RAD, dist: p.dist };
 }
 
 // WGS 84 observer position (km) and rotational velocity / c in the true
@@ -708,14 +738,18 @@ export function precessVector([x, y, z], T) {
   return [x2 * Math.cos(zz) - y1 * Math.sin(zz), x2 * Math.sin(zz) + y1 * Math.cos(zz), z2];
 }
 
-// Mean equator of date to true equator of date. Satellite vectors and
-// poles must share the nutated frame of their apparent parent positions.
-function trueVector([x, y, z], T) {
+// Legacy mean equator of date to its original nutated equator. Used only
+// to construct the conversion from analytic-theory coordinates.
+function nutateVector([x, y, z], T) {
   const { eps0, eps, dpsi } = nutation(T);
   const a = y * cos(eps0) + z * sin(eps0), b = -y * sin(eps0) + z * cos(eps0);
   const qx = x * cos(dpsi) - a * sin(dpsi), qy = x * sin(dpsi) + a * cos(dpsi);
   return [qx, qy * cos(eps) - b * sin(eps), qy * sin(eps) + b * cos(eps)];
 }
+
+// Satellite vectors and poles use the same modern apparent frame as their
+// parent positions; their analytic inputs remain mean coordinates of date.
+function trueVector(v, T) { return apparentFrame(T).fromMeanLegacy(v); }
 
 const dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
 const unit = (a, d) => [cos(d) * cos(a), cos(d) * sin(a), sin(d)];
@@ -1747,12 +1781,7 @@ function conjunctionRA(a, b, t, place = null, years = 200) {
 
 // Apparent ecliptic coordinates of date, geocentric or topocentric.
 function seenEcliptic(body, t, place) {
-  if (!place) return ecliptic(body, centuries(t));
-  const p = topocentric(body, t, place), eps = nutation(centuries(t)).eps;
-  const x = cos(p.dec) * cos(p.ra);
-  const y = cos(p.dec) * sin(p.ra) * cos(eps) + sin(p.dec) * sin(eps);
-  const z = sin(p.dec) * cos(eps) - cos(p.dec) * sin(p.ra) * sin(eps);
-  return { lon: mod360(Math.atan2(y, x) / RAD), lat: Math.atan2(z, Math.hypot(x, y)) / RAD };
+  return apparentEcliptic(body, t, place);
 }
 
 // The next equality (or 180° difference) of apparent ecliptic longitudes.
@@ -1943,9 +1972,7 @@ function occultationTrack(target, front, t, ephemeris = null) {
 // Local sidereal time in degrees (apparent: with the equation of the
 // equinoxes)
 function siderealTime(t, lon) {
-  const T = centuries(t);
-  const n = nutation(T);
-  return mod360(gmst(t) + n.dpsi * cos(n.eps) + lon);
+  return apparentFrame(centuries(t)).sidereal(jdOf(t), lon);
 }
 
 // ---------------------------------------------------------------------

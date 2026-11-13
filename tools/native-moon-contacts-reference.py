@@ -16,12 +16,12 @@ root=pathlib.Path(__file__).resolve().parents[1]
 directory=pathlib.Path(sys.argv[3]) if len(sys.argv)>3 else root/'tests/fixtures'
 def kernel_path(k):return directory/(k+'.bsp' if len(sys.argv)>3 else k+'-native.bsp')
 base=SPK.open(kernel_path('de440'))
-kernels={s:SPK.open(kernel_path(k)) for s,k in [('jupiter','jup365'),('saturn','sat441')]}
-ids={'jupiter':5,'saturn':6}
-radii={'jupiter':71492,'saturn':60268}
-flat={'jupiter':.06487,'saturn':.09796}
-poles={'jupiter':(268.056595,64.495303),'saturn':(40.589,83.537)}
-moons={'Io':(501,1821.6),'Europa':(502,1560.8),'Ganymede':(503,2634.1),'Callisto':(504,2410.3),'Mimas':(601,198.2),'Enceladus':(602,252.1),'Tethys':(603,531.1),'Dione':(604,561.4),'Rhea':(605,763.8),'Titan':(606,2574.7),'Hyperion':(607,135),'Iapetus':(608,734.5)}
+kernels={s:SPK.open(kernel_path(k)) for s,k in [('mars','mar099'),('jupiter','jup365'),('saturn','sat441'),('uranus','ura184'),('neptune','nep097')] if kernel_path(k).exists()}
+ids={'mars':4,'jupiter':5,'saturn':6,'uranus':7,'neptune':8}
+radii={'mars':3396.19,'jupiter':71492,'saturn':60268,'uranus':25559,'neptune':24764}
+flat={'mars':.00589,'jupiter':.06487,'saturn':.09796,'uranus':.02293,'neptune':.01708}
+poles={'mars':(317.68143,52.8865),'jupiter':(268.056595,64.495303),'saturn':(40.589,83.537),'uranus':(257.311,-15.175),'neptune':(299.36,43.46)}
+moons={'Phobos':(401,11.1),'Deimos':(402,6.2),'Miranda':(705,235.8),'Ariel':(701,578.9),'Umbriel':(702,584.7),'Titania':(703,788.9),'Oberon':(704,761.4),'Triton':(801,1353.4),'Io':(501,1821.6),'Europa':(502,1560.8),'Ganymede':(503,2634.1),'Callisto':(504,2410.3),'Mimas':(601,198.2),'Enceladus':(602,252.1),'Tethys':(603,531.1),'Dione':(604,561.4),'Rhea':(605,763.8),'Titan':(606,2574.7),'Hyperion':(607,135),'Iapetus':(608,734.5)}
 def native(k,c,b,jd):
  s=next(s for s in reversed(k.segments) if s.center==c and s.target==b and s.start_jd<=jd<=s.end_jd)
  return s.compute(jd)

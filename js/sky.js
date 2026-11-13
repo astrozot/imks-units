@@ -9,7 +9,7 @@ import { UNum, ufuncs, atan2 } from "./unum.js";
 import { isDate, dateQ, yearArg } from "./dates.js";
 import { findObject, findPlace } from "./lookup.js";
 import { OCC_MAG, lunarOccultationsNow } from "./occultations.js";
-import { conjunction, opposition, occultation, occultationTrack, orbitAge, satellitePasses, horizontal, equatorial, topocentric, ecliptic, centuries, nutation, aspect, magnitude, diameter, transit, moons, planetDisk, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season, deltaTError } from "./astro.js";
+import { conjunction, opposition, occultation, occultationTrack, orbitAge, satellitePasses, horizontal, equatorial, topocentric, apparentEcliptic, apparentFrame, centuries, aspect, magnitude, diameter, transit, moons, planetDisk, moonEvents, planetOf, lunarEclipse, lunarDiagram, solarEclipse, solarLocal, eclipseTrack, riseSet, nextPhase, moonPhase, siderealTime, season, deltaTError } from "./astro.js";
 
 const RAD = Math.PI / 180;
 // the functions that take a place, (latitude, longitude): their lists
@@ -265,7 +265,7 @@ function skyBuiltins(env, b) {
   };
   b.ecl = (x, t) => {
     const body = bodyOf("ecl", x, ["star", "orbit"]), u = when("ecl", t, pre);
-    const e = ecliptic(body, centuries(u)), err = posError(body, u);
+    const e = apparentEcliptic(body, u), err = posError(body, u);
     return [deg(e.lon, Math.min(err / Math.cos(e.lat * RAD), 180)), deg(e.lat, err)];
   };
   // of a star, from its parallax (in parsecs; the parallax to 0.5 mas); of
@@ -629,7 +629,11 @@ function skyBuiltins(env, b) {
   // the local sidereal time (radians), with the error of UT
   const lstAt = (t, lon) => UNum.uncertain(siderealTime(t, lon) * RAD, 15 * utError(t) / 3600 * RAD);
   // the obliquity: true, of the date t, or mean of J2000
-  const obliquity = (name, t) => num((t === undefined ? 23.4392911 : nutation(centuries(when(name, t, "(ra, dec), "))).eps) * RAD);
+  const obliquity = (name, t) => {
+    if (t === undefined) return num(23.4392911 * RAD);
+    const f = apparentFrame(centuries(when(name, t, "(ra, dec), ")));
+    return num(f.eps + f.deps);
+  };
   // an epoch, a date or a year (Julian), in centuries from J2000
   const epoch = (name, x) => {
     if (isDate(env, x)) return (x.relative().x.n / 86400 + 2440587.5 - 2451545) / 36525;

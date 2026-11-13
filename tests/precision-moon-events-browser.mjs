@@ -40,11 +40,12 @@ try{
  const open=async name=>{await page.evaluate(name=>explorer.select(name,{details:true}),name);await page.locator('.coelum-moons-button').click();await page.locator('[data-action="moon-events"]').click();await page.locator('[data-moon-events-more]').waitFor({state:'visible'});};
  const panel=page.locator('.coelum-moon-events'),button=panel.locator('[data-precision-run]');
  let first=true;const cases=[];
- for(const name of ['Jupiter','Saturn']){
-  await open(name);if(first){assert.equal(requests,0);assert.equal(await page.evaluate(()=>workers),0);first=false;}
+ for(const [name,date] of (staged?[['Mars',stamp],['Jupiter',stamp],['Saturn',stamp],['Uranus','2007-12-07T00:00:00Z'],['Neptune','2046-06-01T00:00:00Z']]:[['Jupiter',stamp],['Saturn',stamp]])){
+  await page.evaluate(s=>explorer.setTime(Date.parse(s)/1000),date);await open(name);if(first){assert.equal(requests,0);assert.equal(await page.evaluate(()=>workers),0);first=false;}
   const approx=await panel.locator('[data-moon-event]').allTextContents();assert.ok(approx.length>0);
   const before=requests;await button.click();await page.waitForFunction(()=>document.querySelector('.coelum-moon-events [data-precision-run]').getAttribute('aria-pressed')==='true');
   assert.equal(await page.evaluate(()=>workers),0);assert.ok(requests>=before);assert.match(await panel.textContent(),/Native orbits/);
+  const clockRows=await panel.locator('[data-moon-event]').allTextContents();assert.ok(clockRows.every(s=>/\d{2}:\d{2}:\d{2}\.\d/.test(s)),'JPL contacts have tenths of a second');assert.ok(clockRows.every(s=>!s.includes('UTC')&&!s.includes('Europe/')),'Timezone appears once in the panel, not in every contact');assert.equal(await panel.locator('.coelum-event-date').count(),await panel.locator('[data-moon-event]').count());
   const precise=await panel.locator('[data-moon-event]').allTextContents();assert.ok(precise.length>0);assert.notDeepEqual(precise,approx);
   const count=requests;if(!safari)await context.setOffline(true);await button.click();assert.deepEqual(await panel.locator('[data-moon-event]').allTextContents(),approx);await button.click();assert.deepEqual(await panel.locator('[data-moon-event]').allTextContents(),precise);assert.equal(requests,count);assert.equal(await page.evaluate(()=>workers),0);await context.setOffline(false);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
