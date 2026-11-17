@@ -9,10 +9,18 @@ export async function clearPrecisionData(){active?.cancel();await caches.delete(
 export function precisionEvent(job, progress = () => {}) {
   active?.cancel();
   let worker, rejectJob, resolveJob, timer, session = null,legacyTransaction=null;
-  let closed = false;
+  let closed = false, live = false, nextUpdate = 0;
+  const updates = new Map();
   const controller = new AbortController();
-  const finish = (success = false) => { if(success){session?.commit?.();legacyTransaction?.commit?.();}else{session?.discard?.();legacyTransaction?.discard?.();} closed = true; controller.abort(); clearTimeout(timer); worker?.terminate(); session?.dispose();session=null; if (active === handle) active = null; };
-  const handle = { cancel: () => { finish(); rejectJob?.(abortError()); }, promise: null };
+  const finish = (success = false, keepWorker = false) => { if(success){session?.commit?.();legacyTransaction?.commit?.();}else{session?.discard?.();legacyTransaction?.discard?.();} closed = true; controller.abort(); clearTimeout(timer); if(!keepWorker)worker?.terminate(); session?.dispose();session=null; if (!keepWorker && active === handle) active = null; };
+  const handle = {
+    cancel: () => { live=false;finish();rejectJob?.(abortError());for(const p of updates.values())p.reject(abortError());updates.clear(); },
+    update: (t) => new Promise((resolve,reject)=>{
+      if(!live){reject(abortError());return;}
+      const id=++nextUpdate;updates.set(id,{resolve,reject});worker.postMessage({positionUpdate:{id,t}});
+    }),
+    promise: null,
+  };
   handle.promise = new Promise((resolve, reject) => { rejectJob = reject; resolveJob = resolve; });
   active = handle;
   try {
@@ -21,6 +29,10 @@ export function precisionEvent(job, progress = () => {}) {
     const url = location.pathname.startsWith(coelum.pathname) ? new URL('precisionworker.js', coelum) : new URL('./precisionworker.js', import.meta.url);
     worker = new Worker(url, { type: 'module' });
     worker.onmessage = ({ data }) => {
+      if(data.positionUpdate){
+        const value=data.positionUpdate,p=updates.get(value.id);if(!p)return;updates.delete(value.id);
+        value.error?p.reject(new Error(value.error)):p.resolve(value.result);return;
+      }
       if (data.range) {
         const { id, key, offset, length } = data.range;
         (async()=>{
@@ -28,9 +40,9 @@ export function precisionEvent(job, progress = () => {}) {
           catch(error){if(!closed)worker.postMessage({rangeError:{id,message:error.message}});}
         })();
       } else if (data.progress) progress(data.progress);
-      else { const result=data.result;if(result&&session)Object.assign(result,{transport:STATIC_DATA_URL?'static':'r2',fromCache:session.fromCache(),downloadedBytes:session.stats.networkBytes,rangeRequests:session.stats.networkRequests,peakRawBytes:session.stats.peakResidentBytes});finish(!data.error); data.error ? rejectJob(new Error(data.error)) : resolveJob(result); }
+      else { const result=data.result;if(result&&session)Object.assign(result,{transport:STATIC_DATA_URL?'static':'r2',fromCache:session.fromCache(),downloadedBytes:session.stats.networkBytes,rangeRequests:session.stats.networkRequests,peakRawBytes:session.stats.peakResidentBytes});live=Boolean(job.livePosition&&result&&!data.error);if(live)result.live=handle;finish(!data.error,live); data.error ? rejectJob(new Error(data.error)) : resolveJob(result); }
     };
-    worker.onerror = (error) => { finish(); rejectJob(new Error(error.message || 'Precision worker unavailable')); };
+    worker.onerror = (error) => { const failure=new Error(error.message || 'Precision worker unavailable');live=false;finish();rejectJob(failure);for(const p of updates.values())p.reject(failure);updates.clear(); };
     timer = setTimeout(() => { finish(); rejectJob(new Error('Precision calculation timed out; please retry')); }, 60000);
     (async () => {
       try {
@@ -63,7 +75,7 @@ export function mountEphemerisSwitch(root, getJob, apply = () => {}) {
   const button=root.querySelector('[data-precision-run]'),status=root.querySelector('[data-precision-status]');
   let pending=null,result=null,selected=false,serial=0,observer=null;
   const paint=()=>{button.textContent=pending?'Downloading…':selected?'JPL Ephemeris':result?'Approx. Ephem.':'JPL Ephemeris';button.setAttribute('aria-pressed',String(selected));button.setAttribute('aria-busy',String(Boolean(pending)));button.title=pending?'Cancel download and discard its data':button.dataset.error||selected?'Switch to approximate ephemeris':result?'Switch to JPL ephemeris':'Download JPL ephemeris';};
-  const stop=()=>{serial++;pending?.cancel();pending=null;observer?.disconnect();observer=null;paint();};
+  const stop=()=>{serial++;pending?.cancel();pending=null;if(result?.live){result.live.cancel();result=null;selected=false;status.textContent='';}observer?.disconnect();observer=null;paint();};
   const reset=()=>{stop();result=null;selected=false;status.textContent='';delete button.dataset.error;paint();};
   button.addEventListener('click',async()=>{
     if(pending){stop();result=null;selected=false;status.textContent='Download cancelled.';apply(null);paint();return;}
@@ -79,7 +91,7 @@ export function mountEphemerisSwitch(root, getJob, apply = () => {}) {
     }catch(error){if(token===serial){status.textContent=error.name==='AbortError'?'Download cancelled.':error.message;button.dataset.error=status.textContent;apply(null);}}
     finally{if(token===serial){pending=null;observer?.disconnect();observer=null;paint();}}
   });
-  return {reset,stop,destroy:reset,get result(){return selected?result:null;},get cachedResult(){return result;},get pending(){return Boolean(pending);},get error(){return button.dataset.error||'';}};
+  return {reset,stop,destroy:reset,replace(value){result=value;},get result(){return selected?result:null;},get cachedResult(){return result;},get pending(){return Boolean(pending);},get error(){return button.dataset.error||'';}};
 }
 
 export function mountPrecision(root, job, apply = () => {}) {

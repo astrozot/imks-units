@@ -698,9 +698,13 @@ R2 range transport remains optional; see [`tools/r2`](tools/r2/README.md).
 Planet, Sun, Moon and natural-moon detail cards offer a precise-position
 switch at the top, alongside a one-line Local/Geocentric selector that
 works for both models. JPL updates the existing fields; switching to
-Approx. Ephem. restores the compact model without a download or worker.
-Results are timestamped snapshots while the sky clock runs. Changing the
-object or place resets the result; completed snapshots
+Approx. Ephem. restores the compact model without another download or worker.
+With JPL selected, positions follow the chart clock during forward or backward
+playback and time changes, using a retained worker and the loaded records.
+A request covers about one day centred on its time (less at kernel boundaries);
+leaving this interval restores approximate coordinates with a prompt to load
+the new time. Playback does not download more data. Changing the object or
+place, hiding the card or closing it releases the worker. Results
 identify a system barycentre or compact planet-centre correction when
 native centre data is unavailable. No download or numeric worker starts
 merely by opening a card or playing the animation. The first day of Jupiter/Saturn moon events also offers JPL refinement
@@ -708,6 +712,8 @@ using native planet-centre and satellite records. Other systems, the
 calculator and unrefined searches retain the compact models. Native
 searches run one day at a time; Next day opens a new explicit request. Extended numerical checks and
 phone-sized browser checks are documented with the static-data service.
+`node tests/precision-playback.mjs` checks exact evaluation throughout the loaded
+interval, forward/backward time changes, coverage limits and record reuse.
 During loading the same button reads Downloading…; clicking it cancels the
 job and discards its new fragments, retaining previously cached ephemerides.
 There is no manual clear-cache control; the bounded cache evicts old data.

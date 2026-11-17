@@ -1,4 +1,4 @@
-// Detail-card integration, no automatic work, snapshots, caching and cancel.
+// Detail playback, bounded worker reuse, caching, interval expiry and cancel.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -41,7 +41,7 @@ try{
  },stamp);
  try{await page.locator('[data-precise-position]').waitFor({state:'visible'});}catch(error){console.log(await page.evaluate(()=>({root:document.querySelector('#coelum').className,hidden:document.querySelector('[data-object-precision]').hidden,basic:document.querySelector('[data-object-basic]').textContent})),errors);throw error;}assert.equal(requests,0,'Opening details never downloads or calculates');
  if(!safari){const cdp=await context.newCDPSession(page);await cdp.send('Emulation.setCPUThrottlingRate',{rate:6});}
- await page.locator('[data-action="play"]').click();
+ await page.locator('[data-action="play"]').evaluate(el=>el.click());
  const responsiveness=await page.evaluate(async()=>{
   window.measureFrames=untilDone=>new Promise(resolve=>{const gaps=[];let first=performance.now(),last=first;const frame=now=>{gaps.push(now-last);last=now;if(untilDone?!window.endPositionFrames:now-first<1200)requestAnimationFrame(frame);else{gaps.sort((a,b)=>a-b);resolve({frames:gaps.length,p95GapMs:gaps[Math.floor(gaps.length*.95)],maxGapMs:Math.max(...gaps)});}};requestAnimationFrame(frame);});
   const before=await measureFrames(false);window.endPositionFrames=false;window.positionFrames=measureFrames(true);return {before};
@@ -51,8 +51,8 @@ try{
  await button.click();await page.waitForFunction(()=>document.querySelector('[data-precise-position]').getAttribute('aria-pressed')==='true');
  responsiveness.during=await page.evaluate(()=>{endPositionFrames=true;return positionFrames;});
  assert.ok(responsiveness.during.p95GapMs<=Math.max(100,responsiveness.before.p95GapMs*1.5),'Precise detail calculation preserves the throttled animation budget');
- await page.locator('[data-action="play"]').click();await page.evaluate(()=>explorer.setTime(lastPositionTime));
- assert.match(await basic.textContent(),historical?/DE441/:/DE440/);assert.equal(await page.evaluate(()=>workers),0);
+ await page.locator('[data-action="play"]').evaluate(el=>el.click());await page.evaluate(()=>explorer.setTime(lastPositionTime));
+ assert.match(await basic.textContent(),historical?/DE441/:/DE440/);assert.equal(await page.evaluate(()=>workers),1);
  assert.equal(await page.locator('[data-precise-clear], [data-precise-result]').count(),0,'No extra result or clear-cache controls');
  assert.equal((await button.boundingBox()).width,initialBox.width,'Button size stays fixed');
  const topocentric=await basic.textContent();await page.selectOption('[data-precise-frame]','geocentric');
@@ -60,14 +60,39 @@ try{
  const count=requests;
  await button.click();assert.match(await button.textContent(),/Approx/);assert.doesNotMatch(await basic.textContent(),/DE440|DE441/);
  const approxGeo=await basic.textContent();await page.selectOption('[data-precise-frame]','topocentric');assert.notEqual(await basic.textContent(),approxGeo);assert.match(await basic.textContent(),/Altitude \(Alt\)/);
- if(!safari)await context.setOffline(true);await button.click();assert.equal(await button.getAttribute('aria-pressed'),'true');assert.equal(requests,count,'Switching models does not fetch or calculate');assert.equal(await page.evaluate(()=>workers),0);await context.setOffline(false);
- await page.evaluate(()=>explorer.setTime(startTime+30));assert.equal(requests,count,'Changing the clock never downloads automatically');assert.match(await basic.textContent(),/DE440|DE441/,'JPL snapshot keeps its explicit timestamp during animation');
- await button.click();assert.equal(await button.getAttribute('aria-pressed'),'false');assert.equal(await button.textContent(),'JPL Ephemeris','A changed epoch requests a fresh calculation on the next explicit click');assert.equal(requests,count);
+ if(!safari)await context.setOffline(true);await button.click();assert.equal(await button.getAttribute('aria-pressed'),'true');assert.equal(requests,count,'Switching models does not fetch');assert.equal(await page.evaluate(()=>workers),1);await context.setOffline(false);
+ // Seek in both directions and verify that the displayed JPL timestamp and
+ // coordinates follow the clock, reusing the same worker offline.
+ const positionAt=async offset=>{
+  await page.evaluate(offset=>explorer.setTime(lastPositionTime+offset),offset);
+  await page.waitForFunction(offset=>document.querySelector('[data-object-basic]').textContent.includes(new Date((lastPositionTime+offset)*1000).toISOString()),offset);
+  return basic.textContent();
+ };
+ if(!safari)await context.setOffline(true);
+ const later=await positionAt(3600),earlier=await positionAt(-3600);
+ assert.notEqual(later,earlier);assert.equal(requests,count,'Clock changes reuse downloaded records');
+ await positionAt(0);
+ // Playing must keep updating the timestamp, not just the standard fields.
+ await page.locator('[data-action="play"]').evaluate(el=>el.click());
+ await page.waitForFunction(()=>{const text=document.querySelector('[data-object-basic]').textContent;return text.includes('Position follows chart time')&&!text.includes(new Date(lastPositionTime*1000).toISOString());});
+ await page.locator('[data-action="play"]').evaluate(el=>el.click());
+ await positionAt(0);
+ await page.locator('[data-action="reverse"]').evaluate(el=>el.click());await page.locator('[data-action="play"]').evaluate(el=>el.click());
+ await page.waitForFunction(()=>{
+  const stamp=document.querySelector('[data-object-basic]').textContent.match(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/)?.[0];
+  return stamp&&Date.parse(stamp)<lastPositionTime*1000;
+ });
+ await page.locator('[data-action="play"]').evaluate(el=>el.click());await page.locator('[data-action="reverse"]').evaluate(el=>el.click());
+ assert.equal(requests,count,'Playback never downloads another interval');
+ await page.evaluate(()=>explorer.setTime(lastPositionTime+86400));
+ assert.match(await basic.textContent(),/Outside the loaded JPL interval/);assert.doesNotMatch(await basic.textContent(),/Position follows chart time/);
+ assert.equal(await button.getAttribute('aria-pressed'),'false');assert.equal(await page.evaluate(()=>workers),0);assert.equal(requests,count);
+ await context.setOffline(false);await page.evaluate(()=>explorer.setTime(startTime));
  const extraBodies=historical?['Sun','Mercury','Venus','Jupiter']:['Jupiter','Io','Saturn','Titan'];
  for(const body of extraBodies){
   await page.evaluate(name=>explorer.select(name,{details:true}),body);await button.waitFor({state:'visible'});
   await button.click();await page.waitForFunction(()=>document.querySelector('[data-precise-position]').getAttribute('aria-pressed')==='true');
-  assert.match(await basic.textContent(),historical&&body==='Jupiter'?/system barycentre/:/DE440|DE441/);assert.equal(await page.evaluate(()=>workers),0);
+  assert.match(await basic.textContent(),historical&&body==='Jupiter'?/system barycentre/:/DE440|DE441/);assert.equal(await page.evaluate(()=>workers),1);
  }
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Detail UI fits phone width');
  const toolbar=await page.locator('[data-object-precision]').boundingBox(),selector=await page.locator('[data-precise-frame]').boundingBox(),toggleBox=await button.boundingBox();assert.ok(Math.abs(selector.y-toggleBox.y)<2,'Coordinates and toggle fit one line');assert.ok(toolbar.y<(await basic.boundingBox()).y,'Toolbar is above existing fields');

@@ -1,6 +1,6 @@
 # Astronomical accuracy
 
-Updated: 14 November 2026.
+Updated: 17 November 2026.
 
 This document records the astronomical models in Astrolabium/Coelum, what has
 been validated, the remaining limitations, and possible future improvements.
@@ -13,7 +13,11 @@ accuracy claim. Implementation and regeneration details remain in [README.md](RE
 The compact model powers normal calculator use and sky drawing without an
 ephemeris download. Optional JPL calculations provide a more precise reduction
 for supported position and event requests. Selecting that refinement does not
-turn the entire animated sky into a JPL calculation.
+turn the entire animated sky into a JPL calculation. Selected detail-card positions
+follow playback using exact evaluation of the loaded native records in a worker.
+The loaded position interval is about one day; outside it the card labels its
+coordinates as approximate until another JPL request. No extrapolation or
+automatic playback downloads are used.
 
 Keep these kinds of evidence separate:
 
@@ -23,7 +27,9 @@ Keep these kinds of evidence separate:
   evaluator/reduction. It does not measure the kernel's observational error.
 - Frame agreement does not establish the accuracy of an orbit, catalog, clock,
   atmospheric model, terrain or physical limb.
-- More displayed digits do not establish greater accuracy.
+- More displayed digits do not establish greater accuracy. Detail windows for
+  stars and deep-sky objects show the same coordinate resolution as JPL
+  positions: RA seconds to 3 decimal places, angular arcseconds to 2.
 
 The sky explorer accepts astronomical years −1000 through 3000, including year
 0. Individual models and validation sets cover narrower intervals. A supported

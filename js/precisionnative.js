@@ -10,9 +10,9 @@ export async function nativeEphemerisPack(job,descriptors,read,progress=()=>{}){
   const bodies=names.filter(b=>Object.hasOwn(PLANETS,b));
   const day=Math.floor(job.t/86400)+2440587.5,year=new Date(job.t*1000).getUTCFullYear();
   const tt=job.t/86400+2440587.5+deltaT(year)/86400;
-  // A position needs only a short light-time window, particularly for
-  // quickly sampled satellite records. Events retain their contact window.
-  let fromJD=job.kind==='position'?tt-.6:day-2,toJD=job.kind==='position'?tt+.05:day+3;
+  // Position playback covers one day centred on the requested time, plus
+  // a light-time margin. Events retain their contact window.
+  let fromJD=job.kind==='position'?tt-1.1:day-2,toJD=job.kind==='position'?tt+.5:day+3;
   const selected=selectNativeKernel(descriptors,tt,{fromJD,toJD});
   const requiredFrom=job.kind==='position'?tt:day,requiredTo=job.kind==='position'?tt+.001:day+1;
   const pairs=BASE_PAIRS.filter(([,target])=>!['position','moon-events'].includes(job.kind)||target!==301||names.includes('moon')).map(x=>x.slice());

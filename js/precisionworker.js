@@ -1,4 +1,4 @@
-// One event, one year buffer, then the main thread terminates this worker.
+// Event jobs finish immediately; detail playback retains one bounded pack.
 import { readPrecisionPack } from './precisionpack.js';
 import { makePrecisionEphemeris } from './precisionephem.js';
 import { solarLocal, lunarEclipse, lunarDiagram, occultationLocal, deltaTError, horizontal, eclipseTrack, occultationTrack, solarContacts, solarEclipse } from './astro.js';
@@ -28,7 +28,7 @@ export async function calculatePrecisionEvent(job, pack) {
     const position={...ephemeris.topocentric(body,t,place),...horizontal(body,t,place,ephemeris)},geocentric=ephemeris.equatorial(body,t),clock=ephemeris.clock(t),id=PLANET_IDS[body];
     const centreModel=id>=4&&!pack.has(id,id*100+99)?(year>=1900&&year<=2100?'compact correction to system barycentre':'system barycentre'):'native body centre';
     const satellite=Boolean(NATIVE_MOONS[body]);
-    return {kind,body,t,place:[...place],position,geocentric,centreModel,satellite,kernels:pack.header.kernels?.map(k=>k.id)||[],source,year,native,earthOrientation:clock.eop?'IERS daily UT1 and polar motion (observations/predictions)':'Modelled Earth rotation (ΔT)',rotationErrorSeconds:clock.eop?null:deltaTError(2000+(clock.utcJD-2451545)/365.25),residentBytes:pack.byteLength,calculationMs:performance.now()-start};
+    return {kind,body,t,place:[...place],position,geocentric,coordinateMatrix:[[1,0,0],[0,1,0],[0,0,1]].map(clock.frame.apply),centreModel,satellite,kernels:pack.header.kernels?.map(k=>k.id)||[],source,year,native,earthOrientation:clock.eop?'IERS daily UT1 and polar motion (observations/predictions)':'Modelled Earth rotation (ΔT)',rotationErrorSeconds:clock.eop?null:deltaTError(2000+(clock.utcJD-2451545)/365.25),residentBytes:pack.byteLength,calculationMs:performance.now()-start};
   }
   let event;
   if (kind === 'solar') event = solarLocal(t, place, ephemeris);
@@ -53,8 +53,19 @@ export async function calculatePrecisionEvent(job, pack) {
   return { kind, event, ...(map?{map}:{}), ...(kind==='lunar'&&event?{diagram:lunarDiagram(event,place??null,ephemeris)}:{}), source, year, native, earthOrientation: clock.eop ? 'IERS daily UT1 and polar motion (observations/predictions)' : 'Modelled Earth rotation (ΔT)', rotationErrorSeconds: clock.eop ? null : deltaTError(2000 + (clock.utcJD - 2451545) / 365.25), planetModel, residentBytes: pack.byteLength, calculationMs: performance.now() - start };
 }
 
+let positionSession=null;
 let nextRange=0;const ranges=new Map();
 if (typeof self !== 'undefined' && typeof document === 'undefined') self.onmessage = async ({ data }) => {
+  if(data.positionUpdate){
+    const {id,t}=data.positionUpdate;
+    try{
+      if(!positionSession)throw new Error('Position session unavailable');
+      const {job,pack,from,to}=positionSession;
+      if(!Number.isFinite(t)||t<from||t>to)throw new RangeError('Outside the loaded JPL interval');
+      self.postMessage({positionUpdate:{id,result:await calculatePrecisionEvent({...job,t},pack)}});
+    }catch(error){self.postMessage({positionUpdate:{id,error:error.message}});}
+    return;
+  }
   if(data.rangeResult||data.rangeError){
     const value=data.rangeResult||data.rangeError,pending=ranges.get(value.id);if(!pending)return;ranges.delete(value.id);
     if(data.rangeError)pending.reject(new Error(value.message));else pending.resolve(new Uint8Array(value.buffer));return;
@@ -69,6 +80,14 @@ if (typeof self !== 'undefined' && typeof document === 'undefined') self.onmessa
     const pack = readPrecisionPack(buffer);
     if (pack.header.year !== new Date(data.t * 1000).getUTCFullYear() || !(pack.header.source === 'DE440s' || ['DE440','DE441'].includes(pack.header.source) && pack.header.native === true)) throw new Error('Wrong precision data year or source');
     self.postMessage({ progress: `Calculating ${pack.header.source} ${data.kind==='position'?'position':'contacts'}…` });
-    self.postMessage({ result: { ...await calculatePrecisionEvent(data, pack), fromCache: data.fromCache } });
+    const result={...await calculatePrecisionEvent(data,pack),fromCache:data.fromCache};
+    if(data.kind==='position'&&data.livePosition){
+      // Keep a conservative light-time margin; never extrapolate records.
+      const clock=makePrecisionEphemeris(pack).clock(data.t),offset=(clock.tdbJD-clock.utcJD)*86400;
+      const from=Math.max(data.t-43200,(pack.header.fromJD+.6-2440587.5)*86400-offset+1);
+      const to=Math.min(data.t+43200,(pack.header.toJD-2440587.5)*86400-offset-1);
+      positionSession={job:data,pack,from,to};result.interval={from,to};
+    }
+    self.postMessage({result});
   } catch (error) { self.postMessage({ error: error.message || String(error) }); }
 };

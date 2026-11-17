@@ -1263,6 +1263,7 @@ const preciseAngle=(value,hours=false,signed=false)=>{
  const digits=hours?3:2,scale=10**digits,total=Math.round(Math.abs(value)*3600*scale),a=Math.floor(total/(3600*scale)),b=Math.floor(total/(60*scale))%60,c=(total/scale%60).toFixed(digits).padStart(digits+3,'0'),sign=value<0?'−':signed?'+':'';
  return hours?`${String(a%24).padStart(2,'0')}h ${String(b).padStart(2,'0')}m ${c}s`:`${sign}${a}° ${String(b).padStart(2,'0')}′ ${c}″`;
 };
+const FIXED_OBJECT_TYPES = new Set(['star', ...DEEP.map((row) => row[4])]);
 // The physical offset is useful in the selected object's card. Calculate
 // it on demand rather than storing another value for every drawn star.
 function catalogSolarDeflection(o, frame) {
@@ -1275,7 +1276,8 @@ function catalogSolarDeflection(o, frame) {
 export function objectDetails(o, frame = null) {
   const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`;
   const deflection = catalogSolarDeflection(o, frame);
-  const angle=(value,hours=false,signed=false)=>o.preciseSource ? preciseAngle(value,hours,signed) : sexagesimal(value,hours,signed);
+  const detailedCoordinates = o.preciseSource || (!o.body && !o.planet && !o.satellite && FIXED_OBJECT_TYPES.has(o.type));
+  const angle=(value,hours=false,signed=false)=>detailedCoordinates ? preciseAngle(value,hours,signed) : sexagesimal(value,hours,signed);
   const g = frame && galacticCoordinates(o, o.coordinateMatrix?{matrix:o.coordinateMatrix}:frame);
   const galacticRows = g ? row('Galactic longitude (l)', angle(g.lon)) + row('Galactic latitude (b)', angle(g.lat, false, true)) : '';
   if (o.satellite) return satelliteDetails(o, row, galacticRows);
