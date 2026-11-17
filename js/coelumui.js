@@ -1470,7 +1470,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const controlHolds = new Map();
   for (const action of ['play', 'back', 'forward', 'reverse', 'in', 'out', 'mount']) {
     const button = $(`[data-action="${action}"]`);
-    const state = { timer: 0, pointer: null, held: false, start: null, animation: 0 };
+    const state = { timer: 0, pointer: null, held: false, tapped: false, start: null, animation: 0 };
     controlHolds.set(button, state);
     const cancel = () => { clearTimeout(state.timer); cancelAnimationFrame(state.animation); state.animation = 0; state.timer = 0; state.pointer = null; };
     state.cancel = cancel;
@@ -1478,7 +1478,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (action !== 'mount') button.title += ` · Hold to ${hint}`;
     button.addEventListener('pointerdown', (ev) => {
       if (!ev.isPrimary || ev.button !== 0) return;
-      cancel(); state.held = false; state.pointer = ev.pointerId;
+      cancel(); state.held = false; state.tapped = false; state.pointer = ev.pointerId;
       state.start = { x: ev.clientX, y: ev.clientY };
       state.timer = setTimeout(() => {
         state.held = true; cancel();
@@ -1517,6 +1517,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     button.addEventListener('pointermove', (ev) => {
       if (ev.pointerId === state.pointer && Math.hypot(ev.clientX - state.start.x, ev.clientY - state.start.y) > 10) cancel();
     });
+    if (action === 'play') button.addEventListener('pointerup', (ev) => {
+      if (ev.pointerId !== state.pointer || state.held) return;
+      // Activate on release: a changing detail card can interfere with the
+      // browser's synthesized click. Keep holds and keyboard clicks separate.
+      cancel(); button.click(); state.tapped = true;
+    });
     for (const type of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture']) button.addEventListener(type, cancel);
     button.addEventListener('contextmenu', (ev) => ev.preventDefault());
   }
@@ -1553,6 +1559,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const button = ev.target.closest('[data-action]'), action = button?.dataset.action;
     if (!action) return;
     const hold = controlHolds.get(button);
+    // The pointer release already toggled playback. Keyboard and programmatic
+    // clicks have detail zero and still use the normal activation path.
+    if (hold?.tapped && ev.detail > 0) { hold.tapped = false; ev.preventDefault(); return; }
     if (hold?.held) { hold.held = false; ev.preventDefault(); return; }
     if (action === 'reset' && resetHeld) { resetHeld = false; ev.preventDefault(); return; }
     if (action === 'fullscreen') fullscreen(!immersive());
