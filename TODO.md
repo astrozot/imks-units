@@ -1,5 +1,12 @@
-- Add legend for Moon craters / maria...; possibly the same for Mars and other planets
-- Add textures for satellites
+- Perhaps remove `l` and `b` from the galactic grid
+- The minor planet "Astrea", when clicked, disappears  from the screen for no reason
 - Add rising and set times, observability, for the local position
 - The local landscape is not at all accurate; compare with PeakFinder
-- The compass does not work reliably
+- Times of rise/set (taking also into account the local elevation, optionally)
+- New angular distance tool
+- Add an action for a long press of a selected object
+- TYC and Gaia stars cannot be searched
+- Daily, Weekly, and Monthly Almanac
+- More detailed atmospheric model: pressure, temperature, light pollution; check Stellarium model
+- Better star motion, including double stars
+- Optional eyepiece and camera framing

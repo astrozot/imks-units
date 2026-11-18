@@ -107,12 +107,24 @@ time. Grids get finer as you zoom (30° down to 2′; RA from 2h down to
 20s), labelled along the left edge and low in the view. Star sizes follow
 the magnitude below the view's limit, which deepens with zoom, so a
 magnified cluster keeps its bright and faint members apart. **Horizon** chooses a generic landscape, a flat horizon or the
-**local terrain**: the first time for a place, about 40 elevation tiles
-(AWS Terrain Tiles, a few MB) are downloaded and the horizon is computed
-every half degree out to 150 km, with the Earth's curvature and
-terrestrial refraction; it is kept on the device for twelve places, and
-the chart draws it as a green line. Elevation models include no trees and
-only some buildings. **Fainter stars** can be downloaded from the app's
+**local terrain**: the first time for a place, Mapterhorn elevation tiles
+(typically 30–50 MB) are downloaded and processed in a cancellable background
+worker. The sky draws overlapping mountain surfaces, slope shading, terrain
+shadows, and phase-dependent moonlight; the chart draws the shared 0.1° horizon
+as a green line out to 150 km. Earth curvature and fixed terrestrial refraction
+are included. The three most recently used surfaces are retained in IndexedDB
+for offline use across both apps, with up to twelve lightweight skyline profiles.
+**Terrain appearance** in Layers opens separate controls: muted earth by default,
+shadows on, ridge outlines off, both exposure controls centred. The centred day and night settings retain the
+reviewed brightness independently, with night exposure applied automatically after twilight. Preferences are saved on the device.
+A supplied altitude is the eye elevation and is never automatically raised to
+the DEM; a below-ground mismatch is reported. The first 100 m is omitted to avoid
+local model obstructions. Source resolution, mesh detail and vertical datums vary;
+buildings and trees are excluded. General Natural Earth polygons color oceans and
+major lakes blue, with no regional overrides or assumed lake levels. Their
+1:10 million map scale is generalised; small lakes and close shoreline details
+may be missing. Blue water can be disabled in Terrain appearance. Without WebGL2, the
+saved skyline still works with the original ground renderer. **Fainter stars** can be downloaded from the app's
 own `data/`: to magnitude 8 (40,000 more stars, 1.3 MB), 10 (349,000,
 8.3 MB), 11 (937,000, 18.4 MB) or 12 (2,308,825, 58.9 MB), with available
 parallaxes and proper motions and found by their HIP, HD or TYC numbers
@@ -938,3 +950,33 @@ To publish a new version, upload the changed files (`index.html`,
 `styles.css`, `js/`, `coelum/`) and bump the version in `CACHE` in `sw.js`
 (e.g. `imks-v2`) so installed copies of both apps pick it up. Coelum is then
 at `https://<user>.github.io/imks-units/coelum/`.
+
+
+Terrain integration checks:
+
+```sh
+node tests/terrain.mjs
+PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/chromium node tests/terrain-browser.mjs
+```
+
+`TERRAIN_BROWSER=webkit` with the matching WebKit launcher in `CHROME` runs the
+same integration checks in Safari's engine. They cover worker generation,
+explicit height cache keys, cancellation, offline reload, shared Coelum/iMKS
+storage, and the June 21, 2026 20:35 UTC twilight-lighting regression. The
+terrain lab in `tools/terrain-lab` remains available for source comparisons.
+
+
+Terrain shadow and water regression checks:
+
+```sh
+node tests/terrain-water.mjs
+PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/chromium node tests/terrain-shadows-browser.mjs
+```
+
+The same shadow check supports `TERRAIN_BROWSER=webkit`. It tests a known lit
+slope at sixteen Sun positions, including near/far shadow-map transitions;
+shadow-on must match shadow-off without false dark bands, while a separate ridge
+still casts a real shadow. Receiver plane normals,
+per-tap depth correction, subpixel-rasterisation bias and cascade blending keep
+this independent of camera zoom. The centred exposure controls retain the previous
+approved brightness (day 2^0.7 and night 4 as internal exposure multipliers).

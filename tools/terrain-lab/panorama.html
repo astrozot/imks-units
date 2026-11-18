@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Riva · terrain and light laboratory</title>
+<style>
+:root{font:14px/1.5 system-ui;color:#e5edf3;background:#101920;color-scheme:dark}body{max-width:1500px;margin:26px auto;padding:0 20px}h1{font-size:29px;margin:4px 0}p{color:#adc0cc;max-width:110ch}a{color:#85d9f2}fieldset{border:1px solid #364953;border-radius:10px;display:flex;gap:12px;flex-wrap:wrap;padding:14px;margin:16px 0}label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#afc6d3}input,select,button{font:inherit;padding:7px;border:1px solid #526873;border-radius:5px;background:#172833;color:#f0f5f8}input[type=number]{width:115px}input[type=range]{width:145px}button{cursor:pointer;background:#28556a}button:disabled{opacity:.5}canvas{width:100%;height:550px;display:block;border-radius:10px;touch-action:none;background:#15232b}#status{min-height:22px;color:#a8e0bc}#lighting,#metrics{font-variant-numeric:tabular-nums}#lighting{color:#b9d9e8}small{color:#adc0cc}.check{flex-direction:row;align-items:center;align-self:center}.actions{display:flex;gap:10px;flex-wrap:wrap}details{margin:18px 0}summary{cursor:pointer}#metrics{white-space:pre-wrap;font-size:12px} @media(max-width:600px){body{padding:0 10px}canvas{height:360px}h1{font-size:25px}fieldset{gap:10px;padding:10px}input[type=range]{width:130px}}
+dialog{box-sizing:border-box;width:min(440px,calc(100vw - 32px));max-height:85vh;overflow:auto;padding:22px;border:1px solid #526873;border-radius:14px;background:#172833;color:#e5edf3}dialog::backdrop{background:rgba(0,0,0,.65)}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:14px}.panel-head h2{margin:0;font-size:21px}.panel-head button{min-width:44px;min-height:44px}dialog fieldset{display:grid;border:0;padding:0;gap:18px}dialog input[type=range]{box-sizing:border-box;width:100%;min-height:38px}dialog select{width:100%}dialog .check{min-height:32px}dialog p{font-size:13px}output{font-variant-numeric:tabular-nums}
+</style>
+<h1>Mountains, light & shadow</h1>
+<p>Riva del Garda · surface-rendering experiment. Compare elevation sources and explore sunlight, terrain shadows, and moonlight. <a href="/?proxy=1">Skyline comparison lab</a></p>
+<fieldset>
+<label>Latitude<input id="lat" type="number" step="any" value="45.89617"></label>
+<label>Longitude<input id="lon" type="number" step="any" value="10.84333"></label>
+<label>Viewpoint elevation, m<input id="eye" type="number" step="any" value="90"></label>
+<label>Near field omitted, m<input id="nearField" type="number" min="20" max="300" step="10" value="100"></label>
+<label>Surface detail<select id="quality"><option value="256">Preview</option><option value="512" selected>Standard</option><option value="768">Fine</option></select></label>
+<label>Elevation source<select id="source"><option value="mapterhorn">Mapterhorn tiles</option><option value="sonny">Imported Sonny HGT</option></select></label>
+<label>Sonny files<input id="hgt" type="file" accept=".hgt" multiple style="max-width:210px"></label>
+<label class="check"><input id="water" type="checkbox" checked>Mapped water</label>
+<button id="build">Build panorama</button><button id="cancel" disabled>Cancel</button>
+</fieldset>
+<p id="status" role="status">Ready. Build downloads terrain; lighting and camera changes reuse the surface.</p>
+<canvas id="panorama" aria-label="Terrain panorama with directional lighting and mountain shadows"></canvas>
+<p id="lighting">Drag to look around. Scroll to zoom. Initial bearing 204°; initial horizontal field of view 100° is an estimate.</p>
+<fieldset>
+<label>Date and time · UTC<input id="time" type="datetime-local" value="2026-11-18T12:00"></label>
+<label>Hour · UTC <output id="hourLabel">12:00</output><input id="hour" type="range" min="0" max="1439" step="5" value="720"></label>
+<label>Lighting example<select id="preset"><option value="">Choose…</option><option value="2026-06-21T12:00">Summer day</option><option value="2026-11-18T14:00">Low afternoon Sun</option><option value="2026-11-24T22:00">Moonlit night</option><option value="2026-11-09T22:00">Near-new-Moon night</option></select></label>
+</fieldset>
+<div class="actions"><button id="appearanceButton" aria-haspopup="dialog" aria-controls="appearancePanel">Appearance options</button><button id="reset">Reset view</button></div>
+<dialog id="appearancePanel" aria-labelledby="appearanceTitle">
+<div class="panel-head"><h2 id="appearanceTitle">Appearance</h2><button id="closeAppearance" type="button" aria-label="Close appearance options">✕</button></div>
+<p>The centre keeps the recommended brightness, including visible moonlight. Night exposure is used automatically after twilight. Your preferences are saved on this device.</p>
+<fieldset><label>Appearance<select id="style"><option value="natural" selected>Muted earth</option><option value="paper">Pale relief</option></select></label>
+<label>Daylight exposure <output id="exposureValue">50%</output><input id="exposure" type="range" min="-2" max="2" step="0.1" value="0"></label>
+<label>Night exposure <output id="nightExposureValue">50%</output><input id="nightExposure" type="range" min="-2" max="2" step="0.1" value="0"></label>
+<label class="check"><input id="waterColor" type="checkbox" checked>Blue water</label>
+<label class="check"><input id="shadows" type="checkbox" checked>Terrain shadows</label>
+<label class="check"><input id="outlines" type="checkbox">Ridge outlines</label>
+</fieldset>
+<button id="resetAppearance" type="button">Restore defaults</button>
+</dialog>
+<div class="actions"><button id="save">Save image</button><button id="report">Save metrics</button><button id="saveSurface">Save surface</button><label>Restore saved surface<input id="restore" type="file" accept=".json"></label></div>
+<details><summary>Geometry, lighting, and limitations</summary>
+<p>The 90 m value is used directly as the eye elevation, without adding a person’s height or raising it to nearby ground. Check the reported ground height and datum before interpreting near-field obstructions. Use 92 m to test the alternative “90 m ground + 2 m eye” convention.</p>
+<p>Terrain extends 64 km along each local east/north axis, with finer surfaces within 1, 4, and 16 km. Geometry includes Earth curvature with the comparison lab’s fixed terrestrial-refraction coefficient 0.13. Normals follow the rendered grid; fine tiles do not imply that every native terrain detail survives the mesh. Missing triangles remain gaps. No buildings or trees are added.</p>
+<p>Sun and Moon directions, phase and distance come from the application’s astronomy routines. Lighting uses slope normals, diffuse daylight, distance haze, two directional shadow maps, and a nonlinear lunar phase law. Only the dominant source casts shadows. Moonlight uses a fixed clear-sky extinction approximation and night exposure; it is a plausible visual model, not a photometric prediction. Off-camera terrain casts shadows, but terrain outside the loaded square cannot. Shadow resolution, bias, mesh transitions, refraction and low-horizon lighting remain approximations. Clouds, snow, reflected light, artificial light, and lunar eclipses are not modelled here.</p>
+<p>Mapped water uses the same public-domain Natural Earth ocean and major-lake polygons everywhere. These are generalised at 1:10 million map scale, not detailed shoreline surveys; small lakes may be missing. Water changes colour only: no regional shoreline overrides or assumed lake elevations are applied. The nearest 100 m of terrain is excluded by default (adjustable from 20 to 300 m), with neutral unmodelled foreground. No reflections are modelled.</p>
+<p>Sources: <a href="https://www.naturalearthdata.com/">Made with Natural Earth, public domain</a> · <a href="https://mapterhorn.com/attribution/">Mapterhorn and underlying source notices</a> · <a href="https://sonny.4lima.de/">Sonny, CC BY 4.0</a> · <a href="https://www.peakfinder.com/about/resources/">PeakFinder data credits</a> · <a href="https://ui.adsabs.harvard.edu/abs/1991PASP..103.1033K/abstract">Krisciunas & Schaefer lunar brightness phase law</a>. Imported Sonny files need their source/version recorded separately.</p>
+</details>
+<pre id="metrics"></pre>
+<script type="module" src="panorama.mjs"></script>
+</html>

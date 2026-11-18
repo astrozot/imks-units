@@ -152,7 +152,7 @@ orbits or event geometry authoritative.
 | Lunar terrain | Solar-eclipse and lunar-occultation contacts use a smooth mean limb. Terrain-dependent grazing contacts and Baily's beads require a validated DEM, orientation and line-of-sight limb model. Sky's terrain silhouette illustrates lunar edge effects using the loaded elevation map and topocentric orientation; it does not change contact calculations or provide validated bead timings. Surface lighting remains bump mapped. |
 | Planetary-moon events | Compact orbit errors, adopted radii, atmospheric limbs and grazing geometry affect timing. Mutual moon events, rings covering moons and local-observer parallax are outside the current geocentric event model. |
 | Atmospheric refraction | Standard-atmosphere approximation; real weather and near-horizon conditions can dominate the astrometric improvements. |
-| Local landscape | Local-horizon data, sampling, observer height and vertical datum need validation. Terrain experiments are separate from production accuracy claims. |
+| Local landscape | Local terrain now uses Mapterhorn surfaces and a shared 0.1° skyline out to 150 km, with fixed refraction k=0.13. Supplied eye elevations are not raised to the DEM; the nearest 100 m is omitted. Source resolution, quarter-metre decoded height quantisation, rendered mesh spacing, datum seams and finite shadow maps limit the result. Sun/Moon illumination is an approximate clear-sky visual model; no PeakFinder parity or terrain-dependent event-timing accuracy is claimed. |
 | Artificial satellites | SGP4/TLE age and orbit quality dominate; brightness and attitude are approximate. Stellar correction accuracy does not describe satellite accuracy. |
 | Photometry and appearance | Gaia-derived visual magnitudes/colours, approximate stellar temperatures, cloud patterns and rendered textures are not precision observational predictions. |
 
@@ -167,7 +167,7 @@ orbits or event geometry authoritative.
 | Candidate | Planetary gravitational deflection | A specific close planetary encounter requires milliarcsecond astrometry; benchmark and validate separately. |
 | Candidate | More precise planetary-moon orbits and event models | Required event uncertainty is dominated by orbit/limb geometry rather than parent-planet ephemeris. |
 | Candidate | Terrain-aware lunar contacts | DEM preparation, orientation and limb validation are complete; account for Earth rotation and physical radii in the timing budget. |
-| Candidate | Better local terrain, atmospheric inputs and Earth-orientation updates | Actual observing conditions or event geography dominate the error budget. |
+| Candidate | Further local-terrain validation, atmospheric inputs and Earth-orientation updates | Actual observing conditions or event geography dominate the error budget. |
 
 These are options, not scheduled work or promises of an accuracy level.
 

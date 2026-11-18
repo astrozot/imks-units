@@ -613,26 +613,26 @@ try {
   await page.mouse.click(mid.x + mid.width / 2, mid.y + mid.height / 2);
   assert.equal(await page.locator('.coelum-detail h3').textContent(), overhead, 'Drawn and selectable when zoomed in');
   // Local horizon from (mocked) terrain tiles: flat ground with 2000 m
-  // from 40 km; seen from Madrid (about 650 m), about 1.7° all around, with
+  // from 64 km; seen from Madrid (about 650 m), about 1° all around, with
   // the Earth's curvature and terrestrial refraction.
   const tile = async (h) => Buffer.from((await page.evaluate((h) => {
-    const c = document.createElement('canvas'), v = h + 32768; c.width = c.height = 256;
-    const g = c.getContext('2d'); g.fillStyle = `rgb(${Math.floor(v / 256)},${v % 256},0)`; g.fillRect(0, 0, 256, 256);
+    const c = document.createElement('canvas'), v = h + 32768; c.width = c.height = 512;
+    const g = c.getContext('2d'); g.fillStyle = `rgb(${Math.floor(v / 256)},${v % 256},0)`; g.fillRect(0, 0, 512, 512);
     return c.toDataURL('image/png');
   }, h)).split(',')[1], 'base64');
   const high = await tile(2000), low = await tile(0);
   let tiles = 0;
-  await page.route('https://s3.amazonaws.com/elevation-tiles-prod/terrarium/**', (route) => {
+  await page.route('https://tiles.mapterhorn.com/**', (route) => {
     tiles++;
-    route.fulfill({ status: 200, contentType: 'image/png', headers: { 'access-control-allow-origin': '*' }, body: /terrarium\/8\//.test(route.request().url()) ? high : low });
+    route.fulfill({ status: 200, contentType: 'image/png', headers: { 'access-control-allow-origin': '*' }, body: /mapterhorn\.com\/10\//.test(route.request().url()) ? high : low });
   });
   await page.locator('[data-action="layers"]').click();
   await page.locator('[data-horizon]').selectOption('terrain');
-  await page.waitForFunction(() => /terrain around this place, from/.test(document.querySelector('.coelum-terrain-note').textContent), null, { timeout: 30000 });
-  const stored = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('imks-coelum-horizons'))));
+  await page.waitForFunction(() => /terrain around this place, from/.test(document.querySelector('.coelum-terrain-note').textContent), null, { timeout: 120000 });
+  const stored = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('imks-coelum-terrain-profiles-v1'))));
   assert.equal(stored.length, 1);
-  assert.ok(stored[0].alt.length === 720 && stored[0].alt.every((x) => Math.abs(x - stored[0].alt[0]) < 0.02 && x > 1.4 && x < 2.1), `Terrain profile ${Math.min(...stored[0].alt)}…${Math.max(...stored[0].alt)}`);
-  assert.ok(tiles > 10 && tiles < 80, `${tiles} tiles`);
+  assert.ok(stored[0].alt.length === 3600 && stored[0].alt.every((x) => Math.abs(x - stored[0].alt[0]) < 0.02 && x > 0.5 && x < 1.5), `Terrain profile ${Math.min(...stored[0].alt)}…${Math.max(...stored[0].alt)}`);
+  assert.ok(tiles > 100 && tiles < 700, `${tiles} tiles`);
   assert.ok((await page.locator('.coelum-full').innerHTML()).includes('#9fd58c'), 'The local horizon on the chart');
   await page.locator('[data-terrain="forget"]').click();
   assert.equal(await page.locator('[data-horizon]').inputValue(), 'landscape');

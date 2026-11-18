@@ -17,7 +17,9 @@ import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, create
 import { riseSet, planetOf, siderealTime } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, skyPointScale, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
-import { storedHorizon, computeHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
+import { storedHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
+import { prepareTerrain, restoreTerrain, forgetTerrain, storedTerrainHorizon, terrainAppearance, terrainKey, TERRAIN_DEFAULTS } from './skyterrain.js';
+import { releaseTerrainRaster } from './terrainraster.js';
 import { skyView as moonSystem } from './sky.js';
 import { moonsView, planetMap, moonDetailProfile, moonDetailStored, downloadMoonDetail, removeMoonDetail } from './skyview.js';
 import { pickLunarFeature, lunarFeatureDetails, findLunarFeature, lunarFeatureTarget, LUNAR_MIN_RADIUS } from './lunarfeatures.js';
@@ -298,6 +300,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
           <button type="button" class="coelum-chip" data-action="orient-align" disabled>Align with selected object</button>
         </div>
         <p class="coelum-panel-note coelum-terrain-note" hidden></p>
+        <button type="button" class="coelum-chip" data-action="terrain" data-modes="sky" aria-expanded="false" aria-controls="${id}-terrain">Terrain appearance</button>
         <p class="coelum-panel-note" data-modes="sky">Stars fade with twilight, moonlight and toward the horizon; zoom in to see fainter ones. With the atmosphere, positions include refraction.</p>
         <div class="coelum-downloads coelum-satellites"><h3>Satellites</h3>
           <div class="coelum-switches">${SAT_GROUPS.map(([g, label]) => `<label><input type="checkbox" role="switch" data-satellite-group="${g}"><span>${label}</span></label>`).join('')}</div>
@@ -306,6 +309,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-downloads"><h3>Deep-sky catalog</h3><p class="coelum-panel-note" data-openngc-note></p><button type="button" class="coelum-chip" data-openngc="download">Download OpenNGC</button> <button type="button" class="coelum-chip" data-openngc="remove" hidden>Remove download</button></div>
         <div class="coelum-downloads coelum-star-downloads"><h3>Fainter stars</h3><p class="coelum-panel-note coelum-faint-note"></p>
           <div class="coelum-catalog-choices" role="radiogroup" aria-label="Downloaded star catalog">${Object.keys(STAR_FILES).map((k) => `<label><span><input type="radio" name="${id}-catalog" value="${k}" data-download="${k}"> ${k}</span><small data-catalog-space="${k}"></small></label>`).join('')}</div><label class="coelum-catalog-select">Magnitude limit <select data-catalog-select><option value="" disabled>Choose a catalog</option>${Object.keys(STAR_FILES).map((k) => `<option value="${k}">${k}</option>`).join('')}</select></label><button type="button" class="coelum-chip" data-download="remove">Remove</button></div>
+      </div>
+      <div class="coelum-panel coelum-terrain-panel" id="${id}-terrain" role="group" aria-label="Terrain appearance" hidden>
+        <div class="coelum-panel-head"><h3>Terrain appearance</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close terrain appearance">${ICONS.close}</button></div>
+        <div class="coelum-selects"><label>Appearance <select data-terrain-setting="style"><option value="natural">Muted earth</option><option value="paper">Pale relief</option></select></label></div>
+        <div class="coelum-switches"><label><input type="checkbox" role="switch" data-terrain-setting="waterColor"><span>Blue water</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadows"><span>Terrain shadows</span></label><label><input type="checkbox" role="switch" data-terrain-setting="outlines"><span>Ridge outlines</span></label></div>
+        <div class="coelum-terrain-exposure"><label>Daylight exposure <output data-terrain-output="exposure"></output><input type="range" min="-2" max="2" step="0.1" data-terrain-setting="exposure"></label><label>Night exposure <output data-terrain-output="nightExposure"></output><input type="range" min="-2" max="2" step="0.1" data-terrain-setting="nightExposure"></label></div>
+        <p class="coelum-panel-note">The centre keeps the recommended brightness, including visible moonlight. Night exposure is used automatically after twilight. These options affect local terrain and are saved on this device.</p>
+        <button type="button" class="coelum-chip" data-terrain="defaults">Restore defaults</button>
       </div>
       ${extra.map((p) => `<div class="coelum-panel coelum-extra" id="${id}-${p.key}" data-panel="${p.key}" role="group" aria-label="${esc(p.label)}" hidden>
         <div class="coelum-panel-head"><h3>${esc(p.label)}</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close ${esc(p.label.toLowerCase())}">${ICONS.close}</button></div>
@@ -361,7 +372,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     </div>
     <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><div data-object-heading></div><div data-object-precision hidden></div><div data-object-basic><p>Tap an object or its label to see its characteristics.</p></div></div></section>
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
-    <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars: IAU / HYG. Deep-sky objects: <a href="https://github.com/mattiaverga/OpenNGC" target="_blank" rel="noopener">OpenNGC</a>, Mattia Verga (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>), converted and merged with the built-in selection. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
+    <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars: IAU / HYG. Deep-sky objects: <a href="https://github.com/mattiaverga/OpenNGC" target="_blank" rel="noopener">OpenNGC</a>, Mattia Verga (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>), converted and merged with the built-in selection. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Local terrain: <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener">Mapterhorn and its underlying elevation sources</a>. Ocean and major-lake outlines: Natural Earth, public domain (generalised 1:10 million scale). The landscape models exclude buildings and trees; source detail and height datums vary. Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   root.appendChild($('.coelum-map-panel'));
   const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('[data-object-basic]'), viewport = $('.coelum-viewport');
@@ -411,13 +422,15 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // without changing the atmosphere preference saved in the layer controls.
   const atmosphereOn = () => layers.sky.atmosphere && (!playing || Math.abs(speed) < 86400);
   // The horizon (shared by both views): the terrain's profile, if computed.
-  let horizon = 'landscape', terrain = null;
+  let horizon = 'landscape', terrain = null, terrainSurface = null;
+  let appearance = terrainAppearance();
   try { horizon = localStorage.getItem('imks-coelum-horizon') || 'landscape'; } catch { /* private mode */ }
   const setTerrain = (profile) => { terrain = profile ? horizonAt(profile) : null; };
-  setTerrain(storedHorizon(place));
-  if (horizon === 'terrain' && !terrain) horizon = 'landscape';
+  setTerrain(storedTerrainHorizon(place) || storedHorizon(place));
   const applyHorizon = () => {
     layers.sky.horizon = horizon; layers.sky.terrain = terrain;
+    layers.sky.terrainSurface = horizon === 'terrain' ? terrainSurface : null;
+    layers.sky.terrainAppearance = appearance;
     layers.chart.terrain = horizon === 'terrain' ? terrain : null;
   };
   applyHorizon();
@@ -594,6 +607,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     }
     canvas.dataset.content = onCanvas ? 'scene' : 'backdrop';
     canvas.dataset.atmosphere = String(mode === 'sky' && atmosphereOn());
+    canvas.dataset.terrainSurface = String(mode === 'sky' && !!drawn.terrainSurface);
     drawGuide(shown.rotation || lookAt(view.az, view.alt), view.scale);
     updateUI(!playing && !interacting);
     orient?.tracker.drawn(performance.now() - drawStart);
@@ -731,7 +745,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
 
   // Panels: one at a time; they keep the full-screen controls awake.
-  const panels = { layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel'), map: $('.coelum-map-panel') };
+  const panels = { terrain: $('.coelum-terrain-panel'), layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel'), map: $('.coelum-map-panel') };
   let placeMap = null;
   for (const p of extra) panels[p.key] = $(`[data-panel="${p.key}"]`);
   panels.almanac.setAttribute('role', 'dialog');
@@ -991,20 +1005,52 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (root.isConnected) { showSatellites(); if (!playing) draw(true); }
   });
 
-  // The local horizon: computed from terrain tiles when first chosen.
+  // Local terrain is generated in a cancellable worker and retained offline.
   const terrainNote = $('.coelum-terrain-note');
+  let terrainJob = null, terrainRestoreSerial = 0;
+  const cancelTerrain = () => { terrainRestoreSerial++; terrainJob?.abort(); terrainJob = null; };
+  const appearanceControls = () => {
+    for (const el of root.querySelectorAll('[data-terrain-setting]')) {
+      const key = el.dataset.terrainSetting;
+      if (el.type === 'checkbox') el.checked = appearance[key]; else el.value = appearance[key];
+    }
+    for (const el of root.querySelectorAll('[data-terrain-output]')) el.value = `${Math.round((appearance[el.dataset.terrainOutput] + 2) * 25)}%`;
+  };
+  appearanceControls();
+  root.addEventListener('input', ev => {
+    const key = ev.target.dataset.terrainSetting;
+    if (!key) return;
+    appearance = terrainAppearance({ ...appearance, [key]: ev.target.type === 'checkbox' ? ev.target.checked : ev.target.type === 'range' ? Number(ev.target.value) : ev.target.value });
+    appearanceControls(); applyHorizon(); draw();
+  });
   const showTerrain = (text) => {
     terrainNote.hidden = horizon !== 'terrain' && !text;
-    terrainNote.innerHTML = text || (terrain ? 'The terrain around this place, from elevation models out to 150 km (buildings and trees are not included).<span class="coelum-chips"><button type="button" class="coelum-chip" data-terrain="refresh">Compute again</button><button type="button" class="coelum-chip" data-terrain="forget">Forget</button></span>' : '');
+    const buttons = '<span class="coelum-chips"><button type="button" class="coelum-chip" data-terrain="refresh">Download terrain</button><button type="button" class="coelum-chip" data-terrain="forget">Forget</button></span>';
+    const note = terrainSurface ? `The terrain around this place, from Mapterhorn elevation models out to 150 km. ${terrainSurface.persisted ? 'Saved for offline use.' : 'Available this session; offline storage was unavailable.'}${terrainSurface.eye < terrainSurface.pointGround ? ' The supplied eye elevation is below the model ground; check this place’s elevation.' : ''}${terrainSurface.metrics.samplingCoverage?.fallbackSamples ? ' Some areas use coarser source coverage.' : ''}` : terrain ? 'A saved skyline is available. Download the mountain surfaces for shading and shadows.' : 'Download local mountains and their horizon (typically 30–50 MB), then use them offline. Source detail varies; the nearest 100 m, buildings and trees are excluded.';
+    terrainNote.innerHTML = text || note + buttons;
   };
-  let terrainJob = null;
+  const restoreCurrentTerrain = async () => {
+    const serial = ++terrainRestoreSerial, key = terrainKey(place), data = await restoreTerrain([...place]);
+    if (!root.isConnected || serial !== terrainRestoreSerial || key !== terrainKey(place) || terrainJob || !data) return;
+    terrainSurface = data; setTerrain(data.profile); applyHorizon(); syncLayers(); showTerrain(); draw();
+  };
   const chooseHorizon = async (value, refresh = false) => {
-    if (value === 'terrain' && (!terrain || refresh)) {
+    if (value !== 'terrain') { cancelTerrain(); releaseTerrainRaster(ctx); }
+    if (value === 'terrain' && (!terrainSurface || refresh)) {
       if (terrainJob) return;
-      showTerrain('Downloading the terrain around this place…');
-      terrainJob = computeHorizon(place, (f) => showTerrain(`Downloading the terrain around this place… ${Math.round(f * 100)}%`));
-      try { setTerrain(await terrainJob); }
-      catch (e) { terrainJob = null; if (!terrain) { horizon = horizon === 'terrain' ? 'landscape' : horizon; syncLayers(); } showTerrain(`${esc(e.message)}. The local horizon needs a connection the first time.`); return; }
+      const job = new AbortController(), requestedPlace = [...place], key = terrainKey(place);
+      terrainJob = job;
+      showTerrain('Preparing terrain… <button type="button" class="coelum-chip" data-terrain="cancel">Cancel</button>');
+      try {
+        const data = await prepareTerrain(requestedPlace, { signal: job.signal, refresh, progress: text => {
+          if (terrainJob === job && root.isConnected && key === terrainKey(place)) showTerrain(`${esc(text)} <button type="button" class="coelum-chip" data-terrain="cancel">Cancel</button>`);
+        } });
+        if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
+        terrainSurface = data; setTerrain(data.profile);
+      } catch (e) {
+        if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
+        terrainJob = null; syncLayers(); showTerrain(`${esc(e.message)}. Local terrain needs a connection for its first download. <button type="button" class="coelum-chip" data-terrain="refresh">Try again</button>`); return;
+      }
       terrainJob = null;
     }
     horizon = value;
@@ -1114,10 +1160,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const setPlace = async (p) => {
     let h = p.h;
     if (!Number.isFinite(h)) { placeStatus.textContent = 'Getting the elevation…'; try { h = await fetchElevation(p.lat, p.lon); } catch { h = 0; } }
+    cancelTerrain(); terrainSurface = null; releaseTerrainRaster(ctx);
     place = [p.lat, p.lon, h]; placeLabel = p.name.split(',').slice(0, 2).join(',');
-    setTerrain(storedHorizon(place));
+    setTerrain(storedTerrainHorizon(place) || storedHorizon(place));
     if (horizon === 'terrain' && !terrain) horizon = 'landscape';
-    applyHorizon(); syncLayers(); showTerrain();
+    applyHorizon(); syncLayers(); showTerrain(); void restoreCurrentTerrain();
     if (views.sky?.auto) views.sky = null;
     eventsDay = null; placeStatus.textContent = '';
     options.onPlace?.([...place], placeLabel);
@@ -1594,7 +1641,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (ev.target.closest('[data-satellites="update"]')) { loadSatellites({ force: true }); showSatellites(); return; }
     const terrainAction = ev.target.closest('[data-terrain]')?.dataset.terrain;
     if (terrainAction === 'refresh') { chooseHorizon('terrain', true); return; }
-    if (terrainAction === 'forget') { forgetHorizon(place); setTerrain(null); chooseHorizon('landscape'); return; }
+    if (terrainAction === 'cancel') { cancelTerrain(); syncLayers(); showTerrain(); return; }
+    if (terrainAction === 'defaults') { appearance = terrainAppearance(TERRAIN_DEFAULTS); appearanceControls(); applyHorizon(); draw(); return; }
+    if (terrainAction === 'forget') { cancelTerrain(); void forgetTerrain([...place]); forgetHorizon(place); terrainSurface = null; setTerrain(null); chooseHorizon('landscape'); return; }
     const viewButton = ev.target.closest('[data-view]');
     if (viewButton) { setMode(viewButton.dataset.view); return; }
     const button = ev.target.closest('[data-action]'), action = button?.dataset.action;
@@ -1811,6 +1860,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   });
   syncLayers();
   showFaint(); showOpenNGC(); showTerrain(); showSatellites();
+  layers.sky.onTerrainRedraw = () => { if (root.isConnected) draw(); };
+  void restoreCurrentTerrain();
   loadSatellites();
   if (options.standalone) { root.classList.add('coelum-standalone'); fullscreen(true, false); }
   draw();
@@ -1832,7 +1883,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { precisePosition.destroy(); stopAlmanac?.(); placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { cancelTerrain(); terrainSurface = null; setTerrain(null); applyHorizon(); releaseTerrainRaster(ctx); precisePosition.destroy(); stopAlmanac?.(); placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   const explorer = {

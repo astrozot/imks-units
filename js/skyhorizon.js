@@ -1,3 +1,5 @@
+// Legacy Mapzen skyline downloads remain readable during migration. New
+// surface downloads and their offline lifecycle live in skyterrain.js.
 // The local horizon: the altitude of the terrain all around a place, from
 // elevation tiles (Terrarium PNGs of the AWS / Mapzen Terrain Tiles: SRTM,
 // Copernicus and other models) out to 150 km, with the Earth's curvature
@@ -32,8 +34,8 @@ export function forgetHorizon(place) {
 }
 // The terrain's altitude (degrees) at an azimuth, interpolated.
 export const horizonAt = (profile) => (az) => {
-  const x = ((az % 360) + 360) % 360 * (STEPS / 360), i = Math.floor(x), u = x - i;
-  return profile[i % STEPS] * (1 - u) + profile[(i + 1) % STEPS] * u;
+  const x = ((az % 360) + 360) % 360 * (profile.length / 360), i = Math.floor(x), u = x - i;
+  return profile[i % profile.length] * (1 - u) + profile[(i + 1) % profile.length] * u;
 };
 
 const tileX = (lon, z) => (lon + 180) / 360 * 2 ** z;

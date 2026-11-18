@@ -5,6 +5,7 @@ import { showDeepObject } from './deepcatalog.js';
 // phase, and a landscape in front. Always drawn on a canvas.
 import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
+import { terrainRaster } from './terrainraster.js';
 import { lunarLimb, covered, tracePlanet, planetMap, planetPixelRatio, earthshineBrightness, lunarShadowLight, lunarShadowMean, lunarEclipseColor } from './skyview.js';
 import { moonDisk, moons, planetDisk, equatorial, earthShadow } from './astro.js';
 import { projectLunarFeatures, LUNAR_COLOR } from './lunarfeatures.js';
@@ -102,6 +103,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const bg = skyRaster(ctx, {
     W, H, radius, camera: { rotation, stereographic: true }, samples: view.moving ? 22000 : 45000, toJ2000: horizonToJ2000(frame), kind: 'sky',
     milkyWay: opts.milkyway, ground: opts.ground, atmosphere: opts.atmosphere, hill,
+    groundColor: opts.horizon === 'terrain' && opts.terrainSurface?.metrics.water?.observer && opts.terrainAppearance?.waterColor !== false ? [0.035,0.11,0.22].map(v => v*light.day+.003*light.twilight+.001) : null,
     sun: { alt: sunAlt, vector: refract(pointVector(sun)) }, moon: { alt: moonAlt, illum, vector: moon ? refract(pointVector(moon)) : [0, 0, -1] },
   });
   ctx.imageSmoothingEnabled = true;
@@ -349,6 +351,8 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (chosen || o.satellite.group === 'stations' || o.mag < 1) labels.push({ ...q, name: o.name, color: '#cfe9ff', r: Math.max(r, 3), priority: chosen ? 0 : 2, mag: o.mag });
   }
   if (bg.ground) ctx.drawImage(bg.ground, 0, bg.groundY, bg.w, bg.h, 0, 0, bg.width, bg.height);
+  const surface = opts.ground && opts.horizon === 'terrain' && opts.terrainSurface ? terrainRaster(ctx, opts.terrainSurface, { W, H, radius, rotation, sun, lightingSunAlt: sunAlt, solarFlux: 1 - eclipsed, moon, appearance: opts.terrainAppearance, onRedraw: opts.onTerrainRedraw }) : null;
+  if (surface) ctx.drawImage(surface.canvas, 0, 0, W, H);
   // Cardinal points on the horizon (with the ground), then labels over
   // everything.
   if (opts.ground) for (const [name, az, size, color] of [['N', 0, 17, '#ff8a6b'], ['NE', 45, 12, '#ffb49e'], ['E', 90, 17, '#ff8a6b'], ['SE', 135, 12, '#ffb49e'], ['S', 180, 17, '#ff8a6b'], ['SW', 225, 12, '#ffb49e'], ['W', 270, 17, '#ff8a6b'], ['NW', 315, 12, '#ffb49e']]) {
@@ -407,7 +411,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       ctx.strokeStyle = MARS_COLOR; ctx.lineWidth = 1.5; ctx.stroke(); ctx.restore();
     } else reticle(p, selectedMars.x, selectedMars.y, 4, MARS_COLOR);
   }
-  return { objects, radius, hitLabels, light, lunarFeatures, marsFeatures, surfaceBodies, moonSizing };
+  return { objects, radius, hitLabels, light, lunarFeatures, marsFeatures, surfaceBodies, moonSizing, terrainSurface: !!surface };
 }
 
 // Keep the physical disk and moon-shadow geometry with the frame, independent

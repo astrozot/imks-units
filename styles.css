@@ -1819,3 +1819,7 @@ body.coelum-app { background: #000; }
 /* Let the platform render its familiar calendar and time selectors. */
 .coelum-time-row input, .almanac-nav input { color-scheme: dark; }
 .coelum-date-mode { margin-top: 8px; font-size: 11px; color: var(--c-muted); }
+
+.coelum-terrain-exposure { display: grid; gap: 14px; margin: 16px 0; }
+.coelum-terrain-exposure label { display: grid; gap: 8px; font-size: 14px; }
+.coelum-terrain-exposure input { width: 100%; min-height: 36px; }
