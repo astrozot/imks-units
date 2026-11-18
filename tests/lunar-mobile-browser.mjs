@@ -49,7 +49,7 @@ try {
     for (const file of ['moon-8k.jpg', 'moon-heights-16.png']) await cache.put(new URL(`/img/planets/${file}`, location.href), new Response('old desktop image'));
   });
   const result = await page.evaluate(async () => {
-    const { planetMap, moonDetailProfile, planetPixelRatio, drawPlanet, tracePlanet, downloadMoonDetail } = await import('/js/skyview.js');
+    const { lunarLimb, planetMap, moonDetailProfile, planetPixelRatio, drawPlanet, tracePlanet, downloadMoonDetail } = await import('/js/skyview.js');
     const { moonDisk } = await import('/js/astro.js');
     const { skyFrame } = await import('/js/coelum.js');
     const map = planetMap('moon'); await map.ready;
@@ -63,6 +63,15 @@ try {
     const canvas = document.createElement('canvas');
     tracePlanet(canvas, disk, .02, .05, 256, 256, 6000);
     const gl = canvas.getContext('webgl'), live = new Map(), bound = new Map();
+    // Require the accelerated path on phone Chromium and WebKit, rather than
+    // silently passing through the expensive CPU fallback.
+    let gpuProfileReads = 0;
+    const read = gl.readPixels.bind(gl), dither = gl.isEnabled(gl.DITHER);
+    gl.readPixels = (...args) => { if (gl.getParameter(gl.FRAMEBUFFER_BINDING)) gpuProfileReads++; return read(...args); };
+    const profile = lunarLimb({ ...disk, facing: { lon: disk.facing.lon + 1 } }, 500, canvas);
+    gl.readPixels = read;
+    if (gpuProfileReads !== 1 || !profile?.every(v => v > .99 && v < 1.01)) throw Error('Phone must compute a valid GPU terrain profile');
+    if (gl.isEnabled(gl.DITHER) !== dither) throw Error('Limb pass must restore renderer state');
     let unit = gl.TEXTURE0;
     const bind = gl.bindTexture.bind(gl), active = gl.activeTexture.bind(gl), upload = gl.texImage2D.bind(gl), remove = gl.deleteTexture.bind(gl);
     gl.activeTexture = (next) => { unit = next; return active(next); };
@@ -99,7 +108,7 @@ try {
     try { await downloadMoonDetail(); } catch { failed = true; }
     finally { window.createImageBitmap = bitmap; }
     if (!failed || closed !== 1 || map.img !== previous) throw Error('Partial decode was not cleaned up safely');
-    return { decodedBytes, profile: moonDetailProfile, liveTextures: live.size, ratio: planetPixelRatio(390, 844, 3), savedFiles: (await cache.keys()).map((r) => new URL(r.url).pathname).sort() };
+    return { decodedBytes, gpuProfileReads, profile: moonDetailProfile, liveTextures: live.size, ratio: planetPixelRatio(390, 844, 3), savedFiles: (await cache.keys()).map((r) => new URL(r.url).pathname).sort() };
   });
   assert.equal(result.decodedBytes, 50143232);
   assert.equal(result.savedFiles.length, 2, `Compact files must still be saved: ${JSON.stringify(result)}`);

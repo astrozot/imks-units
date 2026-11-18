@@ -30,7 +30,7 @@ try {
     const { moonDisk } = await import('/js/astro.js');
     const { skyFrame, lookAt, projectVector, pointVector } = await import('/js/coelum.js');
     const { skyScene, skyRadius } = await import('/js/coelumsky.js');
-    const { limbRadius } = await import('/js/lunarlimb.js');
+    const { limbRadius, buildLunarLimb } = await import('/js/lunarlimb.js');
     const map = planetMap('moon'); await map.ready;
     if (!map.heights) throw Error('Elevation map unavailable');
     const t = Date.parse('2026-08-12T18:30:00Z') / 1000, place = [40.4, -3.7, 600];
@@ -40,6 +40,14 @@ try {
     if (lunarLimb(disk) !== actual) throw Error('Repeated view must reuse profile');
     const changed = lunarLimb({ ...disk, facing: { lon: disk.facing.lon + .5 } });
     if (changed === actual) throw Error('Libration must invalidate silhouette');
+    // Compare the new GPU pass with the independent CPU line-of-sight model.
+    const dem=document.createElement('canvas');dem.width=map.heights.width;dem.height=map.heights.height;
+    const dg=dem.getContext('2d',{willReadFrequently:true});dg.drawImage(map.heights,0,0);
+    const rgba=dg.getImageData(0,0,dem.width,dem.height).data, heights=new Uint16Array(dem.width*dem.height);
+    for(let i=0;i<heights.length;i++)heights[i]=Math.round(2000+40000*rgba[4*i]/255);
+    const reference=buildLunarLimb(disk,{width:dem.width,height:dem.height,data:heights});
+    let modelError=0;for(let i=0;i<actual.length;i++)modelError=Math.max(modelError,Math.abs(actual[i]-reference[i]));
+    if(modelError>2e-6)throw Error(`GPU and CPU terrain disagree: ${modelError}`);
     let min = Infinity, max = 0; for (const r of actual) { min = Math.min(min,r); max = Math.max(max,r); }
     if (!(min < max && min > .99 && max < 1.01)) throw Error('Implausible real lunar limb');
     const canvas = document.createElement('canvas'), n = 128, scale = 12000;
@@ -69,7 +77,8 @@ try {
       g.fillStyle = `rgb(${value >> 8},${value & 255},0)`; g.fillRect(0,0,1024,512);
       map.heights = await createImageBitmap(source, { colorSpaceConversion: 'none' }); map.highResolution = true;
       const profile = lunarLimb(disk), edge = limbRadius(profile, 0), x0 = edge - n / (2 * scale);
-      if (Math.abs(edge - (1 + height / 1737.4)) > 1e-7) throw Error('Physical elevations must not be exaggerated');
+      const angle = disk.radius * Math.PI / 180, expected = Math.asin((1 + height / 1737.4) * Math.sin(angle)) / angle;
+      if (Math.abs(edge - expected) > 2e-7) throw Error(`Physical elevations must not be exaggerated: height=${height}, edge=${edge}, expected=${expected}`);
       if (!tracePlanet(canvas, disk, x0, n/(2*scale), n,n,scale)) throw Error('WebGL unavailable');
       const gl = canvas.getContext('webgl'), px = new Uint8Array(n*n*4); gl.readPixels(0,0,n,n,gl.RGBA,gl.UNSIGNED_BYTE,px);
       if (gl.getError() !== gl.NO_ERROR) throw Error('GL error');
@@ -113,7 +122,7 @@ try {
     const hidden=skyScene(frame,W,H,options,view,ctx);
     if(hidden.objects.some(o=>o.name===star.name))throw Error('Star behind lunar terrain must be occulted');
     map.heights.close();map.heights=original;map.highResolution=false;
-    return { samples:actual.length, min,max,buildMs:ms,compared,edges:results,solarValleyPixels:bright,occultation:true };
+    return { samples:actual.length, min,max,buildMs:ms,modelError,compared,edges:results,solarValleyPixels:bright,occultation:true };
   });
   await page.clock.install();
   await page.evaluate(async () => {

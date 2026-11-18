@@ -134,7 +134,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       let profile = null, north = 0;
       if (o.body === 'moon' && r >= 80) {
         lunarDisk = moonDisk(frame.t, o);
-        profile = lunarLimb(lunarDisk, r);
+        profile = lunarLimb(lunarDisk, r, surfaceCanvas);
         const n = xy(o.north); north = Math.atan2(n.y - q.y, n.x - q.x) + Math.PI / 2;
       }
       let min = 1, max = 1;

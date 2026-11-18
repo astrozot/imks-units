@@ -467,7 +467,8 @@ function ringProfiles(img, s) {
 // Read short strips: never retain a full RGBA copy of the high-resolution DEM.
 let limbField = null, limbIdle = null;
 const limbProfiles = new Map();
-function lunarLimb(sky, scale = Infinity) {
+let limbSource = null, limbCanvas = null;
+function lunarLimb(sky, scale = Infinity, canvas = null) {
   if (scale < 80 || typeof document === 'undefined') return null;
   const entry = planetMap('moon'), image = entry?.heights;
   if (!image) return null;
@@ -475,31 +476,91 @@ function lunarLimb(sky, scale = Infinity) {
   // sky position and screen rotation are never quantized.
   const quantum = 2 * Math.PI / image.width / 8;
   const key = JSON.stringify([sky.pole.map((v) => Math.round(v / quantum)), Math.round(sky.facing.lon * Math.PI / 180 / quantum), Math.round((sky.radius || 0) * Math.PI / 180 / quantum)]);
-  if (limbField?.image !== image) {
-    limbProfiles.clear();
-    const width = image.width, height = image.height, data = new Uint16Array(width * height);
-    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = Math.min(64, height);
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    for (let y = 0; y < height; y += canvas.height) {
-      const rows = Math.min(canvas.height, height - y);
-      ctx.clearRect(0, 0, width, canvas.height);
-      ctx.drawImage(image, 0, y, width, rows, 0, 0, width, rows);
-      const pixels = ctx.getImageData(0, 0, width, rows).data;
-      for (let i = 0; i < width * rows; i++) data[y * width + i] = entry.highResolution
-        ? pixels[4 * i] * 256 + pixels[4 * i + 1] : Math.round(2000 + 40000 * pixels[4 * i] / 255);
-    }
-    canvas.width = canvas.height = 1;
-    limbField = { image, width, height, data };
-  }
+  if (limbSource !== image) { limbProfiles.clear(); limbField = null; limbSource = image; }
   clearTimeout(limbIdle);
-  limbIdle = setTimeout(() => { limbField = null; limbProfiles.clear(); }, 30000);
-  if (!limbProfiles.has(key)) {
-    const profile = buildLunarLimb(sky, limbField);
-    // Two orientations suffice for the foreground mask and its textured Moon.
-    if (limbProfiles.size >= 2) limbProfiles.delete(limbProfiles.keys().next().value);
-    limbProfiles.set(key, profile);
+  limbIdle = setTimeout(() => { limbField = null; limbSource = null; limbProfiles.clear(); }, 30000);
+  if (limbProfiles.has(key)) return limbProfiles.get(key);
+  limbCanvas ||= document.createElement('canvas');
+  let profile = gpuLunarLimb(sky, entry, canvas || limbCanvas);
+  if (!profile) {
+    if (limbField?.image !== image) {
+      limbProfiles.clear();
+      const width = image.width, height = image.height, data = new Uint16Array(width * height);
+      const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = Math.min(64, height);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      for (let y = 0; y < height; y += canvas.height) {
+        const rows = Math.min(canvas.height, height - y);
+        ctx.clearRect(0, 0, width, canvas.height);
+        ctx.drawImage(image, 0, y, width, rows, 0, 0, width, rows);
+        const pixels = ctx.getImageData(0, 0, width, rows).data;
+        for (let i = 0; i < width * rows; i++) data[y * width + i] = entry.highResolution
+          ? pixels[4 * i] * 256 + pixels[4 * i + 1] : Math.round(2000 + 40000 * pixels[4 * i] / 255);
+      }
+      canvas.width = canvas.height = 1;
+      limbField = { image, width, height, data };
+    }
+    profile = buildLunarLimb(sky, limbField);
   }
-  return limbProfiles.get(key);
+  if (limbProfiles.size >= 2) limbProfiles.delete(limbProfiles.keys().next().value);
+  limbProfiles.set(key, profile);
+  return profile;
+}
+
+// Build all position angles in parallel, sharing the Moon renderer's height
+// texture. Only the tiny radial profile comes back to Canvas for occultation
+// masks; no full elevation image is read back or decoded on the UI thread.
+function gpuLunarLimb(sky, entry, canvas) {
+  const r = glRenderer(canvas);
+  if (!r || r.limbFailed || r.gl.isContextLost()) return null;
+  const { gl } = r;
+  touchLunarRenderer(r);
+  syncMoonQuality(r, entry.highResolution, entry.heights);
+  const saved = { program: gl.getParameter(gl.CURRENT_PROGRAM), framebuffer: gl.getParameter(gl.FRAMEBUFFER_BINDING), viewport: gl.getParameter(gl.VIEWPORT), active: gl.getParameter(gl.ACTIVE_TEXTURE), dither: gl.isEnabled(gl.DITHER) };
+  gl.activeTexture(gl.TEXTURE1); const oldHeight = gl.getParameter(gl.TEXTURE_BINDING_2D);
+  gl.activeTexture(gl.TEXTURE6); const oldTarget = gl.getParameter(gl.TEXTURE_BINDING_2D);
+  try {
+    const image = entry.heights, max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const samples = 2 ** Math.ceil(Math.log2(image.width));
+    const width = Math.min(samples, max, gl.getParameter(gl.MAX_VIEWPORT_DIMS)[0]), height = Math.ceil(samples / width);
+    let c = r.limbPass;
+    if (!c) c = r.limbPass = { ...planetProgram(gl, 'LUNAR_LIMB_PASS'), texture: gl.createTexture(), framebuffer: gl.createFramebuffer() };
+    gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, c.texture);
+    if (c.width !== width || c.height !== height) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      for (const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D,k,v);
+      c.width = width; c.height = height;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER,c.framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,c.texture,0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw Error('Lunar limb target unsupported');
+    gl.useProgram(c.prog); gl.viewport(0,0,width,height); gl.disable(gl.DITHER);
+    const factor = Math.min(1,max/image.width,max/image.height), w = Math.floor(image.width*factor), h = Math.floor(image.height*factor);
+    bindScaled(r,`moon:heights:${entry.highResolution ? 'high' : 'base'}:${w}`,image,w,h,1,false);
+    const unit = sky.pole.map(v=>v/Math.hypot(...sky.pole)), [e1,e2,p] = axes(unit);
+    const { u } = c;
+    gl.uniformMatrix3fv(u.toP,false,[0,1,2].flatMap(k=>[e1[k],e2[k],p[k]]));
+    gl.uniform3fv(u.view,[e1[2],e2[2],p[2]]);
+    gl.uniform2f(u.lon0,sky.facing.lon,sky.facing.lon);gl.uniform2f(u.u0,.5,.5);
+    gl.uniform1i(u.heights,1);gl.uniform1i(u.fineHeights,entry.highResolution ? 1 : 0);
+    gl.uniform2f(u.heightTexel,1/w,1/h);
+    gl.uniform2f(u.size,width,height);gl.uniform1f(u.limbSamples,samples);
+    gl.uniform1f(u.limbAngular,(sky.radius || 0)*Math.PI/180);
+    gl.drawArrays(gl.TRIANGLES,0,3);
+    const data = new Uint8Array(width*height*4), result = new Float32Array(samples);
+    gl.readPixels(0,0,width,height,gl.RGBA,gl.UNSIGNED_BYTE,data);
+    for (let i=0;i<samples;i++) result[i]=.98+.04*(data[4*i]*65536+data[4*i+1]*256+data[4*i+2])/16777215;
+    return result;
+  } catch {
+    r.limbFailed = true;
+    return null;
+  } finally {
+    gl.bindFramebuffer(gl.FRAMEBUFFER,saved.framebuffer);gl.useProgram(saved.program);
+    gl.viewport(...saved.viewport);
+    gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,oldHeight);
+    gl.activeTexture(gl.TEXTURE6);gl.bindTexture(gl.TEXTURE_2D,oldTarget);
+    gl.activeTexture(saved.active);
+    if (saved.dither) gl.enable(gl.DITHER);
+  }
 }
 
 // The moons as the GPU draws them: their colours (as they look; Io's
@@ -652,6 +713,7 @@ uniform float moonEdge;
 uniform sampler2D lunarLimbMap;
 uniform bool lunarOutline;
 uniform float lunarLimbStep;
+uniform float limbSamples, limbAngular;
 uniform vec2 heightTexel;
 uniform float lunarMinFacing;
 uniform bool fineHeights, lunarSingleRay;
@@ -957,7 +1019,44 @@ vec4 trace(vec2 xy) {
   }
   return c;
 }
-#ifdef LUNAR_LIGHT_PASS
+#ifdef LUNAR_LIMB_PASS
+vec2 limbTexel(vec2 pixel) {
+  vec2 uv=(pixel+0.5)*heightTexel;
+  return texture2D(heights,vec2(fract(uv.x),clamp(uv.y,0.5*heightTexel.y,1.0-0.5*heightTexel.y))).rg;
+}
+float limbHeight(vec2 uv) {
+  // Hardware bilinear weights can have only eight fractional bits. Blend
+  // exact texel centres explicitly to retain the CPU model's height accuracy.
+  vec2 pixel=vec2(fract(uv.x),clamp(uv.y,0.0,1.0))/heightTexel-0.5;
+  vec2 at=floor(pixel), f=fract(pixel);
+  vec2 h=mix(mix(limbTexel(at),limbTexel(at+vec2(1.0,0.0)),f.x),
+             mix(limbTexel(at+vec2(0.0,1.0)),limbTexel(at+vec2(1.0,1.0)),f.x),f.y);
+  return fineHeights ? -10.0+dot(h,vec2(65280.0,255.0))*0.0005 : -9.0+20.0*h.r;
+}
+void main() {
+  float index = floor(gl_FragCoord.y) * size.x + floor(gl_FragCoord.x);
+  float angle = index * 6.28318530718 / limbSamples;
+  vec2 xy = vec2(cos(angle),sin(angle));
+  float parallax = sin(limbAngular), best = 0.0;
+  float count = ceil(0.18 / (6.28318530718 * heightTexel.x));
+  for (int j=0; j<513; j++) {
+    if (float(j) > 2.0*count) break;
+    float offset = floor((float(j)+1.0)*0.5) * (mod(float(j),2.0)>0.5 ? 1.0 : -1.0);
+    float depth = limbAngular + offset * 0.18 / count;
+    float c = cos(depth), s = sin(depth), outer = 1.0 + 11.0/1737.4;
+    float bound = parallax>0.0 ? atan(outer*c*parallax,1.0-outer*s*parallax)/limbAngular : outer*c;
+    if (bound < best) continue;
+    vec3 q = toP * vec3(xy*c,s);
+    float radius = 1.0 + limbHeight(mapAt(q,0))/1737.4;
+    float projected = parallax>0.0 ? atan(radius*c*parallax,1.0-radius*s*parallax)/limbAngular : radius*c;
+    best = max(best,projected);
+  }
+  float packedValue = floor(clamp((best-0.98)/0.04,0.0,1.0)*16777215.0+0.5);
+  float red = floor(packedValue/65536.0);
+  float green = floor((packedValue-red*65536.0)/256.0);
+  gl_FragColor=vec4(red,green,packedValue-red*65536.0-green*256.0,255.0)/255.0;
+}
+#elif defined(LUNAR_LIGHT_PASS)
 void main() {
   vec2 px = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y);
   vec2 xy = origin + vec2(px.x, -px.y) / scale;
@@ -1027,7 +1126,7 @@ function planetProgram(gl, pass = '') {
   gl.enableVertexAttribArray(at);
   gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
   const u = {};
-  for (const name of ["lunarLimbMap", "lunarOutline", "lunarLimbStep", "origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "heightTexel", "lunarMinFacing", "fineHeights", "lunarSingleRay", "lunarLightingMap", "lunarCached", "lunarCacheBounds", "relief", "earthshine", "earth", "lunarShadow", "lunarExposure", "moonsAt", "moonsLook", "nMoons", "near", "moonsOnly"]) u[name] = gl.getUniformLocation(prog, name);
+  for (const name of ["limbSamples", "limbAngular", "lunarLimbMap", "lunarOutline", "lunarLimbStep", "origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "heightTexel", "lunarMinFacing", "fineHeights", "lunarSingleRay", "lunarLightingMap", "lunarCached", "lunarCacheBounds", "relief", "earthshine", "earth", "lunarShadow", "lunarExposure", "moonsAt", "moonsLook", "nMoons", "near", "moonsOnly"]) u[name] = gl.getUniformLocation(prog, name);
   gl.uniform4fv(u.rings, RINGS.flatMap(([, , a, c]) => [...c.map((x) => x / 255), a]));
   gl.uniform2fv(u.ringEdges, RINGS.flatMap(([a, b]) => [a, b]));
   return { u, prog };
@@ -1068,6 +1167,29 @@ function glRenderer(canvas) {
   return r;
 }
 
+function syncMoonQuality(r, highResolution, image) {
+  if (r.moonQuality === Boolean(highResolution) && r.moonHeightImage === image) return;
+  for (const [key,tex] of r.textures) if (key.startsWith('moon:')) {
+    r.gl.deleteTexture(tex); r.textures.delete(key);
+  }
+  r.moonQuality = Boolean(highResolution);
+  r.moonHeightImage = image;
+}
+function touchLunarRenderer(r) {
+  const { gl } = r;
+  clearTimeout(r.moonIdle);
+  r.moonIdle = setTimeout(() => {
+    for (const [key,tex] of r.textures) if (key.startsWith('moon:')) {
+      gl.deleteTexture(tex); r.textures.delete(key);
+    }
+    for (const name of ['lunarLighting','limbPass']) if (r[name]) {
+      gl.deleteTexture(r[name].texture);gl.deleteFramebuffer(r[name].framebuffer);
+      gl.deleteProgram(r[name].prog);r[name]=null;
+    }
+    gl.deleteTexture(r.limbTexture); r.limbTexture = null; r.limbProfile = null;
+  },30000);
+}
+
 // The planet traced on the GPU over the canvas, w × h pixels whose top left
 // corner is the point (x0, y0) of the sky, s pixels per radius; false
 // without WebGL
@@ -1075,26 +1197,8 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s, { lunarCache = true } = {}) {
   const r = glRenderer(canvas);
   if (!r || r.gl.isContextLost()) return false;
   const { gl, u } = r, m = planetModel(sky, s);
-  if (m.planet === 'moon') {
-    clearTimeout(r.moonIdle);
-    r.moonIdle = setTimeout(() => {
-      for (const [key, tex] of r.textures) if (key.startsWith('moon:')) {
-        gl.deleteTexture(tex); r.textures.delete(key);
-      }
-      if (r.lunarLighting) {
-        gl.deleteTexture(r.lunarLighting.texture); gl.deleteFramebuffer(r.lunarLighting.framebuffer);
-        gl.deleteProgram(r.lunarLighting.prog); r.lunarLighting = null;
-      }
-      gl.deleteTexture(r.limbTexture); r.limbTexture = null; r.limbProfile = null;
-    }, 30000);
-  }
+  if (m.planet === 'moon') { touchLunarRenderer(r); syncMoonQuality(r, m.map?.e.highResolution, m.map?.e.heights); }
   gl.useProgram(r.prog);
-  if (m.planet === 'moon' && r.moonQuality !== Boolean(m.map?.e.highResolution)) {
-    for (const [key, tex] of r.textures) if (key.startsWith('moon:')) {
-      gl.deleteTexture(tex); r.textures.delete(key);
-    }
-    r.moonQuality = Boolean(m.map?.e.highResolution);
-  }
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   gl.viewport(0, 0, w, h);
   gl.uniform2f(u.origin, x0, y0);
@@ -1209,7 +1313,10 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s, { lunarCache = true } = {}) {
     gl.uniform2f(u.heightTexel, 1 / w, 1 / h);
     gl.uniform1i(u.heights, 1);
   }
-  const outline = lunar && hm && sky.terrainOutline !== false ? lunarLimb(sky, s) : null;
+  const edgeX = Math.max(Math.abs(x0), Math.abs(x0 + w / s)) + 1 / s;
+  const edgeY = Math.max(Math.abs(y0), Math.abs(y0 - h / s)) + 1 / s;
+  const edgeVisible = edgeX * edgeX + edgeY * edgeY >= 0.9604;
+  const outline = lunar && hm && sky.terrainOutline !== false && edgeVisible ? lunarLimb(sky, s, canvas) : null;
   gl.uniform1i(u.lunarOutline, outline ? 1 : 0);
   if (outline) {
     // A tiny RGBA strip, independent of the full elevation texture. Smaller

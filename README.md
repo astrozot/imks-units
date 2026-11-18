@@ -215,12 +215,19 @@ caches and the compact elevation working set are released after 30 seconds
 without use. Returning to a lunar view restores the maps from disk, including
 offline. The limb holds at most two small angular profiles and reuses them
 within one eighth of an elevation texel in orientation during playback;
-positions and screen rotation stay live. Elevations are decoded in short
-strips, avoiding a retained full-size RGBA elevation copy.
+positions and screen rotation stay live. The line-of-sight maxima are built
+in parallel on the GPU, sharing the Moon renderer's elevation texture. Only
+the small radial profile is read back for Canvas foreground masks. Explicit
+bilinear height interpolation preserves terrain precision; views entirely
+inside the lunar disk skip the outline pass. Unsupported GPUs retain the
+CPU fallback, which decodes elevations in short strips.
 `node tests/lunar-limb.mjs` checks analytic circles, far-side ridges, libration,
 seams and orientation. `node tests/lunar-limb-browser.mjs` checks real terrain
 against GPU edge coverage, valley sunlight and star occultation, physical
 height scaling, idle memory cleanup and offline restoration.
+`node tests/lunar-limb-performance-browser.mjs` exercises changing lunar
+geometry with both map resolutions, compares GPU profiles with the independent
+CPU terrain model, and measures playback against the former CPU calculation.
 Phones, touch iPads and devices reporting at most 4 GB of memory use a
 pre-sized 9.1 MB pack instead: 4096 × 2048 colour and 2880 × 1440
 16-bit heights (about 3.8 km spacing at the equator). The pair decodes to
