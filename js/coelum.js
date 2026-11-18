@@ -1040,7 +1040,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   for (const o of frame.bodies) {
     if (o.hidden) continue;
     const minor = o.body === 'minor' || o.body === 'comet';
-    if (o.body === 'satellite' || minor && !opts.minor && o.name !== view.selected) continue;
+    if (o.body === 'satellite' || minor && !opts.minor && o.name !== view.selected && !view.revealed?.has(o.name)) continue;
     const r = o.body === 'sun' || o.body === 'moon' ? 7 : minor ? Math.max(1.6, 3 - o.mag * 0.12) : Math.max(2.2, 4 - o.mag * 0.3), q = add(o, r);
     if (!q) continue;
     const disk = diskRadius(o) * pxPerDeg;
@@ -1072,7 +1072,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   // stations are named, and the others brighter than magnitude 1.
   for (const o of frame.bodies) {
     if (o.hidden) continue;
-    if (o.body !== 'satellite' || !opts.satellites && o.name !== view.selected) continue;
+    if (o.body !== 'satellite' || !opts.satellites && o.name !== view.selected && !view.revealed?.has(o.name)) continue;
     const r = o.lit ? Math.max(1.8, Math.min(3.6, 2.8 - o.mag * 0.3)) : 1.8, q = add(o, r);
     if (!q) continue;
     if (o.trail?.length) line([o, ...o.trail], { stroke: o.lit ? c.satellite : c.shadowed, width: 1.2, opacity: 0.7 });

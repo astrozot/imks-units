@@ -16,7 +16,7 @@ import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, s
 import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, setMinorBodies, hasMoons, horizontalVector, diskRadius, horizonToGalactic } from './coelum.js';
 import { riseSet, planetOf, siderealTime } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
-import { skyScene, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
+import { skyScene, skyPointScale, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
 import { storedHorizon, computeHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
 import { skyView as moonSystem } from './sky.js';
 import { moonsView, planetMap, moonDetailProfile, moonDetailStored, downloadMoonDetail, removeMoonDetail } from './skyview.js';
@@ -375,6 +375,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   setMinorBodies(options.minorBodies?.() || []);
   setSatellites(satelliteList());
   let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null, unlitLunar = null, detailHTML = '';
+  // Objects explicitly revealed by selection stay visible after the card closes.
+  const revealed = new Set();
   let realTime = false;
   let followTarget = null, detailShown = false;
   const guide = $('.coelum-follow-guide'), guideMarker = guide.querySelector('g'), guideRing = guide.querySelector('circle'), guideArrow = guide.querySelector('path'), guideText = guide.querySelector('text');
@@ -566,7 +568,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     applyLock();
     const view = mark(), F = mountMatrix();
     // the camera in the horizon's frame, for drawing
-    const shown = { ...view, selected, unlitLunar, labelHistory: labelHistory[mode], gridHistory: gridHistory[mode], rotation: orient?.tracker.filtered ? phoneCamera() : mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
+    const shown = { ...view, selected, revealed, unlitLunar, labelHistory: labelHistory[mode], gridHistory: gridHistory[mode], rotation: orient?.tracker.filtered ? phoneCamera() : mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
     if (orient?.tracker.filtered) svg.dataset.rotation = shown.rotation.join(',');
     showRuler(3600 / (mode === 'sky' ? skyRadius(size, height, view.scale) * R / 2 : chartRadius(size, height, view.scale) / 90));
     // One canvas under the SVG. The chart moves on it (playback, drags,
@@ -680,7 +682,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       }
       const angularField = field ?? searchAngularField(o), span = Math.min(size, height);
       const scale = mode === 'sky' ? span / (2 * skyRadius(size, height, 1) * Math.tan(angularField * R / 4)) : span / (chartRadius(size, height, 1) * angularField / 90);
-      return Math.max(lo, Math.min(hi, scale));
+      const pointScale = mode === 'sky' ? skyPointScale(frame, o, { ...layers.sky, atmosphere: atmosphereOn() })
+        : o.type === 'star' && !o.body && Number.isFinite(o.mag) ? 2 ** Math.max(0, (o.mag - (layers.chart.starBoost || 0) + 1 - 6) / 1.25) : 1;
+      if (mode === 'chart' && o.type === 'star' && !o.body && Number.isFinite(o.mag)) {
+        layers.chart.magnitude = Math.max(layers.chart.magnitude, Math.ceil(o.mag - (layers.chart.starBoost || 0)));
+        syncLayers();
+      }
+      return Math.max(lo, Math.min(hi, Math.max(scale, pointScale)));
     };
     if (mode === 'sky') {
       const v = skyView(), from = { ...v }; v.auto = false;
@@ -712,6 +720,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (name !== followTarget) clearGuide();
     if (name !== selected || allowUnlit !== undefined) unlitLunar = allowUnlit ? name : null;
     selected = name;
+    const chosen = name && findObject(frame, name);
+    if (chosen && ['minor', 'comet', 'satellite'].includes(chosen.body)) revealed.add(chosen.name);
     detailShown = Boolean(name) && details;
     if (!selected) { detail.innerHTML = '<p>Tap an object or its label to see its characteristics.</p>'; detailHTML = ''; }
     // the moons' view, open, turns to the system of the object chosen
@@ -888,6 +898,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const syncLayers = () => {
     for (const box of root.querySelectorAll('[data-layer]')) box.checked = Boolean(layers[mode][box.dataset.layer]);
     $('[data-label-size]').value = String(layers[mode].labelSize);
+    $('[data-limit]').value = String(layers.chart.magnitude);
     $('[data-horizon]').value = horizon;
     for (const o of $('[data-limit]').options) o.disabled = Number(o.value) > Math.max(6, Math.round(faintDepth()));
   };
@@ -1337,8 +1348,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (o) {
       if (frame.deep.includes(o) && !L.deep) hidden = 'Not displayed: Deep sky layer is off';
       else if (o.type === 'constellation' && !L.constellations) hidden = 'Not displayed: Constellations layer is off';
-      else if ((o.body === 'minor' || o.body === 'comet') && !L.minor && o.name !== selected) hidden = 'Not displayed: Minor planets layer is off';
-      else if (o.body === 'satellite' && !L.satellites && o.name !== selected) hidden = 'Not displayed: Satellites layer is off';
+      else if ((o.body === 'minor' || o.body === 'comet') && !L.minor && o.name !== selected && !revealed.has(o.name)) hidden = 'Not displayed: Minor planets layer is off';
+      else if (o.body === 'satellite' && !L.satellites && o.name !== selected && !revealed.has(o.name)) hidden = 'Not displayed: Satellites layer is off';
       else if (o.hidden) hidden = 'Not displayed in the current view';
       else if (mode === 'chart' && o.type === 'star' && !o.body && o.mag - (L.starBoost || 0) > L.magnitude) hidden = 'Not displayed: fainter than the magnitude limit';
     }
@@ -1461,7 +1472,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       try { localStorage.setItem('imks-coelum-moon-size', moonSize); } catch { /* private mode */ }
     }
     if (ev.target.matches('[data-orient-level]')) { phoneLevel = ev.target.checked; try { localStorage.setItem('imks-phone-level', String(phoneLevel)); } catch { /* private mode */ } if (orient) applyPhone(); }
-    if (ev.target.dataset.layer) L[ev.target.dataset.layer] = ev.target.checked;
+    if (ev.target.dataset.layer) {
+      L[ev.target.dataset.layer] = ev.target.checked;
+      // An explicit layer change takes precedence over earlier reveals.
+      const bodies = ev.target.dataset.layer === 'minor' ? ['minor', 'comet'] : ev.target.dataset.layer === 'satellites' ? ['satellite'] : [];
+      for (const name of revealed) if (bodies.includes(findObject(frame, name)?.body)) revealed.delete(name);
+    }
     if (ev.target.matches('[data-limit]')) layers.chart.magnitude = Number(ev.target.value);
     if (ev.target.matches('[data-label-size]')) layers.chart.labelSize = layers.sky.labelSize = Number(ev.target.value);
     if (ev.target.matches('[data-horizon]')) { chooseHorizon(ev.target.value); return; }
@@ -1616,7 +1632,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       else { playing = true; last = performance.now(); lastUI = -Infinity; setPlay(true); draw(); animation = requestAnimationFrame(tick); }
     } else {
       if (action === 'reset') {
-        stopOrientation(); setLock(null); closeMoons();
+        stopOrientation(); setLock(null); closeMoons(); revealed.clear();
         if (place.some((x, i) => x !== (model.place[i] ?? 0))) await setPlace({ lat: model.place[0], lon: model.place[1], h: model.place[2] || 0, name: model.label });
         layers.sky.starBoost = layers.chart.starBoost = 0;
         jumpTime(model.t); setSpeed(60); pause(); fit();
@@ -1858,7 +1874,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       // Export the current frame as SVG even while the canvas is moving;
       // the realistic view is a picture of its canvas.
       if (mode === 'sky') svg.innerHTML = `<image href="${canvas.toDataURL('image/png')}" width="${size}" height="${height}"/>`;
-      else svg.innerHTML = skyChart(frame, size, height, layers.chart, { ...views.chart, rotation: horizonCamera(views.chart.rotation), selected }).svg;
+      else svg.innerHTML = skyChart(frame, size, height, layers.chart, { ...views.chart, rotation: horizonCamera(views.chart.rotation), selected, revealed }).svg;
       updateUI(true);
       return svg;
     },

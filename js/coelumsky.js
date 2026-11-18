@@ -60,11 +60,8 @@ export const moonTexture = typeof Image === 'undefined' ? Promise.resolve(null) 
 // Extinction (mag) at an altitude (degrees), with a plain airmass.
 const extinction = (alt) => { const s = Math.sin(Math.max(alt, 0) * R); return 0.22 * (1 / (s + 0.025 * Math.exp(-11 * s)) - 1); };
 
-// view: az, alt and scale; a rotation (rows: the camera axes in horizontal
-// coordinates), when given, turns the camera (the equatorial mount).
-export function skyScene(frame, W, H, layers, view, ctx) {
-  const opts = { ...SKY_LAYERS, ...layers }, radius = skyRadius(W, H, view.scale), rotation = view.rotation || lookAt(view.az, view.alt);
-  const cx = W / 2, cy = H / 2, p = pen(ctx), f = (x) => x.toFixed(2);
+// Share the rendering conditions with search's visibility calculation.
+function skyLighting(frame, atmosphere) {
   const sun = frame.bodies[0], moon = frame.bodies.find((o) => o.body === 'moon');
   // Eclipses: the part of the Sun covered by the Moon darkens the sky as
   // the Sun lower in the sky would (at totality, as 8° below the horizon);
@@ -75,7 +72,25 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const sunAlt = eclipsed > 0.5 ? Math.min(sun.alt, 15 + (Math.log10(Math.max(1 - eclipsed, 1e-3)) + 0.5) * 9.2) : sun.alt;
   const illum = moon ? (1 + Math.cos(moon.phase * R)) / 2 * moonDim(moon) : 0;
   const moonAlt = moon?.alt ?? -90;
-  const light = skyLight(sunAlt, { alt: moonAlt, illum }, opts.atmosphere);
+  const light = skyLight(sunAlt, { alt: moonAlt, illum }, atmosphere);
+  return { sun, moon, eclipsed, total, sunAlt, illum, moonAlt, light };
+}
+
+// Leave one magnitude of headroom so the target is a visible point rather
+// than a barely perceptible dot at the exact limiting magnitude.
+export function skyPointScale(frame, o, layers = {}) {
+  if (!Number.isFinite(o.mag) || o.body === 'sun' || o.body === 'moon' || o.size || !o.body && !o.planet && o.type !== 'star') return 1;
+  const opts = { ...SKY_LAYERS, ...layers }, { light } = skyLighting(frame, opts.atmosphere);
+  const mag = o.mag - (!o.body && !o.planet ? opts.starBoost || 0 : 0) + (opts.atmosphere ? extinction(o.alt) : 0);
+  return 2 ** Math.max(0, (mag + 1 - light.limit) / 0.8);
+}
+
+// view: az, alt and scale; a rotation (rows: the camera axes in horizontal
+// coordinates), when given, turns the camera (the equatorial mount).
+export function skyScene(frame, W, H, layers, view, ctx) {
+  const opts = { ...SKY_LAYERS, ...layers }, radius = skyRadius(W, H, view.scale), rotation = view.rotation || lookAt(view.az, view.alt);
+  const cx = W / 2, cy = H / 2, p = pen(ctx), f = (x) => x.toFixed(2);
+  const { sun, moon, eclipsed, total, sunAlt, illum, moonAlt, light } = skyLighting(frame, opts.atmosphere);
   const proj = (v) => { const q = projectVector(v, rotation, true); return { x: cx + q.x * radius, y: cy + q.y * radius, z: q.z }; };
   // With the atmosphere, objects are seen raised by the refraction (for the
   // pressure at the place's height); the horizontal grid is not.
@@ -230,7 +245,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   for (const o of [...frame.bodies].sort((a, b) => b.dist - a.dist)) {
     if (o.hidden) continue;
     const minor = o.body === 'minor' || o.body === 'comet';
-    if (o.body === 'satellite' || minor && !opts.minor && o.name !== view.selected) continue;
+    if (o.body === 'satellite' || minor && !opts.minor && o.name !== view.selected && !view.revealed?.has(o.name)) continue;
     const q = xy(o);
     const pxPerRad = pxPerRadAt(q);
     const extent = diskOf(o, pxPerRad) * (o.body === 'saturn' ? 2.34 : o.body === 'moon' ? 1.01 : 1);
@@ -321,7 +336,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   // stations are named, and the others brighter than magnitude 1.
   for (const o of frame.bodies) {
     if (o.hidden) continue;
-    if (o.body !== 'satellite' || !opts.satellites && o.name !== view.selected) continue;
+    if (o.body !== 'satellite' || !opts.satellites && o.name !== view.selected && !view.revealed?.has(o.name)) continue;
     const q = xy(o), chosen = o.name === view.selected;
     if (!onScreen(q, 4) || !above(q) || behind(q, o.dist)) continue;
     let r = o.lit ? point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), [228, 242, 255], q) : 0;
