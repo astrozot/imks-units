@@ -9,7 +9,8 @@
 // from Open-Meteo.
 
 import { UnitError } from "./units.js";
-import { STARS, DEEP, CITIES } from "./catalog.js";
+import { STARS, CITIES } from "./catalog.js";
+import { DEEP, deepRevision } from "./deepcatalog.js";
 import { CHART_STARS } from "./stardata.js";
 import { EPOCHS, MINOR_PLANETS } from "./minorplanets.js";
 import { sgp4init } from "./sgp4.js";
@@ -39,9 +40,10 @@ const GREEK = { α: ["alpha", "alf"], β: ["beta", "bet"], γ: ["gamma", "gam"],
 
 // objects: stars { name, ra, dec, pmra, pmdec, plx, rv, mag, kind },
 // minor planets { name, kind, H, G, orbits }
-let objects = null;
+let objects = null, objectRevision = -1;
 function objectTable() {
-  if (objects) return objects;
+  if (objects && objectRevision === deepRevision) return objects;
+  objectRevision = deepRevision;
   objects = new Map();
   for (const [name, ra, dec, pmra, pmdec, plx, rv, mag] of STARS) objects.set(key(name), { name, ra, dec, pmra, pmdec, plx, rv, mag, kind: "star" });
   for (const [names, ra, dec, mag, kind] of DEEP) {

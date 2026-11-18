@@ -768,6 +768,31 @@ requests; see `data/native-ephemeris-performance.json`. Satellite event
 searches still use their existing compact models; supplying native
 satellite positions does not yet switch those event searches.
 
+OpenNGC is available in **Layers → Deep-sky catalog → Download OpenNGC**
+in both apps. The optional 0.85 MB download expands the 232 built-in objects
+to 13,366 distinct objects from NGC, IC and the OpenNGC addendum. Search
+finds every downloaded object; fainter atlas symbols appear progressively
+with zoom, and a selected object is always shown when the Deep sky layer
+is on. The calculator also resolves the downloaded designations. Removing
+the download restores the built-in selection. Cache Storage keeps the data
+for offline use across app updates and shares it between the two apps;
+where storage is unavailable, the download lasts for the current session.
+
+The data is by Mattia Verga / [OpenNGC](https://github.com/mattiaverga/OpenNGC),
+licensed [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
+(license text: `data/openngc-LICENSE.txt`). `data/openngc.json` records the
+pinned revision, source checksums and attribution. To regenerate, download
+`database_files/NGC.csv` and `database_files/addendum.csv` from revision
+`be3cd6c5498806a2fbb2f7e0452ef802dbb02be0`, then run
+`node tools/openngc.mjs <directory>`. The conversion retains positions,
+types, angular sizes and common names, folds duplicate designations into
+their master entry, and omits nonexistent entries or missing positions.
+The original built-in rows keep their positions and names. Magnitudes use
+V where available, otherwise B (identified as blue magnitude on the card);
+missing magnitudes stay unknown. This covers NGC/IC rather than all the
+catalogs included in Stellarium. Check with `node tests/openngc.mjs` and
+`node tests/openngc-browser.mjs` (the usual Playwright options).
+
 `js/catalog.js` holds the stars named by the IAU (IAU Catalog of Star
 Names, with proper motions and parallaxes from the HYG database), the
 Messier and other named deep-sky objects (OpenNGC, CC BY-SA 4.0) and the

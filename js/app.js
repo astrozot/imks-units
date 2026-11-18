@@ -22,7 +22,8 @@ import { functionHelp } from "./functionhelp.js";
 import { describeError } from "./diagnostics.js";
 import { MOONS } from "./moons.js";
 import { findPlace, fetchObject, fetchPlace, fetchElevation } from "./lookup.js";
-import { STARS, DEEP, CITIES } from "./catalog.js";
+import { STARS, CITIES } from "./catalog.js";
+import { DEEP, builtinDeepNames } from "./deepcatalog.js";
 import { MINOR_PLANETS } from "./minorplanets.js";
 import { formatUNum, formatNumber, UNum, ufuncs, MC, newSourceId, rng, normInv, lhsUniform, mcConfigure, mcStats, formatAsym } from "./unum.js";
 
@@ -5817,10 +5818,10 @@ const PICK_LISTS = {
     search: true,
   }),
   deep: () => ({
-    title: "Deep sky", note: 'Tap an object to type its name, as in transit("M31", today). Others (NGC 7000, IC 434…) are looked up online.',
+    title: "Deep sky", note: 'Tap an object to type its name, as in transit("M31", today). Download OpenNGC in the sky chart’s Layers for more NGC/IC objects offline; other names are looked up online.',
     groups: [
       ["Messier", DEEP.filter((d) => /^M\d/.test(d[0][0])).map((d) => [`"${d[0][0]}"`, d[0][0], d[0][2] || d[4]])],
-      ["Named", DEEP.filter((d) => !/^M\d/.test(d[0][0])).sort((a, b) => a[0][1].localeCompare(b[0][1])).map((d) => [`"${d[0][0]}"`, d[0][1], d[0][0]])],
+      ["Named", DEEP.filter((d) => builtinDeepNames.has(d[0][0]) && !/^M\d/.test(d[0][0])).sort((a, b) => a[0][1].localeCompare(b[0][1])).map((d) => [`"${d[0][0]}"`, d[0][1], d[0][0]])],
     ],
     search: true,
   }),

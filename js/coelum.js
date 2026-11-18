@@ -5,7 +5,7 @@
 // chart; coelumsky.js draws the realistic sky, coelumui.js the explorer.
 import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { CHART_STARS } from './stardata.js';
-import { DEEP } from './catalog.js';
+import { DEEP, showDeepObject } from './deepcatalog.js';
 import { heliocentric, surfaceObserver, solarDeflectionState, apparentFrame, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
 import { satelliteLight } from './satellites.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
@@ -320,7 +320,7 @@ export function skyFrame(t, place, rate = 0) {
     return { ...apparentCatalog(ra, dec, pmra, pmdec, parallax), name, designations, mag, bv: bv ?? undefined, type: 'star', named: Boolean(proper), parallax, pmra, pmdec, spect, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
   });
   const bodies = [...solarBodies(t, place, hor, rate), ...(playbackBodyVisible('satellite', rate) ? satelliteBodies(t, place, hor) : [])];
-  const deep = DEEP.map(([names, ra, dec, mag, type, major, minor]) => ({ ...apparentCatalog(ra, dec), name: names[0], description: names.slice(1).join(' · '), mag, size: major ? [major, minor ?? major] : null, type }));
+  const deep = DEEP.map(([names, ra, dec, mag, type, major, minor, magBand]) => ({ magBand, ...apparentCatalog(ra, dec), name: names[0], description: names.slice(1).join(' · '), mag, size: major ? [major, minor ?? major] : null, type }));
   const constellations = CONSTELLATIONS.map(([name, ra, dec, lines]) => ({ name, type: 'constellation', ...apparentCatalog(ra, dec), lines: lines.map((line) => line.map(([a, d]) => apparentCatalog(a, d))) }));
   const ecliptic = ECLIPTIC.map(([a, d]) => catalog(a, d));
   const boundaries = BOUNDARY_POINTS.map((line) => line.map(([a, d]) => catalog(a, d)));
@@ -432,16 +432,28 @@ export function refractVector(v, height = 0) {
 // Coordinate grids that get denser as the view zooms in: lines about 70 px
 // apart, only within fov (degrees) of the view's center (a horizontal
 // vector). Horizontal (alt/az), equatorial (RA/Dec of date), or galactic (l/b).
-const GRID_STEPS = [30, 15, 10, 5, 2, 1, 0.5, 0.25, 1 / 6, 1 / 12, 1 / 30];
-const RA_STEPS = [30, 15, 7.5, 5, 2.5, 1.25, 0.5, 0.25, 0.125, 1 / 12];
-const gridStep = (steps, pxPerDeg) => { let step = steps[0]; for (const s of steps) if (s * pxPerDeg >= 70) step = s; return step; };
-const degrees = (x) => {
-  const t = Math.round(Math.abs(x) * 60), m = t % 60;
-  return `${x < 0 && t ? '−' : ''}${Math.floor(t / 60)}°${m ? `${m}′` : ''}`;
+const GRID_STEPS = [30, 15, 10, 5, 2, 1, 0.5, 0.25, 1 / 6, 1 / 12, 1 / 30, ...[60, 30, 15, 10, 5, 2, 1].map((s) => s / 3600)];
+const RA_STEPS = [30, 15, 7.5, 5, 2.5, 1.25, 0.5, 0.25, 0.125, 1 / 12, ...[10, 5, 2, 1].map((s) => s / 240)];
+const gridStep = (steps, pxPerDeg) => {
+  let step = steps[0];
+  for (const s of steps) if (s * pxPerDeg >= 70) step = s;
+  // Continue with 1, 0.5, 0.2 per decade below one arcsecond (or RA second).
+  const unit = steps[steps.length - 1];
+  for (let decade = unit / 10; decade * 10 * pxPerDeg >= 70; decade /= 10) {
+    for (const s of [5, 2, 1]) if (s * decade * pxPerDeg >= 70) step = s * decade;
+  }
+  return step;
 };
-const hours = (ra) => {
-  const t = Math.round(((ra % 360) + 360) % 360 / 15 * 3600) % 86400, m = Math.floor(t / 60) % 60, s = t % 60;
-  return `${Math.floor(t / 3600)}h${m || s ? `${m}m` : ''}${s ? `${s}s` : ''}`;
+const secondDigits = (step) => Math.max(0, Math.ceil(-Math.log10(step) - 1e-9));
+const degrees = (x, step) => {
+  const digits = secondDigits(step * 3600), scale = 10 ** digits;
+  const t = Math.round(Math.abs(x) * 3600 * scale), m = Math.floor(t / (60 * scale)) % 60, s = t % (60 * scale) / scale;
+  return `${x < 0 && t ? '−' : ''}${Math.floor(t / (3600 * scale))}°${m || s ? `${m}′` : ''}${s ? `${s.toFixed(digits)}″` : ''}`;
+};
+const hours = (ra, step) => {
+  const digits = secondDigits(step * 240), scale = 10 ** digits;
+  const t = Math.round(((ra % 360) + 360) % 360 * 240 * scale) % (86400 * scale), m = Math.floor(t / (60 * scale)) % 60, s = t % (60 * scale) / scale;
+  return `${Math.floor(t / (3600 * scale))}h${m || s ? `${m}m` : ''}${s ? `${s.toFixed(digits)}s` : ''}`;
 };
 export function skyGrid(kind, frame, center, fov, pxPerDeg) {
   const horizontal = kind === 'horizontal', galactic = kind === 'galactic';
@@ -466,13 +478,13 @@ export function skyGrid(kind, frame, center, fov, pxPerDeg) {
     const lat = k * latStep;
     if (Math.abs(lat) > 89.99) continue;
     const n = Math.min(720, Math.ceil(2 * lonHalf * Math.cos(lat * R) / res) + 2);
-    lines.push({ parallel: true, value: lat, label: `${galactic ? 'b ' : ''}${degrees(lat)}`, points: Array.from({ length: n + 1 }, (_, i) => point(lat, lon0 - lonHalf + 2 * lonHalf * i / n)) });
+    lines.push({ parallel: true, value: lat, label: `${galactic ? 'b ' : ''}${degrees(lat, latStep)}`, points: Array.from({ length: n + 1 }, (_, i) => point(lat, lon0 - lonHalf + 2 * lonHalf * i / n)) });
   }
   const from = polar ? 0 : Math.ceil((lon0 - lonHalf) / lonStep), to = polar ? Math.round(360 / lonStep) - 1 : Math.floor((lon0 + lonHalf) / lonStep);
   const n = Math.min(400, Math.ceil((latHi - latLo) / res) + 1);
   for (let k = from; k <= to; k++) {
     const lon = k * lonStep;
-    lines.push({ parallel: false, value: lon, label: galactic ? `l ${degrees(((lon % 360) + 360) % 360)}` : horizontal ? degrees(((lon % 360) + 360) % 360) : hours(lon), points: Array.from({ length: n + 1 }, (_, i) => point(latLo + (latHi - latLo) * i / n, lon)) });
+    lines.push({ parallel: false, value: lon, label: galactic ? `l ${degrees(((lon % 360) + 360) % 360, lonStep)}` : horizontal ? degrees(((lon % 360) + 360) % 360, lonStep) : hours(lon, lonStep), points: Array.from({ length: n + 1 }, (_, i) => point(latLo + (latHi - latLo) * i / n, lon)) });
   }
   return lines;
 }
@@ -997,6 +1009,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   };
   const deepSize = 4.5 * Math.min(1.8, 1 + 0.2 * Math.log2(scale));
   if (opts.deep) for (const o of frame.deep) {
+    if (!showDeepObject(o, scale, view.selected)) continue;
     const q = add(o, deepSize);
     if (!q) continue;
     deepSymbol(p, o.type, q.x, q.y, deepSize);
@@ -1155,7 +1168,7 @@ export function searchAngularField(o) {
 }
 
 export function searchSky(frame, query, limit = 8) {
-  const q = fold(query), qc = q.replace(/ /g, '');
+  const q = fold(query).replace(/^(ngc|ic|m) ?0+(?=\d)/, '$1 '), qc = q.replace(/ /g, '');
   if (!qc) return [];
   const surface = (o) => o.type === 'lunar feature' || o.type === 'Mars feature';
   const order = { 'lunar feature': 3, 'Mars feature': 3, moon: 0, planet: 0, constellation: 2, star: 1, 'minor planet': 1.2, comet: 1.2, satellite: 1.3 }, rank = (o) => order[o.type] ?? (o.planet ? 0.5 : 1.5);
@@ -1263,7 +1276,7 @@ const preciseAngle=(value,hours=false,signed=false)=>{
  const digits=hours?3:2,scale=10**digits,total=Math.round(Math.abs(value)*3600*scale),a=Math.floor(total/(3600*scale)),b=Math.floor(total/(60*scale))%60,c=(total/scale%60).toFixed(digits).padStart(digits+3,'0'),sign=value<0?'−':signed?'+':'';
  return hours?`${String(a%24).padStart(2,'0')}h ${String(b).padStart(2,'0')}m ${c}s`:`${sign}${a}° ${String(b).padStart(2,'0')}′ ${c}″`;
 };
-const FIXED_OBJECT_TYPES = new Set(['star', ...DEEP.map((row) => row[4])]);
+const FIXED_OBJECT_TYPES = new Set(['star', 'dark nebula', 'emission nebula', 'galaxy triplet', 'nova', 'object', ...DEEP.map((row) => row[4])]);
 // The physical offset is useful in the selected object's card. Calculate
 // it on demand rather than storing another value for every drawn star.
 function catalogSolarDeflection(o, frame) {
@@ -1294,7 +1307,7 @@ export function objectDetails(o, frame = null) {
     ${Number.isFinite(o.alt) ? row('Altitude (Alt)', angle(o.alt, false, true)) : ''}
     ${Number.isFinite(o.apparentAlt) ? row('Apparent altitude', angle(o.apparentAlt, false, true)) : ''}
     ${Number.isFinite(o.az) ? row('Azimuth (Az)', angle(o.az)) : ''}
-    ${o.type === 'constellation' ? '' : row('Visual magnitude', Number.isFinite(o.mag) ? o.mag.toFixed(2) + (o.estimatedPhotometry ? ' (estimated)' : '') : 'Not available')}
+    ${o.type === 'constellation' ? '' : row(o.magBand === 'B' ? 'Blue magnitude (B)' : 'Visual magnitude', Number.isFinite(o.mag) ? o.mag.toFixed(2) + (o.estimatedPhotometry ? ' (estimated)' : '') : 'Not available')}
     ${apparentDiameter(o) > 0 ? row(o.body === 'saturn' ? 'Apparent diameter (globe)' : 'Apparent diameter', angleText(apparentDiameter(o))) : ''}
     ${o.size ? row('Apparent size', o.size.map((x) => `${x < 10 ? Number(x.toFixed(1)) : Math.round(x)}′`).filter((x, i, all) => !i || x !== all[0]).join(' × ')) : ''}
     ${notes.length ? row('Hipparcos', notes.join(', ')) : ''}

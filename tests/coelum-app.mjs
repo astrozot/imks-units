@@ -57,7 +57,21 @@ try {
   // iMKS's location, in full screen from the start, without a way out
   const { context, page, errors } = await open({ 'imks.settings': { location: { lat: 45.4642, lon: 9.19, h: 120, name: 'Milan' } } });
   const status = () => page.locator('.coelum-status').textContent();
-  assert.match(await status(), /Nov 8, 2026, 01:00 PM Europe\/Rome \(UTC\+01:00\) · Milan/);
+  // The bottom bar stays compact; the date button exposes the full zone.
+  assert.match(await status(), /Nov 8, 2026, 01:00 PM · Milan/);
+  const timeButton = page.locator('[data-action="time"]');
+  const openTime = async () => {
+    // An outside click only dismisses Events; close it before opening Time.
+    const events = page.locator('[data-panel="events"]');
+    if (await events.isVisible()) await events.locator('[data-action="close-panel"]').click();
+    await timeButton.click();
+  };
+  assert.equal(await timeButton.textContent(), 'Nov 8, 2026, 01:00 PM');
+  assert.equal(await timeButton.getAttribute('title'), 'Set the date and time · Nov 8, 2026, 01:00 PM Europe/Rome (UTC+01:00)');
+  assert.equal(await timeButton.getAttribute('aria-label'), 'Date and time: Nov 8, 2026, 01:00 PM Europe/Rome (UTC+01:00)');
+  await timeButton.click();
+  assert.match(await page.locator('.coelum-zone-note').textContent(), /Device time: Europe\/Rome \(UTC\+01:00\)/);
+  await page.locator('.coelum-timepanel [data-action="close-panel"]').click();
   assert.equal(await page.locator('.coelum-explorer.coelum-immersive').count(), 1);
   assert.equal(await page.locator('[data-action="fullscreen"]').count(), 0);
   await page.keyboard.press('Escape');
@@ -69,7 +83,7 @@ try {
   let list = await rows(page);
   assert.equal(list.filter(([k]) => k === 'solar').length, 4);
   assert.equal(list.filter(([k]) => k === 'lunar').length, 4);
-  assert.match(list.find(([k]) => k === 'solar')[1], /^Partial solar eclipse \(total\) \| Aug 2, 2027, 11:08 AM \| 62% of the Sun covered · Sun 50° high$/);
+  assert.match(list.find(([k]) => k === 'solar')[1], /^Partial solar eclipse \(total\) \| Aug 2, 2027, 11:08 AM Europe\/Rome \(UTC\+02:00\) \| 62% of the Sun covered · Sun 50° high$/);
   assert.match(list.find(([k]) => k === 'lunar')[1], /^Penumbral lunar eclipse \| Feb 21, 2027/);
   await page.click('[data-more="solar"]');
   assert.equal((await rows(page)).filter(([k]) => k === 'solar').length, 8, 'More finds four more');
@@ -103,7 +117,7 @@ try {
   for (const mode of ['chart', 'sky']) {
     for (const event of ['phases', 'oppositions', 'conjunctions', 'planet-pair', 'seasons', 'elongations']) {
       const kind = event === 'planet-pair' ? 'conjunctions' : event;
-      await page.click('[data-action="time"]');
+      await openTime();
       await page.click('[data-set-time="now"]');
       await page.click(`[data-view="${mode}"]`);
       await page.click('[data-action="events"]');
@@ -145,7 +159,7 @@ try {
       assert.ok(framing.visible, `${kind} ${mode}: bodies fit in the viewport`);
     }
   }
-  await page.click('[data-action="time"]');
+  await openTime();
   await page.click('[data-set-time="now"]');
   await page.click('[data-action="events"]');
 
@@ -158,36 +172,37 @@ try {
   await page.waitForFunction(() => document.querySelector('#sheet').hidden);
   assert.match(await status(), /Aug 2, 2027, 11:08 AM · Milan/);
   await page.waitForFunction(() => /^Sun/.test(document.querySelector('.coelum-detail-body').textContent), null, { timeout: 5000 });
-  assert.equal(await page.locator('.coelum-extra').isVisible(), false, 'The panel closes for the sky');
+  assert.equal(await page.locator('[data-panel="events"]').isVisible(), false, 'The panel closes for the sky');
 
   // A lunar eclipse, after the new time; anywhere on the Earth
   await page.click('[data-action="events"]');
   await page.click('[data-scope="anywhere"]');
   await page.waitForSelector('.coelum-event[data-event="lunar"]');
   list = await rows(page);
-  assert.match(list.find(([k]) => k === 'solar')[1], /^Total solar eclipse \| Aug 2, 2027, 12:06 PM \| magnitude 1\.080$/, 'From the time of the sky');
+  assert.match(list.find(([k]) => k === 'solar')[1], /^Total solar eclipse \| Aug 2, 2027, 12:06 PM Europe\/Rome \(UTC\+02:00\) \| magnitude 1\.080$/, 'From the time of the sky');
   await page.click('.coelum-event[data-event="lunar"]');
   await page.waitForSelector('.lunar-sim .lunar-full .lunar-body');
   assert.equal(await page.locator('[data-lunar-sky]').count(), 0, 'Anywhere: no place to see it from');
-  assert.match(await page.locator('.lunar-when').textContent(), /UTC \(\d\d:\d\d local\): /);
+  assert.match(await page.locator('.lunar-when').textContent(), /UTC \(\d\d:\d\d Europe\/Rome \(UTC\+02:00\)\): /);
   await page.click('.sheet-head [data-close]');
+  await page.click('[data-action="events"]');
   await page.click('[data-scope="here"]');
 
   // Satellites: the groups of the fixture, fetched once; visible passes
   // tonight from Milan, the first in the sky at its start
-  await page.click('[data-action="time"]');
+  await openTime();
   await page.click('[data-set-time="now"]');
   await page.click('[data-action="events"]');
   await page.waitForSelector('[data-more="passes"]', { timeout: 60000 });
   const passes = (await rows(page)).filter(([k]) => k === 'passes').map(([, text]) => text);
   assert.ok(passes.length >= 3 && passes.length <= 10, `Ten passes at a time (${passes.length})`);
-  for (const text of passes) assert.match(text, /^.+ \| Nov [89], 2026, \d\d:\d\d [AP]M – \d\d:\d\d [AP]M \| [NESW]+ → [NESW]+( into the shadow)? · highest \d+° · magnitude −?\d\.\d$/);
+  for (const text of passes) assert.match(text, /^.+ \| Nov [89], 2026, \d\d:\d\d [AP]M Europe\/Rome \(UTC\+01:00\) – \d\d:\d\d Europe\/Rome \(UTC\+01:00\) \| [NESW]+ → [NESW]+( into the shadow)? · highest \d+° · magnitude −?\d\.\d$/);
   assert.deepEqual([...new Set(celestrak)].sort(), ['stations', 'visual'], 'The groups chosen by default');
   assert.equal(celestrak.length, 2, 'Each group fetched once');
   const first = passes[0].split(' | ');
   await page.click('[data-event="passes"]');
   await page.waitForFunction((name) => document.querySelector('.coelum-detail-body h3')?.textContent === name, first[0], { timeout: 5000 });
-  assert.equal((await status()).split(' · ')[0], first[1].split(' – ')[0], 'The sky at the start of the pass');
+  assert.equal(await timeButton.getAttribute('aria-label'), `Date and time: ${first[1].split(' – ')[0]}`, 'The sky at the start of the pass, in the same timezone');
   assert.equal(await page.locator('[data-speed]').textContent(), '1×');
   assert.match(await page.locator('.coelum-detail-body').textContent(), /NORAD number\d+/);
   await page.click('[data-action="layers"]');
@@ -203,7 +218,7 @@ try {
   await page.click('[data-action="events"]');
   await page.waitForSelector('[data-more="occultations"]', { timeout: 60000 });
   const occultations = (await rows(page)).filter(([k]) => k === 'occultations').map(([, text]) => text);
-  assert.match(occultations[0], /^52 Sgr behind the Moon \| Nov 14, 2026, 07:19 PM – 08:26 PM \| magnitude 4\.6 · in at the dark limb, out at the bright · 9° high · Moon 25% lit$/);
+  assert.match(occultations[0], /^52 Sgr behind the Moon \| Nov 14, 2026, 07:19 PM Europe\/Rome \(UTC\+01:00\) – 20:26 Europe\/Rome \(UTC\+01:00\) \| magnitude 4\.6 · in at the dark limb, out at the bright · 9° high · Moon 25% lit$/);
   await page.click('[data-event="occultations"]');
   await page.waitForSelector('.map-local p', { timeout: 30000 });
   assert.match(await page.locator('.map-local').textContent(), /52 Sgr occulted/);
@@ -213,13 +228,22 @@ try {
 
   // Planetary moon events belong to the open planet's telescope page.
   assert.equal(await page.locator('[data-action="moon-events"]').isVisible(), false);
-  await page.click('[data-action="time"]');
+  await openTime();
   await page.click('[data-set-time="now"]');
   await page.click('[data-action="time"]');
+  // Search centers a body; tapping it opens its card. Use the chart without
+  // ground so these telescope checks also work for bodies below the horizon.
+  await page.click('[data-view="chart"]');
+  await page.click('[data-action="layers"]');
+  await page.locator('[data-layer="ground"]').uncheck();
+  await page.locator('.coelum-toolbar [data-action="close-panel"]').click();
   const telescope = async (name) => {
     await page.fill('.coelum-search input', name);
     await page.keyboard.press('Enter');
     await page.waitForFunction((name) => document.querySelector('.coelum-detail-body h3')?.textContent === name, name);
+    await page.waitForTimeout(900); // Let the search flight reach the body.
+    const sky = page.locator('.coelum-full'), box = await sky.boundingBox();
+    await sky.click({ position: { x: box.width / 2, y: box.height / 2 } });
     await page.locator('.coelum-moons-button').click();
   };
   await telescope('Jupiter');

@@ -1,3 +1,4 @@
+import { loadOpenNGC, downloadOpenNGC, removeOpenNGC, openNGCCount } from './deepcatalog.js';
 // The coelum explorer: two views of the same sky (a map-like chart and a
 // realistic sky), search, layers, legend, time controls and a full-screen
 // mode whose controls fade away while the sky is left alone.
@@ -302,6 +303,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
           <div class="coelum-switches">${SAT_GROUPS.map(([g, label]) => `<label><input type="checkbox" role="switch" data-satellite-group="${g}"><span>${label}</span></label>`).join('')}</div>
           <p class="coelum-panel-note coelum-satellite-note"></p><button type="button" class="coelum-chip" data-satellites="update">Update now</button></div>
         <div class="coelum-downloads"><h3>Moon detail</h3><p class="coelum-panel-note" data-moon-detail-note>${MOON_DETAIL_NOTE}</p><button type="button" class="coelum-chip" data-moon-detail="download">Download high resolution</button> <button type="button" class="coelum-chip" data-moon-detail="remove" hidden>Remove download</button></div>
+        <div class="coelum-downloads"><h3>Deep-sky catalog</h3><p class="coelum-panel-note" data-openngc-note></p><button type="button" class="coelum-chip" data-openngc="download">Download OpenNGC</button> <button type="button" class="coelum-chip" data-openngc="remove" hidden>Remove download</button></div>
         <div class="coelum-downloads coelum-star-downloads"><h3>Fainter stars</h3><p class="coelum-panel-note coelum-faint-note"></p>
           <div class="coelum-catalog-choices" role="radiogroup" aria-label="Downloaded star catalog">${Object.keys(STAR_FILES).map((k) => `<label><span><input type="radio" name="${id}-catalog" value="${k}" data-download="${k}"> ${k}</span><small data-catalog-space="${k}"></small></label>`).join('')}</div><label class="coelum-catalog-select">Magnitude limit <select data-catalog-select><option value="" disabled>Choose a catalog</option>${Object.keys(STAR_FILES).map((k) => `<option value="${k}">${k}</option>`).join('')}</select></label><button type="button" class="coelum-chip" data-download="remove">Remove</button></div>
       </div>
@@ -359,7 +361,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     </div>
     <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><div data-object-heading></div><div data-object-precision hidden></div><div data-object-basic><p>Tap an object or its label to see its characteristics.</p></div></div></section>
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
-    <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars and deep-sky objects: the app’s IAU / HYG / OpenNGC catalogs. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
+    <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars: IAU / HYG. Deep-sky objects: <a href="https://github.com/mattiaverga/OpenNGC" target="_blank" rel="noopener">OpenNGC</a>, Mattia Verga (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>), converted and merged with the built-in selection. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Local horizon: AWS Terrain Tiles (Mapzen; SRTM, Copernicus and other elevation models). Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   root.appendChild($('.coelum-map-panel'));
   const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('[data-object-basic]'), viewport = $('.coelum-viewport');
@@ -904,6 +906,26 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     $('[data-catalog-select]').value = faintVariant || '';
     $('[data-download="remove"]').hidden = !n;
     syncLayers();
+  };
+  const showOpenNGC = (text) => {
+    const count = openNGCCount();
+    $('[data-openngc-note]').textContent = text || (count ? `${count.toLocaleString('en')} deep-sky objects available. Fainter symbols appear as you zoom in; search finds every object. Kept for offline use when device storage is available.` : '232 Messier and named objects are built in. Download OpenNGC (0.85 MB) for over 13,000 objects, kept for offline use.');
+    $('[data-openngc="download"]').hidden = !!count;
+    $('[data-openngc="remove"]').hidden = !count;
+  };
+  let deepBusy = false;
+  const changeOpenNGC = async (action) => {
+    if (deepBusy) return;
+    deepBusy = true;
+    for (const button of root.querySelectorAll('[data-openngc]')) button.disabled = true;
+    showOpenNGC(action === 'remove' ? 'Removing OpenNGC…' : 'Downloading OpenNGC…');
+    try {
+      if (action === 'remove') await removeOpenNGC(); else await downloadOpenNGC();
+      showOpenNGC();
+      animator = null; draw(true);
+    } catch (e) { showOpenNGC(`${e.message}. Try again when online.`); }
+    deepBusy = false;
+    for (const button of root.querySelectorAll('[data-openngc]')) button.disabled = false;
   };
   let catalogBusy = false;
   const changeFaintCatalog = async (variant) => {
@@ -1531,6 +1553,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   root.addEventListener('click', async (ev) => {
     const moonDetailButton = ev.target.closest('[data-moon-detail]');
     if (moonDetailButton) { await changeMoonDetail(moonDetailButton.dataset.moonDetail); return; }
+    const deepAction = ev.target.closest('[data-openngc]');
+    if (deepAction) { await changeOpenNGC(deepAction.dataset.openngc); return; }
     if (ev.target.closest('[data-download="remove"]')) { await changeFaintCatalog('remove'); return; }
     const timeEvent = ev.target.closest('[data-time-event]')?.dataset.timeEvent;
     if (timeEvent) { setTime(Number(timeEvent)); return; }
@@ -1770,10 +1794,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     }
   });
   syncLayers();
-  showFaint(); showTerrain(); showSatellites();
+  showFaint(); showOpenNGC(); showTerrain(); showSatellites();
   loadSatellites();
   if (options.standalone) { root.classList.add('coelum-standalone'); fullscreen(true, false); }
   draw();
+  loadOpenNGC().then(() => { if (root.isConnected) { showOpenNGC(); animator = null; draw(true); } });
   loadFaintStars().then(() => { if (root.isConnected) { showFaint(); if (faintCount() && !playing) draw(true); } });
   moonTexture.then(() => { if (root.isConnected && mode === 'sky' && !playing) draw(); });
   const resize = new ResizeObserver(() => {

@@ -248,6 +248,28 @@ for (const phase of [0, 45, 90, 135, 180]) {
   const fine = skyGrid('horizontal', f, center, 1, 400);
   assert.ok(Math.abs(spacing(fine) - 0.25) < 1e-12 && fine.every((l) => l.points.every((p) => Math.abs(p.alt - 30) < 1.01 && Math.abs(p.az - 180) < 1.2)), 'Fine grids stay near the center');
   assert.ok(fine.some((l) => l.label === '30°15′'));
+  // Arcsecond and subarcsecond views keep useful spacing and distinct labels
+  // in all three coordinate systems, including across zero and the RA wrap.
+  for (const kind of ['horizontal', 'equatorial', 'galactic']) {
+    for (const viewCenter of [center, horizontalVector(-0.00001, 359.99999)]) {
+      for (const pxPerDeg of [1e4, 1e5, 1e6, 1e8]) {
+        const lines = skyGrid(kind, f, viewCenter, 400 / pxPerDeg, pxPerDeg);
+        for (const parallel of [true, false]) {
+          const group = lines.filter((l) => l.parallel === parallel);
+          assert.ok(group.length >= 2 && group.length < 30, `${kind}: useful number of close-up grid lines`);
+          const step = group[1].value - group[0].value;
+          assert.ok(step < 1 / 30 && step * pxPerDeg >= 69.99 && step * pxPerDeg < 600, `${kind}: spacing keeps adapting at ${pxPerDeg} px/degree`);
+          assert.equal(new Set(group.map((l) => l.label)).size, group.length, `${kind}: close-up labels remain distinct`);
+          assert.ok(group.every((l) => l.points.every((p) => Number.isFinite(p.alt) && Number.isFinite(p.az))));
+        }
+      }
+    }
+  }
+  const seconds = skyGrid('horizontal', f, center, 0.002, 1e6);
+  assert.ok(seconds.some((l) => l.label === '30°0′0.5″'), 'Fractional arcseconds are displayed');
+  const subzero = skyGrid('horizontal', f, horizontalVector(0, 0), 0.002, 1e6);
+  assert.ok(subzero.some((l) => l.label === '−0°0′0.5″'), 'Subdegree southern coordinates retain their sign');
+  assert.ok(subzero.some((l) => l.label === '359°59′59.5″'), 'Azimuth labels wrap through zero');
   const eq = skyGrid('equatorial', f, center, 8, 40);
   const meridian = eq.find((l) => !l.parallel), parallel = eq.find((l) => l.parallel);
   assert.match(meridian.label, /^\d+h(\d+m)?$/);

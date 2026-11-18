@@ -1,3 +1,4 @@
+import { showDeepObject } from './deepcatalog.js';
 // The realistic view of coelum: a stereographic camera at the horizon, the
 // sky's colour with the time of day, stars dimmed by twilight, moonlight and
 // extinction, the Milky Way, the Sun's glare, the textured Moon with its
@@ -170,6 +171,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (above(q) && onScreen(q, 0)) labels.push({ ...q, name: k.name, color: `rgba(140,175,230,${0.8 * fade})`, r: 0, priority: 4, size: Math.max(10, opts.labelSize - 2), center: true });
   }
   if (opts.deep) for (const o of frame.deep) {
+    if (!showDeepObject(o, view.scale, view.selected)) continue;
     const q = xy(o);
     if (!above(q) || !onScreen(q, 5) || behind(q)) continue;
     ctx.save(); clipForeground(Infinity, q, 5);
