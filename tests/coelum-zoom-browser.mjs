@@ -23,6 +23,62 @@ try {
   browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
   const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
   await page.goto(`http://localhost:${server.address().port}/coelum/`);
+  // A searched minor planet must survive closing its card even with its
+  // layer off. Search must also zoom faint points past the visibility limit.
+  const faintSearch = await page.evaluate(async () => {
+    const { mountCoelum } = await import('/js/coelumui.js');
+    const { skyFrame, findObject, setFaintStars } = await import('/js/coelum.js');
+    const { skyPointScale } = await import('/js/coelumsky.js');
+    const model = { t: Date.parse('2026-11-24T21:00:00Z') / 1000, place: [41.892, 12.511, 20], label: 'Rome' };
+    const frame = skyFrame(model.t, model.place), astraea = frame.bodies.find((o) => o.name === 'Astraea');
+    setFaintStars(await (await fetch('/data/stars-10.bin')).arrayBuffer());
+    const host = document.createElement('div'); document.body.appendChild(host);
+    const explorer = mountCoelum(host, model, String, { standalone: true });
+    const svg = host.querySelector('.coelum-full'), input = host.querySelector('.coelum-search input');
+    const wait = () => new Promise((r) => setTimeout(r, 900));
+    const search = async (name) => {
+      input.value = name; input.dispatchEvent(new Event('input', { bubbles: true }));
+      const result = [...host.querySelectorAll('[data-index]')].find((r) => r.textContent.includes(name));
+      if (!result) throw new Error(`No search result for ${name}`);
+      result.click(); await wait();
+    };
+    const checks = [];
+    for (const mode of ['chart', 'sky']) {
+      host.querySelector(`[data-view="${mode}"]`).click();
+      await search('Astraea');
+      if (mode === 'sky' && Number(svg.dataset.scale) < Math.min(4000000, skyPointScale(frame, astraea))) throw new Error('Search left Astraea too faint');
+      // Sample the actual rendered target, before and after clearing selection.
+      explorer.select('Astraea', { details: true });
+      const canvas = host.querySelector('.coelum-canvas'), ctx = canvas.getContext('2d');
+      const center = () => [...ctx.getImageData(Math.floor(canvas.width / 2) - 2, Math.floor(canvas.height / 2) - 2, 5, 5).data];
+      const before = center(), scale = svg.dataset.scale;
+      host.querySelector('[data-action="deselect"]').click();
+      if (host.classList.contains('coelum-has-selection')) throw new Error('Card close failed to clear selection');
+      if (host.classList.contains('coelum-show-detail')) throw new Error('Card stayed open');
+      if (svg.dataset.scale !== scale) throw new Error('Card close changed zoom');
+      const after = center();
+      if (before.some((v, i) => Math.abs(v - after[i]) > 1)) throw new Error(`${mode}: Astraea disappeared when card closed`);
+      const snapshot = explorer.snapshot();
+      if (mode === 'chart' && !snapshot.innerHTML.includes('Astraea')) throw new Error('Snapshot lost the revealed minor planet');
+      explorer.select('Astraea', { details: true });
+      checks.push({ mode, scale: Number(scale) });
+    }
+    host.querySelector('[data-view="chart"]').click();
+    await search('HIP 439');
+    if (Number(svg.dataset.scale) < 3) throw new Error('Faint star search did not zoom');
+    if (Number(host.querySelector('[data-limit]').value) < 7) throw new Error('Faint star search left the magnitude cutoff too low');
+    host.querySelector('[data-view="sky"]').click();
+    for (const layer of ['atmosphere', 'ground']) {
+      const box = host.querySelector(`[data-layer="${layer}"]`);
+      if (box.checked) box.click();
+    }
+    await search('HIP 439');
+    if (Number(svg.dataset.scale) < skyPointScale(frame, findObject(frame, 'HIP 439'), { atmosphere: false })) throw new Error('Realistic view left the faint star invisible');
+    host.querySelector('[data-view="chart"]').click();
+    host.remove(); setFaintStars(null);
+    return checks;
+  });
+  assert.equal(faintSearch.length, 2);
   // Reproduce taps on the three resolved θ¹ Ori stars near M42. Their
   // shared Bayer designation used to send every selection to HIP 26220.
   const orion = await page.evaluate(async () => {
