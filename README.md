@@ -197,10 +197,30 @@ and green channels. These are height increments, not an accuracy claim.
 NASA's floating-point version encodes the same measurements; additional
 numeric precision would not add terrain detail. The finer map uses actual
 slopes rather than the default map's doubled relief, and finer shadow
-steps. Terrain still shades a spherical surface; this is not a displaced
-mesh or a model of mountain silhouettes for grazing occultations.
+steps. At a displayed radius of 80 pixels or more, Sky also uses a physical
+terrain silhouette for solar eclipses, lunar occultations and the Moon's
+edge. A line-of-sight maximum across both sides of the nominal limb includes
+ridges behind the tangent plane, using the current topocentric libration,
+observer distance and celestial orientation. The same outline masks the Sun, stars and
+resolved background bodies and shapes the GPU Moon. Heights are never
+exaggerated in the outline. Surface lighting remains bump mapped; its outer
+2% is fitted to the outline rather than traced as a fully displaced mesh.
+The default map supplies a coarser outline when the optional map is absent.
+This illustrates terrain effects, including approximate Baily's beads; it
+does not refine calculated contact times or eclipse maps.
 Devices with smaller GPU texture limits use scaled maps. Both apps share
-the download; it survives app updates and can be removed in Layers.
+the download; it survives app updates and can be removed in Layers. Encoded
+files remain on disk; decoded optional maps, GPU lunar textures, lighting
+caches and the compact elevation working set are released after 30 seconds
+without use. Returning to a lunar view restores the maps from disk, including
+offline. The limb holds at most two small angular profiles and reuses them
+within one eighth of an elevation texel in orientation during playback;
+positions and screen rotation stay live. Elevations are decoded in short
+strips, avoiding a retained full-size RGBA elevation copy.
+`node tests/lunar-limb.mjs` checks analytic circles, far-side ridges, libration,
+seams and orientation. `node tests/lunar-limb-browser.mjs` checks real terrain
+against GPU edge coverage, valley sunlight and star occultation, physical
+height scaling, idle memory cleanup and offline restoration.
 Phones, touch iPads and devices reporting at most 4 GB of memory use a
 pre-sized 9.1 MB pack instead: 4096 × 2048 colour and 2880 × 1440
 16-bit heights (about 3.8 km spacing at the equator). The pair decodes to
@@ -585,9 +605,10 @@ sorted-then-sliced date selection. `tools/astronomy-benchmark.mjs` measures
 frame calculations and event searches; an optional baseline directory
 allows interleaved comparisons (`data/astronomy-performance.json`).
 
-Solar eclipses and lunar occultations still use a smooth mean lunar limb.
-The refined ephemeris improves their positional input, but does not predict
-terrain-dependent contacts or Baily's beads. Earth-rotation uncertainty
+Solar-eclipse and lunar-occultation contact calculations still use a smooth
+mean lunar limb. The refined ephemeris improves their positional input;
+Sky's visual terrain silhouette does not provide validated terrain-dependent
+contact times or precise Baily's bead predictions. Earth-rotation uncertainty
 still limits long-range eclipse geography. Precise stellar occultations
 by Uranus and Neptune should use the native JPL refinement rather than
 the approximate VSOP87 positions. Independent moon-event checks now include

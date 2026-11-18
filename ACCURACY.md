@@ -149,7 +149,7 @@ orbits or event geometry authoritative.
 |---|---|
 | Stellar catalogs | Missing or uncertain parallax/radial velocity, catalog epoch transformations, binaries and long extrapolations can dominate numerical reduction errors. Chart propagation does not include radial velocity. |
 | Earth rotation and civil time | Modelled ΔT, future UT1 and unknown future leap seconds limit event timing/geography. Native calculations report rotation uncertainty where IERS data are unavailable. |
-| Lunar terrain | Solar-eclipse and lunar-occultation contacts use a smooth mean limb. Terrain-dependent grazing contacts and Baily's beads require a validated DEM, orientation and line-of-sight limb model. The rendered relief is not a terrain-aware contact prediction. |
+| Lunar terrain | Solar-eclipse and lunar-occultation contacts use a smooth mean limb. Terrain-dependent grazing contacts and Baily's beads require a validated DEM, orientation and line-of-sight limb model. Sky's terrain silhouette illustrates lunar edge effects using the loaded elevation map and topocentric orientation; it does not change contact calculations or provide validated bead timings. Surface lighting remains bump mapped. |
 | Planetary-moon events | Compact orbit errors, adopted radii, atmospheric limbs and grazing geometry affect timing. Mutual moon events, rings covering moons and local-observer parallax are outside the current geocentric event model. |
 | Atmospheric refraction | Standard-atmosphere approximation; real weather and near-horizon conditions can dominate the astrometric improvements. |
 | Local landscape | Local-horizon data, sampling, observer height and vertical datum need validation. Terrain experiments are separate from production accuracy claims. |

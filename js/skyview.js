@@ -10,6 +10,8 @@
 // four rays a pixel for smooth edges, at every frame; without WebGL, in
 // JavaScript, a ray a pixel, after the view stops.
 
+import { buildLunarLimb } from './lunarlimb.js';
+
 const FLAT = { mars: 0.00589, jupiter: 0.06487, saturn: 0.09796, uranus: 0.02293, neptune: 0.01708 };
 // Keep the inner planets' dark silhouettes to show their crescent phases;
 // blend the other planets' dark limbs into the sky behind them.
@@ -313,7 +315,7 @@ function planetPixelRatio(w, h, requested) {
 async function moonDetailStored() {
   if (maps.has('moon')) {
     await maps.get('moon').ready;
-    return Boolean(maps.get('moon').highResolution);
+    return Boolean(maps.get('moon').highResolution || maps.get('moon').detailSuspended);
   }
   try {
     const cache = await caches.open(MOON_DETAIL_CACHE);
@@ -326,7 +328,7 @@ async function moonDetailStored() {
 // An optional pair, separate from the small default maps. Only switch after
 // both images decode; interrupted downloads never replace the working Moon.
 async function restoreMoonDetail(e) {
-  e.baseImages = [e.img, e.heights];
+  e.baseImages ||= [e.img, e.heights];
   try {
     const cache = await caches.open(MOON_DETAIL_CACHE);
     let responses = await Promise.all(MOON_DETAIL_FILES.map((f) => cache.match(moonDetailURL(f))));
@@ -365,17 +367,31 @@ async function downloadMoonDetail(progress = () => {}) {
   if (e.highResolution) { e.img.close(); e.heights.close(); }
   [e.img, e.heights] = images;
   e.highResolution = true;
+  e.detailSuspended = false;
+  touchMoonDetail(e);
 }
 
 async function removeMoonDetail() {
   const e = maps.get('moon');
   if (e) await e.ready;
   await caches.delete(MOON_DETAIL_CACHE);
+  if (e) { clearTimeout(e.detailIdle); e.detailSuspended = false; }
   if (e?.highResolution) {
     e.img.close(); e.heights.close();
     [e.img, e.heights] = e.baseImages;
     e.highResolution = false;
   }
+}
+// Encoded downloads stay in Cache Storage. Release decoded optional maps
+// after inactivity and restore from that cache on the next lunar view.
+function touchMoonDetail(e) {
+  clearTimeout(e.detailIdle);
+  e.detailIdle = setTimeout(() => {
+    if (!e.highResolution) return;
+    e.img.close(); e.heights.close();
+    [e.img, e.heights] = e.baseImages;
+    e.highResolution = false; e.detailSuspended = true;
+  }, 30000);
 }
 // { img, heights, rings, moons (the images of MAPS), ready (a promise) },
 // or null
@@ -398,12 +414,20 @@ function planetMap(planet) {
         return createImageBitmap(await res.blob());
       };
       [e.img, e.heights, e.rings, e.moons] = await Promise.all([m.file, m.heights, m.rings, m.moons].map((f) => f ? load(f) : null));
-      if (planet === 'moon') await restoreMoonDetail(e);
+      if (planet === 'moon') { await restoreMoonDetail(e); touchMoonDetail(e); }
       return e;
     })().catch(() => null);
     maps.set(planet, e);
   }
-  return maps.get(planet);
+  const entry = maps.get(planet);
+  if (planet === 'moon') {
+    if (entry.detailSuspended) {
+      entry.detailSuspended = false;
+      entry.ready = restoreMoonDetail(entry).then(() => { touchMoonDetail(entry); return entry; });
+    }
+    touchMoonDetail(entry);
+  }
+  return entry;
 }
 // an image's pixels, for the JavaScript tracer (kept)
 const pixelsKept = new WeakMap();
@@ -437,6 +461,45 @@ function ringProfiles(img, s) {
     kept.set(w, { w, h: full.h, data });
   }
   return kept.get(w);
+}
+
+// One compact elevation working set, released after 30 seconds without use.
+// Read short strips: never retain a full RGBA copy of the high-resolution DEM.
+let limbField = null, limbIdle = null;
+const limbProfiles = new Map();
+function lunarLimb(sky, scale = Infinity) {
+  if (scale < 80 || typeof document === 'undefined') return null;
+  const entry = planetMap('moon'), image = entry?.heights;
+  if (!image) return null;
+  // Reuse within one eighth of a source texel during playback; the live
+  // sky position and screen rotation are never quantized.
+  const quantum = 2 * Math.PI / image.width / 8;
+  const key = JSON.stringify([sky.pole.map((v) => Math.round(v / quantum)), Math.round(sky.facing.lon * Math.PI / 180 / quantum), Math.round((sky.radius || 0) * Math.PI / 180 / quantum)]);
+  if (limbField?.image !== image) {
+    limbProfiles.clear();
+    const width = image.width, height = image.height, data = new Uint16Array(width * height);
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = Math.min(64, height);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    for (let y = 0; y < height; y += canvas.height) {
+      const rows = Math.min(canvas.height, height - y);
+      ctx.clearRect(0, 0, width, canvas.height);
+      ctx.drawImage(image, 0, y, width, rows, 0, 0, width, rows);
+      const pixels = ctx.getImageData(0, 0, width, rows).data;
+      for (let i = 0; i < width * rows; i++) data[y * width + i] = entry.highResolution
+        ? pixels[4 * i] * 256 + pixels[4 * i + 1] : Math.round(2000 + 40000 * pixels[4 * i] / 255);
+    }
+    canvas.width = canvas.height = 1;
+    limbField = { image, width, height, data };
+  }
+  clearTimeout(limbIdle);
+  limbIdle = setTimeout(() => { limbField = null; limbProfiles.clear(); }, 30000);
+  if (!limbProfiles.has(key)) {
+    const profile = buildLunarLimb(sky, limbField);
+    // Two orientations suffice for the foreground mask and its textured Moon.
+    if (limbProfiles.size >= 2) limbProfiles.delete(limbProfiles.keys().next().value);
+    limbProfiles.set(key, profile);
+  }
+  return limbProfiles.get(key);
 }
 
 // The moons as the GPU draws them: their colours (as they look; Io's
@@ -586,6 +649,9 @@ uniform bool lunarCached;
 uniform vec4 lunarCacheBounds; // left, bottom, width, height in projected radii
 uniform bool mapped, zones, lunar, relief, ringMapped;
 uniform float moonEdge;
+uniform sampler2D lunarLimbMap;
+uniform bool lunarOutline;
+uniform float lunarLimbStep;
 uniform vec2 heightTexel;
 uniform float lunarMinFacing;
 uniform bool fineHeights, lunarSingleRay;
@@ -788,6 +854,16 @@ vec3 bandColor(float lat) {
 // a ray through the point (x, y) of the sky (planet radii): its color,
 // premultiplied, and its opacity
 vec4 trace(vec2 xy) {
+  // Use the shared physical silhouette. The interior remains bump mapped;
+  // smoothly fit its outer 2% to the outline instead of stretching the disk.
+  if (lunarOutline && dot(xy, xy) > 0.9604) {
+    float angle = fract(atan(xy.y, xy.x) / 6.2831853 + 1.0);
+    vec2 encoded = texture2D(lunarLimbMap, vec2(angle + 0.5 * lunarLimbStep, 0.5)).rg;
+    float edge = 0.98 + dot(encoded, vec2(65280.0, 255.0)) * (0.04 / 65535.0);
+    float radius = length(xy);
+    if (radius >= edge) return vec4(0.0);
+    xy *= (0.98 + (radius - 0.98) * 0.02 / (edge - 0.98)) / radius;
+  }
   // the ray from toward the Earth (beyond the moons in front)
   vec3 o = toP * vec3(xy, near), d = -view;
   // the nearest moon on it: a sphere lit by the Sun (its phase), dark in
@@ -951,7 +1027,7 @@ function planetProgram(gl, pass = '') {
   gl.enableVertexAttribArray(at);
   gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
   const u = {};
-  for (const name of ["origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "heightTexel", "lunarMinFacing", "fineHeights", "lunarSingleRay", "lunarLightingMap", "lunarCached", "lunarCacheBounds", "relief", "earthshine", "earth", "lunarShadow", "lunarExposure", "moonsAt", "moonsLook", "nMoons", "near", "moonsOnly"]) u[name] = gl.getUniformLocation(prog, name);
+  for (const name of ["lunarLimbMap", "lunarOutline", "lunarLimbStep", "origin", "size", "scale", "flattening", "reach", "sunAngle", "softShadows", "toP", "view", "light", "saturn", "litFace", "shadows", "nShadows", "bands", "nBands", "rings", "ringEdges", "surface", "mapped", "zones", "lon0", "u0", "heights", "lunar", "ringMap", "ringMapped", "moonMaps", "moonEdge", "heightTexel", "lunarMinFacing", "fineHeights", "lunarSingleRay", "lunarLightingMap", "lunarCached", "lunarCacheBounds", "relief", "earthshine", "earth", "lunarShadow", "lunarExposure", "moonsAt", "moonsLook", "nMoons", "near", "moonsOnly"]) u[name] = gl.getUniformLocation(prog, name);
   gl.uniform4fv(u.rings, RINGS.flatMap(([, , a, c]) => [...c.map((x) => x / 255), a]));
   gl.uniform2fv(u.ringEdges, RINGS.flatMap(([a, b]) => [a, b]));
   return { u, prog };
@@ -999,6 +1075,19 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s, { lunarCache = true } = {}) {
   const r = glRenderer(canvas);
   if (!r || r.gl.isContextLost()) return false;
   const { gl, u } = r, m = planetModel(sky, s);
+  if (m.planet === 'moon') {
+    clearTimeout(r.moonIdle);
+    r.moonIdle = setTimeout(() => {
+      for (const [key, tex] of r.textures) if (key.startsWith('moon:')) {
+        gl.deleteTexture(tex); r.textures.delete(key);
+      }
+      if (r.lunarLighting) {
+        gl.deleteTexture(r.lunarLighting.texture); gl.deleteFramebuffer(r.lunarLighting.framebuffer);
+        gl.deleteProgram(r.lunarLighting.prog); r.lunarLighting = null;
+      }
+      gl.deleteTexture(r.limbTexture); r.limbTexture = null; r.limbProfile = null;
+    }, 30000);
+  }
   gl.useProgram(r.prog);
   if (m.planet === 'moon' && r.moonQuality !== Boolean(m.map?.e.highResolution)) {
     for (const [key, tex] of r.textures) if (key.startsWith('moon:')) {
@@ -1119,6 +1208,31 @@ function tracePlanet(canvas, sky, x0, y0, w, h, s, { lunarCache = true } = {}) {
     bindScaled(r, `moon:heights:${m.map.e.highResolution ? 'high' : 'base'}:${w}`, hm, w, h, 1, false);
     gl.uniform2f(u.heightTexel, 1 / w, 1 / h);
     gl.uniform1i(u.heights, 1);
+  }
+  const outline = lunar && hm && sky.terrainOutline !== false ? lunarLimb(sky, s) : null;
+  gl.uniform1i(u.lunarOutline, outline ? 1 : 0);
+  if (outline) {
+    // A tiny RGBA strip, independent of the full elevation texture. Smaller
+    // GPUs use an angularly resampled version of the shared outline.
+    const width = Math.min(outline.length, gl.getParameter(gl.MAX_TEXTURE_SIZE));
+    if (r.limbProfile !== outline) {
+      const data = new Uint8Array(width * 4);
+      for (let i = 0; i < width; i++) {
+        // Texel centres align sample zero with angle zero.
+        const x = i * outline.length / width;
+        const j = Math.floor(x), f = x - j;
+        const value = outline[j % outline.length] * (1 - f) + outline[(j + 1) % outline.length] * f;
+        const packed = Math.max(0, Math.min(65535, Math.round((value - 0.98) / 0.04 * 65535)));
+        data[4 * i] = packed >> 8; data[4 * i + 1] = packed & 255; data[4 * i + 3] = 255;
+      }
+      r.limbTexture ||= gl.createTexture();
+      gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, r.limbTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.REPEAT], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      r.limbProfile = outline;
+    } else { gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, r.limbTexture); }
+    gl.uniform1i(u.lunarLimbMap, 5);
+    gl.uniform1f(u.lunarLimbStep, 1 / width);
   }
   gl.uniform1i(u.lunarCached, 0);
   if (lunarCache && hm && !sky.moonsOnly && !r.lunarCacheFailed) try {
@@ -1375,6 +1489,7 @@ function fitView(sky, W, H) {
 function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top = 0, onOverlay = null, onPoint = null } = {}) {
   const svg = stage.querySelector(".sky-svg"), canvas = stage.querySelector(".sky-canvas");
   let W = 320, H = 400, v = null, drawn = null, idle = 0, quick = false, planetAt = 0, gpu = false;
+  let watchedMapReady = null;
   const k = () => Math.min(gpu ? 3 : 2, window.devicePixelRatio || 1);
   // the planet sharp for the view, and the canvas back in place
   const sharp = () => {
@@ -1384,6 +1499,7 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
     overlay();
     drawn = { ...v };
     canvas.style.transform = "";
+    awaitMap();
   };
   // the canvas of the view drawn moved and scaled to the view v
   const follow = () => {
@@ -1392,7 +1508,12 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
     canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${m})`;
   };
   // the planet's map, drawn when it arrives
-  const awaitMap = () => planetMap(sky.planet)?.ready.then((e) => { if (e && v && canvas.isConnected) sharp(); });
+  const awaitMap = () => {
+    const ready = planetMap(sky.planet)?.ready;
+    if (!ready || ready === watchedMapReady) return;
+    watchedMapReady = ready;
+    ready.then((e) => { if (e && v && canvas.isConnected) sharp(); });
+  };
   awaitMap();
   const overlay = () => { svg.innerHTML = overlaySVG(sky, W, H, v.cx, v.cy, v.s, true, bar, top, gpu) + (onOverlay?.({ sky, W, H, ...v, gpu }) || ""); onScale?.(sky.radius / v.s); };
   const moved = () => {
@@ -1493,4 +1614,4 @@ function moonsView(stage, sky, { onTap = null, bar = true, onScale = null, top =
   };
 }
 
-export { moonDetailProfile, planetPixelRatio, moonDetailStored, downloadMoonDetail, removeMoonDetail, lunarShadowLight, lunarShadowMean, lunarEclipseColor, surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap, solarSegment, globeCoverage, ringCoverage };
+export { lunarLimb, moonDetailProfile, planetPixelRatio, moonDetailStored, downloadMoonDetail, removeMoonDetail, lunarShadowLight, lunarShadowMean, lunarEclipseColor, surfaceVector, earthshineBrightness, skySVG, overlaySVG, drawPlanet, tracePlanet, fitView, moonsView, covered, planetMap, solarSegment, globeCoverage, ringCoverage };

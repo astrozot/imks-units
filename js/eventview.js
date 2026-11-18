@@ -140,7 +140,7 @@ function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
     label.replaceWith(link); link.appendChild(label);
   });
   // the time shown (the slider rounds it to its steps: the play keeps its own)
-  let cur = 0;
+  let cur = 0, watchedMoonReady = null;
   const draw = (t) => {
     cur = t;
     const m = lunarAtTime(d, t), cx = f1(X(m.x)), cy = f1(Y(m.y)), dist = Math.hypot(m.x, m.y);
@@ -149,6 +149,11 @@ function mountLunar(root, d, host, { head = "", caption = [] } = {}) {
     set(big.img, { x: f1(X(m.x) - r), y: f1(Y(m.y) - r) });
     big.body.classList.toggle("down", m.up === false);
     lunarAppearance(close, t);
+    const ready = planetMap('moon')?.ready;
+    if (ready && ready !== watchedMoonReady) {
+      watchedMoonReady = ready;
+      ready.then(() => { if (close.isConnected) lunarAppearance(close, cur); });
+    }
     const umbral = (d.umbra + d.moon - dist) / (2 * d.moon), penumbral = (d.penumbra + d.moon - dist) / (2 * d.moon);
     const phase = umbral >= 1 ? "total" : umbral > 0 ? "partial" : penumbral > 0 ? "penumbral" : "no eclipse";
     const mag = umbral > 0 ? `, umbral magnitude ${umbral.toFixed(3)}` : penumbral > 0 ? `, penumbral magnitude ${penumbral.toFixed(3)}` : "";

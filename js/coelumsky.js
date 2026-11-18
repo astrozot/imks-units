@@ -4,10 +4,12 @@
 // phase, and a landscape in front. Always drawn on a canvas.
 import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
-import { covered, tracePlanet, planetMap, planetPixelRatio, earthshineBrightness, lunarShadowLight, lunarShadowMean, lunarEclipseColor } from './skyview.js';
+import { lunarLimb, covered, tracePlanet, planetMap, planetPixelRatio, earthshineBrightness, lunarShadowLight, lunarShadowMean, lunarEclipseColor } from './skyview.js';
 import { moonDisk, moons, planetDisk, equatorial, earthShadow } from './astro.js';
 import { projectLunarFeatures, LUNAR_COLOR } from './lunarfeatures.js';
 import { projectMarsFeatures, MARS_COLOR } from './marsfeatures.js';
+
+import { limbRadius, appendLunarLimb } from './lunarlimb.js';
 
 const SOLID = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const FLAT = () => 0;
@@ -122,23 +124,40 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const pxPerRadAt = (q) => radius / 2 / Math.cos(Math.acos(Math.max(-1, Math.min(1, q.z))) / 2) ** 2;
   const diskOf = (o, pxPerRad) => (o.body === 'sun' ? Math.max(5, Math.asin(695700 / o.dist) * pxPerRad) : o.body === 'moon' ? Math.max(6, Math.asin(1737.4 / o.dist) * pxPerRad) : diskRadius(o) * R * pxPerRad);
   const disks = [];
+  let lunarDisk = null;
   for (const o of frame.bodies) {
     if (o.hidden) continue;
     if (!SOLID.has(o.body)) continue;
     const q = xy(o), r = diskOf(o, pxPerRadAt(q));
-    if (!onScreen(q, Math.max(60, r)) || !above(q)) continue;
-    if (r > 1) disks.push({ x: q.x, y: q.y, r, dist: o.dist });
+    if (!onScreen(q, Math.max(60, r * (o.body === 'moon' ? 1.01 : 1))) || !above(q)) continue;
+    if (r > 1) {
+      let profile = null, north = 0;
+      if (o.body === 'moon' && r >= 80) {
+        lunarDisk = moonDisk(frame.t, o);
+        profile = lunarLimb(lunarDisk, r);
+        const n = xy(o.north); north = Math.atan2(n.y - q.y, n.x - q.x) + Math.PI / 2;
+      }
+      let min = 1, max = 1;
+      if (profile) { min = Infinity; max = 0; for (const v of profile) { min = Math.min(min, v); max = Math.max(max, v); } }
+      disks.push({ x: q.x, y: q.y, r: r * max, base: r, min: r * min, profile, north, dist: o.dist });
+    }
   }
   // Drawing order alone cannot hide a background object: textured bodies
   // add/screen their light onto the sky, including their dark hemispheres.
   // Mask every more distant source against the complete foreground disk.
-  const behind = (q, dist = Infinity, extent = 0) => disks.some((d) => d.dist < dist && Math.hypot(q.x - d.x, q.y - d.y) + extent < d.r);
+  const behind = (q, dist = Infinity, extent = 0) => disks.some((d) => {
+    if (!(d.dist < dist)) return false;
+    const dx = q.x - d.x, dy = q.y - d.y;
+    const edge = d.profile && extent === 0 ? d.base * limbRadius(d.profile, d.north - Math.atan2(dy, dx)) : d.min;
+    return Math.hypot(dx, dy) + extent < edge;
+  });
   const clipForeground = (dist = Infinity, q = null, extent = Infinity) => {
     for (const d of disks) {
       if (!(d.dist < dist) || q && (Math.abs(q.x - d.x) > d.r + extent || Math.abs(q.y - d.y) > d.r + extent)) continue;
       if (!d.cut) {
         d.cut = new Path2D(); d.cut.rect(0, 0, W, H);
-        d.cut.moveTo(d.x + d.r, d.y); d.cut.arc(d.x, d.y, d.r, 0, 2 * Math.PI);
+        if (d.profile) appendLunarLimb(d.cut, d.profile, d.x, d.y, d.base, d.north);
+        else { d.cut.moveTo(d.x + d.r, d.y); d.cut.arc(d.x, d.y, d.r, 0, 2 * Math.PI); }
       }
       ctx.clip(d.cut, 'evenodd');
     }
@@ -212,7 +231,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (o.body === 'satellite' || minor && !opts.minor && o.name !== view.selected) continue;
     const q = xy(o);
     const pxPerRad = pxPerRadAt(q);
-    const extent = diskOf(o, pxPerRad) * (o.body === 'saturn' ? 2.34 : 1);
+    const extent = diskOf(o, pxPerRad) * (o.body === 'saturn' ? 2.34 : o.body === 'moon' ? 1.01 : 1);
     if (!onScreen(q, Math.max(60, extent)) || !above(q)) continue;
     // At totality the Sun's disk is hidden, but its corona remains visible.
     if (o.body !== 'sun' && behind(q, o.dist, extent)) continue;
@@ -225,11 +244,8 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       // its light, the glare, the corona at totality and the disk, but
       // where the Moon covers them
       ctx.save();
-      if (eclipsed > 0) {
-        const m = xy(moon), mr = diskOf(moon, pxPerRadAt(m)), cut = new Path2D();
-        cut.rect(q.x - s - mr, q.y - s - mr, 2 * (s + mr), 2 * (s + mr)); cut.arc(m.x, m.y, mr, 0, Math.PI * 2);
-        ctx.clip(cut, 'evenodd');
-      }
+      // clipForeground already uses the same terrain outline as the Moon.
+      // A second circular cut would erase light visible through lunar valleys.
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = 0.9 * Math.sqrt(1 - eclipsed); ctx.drawImage(glow(rgb), q.x - s, q.y - s, 2 * s, 2 * s);
       if (total) {
@@ -238,13 +254,13 @@ export function skyScene(frame, W, H, layers, view, ctx) {
         ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(q.x - 5 * r, q.y - 5 * r, 10 * r, 10 * r);
       }
       ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
-      if (!total) { ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill(); }
+      { ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill(); }
       ctx.restore();
     } else if (o.body === 'moon') {
       r = diskOf(o, pxPerRad);
       const northPoint = xy(o.north), shadowPoint = o.shadow && xy(o.shadow.center);
       if (r >= 10) surfaceBodies.push('moon');
-      const disk = moonDisk(frame.t, o), north = Math.atan2(northPoint.y - q.y, northPoint.x - q.x) + Math.PI / 2;
+      const disk = { ...(lunarDisk || moonDisk(frame.t, o)), terrainOutline: r >= 80 }, north = Math.atan2(northPoint.y - q.y, northPoint.x - q.x) + Math.PI / 2;
       const textured = drawMoon(ctx, o, q, r, xy(o.light), northPoint, light, opts.atmosphere, shadowPoint, { t: frame.t, W, H }, disk);
       // Surface positions are transformed exactly like the GPU texture.
       // The fallback near-side photograph has no libration, so needs no labels.

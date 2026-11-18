@@ -499,7 +499,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     return view;
   };
   let pending = 0;
-  const surfaceMapsWatched = new Set();
+  const surfaceMapsWatched = new Map();
   // The lock: the object stays where it is on the screen as time runs (the
   // view turns with it); drags and flights move it, and it stays where they
   // leave it (its place in the camera's frame, or on the sky view's
@@ -583,9 +583,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     }
     moonSizing.hidden = mode !== 'sky' || !drawn.moonSizing;
     if (mode === 'sky') for (const body of drawn.surfaceBodies) {
-      if (surfaceMapsWatched.has(body)) continue;
-      surfaceMapsWatched.add(body);
-      planetMap(body)?.ready.then(() => { if (root.isConnected && mode === 'sky' && !playing) draw(); });
+      const ready = planetMap(body)?.ready;
+      if (surfaceMapsWatched.get(body) === ready) continue;
+      surfaceMapsWatched.set(body, ready);
+      ready?.then(() => { if (root.isConnected && mode === 'sky' && !playing) draw(); });
     }
     canvas.dataset.content = onCanvas ? 'scene' : 'backdrop';
     canvas.dataset.atmosphere = String(mode === 'sky' && atmosphereOn());
