@@ -111,9 +111,25 @@ magnified cluster keeps its bright and faint members apart. **Horizon** chooses 
 (typically 30–50 MB) are downloaded and processed in a cancellable background
 worker. The sky draws overlapping mountain surfaces, slope shading, terrain
 shadows, and phase-dependent moonlight; the chart draws the shared 0.1° horizon
-as a green line out to 150 km. Earth curvature and fixed terrestrial refraction
+as a green line out to 150 km. The horizon is traced from the displayed triangles;
+the shaded mesh defines its own sky boundary, avoiding a separate dark skyline
+protruding above it. A lightweight coverage filter softens pixel stair steps
+without blurring interior terrain. Logarithmic scene depth separates closely
+spaced distant ridges that the former depth mapping could merge. The 4–64 km grids use twice the former linear
+sampling density, with adaptive triangulation constrained by height, normal and
+water boundaries. Conservative direction cones skip off-camera triangles while
+shadow maps separately skip geometry entirely outside their own footprint,
+retaining off-camera casters. Earth curvature and fixed terrestrial refraction
 are included. The three most recently used surfaces are retained in IndexedDB
 for offline use across both apps, with up to twelve lightweight skyline profiles.
+Existing offline surfaces still work; **Download terrain** again to obtain finer
+geometry. The silhouette/compositing and drawing improvements apply immediately
+to saved surfaces. Downloads use the same tile levels and coverage as before.
+The [Riva rendering comparison](data/terrain-rendering-performance.json) records
+source-skyline agreement, build/upload cost, camera movement and shadow updates.
+It uses desktop Chromium's software renderer, not physical-phone timings or
+surveyed skyline accuracy. The finer mesh improves average source agreement;
+it increases surface memory and can make shadow-regenerating light updates slower.
 **Terrain appearance** in Layers opens separate controls: muted earth by default,
 shadows on, ridge outlines off, both exposure controls centred. The centred day and night settings retain the
 reviewed brightness independently, with night exposure applied automatically after twilight. Preferences are saved on the device.
@@ -956,6 +972,8 @@ Terrain integration checks:
 
 ```sh
 node tests/terrain.mjs
+node tests/terrain-quality.mjs
+PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/chromium node tests/terrain-quality-browser.mjs
 PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/chromium node tests/terrain-browser.mjs
 ```
 

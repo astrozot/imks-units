@@ -47,20 +47,47 @@ export const terrainExposure = (offset,night=false) => TERRAIN_EXPOSURE_BASE[nig
 // world coordinates lose precision at high zoom, particularly for grazing Sun.
 // Give a shared vertex a second GPU copy only when it provokes a different face.
 export function terrainGpuMesh(mesh){
- const {positions:p,normals:n,indices:source}=mesh,V=p.length/3;
- const assigned=new Uint8Array(V),face=new Float32Array(V*3),indices=Uint32Array.from(source);let count=V;
+ // Adaptive grids retain their dense samples for CPU geometry queries. Only
+ // upload referenced vertices; the hollow centres of rings need no GPU memory.
+ const {positions:p,normals:n,indices:source}=mesh,remap=new Int32Array(p.length/3).fill(-1),used=[],indices=new Uint32Array(source.length);
+ for(let i=0;i<source.length;i++){const k=source[i];if(remap[k]<0){remap[k]=used.length;used.push(k);}indices[i]=remap[k];}
+ const V=used.length,assigned=new Uint8Array(V),face=new Float32Array(V*3);let count=V;
  const normal=(a,b,c)=>{
   const ux=p[b*3]-p[a*3],uy=p[b*3+1]-p[a*3+1],uz=p[b*3+2]-p[a*3+2],vx=p[c*3]-p[a*3],vy=p[c*3+1]-p[a*3+1],vz=p[c*3+2]-p[a*3+2];
   const x=uy*vz-uz*vy,y=uz*vx-ux*vz,z=ux*vy-uy*vx,l=Math.hypot(x,y,z)||1;
   return [x/l,y/l,z/l];
  };
- for(let i=0;i<source.length;i+=3){const a=source[i],b=source[i+1],c=source[i+2],g=normal(a,b,c);
-  if(!assigned[c]){assigned[c]=1;face.set(g,c*3);}
-  else if(g.some((v,j)=>Math.abs(v-face[c*3+j])>1e-6))indices[i+2]=count++;
+ for(let i=0;i<source.length;i+=3){const a=source[i],b=source[i+1],c=source[i+2],k=remap[c],g=normal(a,b,c);
+  if(!assigned[k]){assigned[k]=1;face.set(g,k*3);}
+  else if(Math.abs(g[0]-face[k*3])>1e-6||Math.abs(g[1]-face[k*3+1])>1e-6||Math.abs(g[2]-face[k*3+2])>1e-6)indices[i+2]=count++;
  }
  const vertices=new Float32Array(count*10);
- const put=(to,from,g)=>{vertices.set(p.subarray(from*3,from*3+3),to*10);vertices.set(n.subarray(from*3,from*3+3),to*10+3);vertices[to*10+6]=mesh.waterMask?.[from]||0;vertices.set(g,to*10+7);};
- for(let i=0;i<V;i++)put(i,i,face.subarray(i*3,i*3+3));
+ const put=(to,from,g)=>{const k=to*10,j=from*3;for(let a=0;a<3;a++){vertices[k+a]=p[j+a];vertices[k+3+a]=n[j+a];vertices[k+7+a]=g[a];}vertices[k+6]=mesh.waterMask?.[from]||0;};
+ for(let i=0;i<V;i++)put(i,used[i],face.subarray(i*3,i*3+3));
  for(let i=0;i<source.length;i+=3)if(indices[i+2]>=V)put(indices[i+2],source[i+2],normal(source[i],source[i+1],source[i+2]));
  return {vertices,indices};
+}
+
+// Group draw indices by bearing once at upload time. Each group's cone encloses
+// all of its triangle directions, so the scene can skip off-camera geometry.
+// Shadow maps use their own spatial bounds, preserving off-camera casters.
+export function terrainDrawGroups({vertices,indices}, sectors=32,stride=10){
+ const buckets=Array.from({length:sectors},()=>[]);
+ for(let i=0;i<indices.length;i+=3){
+  let x=0,y=0;for(let j=0;j<3;j++){const k=indices[i+j]*stride;x+=vertices[k];y+=vertices[k+1];}
+  const sector=Math.floor(((Math.atan2(x,y)/(2*Math.PI)+1)%1)*sectors);
+  buckets[sector].push(indices[i],indices[i+1],indices[i+2]);
+ }
+ const ordered=new Uint32Array(indices.length),groups=[];let offset=0;
+ for(const bucket of buckets){
+  if(!bucket.length)continue;
+  const axis=[0,0,0],lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+  for(const index of bucket){const k=index*stride,d=Math.hypot(vertices[k],vertices[k+1],vertices[k+2])||1;for(let a=0;a<3;a++){axis[a]+=vertices[k+a]/d;lo[a]=Math.min(lo[a],vertices[k+a]);hi[a]=Math.max(hi[a],vertices[k+a]);}}
+  const length=Math.hypot(...axis)||1;for(let a=0;a<3;a++)axis[a]/=length;
+  let cosine=1;
+  for(const index of bucket){const k=index*stride,d=Math.hypot(vertices[k],vertices[k+1],vertices[k+2]);cosine=Math.min(cosine,d?(vertices[k]*axis[0]+vertices[k+1]*axis[1]+vertices[k+2]*axis[2])/d:-1);}
+  const centre=lo.map((v,i)=>(v+hi[i])/2),half=lo.map((v,i)=>(hi[i]-v)/2);
+  ordered.set(bucket,offset);groups.push({offset:offset*4,count:bucket.length,axis,angle:Math.acos(Math.max(-1,Math.min(1,cosine))),centre,half});offset+=bucket.length;
+ }
+ return {indices:ordered,groups};
 }

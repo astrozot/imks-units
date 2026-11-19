@@ -96,6 +96,57 @@ No photograph, surveyed skyline or PeakFinder export is bundled. Model differenc
 are not absolute errors. Only the Riva coordinates were supplied by the user;
 the other test points are representative town locations, not calibrated viewpoints.
 
+## Local PeakFinder drawing comparison
+
+`compare-peakfinder.mjs` runs PeakFinder's official canvas API beside the current
+Coelum terrain pass and the production `skyScene` composition. It changes no
+application code. It needs Playwright, a browser, Internet access for PeakFinder,
+and cached Mapterhorn tiles covering the Riva viewpoint (45.88675, 10.84577).
+`TERRAIN_CACHE` points to the tile cache populated by the lab above.
+
+```sh
+PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/webkit/pw_run.sh \
+  TERRAIN_BROWSER=webkit TERRAIN_CACHE=/path/to/tiles BENCH_ISOLATED=1 \
+  node tools/terrain-lab/compare-peakfinder.mjs
+```
+
+`BENCH_ISOLATED=1` supplies COOP/COEP headers, enabling PeakFinder's multithreaded
+module as on its public website. Omit it to test ordinary single-threaded
+embedding. Set `TERRAIN_BROWSER=chromium` and the matching `CHROME` executable
+for Chromium. The actual GPU renderer, context dimensions and threading mode
+are recorded; a software renderer must not be presented as phone performance.
+
+Both panels use a requested 150 km range, 90 m eye elevation, DPR 1, matching
+horizontal fields of view and visually aligned camera directions. PeakFinder's
+FOV follows the longer canvas dimension; the portrait horizontal span is derived
+with its perspective aspect ratio before setting Coelum's stereographic radius.
+PeakFinder
+peak labels, Sun/Moon paths and grid are hidden. Coelum uses its natural material
+with shadows enabled; full-scene tests include sky and foreground composition,
+with labels, satellites and the Milky Way disabled. Data sources, projections,
+surface detail and shading remain different, so this compares drawing workloads
+rather than equal geometric accuracy.
+
+After eight warm-up updates, each frame is synchronized by reading one pixel
+from the final canvas. The report distinguishes callback/render cost from
+request-to-frame latency and frame intervals; timings include synchronization
+overhead and are not GPU-only timer-query measurements. Setup times are excluded:
+local cached Coelum tiles and PeakFinder's network/cache loading are not a fair
+loading-speed comparison. Camera updates must make no terrain requests.
+
+The default is three rounds of forty updates, alternating application order,
+at 900×600 wide and zoomed views and a 390×844 desktop phone-sized viewport.
+`BENCH_ROUNDS`, `BENCH_SAMPLES`, `BENCH_QUICK=1` (wide view only),
+`BENCH_SCENARIOS=phone-viewport` (or comma-separated case names), and
+`TERRAIN_RESULTS` override these. Raw frames, summaries and screenshots stay in
+system temp by default. A desktop phone-sized viewport is not an iPhone benchmark.
+
+The [recorded comparison](../../data/peakfinder-coelum-performance.json) uses
+WebKit 27.2 on the native Apple GPU with PeakFinder 4.10.9 in multithreaded mode,
+two alternating rounds and eighty measured camera updates per app and case.
+Both kept up with the 60 Hz update loop. Steady drawing cost was comparable;
+these tests do not establish an initial-loading or physical-phone speed ranking.
+
 Mapterhorn can return empty/transparent higher-zoom tiles outside detailed regional
 coverage. Its sampler explicitly tries lower downloaded zooms when this happens,
 recording fallback counts and zoom transitions in `samplingCoverage`. This uses

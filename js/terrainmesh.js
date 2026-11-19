@@ -1,6 +1,69 @@
 // Terrain surface geometry and lighting; ENU metres, azimuth north through east.
 import { EARTH, RAD, destination } from './terrainmodel.js';
 export const PANORAMA_RINGS = [[14, 1000], [14, 4000], [12, 16000], [11, 64000], [10, 150000]];
+// Match the finer samples with adaptive triangulation rather than paying for
+// every cell on the GPU. Tile downloads and native DEM resolution are unchanged.
+export const terrainDivisions = extent => extent === 150000 ? 600 : extent >= 16000 ? 512 : 256;
+
+// Height of the existing regular grid's actual triangle, not a bilinear patch.
+export function meshHeightAt(mesh,x,y) {
+  const n=Math.sqrt(mesh.positions.length/3),cx=(x+mesh.extent)/mesh.step,cy=(y+mesh.extent)/mesh.step;
+  const i=Math.max(0,Math.min(n-2,Math.floor(cx))),j=Math.max(0,Math.min(n-2,Math.floor(cy))),u=cx-i,v=cy-j;
+  const a=j*n+i,h=k=>mesh.positions[k*3+2];
+  return u+v<=1?h(a)*(1-u-v)+h(a+1)*u+h(a+n)*v:h(a+1)*(1-v)+h(a+n)*(1-u)+h(a+n+1)*(u+v-1);
+}
+
+// The shaded surface supplies the mountain silhouette. Only the omitted near
+// field needs a neutral fill: never paint an independently traced distant hill
+// behind the mesh, where it can protrude as a black band when zoomed.
+const foregrounds=new WeakMap();
+export function terrainForeground(surface) {
+  if(!foregrounds.has(surface)) {
+    const mesh=surface.meshes[0],distance=surface.metrics?.nearField??100;
+    foregrounds.set(surface,az=>{
+      const a=az*RAD;
+      return Math.atan2(meshHeightAt(mesh,Math.sin(a)*distance,Math.cos(a)*distance),distance)/RAD;
+    });
+  }
+  return foregrounds.get(surface);
+}
+
+// Trace the *rendered triangles* in horizontal ray planes. This includes the
+// exact 100 m cutoff and ring seams and avoids a second, expensive geodetic DEM
+// march whose peaks do not necessarily exist in the displayed mesh.
+export function meshHorizon(meshes,{step=.1,nearField=100,radius=150000}={}) {
+  const count=Math.round(360/step),slopes=new Float64Array(count).fill(-Infinity);
+  const directions=Array.from({length:count},(_,i)=>[Math.sin(i*2*Math.PI/count),Math.cos(i*2*Math.PI/count)]);
+  const bearing=(x,y)=>(Math.atan2(x,y)/RAD+360)%360;
+  for(const {positions:p,indices} of meshes)for(let i=0;i<indices.length;i+=3){
+    const a=indices[i]*3,b=indices[i+1]*3,c=indices[i+2]*3;
+    const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],cx=p[c],cy=p[c+1];
+    if(Math.max(Math.hypot(ax,ay),Math.hypot(bx,by),Math.hypot(cx,cy))<nearField)continue;
+    const ux=bx-ax,uy=by-ay,vx=cx-ax,vy=cy-ay,uz=p[b+2]-az,vz=p[c+2]-az,det=ux*vy-uy*vx;
+    if(!det)continue;
+    const u0=(-ax*vy+ay*vx)/det,v0=(-ux*ay+uy*ax)/det,w0=1-u0-v0,z0=az+u0*uz+v0*vz;
+    let first=0,last=count-1;
+    if(Math.min(u0,v0,w0)<-1e-9){
+      const angles=[bearing(ax,ay),bearing(bx,by),bearing(cx,cy)].sort((a,b)=>a-b);
+      let gap=-1,start=0,end=0;
+      for(let k=0;k<3;k++){const next=angles[(k+1)%3]+(k===2?360:0),d=next-angles[k];if(d>gap){gap=d;start=next%360;end=angles[k];}}
+      if(end<start)end+=360;
+      first=Math.ceil(start/step-1e-8);last=Math.floor(end/step+1e-8);
+    }
+    for(let bin=first;bin<=last;bin++){
+      const k=bin%count,[dx,dy]=directions[k],us=(dx*vy-dy*vx)/det,vs=(ux*dy-uy*dx)/det;
+      let lo=nearField,hi=radius;
+      for(const [base,slope]of [[u0,us],[v0,vs],[w0,-us-vs]]){
+        if(Math.abs(slope)<1e-15){if(base< -1e-9){hi=-1;break;}}
+        else if(slope>0)lo=Math.max(lo,-base/slope);else hi=Math.min(hi,-base/slope);
+      }
+      if(hi+1e-7<lo)continue;
+      const slope=us*uz+vs*vz+z0/(z0>=0?lo:hi);
+      slopes[k]=Math.max(slopes[k],slope);
+    }
+  }
+  return Float32Array.from(slopes,s=>Number.isFinite(s)?Math.atan(s)/RAD:-90);
+}
 export const lightVector = (az, alt) => [Math.sin(az * RAD) * Math.cos(alt * RAD), Math.cos(az * RAD) * Math.cos(alt * RAD), Math.sin(alt * RAD)];
 // Krisciunas & Schaefer (1991) phase law, normalised at full Moon.
 // This is direct source brightness, not their scattered-sky model.

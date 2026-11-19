@@ -1,0 +1,180 @@
+{
+  "date": "2026-11-19",
+  "baselineCommit": "af680f8a68687d6e9330ebcea031d001e3cc09c4",
+  "viewpoint": {
+    "lat": 45.88675,
+    "lon": 10.84577,
+    "eyeMetres": 72.8145751110278,
+    "eyeConvention": "DEM ground + 2 m"
+  },
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)",
+  "method": {
+    "viewport": [
+      900,
+      600
+    ],
+    "devicePixelRatio": 1,
+    "radius": 950,
+    "azimuth": 179.1,
+    "altitude": -12.58,
+    "shadowSize": 1024,
+    "cameraFrames": 10,
+    "lightingFrames": 4,
+    "synchronisation": "One-pixel readPixels after every draw; includes driver and readback cost. Camera changes reuse shadow maps; lighting changes regenerate them.",
+    "terrainSource": "Same 325 cached Mapterhorn tiles with no missing/fallback samples; network latency excluded."
+  },
+  "before": {
+    "buildMs": 6473.2,
+    "uploadMs": 137.4,
+    "cameraFrameMedianMs": 58,
+    "lightingFrameMedianMs": 170.4,
+    "triangles": 1088640,
+    "drawnTriangles": 1088640,
+    "demQueries": 13837399,
+    "tileBytes": 37740576,
+    "tileCount": 325
+  },
+  "after": {
+    "buildMs": 1361.5,
+    "uploadMs": 116.6,
+    "cameraFrameMedianMs": 39.5,
+    "lightingFrameMedianMs": 185,
+    "triangles": 1599376,
+    "drawnTriangles": 553891,
+    "demQueries": 1019638,
+    "tileBytes": 37740576,
+    "tileCount": 325
+  },
+  "sourceSkylineAgreement": {
+    "reference": "Same DEM, 0.1 degree rays, half source-pixel distance steps; model agreement, not surveyed accuracy",
+    "before": {
+      "meanAbsolute": 0.10642169032039242,
+      "rms": 0.14593325563488227,
+      "maximum": 0.7510183571004276
+    },
+    "after": {
+      "meanAbsolute": 0.07452345426393467,
+      "rms": 0.11494061318556642,
+      "maximum": 0.7510183571004276
+    },
+    "referenceMs": 18439.799999952316
+  },
+  "validation": {
+    "chromium": {
+      "silhouette": {
+        "sky": [
+          114,
+          154,
+          215,
+          255
+        ],
+        "composite": [
+          114,
+          154,
+          215,
+          255
+        ]
+      },
+      "coverage": [
+        {
+          "antialias": false,
+          "partial": 0,
+          "opaque": 120656,
+          "partialMean": null,
+          "opaqueMean": 135.764874243027,
+          "error": 0
+        },
+        {
+          "antialias": true,
+          "partial": 1400,
+          "opaque": 119956,
+          "partialMean": 138.41333333333333,
+          "opaqueMean": 135.74946091344603,
+          "error": 0
+        }
+      ],
+      "culling": [
+        {
+          "az": 0,
+          "alt": 7,
+          "radius": 2000,
+          "different": 0,
+          "drawn": 37051,
+          "total": 131072
+        },
+        {
+          "az": 90,
+          "alt": 30,
+          "radius": 550,
+          "different": 0,
+          "drawn": 89740,
+          "total": 131072
+        },
+        {
+          "az": 180,
+          "alt": -45,
+          "radius": 550,
+          "different": 0,
+          "drawn": 89740,
+          "total": 131072
+        },
+        {
+          "az": 270,
+          "alt": 70,
+          "radius": 250,
+          "different": 0,
+          "drawn": 131072,
+          "total": 131072
+        },
+        {
+          "az": 0,
+          "alt": 7,
+          "radius": 10000,
+          "different": 0,
+          "drawn": 27455,
+          "total": 131072
+        }
+      ],
+      "shadowCulling": [
+        {
+          "sun": {
+            "az": 0,
+            "alt": 8
+          },
+          "different": 0
+        },
+        {
+          "sun": {
+            "az": 180,
+            "alt": 45
+          },
+          "different": 0
+        },
+        {
+          "sun": {
+            "az": 270,
+            "alt": 20
+          },
+          "different": 0
+        }
+      ],
+      "depthOrder": [
+        {
+          "compared": 4704,
+          "different": 0
+        },
+        {
+          "compared": 4704,
+          "different": 0
+        }
+      ]
+    },
+    "webkit": "Silhouette, coverage, culling and one-metre-at-100-km depth tests passed in desktop WebKit; full offline/shared storage/twilight checks passed in Chromium."
+  },
+  "limitations": [
+    "Software-rendered desktop Chromium (SwiftShader), not physical-phone frame rates or a PeakFinder comparison.",
+    "Mean and RMS skyline agreement improve; maximum disagreement with the same DEM remains about 0.75 degrees. This is not absolute accuracy against photographs or surveys.",
+    "New surfaces contain more geometry and use more storage/memory. Camera drawing is faster here, but shadow-regenerating light updates are slightly slower.",
+    "The .005-degree simplification target applies at sampled grid nodes; native DEM resolution, mesh sampling, source seams, view height and refraction remain limitations."
+  ]
+}

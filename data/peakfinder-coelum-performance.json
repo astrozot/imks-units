@@ -1,0 +1,1079 @@
+{
+  "date": "2026-11-19",
+  "browser": {
+    "engine": "Playwright WebKit",
+    "version": "27.2",
+    "renderer": "Apple GPU",
+    "devicePixelRatio": 1,
+    "crossOriginIsolated": true
+  },
+  "peakfinder": {
+    "version": "4.10.9",
+    "mode": "Official multithreaded canvas API",
+    "documentation": "https://github.com/Fabiz/PeakFinder-API",
+    "peakLabels": "Hidden using minimum elevation 10000 m",
+    "requestedVisibilityRangeMetres": 150000
+  },
+  "viewpoint": {
+    "lat": 45.88675,
+    "lon": 10.84577,
+    "eyeMetres": 90,
+    "peakfinderGroundMetres": 71,
+    "peakfinderElevationOffsetMetres": 19
+  },
+  "method": {
+    "peakfinder": "Official canvas API, perspective projection, peak labels hidden via minimum elevation 10000 m; Sun/Moon/grid disabled.",
+    "coelum": "Current local terrain renderer, natural material, shadows enabled and cached during panning.",
+    "coelumScene": "Production skyScene including sky and neutral foreground composition, with labels/Milky Way/satellites disabled.",
+    "framing": "Same CSS and backing dimensions at DPR 1, same horizontal FOV, bearing and eye height. PeakFinder normalizes its FOV along the longer canvas dimension; portrait horizontal FOV is derived with the perspective aspect ratio before setting the Coelum stereographic radius. Coelum pitch is the negative of PeakFinder API altitude to align the observed views. Projections and elevation sources differ.",
+    "timing": "Main-thread frame callback plus one-pixel final-canvas readback: default WebGL framebuffer for PeakFinder/Coelum terrain, final 2D canvas for the complete Coelum scene. Excludes waiting for requestAnimationFrame; latency and frame intervals are reported separately. Eight warm-up updates before every measured run.",
+    "loading": "Setup times are diagnostic only, not comparable: Coelum tiles are served from an existing local cache; PeakFinder uses its own network/browser cache.",
+    "order": "Alternating app order between rounds; only one app page remains open at a time."
+  },
+  "sampleCounts": {
+    "roundsPerCase": 2,
+    "cameraUpdatesPerRound": 40,
+    "measuredUpdatesPerAppPerCase": 80,
+    "warmupUpdatesPerRun": 8
+  },
+  "cases": [
+    {
+      "name": "desktop-wide",
+      "viewport": [
+        900,
+        600
+      ],
+      "peakfinderApiFovDegrees": 69.78,
+      "horizontalFovDegrees": 69.78,
+      "coelumPitchDegrees": 12.58
+    },
+    {
+      "name": "desktop-zoom",
+      "viewport": [
+        900,
+        600
+      ],
+      "peakfinderApiFovDegrees": 20,
+      "horizontalFovDegrees": 20,
+      "coelumPitchDegrees": 5
+    },
+    {
+      "name": "phone-viewport",
+      "viewport": [
+        390,
+        844
+      ],
+      "peakfinderApiFovDegrees": 69.78,
+      "horizontalFovDegrees": 35.7215450243363,
+      "coelumPitchDegrees": 12.58
+    }
+  ],
+  "summary": [
+    {
+      "app": "peakfinder",
+      "scenario": "desktop-wide",
+      "frames": 80,
+      "synchronisedMs": {
+        "median": 4.4,
+        "p95": 5.24,
+        "mean": 4.331
+      },
+      "cpuMs": {
+        "median": 1.8,
+        "p95": 2.48,
+        "mean": 1.79
+      },
+      "latencyMs": {
+        "median": 16.56,
+        "p95": 18.22,
+        "mean": 16.502
+      },
+      "frameIntervalMs": {
+        "median": 16.6,
+        "p95": 18.24,
+        "mean": 16.671
+      },
+      "drawCalls": {
+        "median": 211,
+        "p95": 216,
+        "mean": 210.037
+      },
+      "requestsDuringMeasurement": 0,
+      "observedUpdatesPerSecond": 59.98
+    },
+    {
+      "app": "coelum",
+      "scenario": "desktop-wide",
+      "frames": 80,
+      "synchronisedMs": {
+        "median": 3.72,
+        "p95": 7.86,
+        "mean": 3.888
+      },
+      "cpuMs": {
+        "median": 1.08,
+        "p95": 1.44,
+        "mean": 1.072
+      },
+      "latencyMs": {
+        "median": 16.58,
+        "p95": 18.08,
+        "mean": 16.512
+      },
+      "frameIntervalMs": {
+        "median": 16.64,
+        "p95": 18.12,
+        "mean": 16.677
+      },
+      "drawCalls": {
+        "median": 56,
+        "p95": 58,
+        "mean": 55.325
+      },
+      "requestsDuringMeasurement": 0,
+      "observedUpdatesPerSecond": 59.96
+    },
+    {
+      "app": "coelum-scene",
+      "scenario": "desktop-wide",
+      "frames": 80,
+      "synchronisedMs": {
+        "median": 4.18,
+        "p95": 5.56,
+        "mean": 4.348
+      },
+      "cpuMs": {
+        "median": 2.58,
+        "p95": 3.2,
+        "mean": 2.654
+      },
+      "latencyMs": {
+        "median": 16.66,
+        "p95": 17.8,
+        "mean": 16.598
+      },
+      "frameIntervalMs": {
+        "median": 16.72,
+        "p95": 17.82,
+        "mean": 16.689
+      },
+      "drawCalls": {
+        "median": 57,
+        "p95": 59,
+        "mean": 56.325
+      },
+      "requestsDuringMeasurement": 0,
+      "observedUpdatesPerSecond": 59.92
+    },
+    {
+      "app": "peakfinder",
+      "scenario": "desktop-zoom",
+      "frames": 80,
+      "synchronisedMs": {
+        "median": 4.9,
+        "p95": 6.08,
+        "mean": 4.715
+      },
+      "cpuMs": {
+        "median": 2.04,
+        "p95": 3.04,
+        "mean": 1.985
+      },
+      "latencyMs": {
+        "median": 16.64,
+        "p95": 18.5,
+        "mean": 16.5
+      },
+      "frameIntervalMs": {
+        "median": 16.68,
+        "p95": 18.54,
+        "mean": 16.67
+      },
+      "drawCalls": {
+        "median": 312,
+        "p95": 318,
+        "mean": 311.7
+      },
+      "requestsDuringMeasurement": 0,
+      "observedUpdatesPerSecond": 59.99
+    },
+    {
+      "app": "coelum",
+      "scenario": "desktop-zoom",
+      "frames": 80,
+      "synchronisedMs": {
+        "median": 2.86,
+        "p95": 5.08,
+        "mean": 3.053
+      },
+      "cpuMs": {
+        "median": 0.84,
+        "p95": 1.48,
+        "mean": 0.927
+      },
+      "latencyMs": {
+        "median": 16.6,
+        "p95": 18.48,
+        "mean": 16.462
+      },
+      "frameIntervalMs": {
+        "median": 16.66,
+        "p95": 18.54,
+        "mean": 16.675
+      },
+      "drawCalls": {
+        "median": 29,
+        "p95": 31,
+        "mean": 29.1
+      },
+      "requestsDuringMeasurement": 0,
+      "observedUpdatesPerSecond": 59.97
+    },
+    {
+      "app": "coelum-scene",
+      "scenario": "desktop-zoom",
+      "frames": 80,
+      "synchronisedMs": {
+        "median": 4.1,
+        "p95": 4.86,
+        "mean": 4.18
+      },
+      "cpuMs": {
+        "median": 2.54,
+        "p95": 3.22,
+        "mean": 2.626
+      },
+      "latencyMs": {
+        "median": 16.48,
+        "p95": 17.88,
+        "mean": 16.603
+      },
+      "frameIntervalMs": {
+        "median": 16.54,
+        "p95": 17.9,
+        "mean": 16.683
+      },
+      "drawCalls": {
+        "median": 30,
+        "p95": 32,
+        "mean": 30.1
+      },
+      "requestsDuringMeasurement": 0,
+      "observedUpdatesPerSecond": 59.94
+    },
+    {
+      "app": "peakfinder",
+      "scenario": "phone-viewport",
+      "frames": 80,
+      "synchronisedMs": {
+        "median": 3.64,
+        "p95": 4.52,
+        "mean": 3.472
+      },
+      "cpuMs": {
+        "median": 1.5,
+        "p95": 2.12,
+        "mean": 1.409
+      },
+      "latencyMs": {
+        "median": 16.64,
+        "p95": 18.28,
+        "mean": 16.502
+      },
+      "frameIntervalMs": {
+        "median": 16.66,
+        "p95": 18.32,
+        "mean": 16.669
+      },
+      "drawCalls": {
+        "median": 113,
+        "p95": 118,
+        "mean": 113.838
+      },
+      "requestsDuringMeasurement": 0,
+      "observedUpdatesPerSecond": 59.99
+    },
+    {
+      "app": "coelum",
+      "scenario": "phone-viewport",
+      "frames": 80,
+      "synchronisedMs": {
+        "median": 3.28,
+        "p95": 9.18,
+        "mean": 3.612
+      },
+      "cpuMs": {
+        "median": 0.98,
+        "p95": 1.42,
+        "mean": 1.015
+      },
+      "latencyMs": {
+        "median": 16.6,
+        "p95": 17.98,
+        "mean": 16.472
+      },
+      "frameIntervalMs": {
+        "median": 16.66,
+        "p95": 18,
+        "mean": 16.671
+      },
+      "drawCalls": {
+        "median": 55,
+        "p95": 58,
+        "mean": 55
+      },
+      "requestsDuringMeasurement": 0,
+      "observedUpdatesPerSecond": 59.99
+    },
+    {
+      "app": "coelum-scene",
+      "scenario": "phone-viewport",
+      "frames": 80,
+      "synchronisedMs": {
+        "median": 3.84,
+        "p95": 5.4,
+        "mean": 4.001
+      },
+      "cpuMs": {
+        "median": 2.5,
+        "p95": 3.14,
+        "mean": 2.589
+      },
+      "latencyMs": {
+        "median": 16.66,
+        "p95": 17.78,
+        "mean": 16.608
+      },
+      "frameIntervalMs": {
+        "median": 16.68,
+        "p95": 17.78,
+        "mean": 16.679
+      },
+      "drawCalls": {
+        "median": 56,
+        "p95": 59,
+        "mean": 56
+      },
+      "requestsDuringMeasurement": 0,
+      "observedUpdatesPerSecond": 59.95
+    }
+  ],
+  "perRound": [
+    {
+      "app": "peakfinder",
+      "scenario": "desktop-wide",
+      "round": 1,
+      "medianSynchronisedMs": 4.32,
+      "p95SynchronisedMs": 5.24,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "elevation": 71,
+        "offset": 19,
+        "eye": 90,
+        "fov": 69.77999877929688,
+        "alt": -12.579999923706055,
+        "range": 150000,
+        "minimalElevation": 10000,
+        "projection": 0,
+        "crossOriginIsolated": true,
+        "version": "4.10.9",
+        "mode": "multi-threaded official canvas API"
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": false,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": true
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum",
+      "scenario": "desktop-wide",
+      "round": 1,
+      "medianSynchronisedMs": 3.72,
+      "p95SynchronisedMs": 4.38,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum-scene",
+      "scenario": "desktop-wide",
+      "round": 1,
+      "medianSynchronisedMs": 4.32,
+      "p95SynchronisedMs": 4.94,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        },
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 1200,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": false,
+            "failIfMajorPerformanceCaveat": true,
+            "powerPreference": "default",
+            "premultipliedAlpha": true,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum-scene",
+      "scenario": "desktop-wide",
+      "round": 2,
+      "medianSynchronisedMs": 4.09,
+      "p95SynchronisedMs": 5.02,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        },
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 1200,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": false,
+            "failIfMajorPerformanceCaveat": true,
+            "powerPreference": "default",
+            "premultipliedAlpha": true,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum",
+      "scenario": "desktop-wide",
+      "round": 2,
+      "medianSynchronisedMs": 3.73,
+      "p95SynchronisedMs": 4.12,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "peakfinder",
+      "scenario": "desktop-wide",
+      "round": 2,
+      "medianSynchronisedMs": 4.46,
+      "p95SynchronisedMs": 5.1,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "elevation": 71,
+        "offset": 19,
+        "eye": 90,
+        "fov": 69.77999877929688,
+        "alt": -12.579999923706055,
+        "range": 150000,
+        "minimalElevation": 10000,
+        "projection": 0,
+        "crossOriginIsolated": true,
+        "version": "4.10.9",
+        "mode": "multi-threaded official canvas API"
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": false,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": true
+          }
+        }
+      ]
+    },
+    {
+      "app": "peakfinder",
+      "scenario": "desktop-zoom",
+      "round": 1,
+      "medianSynchronisedMs": 4.77,
+      "p95SynchronisedMs": 5.72,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "elevation": 71,
+        "offset": 19,
+        "eye": 90,
+        "fov": 20,
+        "alt": -5,
+        "range": 150000,
+        "minimalElevation": 10000,
+        "projection": 0,
+        "crossOriginIsolated": true,
+        "version": "4.10.9",
+        "mode": "multi-threaded official canvas API"
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": false,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": true
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum",
+      "scenario": "desktop-zoom",
+      "round": 1,
+      "medianSynchronisedMs": 2.86,
+      "p95SynchronisedMs": 3.54,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum-scene",
+      "scenario": "desktop-zoom",
+      "round": 1,
+      "medianSynchronisedMs": 4.1,
+      "p95SynchronisedMs": 4.86,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        },
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 1200,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": false,
+            "failIfMajorPerformanceCaveat": true,
+            "powerPreference": "default",
+            "premultipliedAlpha": true,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum-scene",
+      "scenario": "desktop-zoom",
+      "round": 2,
+      "medianSynchronisedMs": 4.12,
+      "p95SynchronisedMs": 4.8,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        },
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 1200,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": false,
+            "failIfMajorPerformanceCaveat": true,
+            "powerPreference": "default",
+            "premultipliedAlpha": true,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum",
+      "scenario": "desktop-zoom",
+      "round": 2,
+      "medianSynchronisedMs": 2.87,
+      "p95SynchronisedMs": 3.52,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "peakfinder",
+      "scenario": "desktop-zoom",
+      "round": 2,
+      "medianSynchronisedMs": 5.05,
+      "p95SynchronisedMs": 6.08,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "elevation": 71,
+        "offset": 19,
+        "eye": 90,
+        "fov": 20,
+        "alt": -5,
+        "range": 150000,
+        "minimalElevation": 10000,
+        "projection": 0,
+        "crossOriginIsolated": true,
+        "version": "4.10.9",
+        "mode": "multi-threaded official canvas API"
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 900,
+          "height": 600,
+          "attributes": {
+            "alpha": false,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": true
+          }
+        }
+      ]
+    },
+    {
+      "app": "peakfinder",
+      "scenario": "phone-viewport",
+      "round": 1,
+      "medianSynchronisedMs": 3.61,
+      "p95SynchronisedMs": 4.18,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "elevation": 71,
+        "offset": 19,
+        "eye": 90,
+        "fov": 69.77999877929688,
+        "alt": -12.579999923706055,
+        "range": 150000,
+        "minimalElevation": 10000,
+        "projection": 0,
+        "crossOriginIsolated": true,
+        "version": "4.10.9",
+        "mode": "multi-threaded official canvas API"
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 390,
+          "height": 844,
+          "attributes": {
+            "alpha": false,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": true
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum",
+      "scenario": "phone-viewport",
+      "round": 1,
+      "medianSynchronisedMs": 3.24,
+      "p95SynchronisedMs": 3.78,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 390,
+          "height": 844,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum-scene",
+      "scenario": "phone-viewport",
+      "round": 1,
+      "medianSynchronisedMs": 3.81,
+      "p95SynchronisedMs": 4.6,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 390,
+          "height": 844,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        },
+        {
+          "renderer": "Apple GPU",
+          "width": 390,
+          "height": 1688,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": false,
+            "failIfMajorPerformanceCaveat": true,
+            "powerPreference": "default",
+            "premultipliedAlpha": true,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum-scene",
+      "scenario": "phone-viewport",
+      "round": 2,
+      "medianSynchronisedMs": 3.89,
+      "p95SynchronisedMs": 4.66,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 390,
+          "height": 844,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        },
+        {
+          "renderer": "Apple GPU",
+          "width": 390,
+          "height": 1688,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": false,
+            "failIfMajorPerformanceCaveat": true,
+            "powerPreference": "default",
+            "premultipliedAlpha": true,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "coelum",
+      "scenario": "phone-viewport",
+      "round": 2,
+      "medianSynchronisedMs": 3.31,
+      "p95SynchronisedMs": 3.64,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "eye": 90,
+        "triangles": 1599376,
+        "shadowSize": 2048,
+        "range": 150000
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 390,
+          "height": 844,
+          "attributes": {
+            "alpha": true,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": false
+          }
+        }
+      ]
+    },
+    {
+      "app": "peakfinder",
+      "scenario": "phone-viewport",
+      "round": 2,
+      "medianSynchronisedMs": 3.64,
+      "p95SynchronisedMs": 3.98,
+      "requestsDuringMeasurement": [],
+      "settings": {
+        "elevation": 71,
+        "offset": 19,
+        "eye": 90,
+        "fov": 69.77999877929688,
+        "alt": -12.579999923706055,
+        "range": 150000,
+        "minimalElevation": 10000,
+        "projection": 0,
+        "crossOriginIsolated": true,
+        "version": "4.10.9",
+        "mode": "multi-threaded official canvas API"
+      },
+      "contexts": [
+        {
+          "renderer": "Apple GPU",
+          "width": 390,
+          "height": 844,
+          "attributes": {
+            "alpha": false,
+            "antialias": false,
+            "depth": true,
+            "failIfMajorPerformanceCaveat": false,
+            "powerPreference": "default",
+            "premultipliedAlpha": false,
+            "preserveDrawingBuffer": false,
+            "stencil": true
+          }
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "These are warmed, steady camera updates on this Mac at DPR 1; neither physical-iPhone performance nor initial-loading speed is measured.",
+    "One-pixel readback forces completion and adds overhead. These are completed update/draw costs, not isolated GPU timer-query terrain timings.",
+    "PeakFinder uses its complete public panorama panel, including residual compass/credit UI. Peak labels are hidden. Coelum is tested both as a terrain pass and as skyScene composition; UI event handling and new astronomy-frame computation are excluded.",
+    "Elevation sources, native detail, geometry density, projection and shading differ. Matching location, requested range and angular framing does not make the geometric workloads equal.",
+    "The portrait FOV convention was calibrated before the final portrait rerun. The earlier mismatched portrait run was excluded from this report.",
+    "Request-to-next-completed-frame latency does not prove that a buffered third-party renderer has presented the latest camera command. The conclusion uses completed draw costs and the sustained update cadence.",
+    "All tested cases kept up with the 60 Hz requestAnimationFrame loop. Fractions of a millisecond should not be treated as a universal ranking."
+  ],
+  "errors": [],
+  "rawResults": [
+    "/tmp/peakfinder-coelum-webkit-mt/results.json (desktop cases only)",
+    "/tmp/peakfinder-coelum-webkit-mt-portrait/results.json"
+  ],
+  "source": {
+    "baselineCommit": "af680f8a68687d6e9330ebcea031d001e3cc09c4",
+    "currentWorkingTreeSha256": {
+      "js/terrainrender.js": "2cf306f4b5420b30804580b13960b0ee9800b0433619eadbfe36f0fb44f04264",
+      "js/terrainmesh.js": "80519e6c3b4b8970d569cf2a26ee3297417ce73c546ba68fc9558ab071b82e6d",
+      "js/terrainlod.js": "29736d8db4ac469d722be0498d8e0b4ae0febe403fe2e1cc58226a68728bd629",
+      "js/terrainlighting.js": "e884b4874bc41c13d7ae083564525549acb2164ab093c1c9832f2698a9a7d893",
+      "js/terrainworker.js": "efcb4c7fb4743dcfffbfaa8656c2c23bbbf354f2df5a9fce97e1c2f753d48406",
+      "js/coelumsky.js": "2701921c9a991255b5ef60c62a45e74d9b2705a9a9af568c39791181ff5bf99d",
+      "tools/terrain-lab/compare-peakfinder.mjs": "6f50f73bfcd5fe5e18af3faa1ca7a629a5598de24c54ca642be830f97624d1bb"
+    }
+  }
+}
