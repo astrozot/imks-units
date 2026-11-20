@@ -1,4 +1,4 @@
-import { TERRAIN_SHADOW_GLSL, terrainGpuMesh } from '../../js/terrainlighting.js';
+import { TERRAIN_SHADOW_GLSL, terrainGpuMesh } from './panorama-shadow.mjs';
 import { lightVector, shadowBasis } from './panorama-model.mjs';
 const vertex = `#version 300 es
 precision highp float;

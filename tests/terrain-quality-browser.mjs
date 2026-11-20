@@ -45,7 +45,7 @@ try{
  const synthetic=await page.evaluate(async()=>{
   const {makeRing}=await import('/js/terrainmesh.js'),{createTerrainRenderer}=await import('/js/terrainrender.js');
   const {skyFrame,lookAt}=await import('/js/coelum.js'),{skyScene}=await import('/js/coelumsky.js');
-  const mesh=makeRing({place:[0,0,90],sample:(lat,lon)=>1200*Math.exp(-(((lat-.08)/.015)**2+(lon/.03)**2)),extent:16000,divisions:256});
+  const mesh=makeRing({place:[0,0,90],sample:(lat,lon)=>1200*Math.exp(-(((lat-.08)/.015)**2+(lon/.03)**2)),extent:16000,divisions:256,gridSize:256});
   const surface={meshes:[mesh],metrics:{nearField:100}},frame=skyFrame(Date.parse('2026-06-21T12:00Z')/1000,[0,0,90]);
   const canvas=document.createElement('canvas');canvas.width=900;canvas.height=600;document.body.append(canvas);
   const ctx=canvas.getContext('2d'),view={az:0,alt:10,scale:4},layers={ground:true,horizon:'terrain',terrain:()=>15,terrainSurface:surface,terrainAppearance:{style:'natural',shadows:false,outlines:false,waterColor:true,exposure:0,nightExposure:0},milkyway:false,labels:false,satellites:false};
@@ -57,13 +57,13 @@ try{
   const options={W:700,H:400,radius:2000,rotation:lookAt(0,7),sun:{az:180,alt:40},moon:{az:0,alt:-90},flux:0,exposure:1.6,shadows:false};
   const coverage=[];
   for(const antialias of [false,true]){
-   const c=document.createElement('canvas'),r=createTerrainRenderer(c,{shadowSize:256,antialias});r.setMeshes([mesh]);
+   const c=document.createElement('canvas'),r=createTerrainRenderer(c,{antialias});r.setMeshes([mesh]);
    const info=r.draw(options),gl=c.getContext('webgl2'),pixels=new Uint8Array(c.width*c.height*4);gl.readPixels(0,0,c.width,c.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
    let partial=0,opaque=0,partialLight=0,opaqueLight=0;
    for(let i=0;i<pixels.length;i+=4){const a=pixels[i+3];if(a>0&&a<255){partial++;partialLight+=pixels[i]+pixels[i+1]+pixels[i+2];}if(a===255){opaque++;opaqueLight+=pixels[i]+pixels[i+1]+pixels[i+2];}}
    coverage.push({antialias,partial,opaque,partialMean:partialLight/partial/3,opaqueMean:opaqueLight/opaque/3,error:gl.getError()});r.destroy();
   }
-  const c=document.createElement('canvas'),r=createTerrainRenderer(c,{shadowSize:256});r.setMeshes([mesh]);
+  const c=document.createElement('canvas'),r=createTerrainRenderer(c);r.setMeshes([mesh]);
   const gl=c.getContext('webgl2'),culling=[];
   const pixels=()=>{const p=new Uint8Array(c.width*c.height*4);gl.readPixels(0,0,c.width,c.height,gl.RGBA,gl.UNSIGNED_BYTE,p);return p;};
   for(const [az,alt,radius] of [[0,7,2000],[90,30,550],[180,-45,550],[270,70,250],[0,7,10000]]){
@@ -72,21 +72,16 @@ try{
    let different=0;for(let i=0;i<full.length;i++)if(full[i]!==culled[i])different++;
    culling.push({az,alt,radius,different,drawn:result.drawnTriangles,total:mesh.indices.length/3});
   }
-  const shadowCulling=[];
-  for(const sun of [{az:0,alt:8},{az:180,alt:45},{az:270,alt:20}]){
-   r.draw({...options,sun,shadows:true,cullShadows:false});const full=pixels();
-   r.draw({...options,sun,shadows:true,cullShadows:true});const clipped=pixels();
-   let different=0;for(let i=0;i<full.length;i++)if(full[i]!==clipped[i])different++;
-   shadowCulling.push({sun,different});
-  }
   // Two coincident angular ridges only a metre apart at 100 km must remain
   // ordered regardless of draw order (24-bit inverse depth could not do this).
-  const triangle=(distance,normal)=>({positions:Float32Array.from([-2000,distance,1000,2000,distance,1000,0,distance,5000],(v,i)=>i%3===1?v:v*distance/100000),normals:Float32Array.from([...normal,...normal,...normal]),indices:Uint32Array.from([0,1,2])});
-  const near=triangle(100000,[0,0,1]),far=triangle(100001,[0,-1,0]),depthOrder=[];
+  // Shading comes from height grids: give the far triangle a sloped one so the
+  // two shade differently.
+  const triangle=(distance,grid)=>({positions:Float32Array.from([-2000,distance,1000,2000,distance,1000,0,distance,5000],(v,i)=>i%3===1?v:v*distance/100000),indices:Uint32Array.from([0,1,2]),...(grid?{grid}:{})});
+  const near=triangle(100000),far=triangle(100001,{size:2,extent:200000,heights:Uint16Array.from([0,0,60000,60000]),scale:1,offset:0}),depthOrder=[];
   const depthOptions={...options,radius:5000,rotation:lookAt(0,2)};
   r.setMeshes([near]);r.draw(depthOptions);const reference=pixels();
   for(const meshes of [[far,near],[near,far]]){r.setMeshes(meshes);r.draw(depthOptions);const actual=pixels();let compared=0,different=0;for(let i=0;i<actual.length;i+=4)if(reference[i+3]===255){compared++;if(actual[i]!==reference[i]||actual[i+1]!==reference[i+1]||actual[i+2]!==reference[i+2])different++;}depthOrder.push({compared,different});}
-  r.destroy();return {silhouette,coverage,culling,shadowCulling,depthOrder};
+  r.destroy();return {silhouette,coverage,culling,depthOrder};
  });
  assert.deepEqual(synthetic.silhouette.sky,synthetic.silhouette.composite,'Distant profile must not leave a dark band above the visible mesh');
  assert.equal(synthetic.coverage[0].partial,0);
@@ -95,7 +90,6 @@ try{
  assert.ok(synthetic.coverage[1].partialMean>synthetic.coverage[1].opaqueMean*.8,'Partial coverage must not introduce a dark fringe');
  for(const result of synthetic.culling)assert.equal(result.different,0,JSON.stringify(result));
  assert.ok(synthetic.culling.some(r=>r.drawn<r.total*.5));
- for(const result of synthetic.shadowCulling)assert.equal(result.different,0,'Shadow culling must preserve off-camera casters');
  for(const result of synthetic.depthOrder){assert.ok(result.compared>1000);assert.equal(result.different,0,'Distant surfaces must preserve depth ordering');}
  if(output)await page.screenshot({path:path.join(output,'synthetic-silhouette.png')});
  const real=[];
@@ -106,7 +100,7 @@ try{
     window.realSurface=surface;if(prefix==='/baseline/')window.baselineSurface=surface;
     const {createTerrainRenderer}=await import(prefix+'terrainrender.js'),{lookAt}=await import('/js/coelum.js');
     const c=document.createElement('canvas');c.style.width='900px';c.style.height='600px';document.body.replaceChildren(c);
-    const r=createTerrainRenderer(c,{shadowSize:1024}),upload=performance.now();r.setMeshes(surface.meshes);const uploadMs=performance.now()-upload;
+    const r=createTerrainRenderer(c),upload=performance.now();r.setMeshes(surface.meshes);const uploadMs=performance.now()-upload;
     const gl=c.getContext('webgl2'),times=[],pixel=new Uint8Array(4),debug=gl.getExtension('WEBGL_debug_renderer_info');
     const options={W:900,H:600,radius:950,rotation:lookAt(179.1,-12.58),sun:{az:180,alt:45},moon:{az:0,alt:-90},flux:0,exposure:1.6,shadows:true};
     const first=r.draw(options);gl.finish();

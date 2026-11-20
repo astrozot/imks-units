@@ -102,3 +102,45 @@ export async function profile({ place, sample, rings, radius = 60000, legacy = f
   }
   return { alt, distance, missing, depthRaster, eye, pointGround, nearbyGround: ground, step: 360 / n, radius, distanceFraction, samplesPerRay: distances.length, samplingCoverage: sample.stats ? structuredClone(sample.stats) : null, computeMs: performance.now() - started };
 }
+// Fast resampling of decoded tiles onto a local east/north lattice: texel
+// centres -extent+(i+0.5)*2*extent/size, or with `corners` the mesh vertices
+// -extent+i*2*extent/(size-1). The azimuthal → Web Mercator map
+// is evaluated exactly on a lattice every `block` texels and interpolated in
+// between (error far below 0.01 source pixel); the DEM is then bilinear.
+// Texels whose source pixels are missing use `fallback` (lower zooms).
+// Returns heights relative to `eye`, NaN where no data exists.
+export function resampleGrid({ tiles, place, zoom, extent, size, eye, fallback = null, block = 32, corners = false }) {
+  const out = new Float32Array(size * size), step = extent * 2 / (corners ? size - 1 : size), start = corners ? 0 : 0.5, nb = Math.ceil(size / block), L = nb + 1;
+  const tileList = [...tiles].filter(([key]) => key.startsWith(zoom + '/'));
+  const P = tileList[0]?.[1].size ?? 512, n = 2 ** zoom, gx = new Float64Array(L * L), gy = new Float64Array(L * L);
+  const index = new Map(tileList.map(([key, tile]) => [key.slice(key.indexOf('/') + 1), tile]));
+  for (let b = 0; b < L; b++) for (let a = 0; a < L; a++) {
+    const x = -extent + (a * block + start) * step, y = -extent + (b * block + start) * step;
+    const [fx, fy] = tileXY(...destination(place[0], place[1], Math.atan2(x, y) / RAD, Math.hypot(x, y)), zoom);
+    gx[b * L + a] = fx * P; gy[b * L + a] = fy * P;
+  }
+  let lastX = NaN, lastY = NaN, last = null;
+  const pixel = (i, j) => {
+    const tx = Math.floor(i / P), ty = Math.floor(j / P);
+    if (tx !== lastX || ty !== lastY) { lastX = tx; lastY = ty; last = index.get(`${((tx % n) + n) % n}/${ty}`) ?? null; }
+    if (!last) return NaN;
+    const raw = last.h[(j - ty * P) * P + (i - tx * P)];
+    return raw === last.noData ? NaN : raw * (last.scale ?? 1) + (last.offset ?? 0);
+  };
+  for (let j = 0; j < size; j++) {
+    const b = Math.floor(j / block), v = (j - b * block) / block;
+    for (let i = 0; i < size; i++) {
+      const a = Math.floor(i / block), u = (i - a * block) / block, k0 = b * L + a, k1 = k0 + L;
+      const px = (gx[k0] * (1 - u) + gx[k0 + 1] * u) * (1 - v) + (gx[k1] * (1 - u) + gx[k1 + 1] * u) * v - 0.5;
+      const py = (gy[k0] * (1 - u) + gy[k0 + 1] * u) * (1 - v) + (gy[k1] * (1 - u) + gy[k1 + 1] * u) * v - 0.5;
+      const pi = Math.floor(px), pj = Math.floor(py), fu = px - pi, fv = py - pj;
+      let h = (pixel(pi, pj) * (1 - fu) + pixel(pi + 1, pj) * fu) * (1 - fv) + (pixel(pi, pj + 1) * (1 - fu) + pixel(pi + 1, pj + 1) * fu) * fv;
+      if (Number.isNaN(h) && fallback) {
+        const x = -extent + (i + start) * step, y = -extent + (j + start) * step;
+        h = fallback(...destination(place[0], place[1], Math.atan2(x, y) / RAD, Math.hypot(x, y)), zoom) ?? NaN;
+      }
+      out[j * size + i] = h - eye;
+    }
+  }
+  return out;
+}

@@ -1,5 +1,6 @@
-// On an illuminated plane, changing the light must not introduce shadow bands.
-// No external imagery or elevation provider is used.
+// Heightfield horizon shadows: a lit plane never darkens, a ridge's shadow ends
+// where geometry says (height / tan altitude), and its penumbra matches the
+// Sun's disc. No external imagery or elevation provider is used.
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -17,27 +18,41 @@ const browser=await type.launch(process.env.CHROME?{executablePath:process.env.C
 try{
  const page=await browser.newPage({viewport:{width:900,height:600}});await page.goto(`http://127.0.0.1:${server.address().port}/coelum/index.html`);
  const results=await page.evaluate(async()=>{
-  const{createTerrainRenderer}=await import('/js/terrainrender.js'),{lookAt}=await import('/js/coelum.js');
-  const c=document.createElement('canvas'),r=createTerrainRenderer(c,{shadowSize:1024}),n=65,positions=new Float32Array(n*n*3),normals=new Float32Array(n*n*3),indices=[];
-  const norm=Math.hypot(.35,.18,1);
-  for(let j=0;j<n;j++)for(let i=0;i<n;i++){const x=(i/64*2-1)*30000,y=(j/64*2-1)*30000,k=j*n+i;positions.set([x,y,.35*x+.18*y-200],k*3);normals.set([-.35/norm,-.18/norm,1/norm],k*3);if(i<64&&j<64)indices.push(k,k+1,k+n,k+1,k+n+1,k+n);}
-  r.setMeshes([{positions,normals,indices:Uint32Array.from(indices)}]);const results=[];
+  const{createTerrainRenderer}=await import('/js/terrainrender.js'),{lookAt}=await import('/js/coelum.js'),{makeRing}=await import('/js/terrainmesh.js');
+  const metres=111194.9,c=document.createElement('canvas'),r=createTerrainRenderer(c);
   const pixels=()=>{const g=c.getContext('webgl2'),p=new Uint8Array(c.width*c.height*4);g.readPixels(0,0,c.width,c.height,g.RGBA,g.UNSIGNED_BYTE,p);return p;};
+  // An inclined plane: every point either faces the light or not, so cast
+  // shadows may never darken anything that diffuse lighting leaves lit.
+  r.setMeshes([makeRing({place:[0,0,0],sample:(lat,lon)=>.35*lon*metres+.18*lat*metres-200,extent:30000,divisions:64,gridSize:512})]);
+  const plane=[];
   for(const az of [140,180,220,260])for(const alt of [8,17,35,60]){
    const options={W:700,H:400,radius:550,rotation:lookAt(0,10),sun:{az,alt},moon:{az:0,alt:-90},flux:0,exposure:1.6,outlines:false};
-   r.draw({...options,shadows:false});const plain=pixels();r.draw({...options,shadows:true});const shaded=pixels();let compared=0,dark=0,max=0;
-   for(let i=0;i<plain.length;i+=4)if(plain[i+3]&&shaded[i+3]){compared++;for(let j=0;j<3;j++){const d=plain[i+j]-shaded[i+j];if(d>3)dark++;max=Math.max(max,d);}}
-   results.push({az,alt,compared,dark,max});
+   r.draw({...options,shadows:false});const lit=pixels(),info=r.draw({...options,shadows:true}),shaded=pixels();let compared=0,dark=0,max=0;
+   for(let i=0;i<lit.length;i+=4)if(lit[i+3]&&shaded[i+3]){compared++;for(let j=0;j<3;j++){const d=lit[i+j]-shaded[i+j];if(d>3)dark++;max=Math.max(max,d);}}
+   plane.push({az,alt,compared,dark,max,error:info.glError});
   }
-  // A separate high ridge must still cast a real shadow after biasing.
-  const wall={positions:Float32Array.from([-4000,5000,-4000,4000,5000,-4000,-4000,5000,6000,4000,5000,6000]),normals:Float32Array.from([0,-1,0,0,-1,0,0,-1,0,0,-1,0]),indices:Uint32Array.from([0,1,2,1,3,2])};
-  r.setMeshes([{positions,normals,indices:Uint32Array.from(indices)},wall]);
-  const options={W:700,H:400,radius:550,rotation:lookAt(0,10),sun:{az:0,alt:35},moon:{az:0,alt:-90},flux:0,exposure:1.6,outlines:false};
-  r.draw({...options,shadows:false});const unshadowed=pixels();r.draw({...options,shadows:true});const shadowed=pixels();let cast=0;
-  for(let i=0;i<shadowed.length;i+=4)if(unshadowed[i]-shadowed[i]>20)cast++;
-  results.push({cast});r.destroy();return results;
+  // An east-west ridge 300 m high (slopes up to 60°), 2 km north, lit from
+  // due north. The crest lies on a texel centre so the grid has its height.
+  const crest=-4000+768.5*8000/1024,ridge=(lat,lon)=>300*Math.exp(-(((lat*metres-crest)/100)**2));
+  r.setMeshes([makeRing({place:[0,0,0],sample:ridge,extent:4000,divisions:64,gridSize:1024})]);
+  const ends=[];
+  for(const alt of [10,20,40]){
+   r.draw({W:700,H:400,radius:550,rotation:lookAt(0,-10),sun:{az:0,alt},moon:{az:0,alt:-90},flux:0,exposure:1.6,shadows:true});
+   const {size,extent,values}=r.readShadow(0),column=size/2,step=2*extent/size;
+   // Walk south from the ridge to the last shadowed texel, then measure the
+   // penumbra between 90% and 10% shadow.
+   let end=null,outer=null,inner=null,reversals=0,previous=null,trend=0;
+   for(let j=size-1;j>=0;j--){const y=-extent+(j+.5)*step,v=values[j*size+column];if(y>crest-250)continue;if(previous!==null&&v!==previous){const d=Math.sign(v-previous);if(trend&&d!==trend)reversals++;trend=d;}previous=v;if(v<230)inner=y;if(v<128)end=y;if(v<25)outer=y;}
+   ends.push({alt,reversals,expected:crest-300/Math.tan(alt*Math.PI/180),crest,end,penumbra:outer-inner,expectedPenumbra:300/Math.sin(alt*Math.PI/180)**2*0.5332*Math.PI/180*.8,step});
+  }
+  r.destroy();return {plane,ends};
  });
- assert.ok(results.pop().cast>1000,'A separate ridge must cast a shadow');
- for(const result of results){assert.ok(result.compared>1000);assert.ok(result.dark<result.compared*.001,JSON.stringify(result));}
- console.log(JSON.stringify({status:'passed',cases:results.length,maxFalseDarkChannels:Math.max(...results.map(x=>x.dark)),maxDifference:Math.max(...results.map(x=>x.max))}));
+ for(const result of results.plane){assert.equal(result.error,0);assert.ok(result.compared>1000);assert.ok(result.dark<result.compared*.001,JSON.stringify(result));}
+ for(const e of results.ends){
+  assert.equal(e.reversals,0,`Shadow edges must be smooth, not striped: ${JSON.stringify(e)}`);
+  assert.ok(Math.abs(e.end-e.expected)<2*e.step+.03*(e.crest-e.expected),`Ridge shadow must end at height/tan(altitude): ${JSON.stringify(e)}`);
+  // Penumbrae narrower than a few shadow texels cannot be resolved.
+  assert.ok(e.penumbra<e.expectedPenumbra*2+3*e.step&&(e.expectedPenumbra<3*e.step||e.penumbra>e.expectedPenumbra*.5),`Penumbra must follow the solar disc: ${JSON.stringify(e)}`);
+ }
+ console.log(JSON.stringify({status:'passed',planeCases:results.plane.length,maxFalseDarkChannels:Math.max(...results.plane.map(x=>x.dark)),ridge:results.ends}));
 }finally{await browser.close();await new Promise(r=>server.close(r));}

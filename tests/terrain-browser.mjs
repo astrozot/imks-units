@@ -45,8 +45,8 @@ try{
  // Render a known slope directly: the regression made twilight terrain white.
  const lighting=await page.evaluate(async()=>{
   const{createTerrainRenderer}=await import('/js/terrainrender.js'),{makeRing,moonFlux}=await import('/js/terrainmesh.js'),{horizontal,aspect}=await import('/js/astro.js'),{lookAt}=await import('/js/coelum.js');
-  const c=document.createElement('canvas'),renderer=createTerrainRenderer(c,{shadowSize:512});
-  renderer.setMeshes([makeRing({place:[45.89617,10.84333,90],sample:(lat,lon)=>600+Math.sin(lon*1000)*150,extent:4000,divisions:64,zoom:14})]);
+  const c=document.createElement('canvas'),renderer=createTerrainRenderer(c);
+  renderer.setMeshes([makeRing({place:[45.89617,10.84333,90],sample:(lat,lon)=>600+Math.sin(lon*1000)*150,extent:4000,divisions:64,zoom:14,gridSize:256})]);
   const readings=[];
   for(const time of ['2026-06-21T12:00Z','2026-06-21T20:00Z','2026-06-21T20:35Z','2026-06-21T21:00Z']){
    const t=Date.parse(time)/1000,place=[45.89617,10.84333,90],sun=horizontal('sun',t,place),moon={...horizontal('moon',t,place),phase:aspect('moon',t).phase};
