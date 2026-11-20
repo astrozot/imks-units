@@ -109,7 +109,7 @@ export function skyLight(sunAlt, moon = null, atmosphere = true) {
 
 // The colours (linear-ish, 0…1) of the zenith, the horizon and the ground,
 // and the strength of the twilight glow, the Sun's glare and the Milky Way.
-function skyColours({ sun, moon, atmosphere, groundColor }) {
+export function skyColours({ sun, moon, atmosphere, groundColor }) {
   const light = skyLight(sun.alt, moon, atmosphere), { day, twilight } = light;
   return {
     light,

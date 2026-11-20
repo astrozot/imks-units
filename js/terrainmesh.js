@@ -2,15 +2,15 @@
 import { EARTH, RAD, destination } from './terrainmodel.js';
 export const PANORAMA_RINGS = [[14, 1000], [14, 4000], [12, 16000], [11, 64000], [10, 150000]];
 // Surfaces built by this code; the UI offers a rebuild for older ones.
-export const TERRAIN_GEOMETRY_REVISION = 6;
+export const TERRAIN_GEOMETRY_REVISION = 7;
 // Stored-surface format, checked by the page against what the worker sends.
-export const TERRAIN_SURFACE_VERSION = 5;
+export const TERRAIN_SURFACE_VERSION = 6;
 // The eye is this far above the place's ground elevation.
 export const EYE_HEIGHT = 2;
 // Dense mesh cells per ring side (powers of two for the RTIN simplifier):
-// 7.8 m to 4 km, then 31 / 125 / 586 m, so a cell subtends at most about 0.5°
+// 2 m to 1 km (the ground at your feet), 7.8 m to 4 km, then 31 / 125 / 586 m, so a cell subtends at most about 0.5°
 // at each ring's inner edge. Adaptive triangulation keeps what the view needs.
-export const TERRAIN_DIVISIONS = [256, 1024, 1024, 1024, 512];
+export const TERRAIN_DIVISIONS = [1024, 1024, 1024, 1024, 512];
 // Height-texture resolution per ring, matched to the downloaded data rather
 // than the mesh: 3.9 m out to 4 km, then 15.6 / 62.5 / 146 m. Shading normals
 // and terrain shadows come from these grids, never from triangle vertices.
@@ -48,6 +48,19 @@ export function meshHeightAt(mesh,x,y) {
   return u+v<=1?h(a)*(1-u-v)+h(a+1)*u+h(a+n)*v:h(a+1)*(1-v)+h(a+n)*(1-u)+h(a+n+1)*(u+v-1);
 }
 
+// The terrain is drawn from this distance to the eye (the bare-earth DEM has
+// no buildings or trees). If the eye lies below the nearby model ground (a
+// wrong place elevation), the start moves out, up to 100 m, rather than
+// burying the view; the eye itself is never raised.
+export const NEAR_FIELD = 2;
+export function nearFieldFor(grid) {
+  for (const r of [NEAR_FIELD, 5, 10, 20, 50]) {
+    let clear = true;
+    for (let a = 0; a < 64 && clear; a++) { const h = gridHeightAt(grid, Math.sin(a * Math.PI / 32) * r, Math.cos(a * Math.PI / 32) * r); if (!(h < -0.5)) clear = false; }
+    if (clear) return r;
+  }
+  return 100;
+}
 // Bilinear height of a ring grid (relative to the eye, with curvature).
 export function gridHeightAt(grid,x,y) {
   const n=grid.size,s=grid.extent*2/n,cx=(x+grid.extent)/s-.5,cy=(y+grid.extent)/s-.5;
@@ -62,12 +75,17 @@ export function gridHeightAt(grid,x,y) {
 const foregrounds=new WeakMap();
 export function terrainForeground(surface) {
   if(!foregrounds.has(surface)) {
-    const mesh=surface.meshes[0],distance=surface.metrics?.nearField??100;
+    const mesh=surface.meshes[0],distance=surface.metrics?.nearField??NEAR_FIELD;
     // Stored meshes are compacted, so use the ring's height grid when present.
     const height=mesh.grid?(x,y)=>gridHeightAt(mesh.grid,x,y):(x,y)=>meshHeightAt(mesh,x,y);
+    // The fill is drawn under the terrain, whose near edge starts at this
+    // distance. Overlap them (highest point over the next 30 m, plus 0.05°)
+    // so their anti-aliased edges never leave a seam where the sky shows.
     foregrounds.set(surface,az=>{
-      const a=az*RAD;
-      return Math.atan2(height(Math.sin(a)*distance,Math.cos(a)*distance),distance)/RAD;
+      const a=az*RAD,sin=Math.sin(a),cos=Math.cos(a);
+      let top=-90;
+      for(let d=distance;d<=distance*1.3+1e-6;d+=distance*0.05)top=Math.max(top,Math.atan2(height(sin*d,cos*d),d)/RAD);
+      return top+0.05;
     });
   }
   return foregrounds.get(surface);
@@ -76,7 +94,7 @@ export function terrainForeground(surface) {
 // Trace the *rendered triangles* in horizontal ray planes. This includes the
 // exact 100 m cutoff and ring seams and avoids a second, expensive geodetic DEM
 // march whose peaks do not necessarily exist in the displayed mesh.
-export function meshHorizon(meshes,{step=.1,nearField=100,radius=150000}={}) {
+export function meshHorizon(meshes,{step=.1,nearField=NEAR_FIELD,radius=150000}={}) {
   const count=Math.round(360/step),slopes=new Float64Array(count).fill(-Infinity);
   const directions=Array.from({length:count},(_,i)=>[Math.sin(i*2*Math.PI/count),Math.cos(i*2*Math.PI/count)]);
   const bearing=(x,y)=>(Math.atan2(x,y)/RAD+360)%360;

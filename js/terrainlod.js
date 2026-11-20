@@ -96,7 +96,7 @@ export function simplifyTerrainRTIN(mesh, { angularError = 0.005 } = {}) {
     // The diamond around edge ab: a, b and the two apexes m ± rot90(a - m).
     const dx = Math.abs(ax - mx) + Math.abs(ay - my), x0 = -extent + (mx - dx) * step, x1 = -extent + (mx + dx) * step, y0 = -extent + (my - dx) * step, y1 = -extent + (my + dx) * step;
     const distance = Math.hypot(Math.max(0, x0, -x1), Math.max(0, y0, -y1));
-    let e = Math.max(errors[middle], Math.abs((h(ay * n + ax) + h(by * n + bx)) / 2 - h(middle)) / Math.max(0.05, distance * tolerance), (x1 - x0) / (Math.max(100, distance) * bend));
+    let e = Math.max(errors[middle], Math.abs((h(ay * n + ax) + h(by * n + bx)) / 2 - h(middle)) / Math.max(0.05, distance * tolerance), (x1 - x0) / (Math.max(2, distance) * bend));
     if (i < parents) e = Math.max(e, errors[((ay + cy) >> 1) * n + ((ax + cx) >> 1)], errors[((by + cy) >> 1) * n + ((bx + cx) >> 1)]);
     errors[middle] = e;
   }

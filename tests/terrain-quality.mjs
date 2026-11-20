@@ -11,10 +11,12 @@ const horizon=meshHorizon([plane],{step:1,radius:10000});
 assert.ok(horizon.every(a=>a<0));
 for(const a of horizon)assert.ok(Math.abs(a-Math.atan((-100-10000**2*.87/(2*6371008.8))/10000)*180/Math.PI)<.0001);
 const foreground=terrainForeground({meshes:[plane],metrics:{nearField:100}});
-assert.ok(foreground(0)<-40,'Foreground must not paint a distant mountain silhouette');
+assert.ok(foreground(0)<-30,'Foreground must not paint a distant mountain silhouette');
 // Stored (compacted) meshes take the foreground from the height grid instead.
 const gridded=makeRing({place:[0,0,100],sample:()=>0,extent:1000,divisions:16,gridSize:64}),fromGrid=terrainForeground({meshes:[{...gridded,positions:new Float32Array(0)}],metrics:{nearField:100}});
-assert.ok(Math.abs(fromGrid(90)-Math.atan2(-100,100)*180/Math.PI)<.01);
+// Level ground 100 m below the eye: the fill reaches the highest point over
+// 100–130 m (the farthest), 0.05° above, overlapping the terrain's near edge.
+assert.ok(Math.abs(fromGrid(90)-(Math.atan2(-100,130)*180/Math.PI+.05))<.01);
 assert.equal(meshHeightAt(plane,0,0),-100);
 
 // A ridge crossing the hollow ring: RTIN keeps its angular shape, covers the

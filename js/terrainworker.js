@@ -2,7 +2,7 @@
 // worker aborts fetches and computation; no app state is written here.
 import { providers, tilesFor, tileSampler, resampleGrid } from './terrainmodel.js';
 import { loadWaterMask, waterLevels, WATER_TOLERANCE } from './terrainwater.js';
-import { PANORAMA_RINGS, TERRAIN_GEOMETRY_REVISION, TERRAIN_SURFACE_VERSION, EYE_HEIGHT, TERRAIN_GRID_SIZES, TERRAIN_DIVISIONS, makeRing, stitchRings, meshHorizon, packGrid, compactMesh } from './terrainmesh.js';
+import { PANORAMA_RINGS, TERRAIN_GEOMETRY_REVISION, TERRAIN_SURFACE_VERSION, nearFieldFor, EYE_HEIGHT, TERRAIN_GRID_SIZES, TERRAIN_DIVISIONS, makeRing, stitchRings, meshHorizon, packGrid, compactMesh } from './terrainmesh.js';
 import { simplifyTerrainRTIN } from './terrainlod.js';
 import { terrainDrawGroups } from './terrainlighting.js';
 self.onmessage = async ({ data }) => {
@@ -65,14 +65,14 @@ self.onmessage = async ({ data }) => {
     const missingVertices=meshes.reduce((s,m)=>s+m.missing,0);
     for(let i=0;i<meshes.length;i++)meshes[i]=compactMesh(simplifyTerrainRTIN(meshes[i],{angularError}));
     progress('Tracing the mountain surface horizon…',.85);
-    const horizon = meshHorizon(meshes);
+    const nearField = nearFieldFor(meshes[0].grid), horizon = meshHorizon(meshes, { nearField });
     for(const mesh of meshes){const grouped=terrainDrawGroups({vertices:mesh.positions,indices:mesh.indices},32,3);mesh.indices=grouped.indices;mesh.groups=grouped.groups;}
     // Water: each lake's DEM level, searched for near its (coarse) outline.
     if (water) { const result = waterLevels({ water, place, eye, grids: meshes.map(m => m.grid) }); meshes.forEach((m, i) => { m.water = result.maps[i]; }); waterMetrics.bodies = result.metrics;
       // Standing in water only if the DEM at the observer lies at that level.
       const centre = result.maps[0], level = centre.levels[(centre.size >> 1) * centre.size + (centre.size >> 1)] + eye;
       waterMetrics.observer = Number.isFinite(level) && Math.abs(pointGround - level) < WATER_TOLERANCE ? (Math.abs(level) < WATER_TOLERANCE ? 'ocean' : 'lake') : null; }
-    const surface = { version: TERRAIN_SURFACE_VERSION, place, eye, pointGround, profile: horizon, meshes, metrics: { source: 'Mapterhorn', geometryRevision:TERRAIN_GEOMETRY_REVISION,eyeHeight:EYE_HEIGHT,gridTexels:meshes.reduce((s,m)=>s+m.grid.heights.length,0), divisions, angularError, denseTriangles, water:waterMetrics, bytes, tiles: tiles.size, requested, errors, loadMs, buildMs: performance.now() - started - loadMs, triangles: meshes.reduce((s,m)=>s+m.indices.length/3,0), vertices: meshes.reduce((s,m)=>s+m.positions.length/3,0), missingVertices, samplingCoverage: sample.stats, sourceUrl: 'https://mapterhorn.com/attribution/', nearField:100, radius:150000 } };
+    const surface = { version: TERRAIN_SURFACE_VERSION, place, eye, pointGround, profile: horizon, meshes, metrics: { source: 'Mapterhorn', geometryRevision:TERRAIN_GEOMETRY_REVISION,eyeHeight:EYE_HEIGHT,gridTexels:meshes.reduce((s,m)=>s+m.grid.heights.length,0), divisions, angularError, denseTriangles, water:waterMetrics, bytes, tiles: tiles.size, requested, errors, loadMs, buildMs: performance.now() - started - loadMs, triangles: meshes.reduce((s,m)=>s+m.indices.length/3,0), vertices: meshes.reduce((s,m)=>s+m.positions.length/3,0), missingVertices, samplingCoverage: sample.stats, sourceUrl: 'https://mapterhorn.com/attribution/', nearField, radius:150000 } };
     if (surface.metrics.missingVertices) throw new Error('Terrain surface coverage is incomplete. Try again when online');
     self.postMessage({ type:'ready', surface }, [surface.profile.buffer, ...meshes.flatMap(m=>[m.positions.buffer,m.indices.buffer,m.grid.heights.buffer,...(m.water?[m.water.levels.buffer]:[])])]);
   } catch(e) { self.postMessage({type:'error',text:e.message}); }

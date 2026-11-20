@@ -104,7 +104,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const hill = opts.horizon === 'flat' ? FLAT : opts.horizon === 'terrain' && opts.terrain ? opts.terrain : hillAt;
   // Render first so a lost/unavailable WebGL context still gets the complete
   // legacy ground fallback. A successful surface owns its distant silhouette.
-  const surface = opts.ground && opts.horizon === 'terrain' && opts.terrainSurface ? terrainRaster(ctx, opts.terrainSurface, { W, H, radius, rotation, sun, lightingSunAlt: sunAlt, solarFlux: 1 - eclipsed, moon, appearance: opts.terrainAppearance, onRedraw: opts.onTerrainRedraw }) : null;
+  const surface = opts.ground && opts.horizon === 'terrain' && opts.terrainSurface ? terrainRaster(ctx, opts.terrainSurface, { W, H, radius, rotation, sun, lightingSunAlt: sunAlt, solarFlux: 1 - eclipsed, moon, appearance: opts.terrainAppearance, atmosphere: opts.atmosphere, onRedraw: opts.onTerrainRedraw }) : null;
   const bg = skyRaster(ctx, {
     W, H, radius, camera: { rotation, stereographic: true }, samples: view.moving ? 22000 : 45000, toJ2000: horizonToJ2000(frame), kind: 'sky',
     milkyWay: opts.milkyway, ground: opts.ground, atmosphere: opts.atmosphere, hill: surface ? terrainForeground(opts.terrainSurface) : hill,

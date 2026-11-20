@@ -54,8 +54,14 @@ try{
   let frames=0,unchanged=true;
   for(let pending=true;pending&&frames<500;frames++){const result=p.draw({...view,sun:{az:0,alt:10},progressive:true,shadowBudgetMs:.01});pending=result.shadowsPending;if(pending&&p.readShadow(0).values.some((v,i)=>v!==before[i]))unchanged=false;}
   const after=p.readShadow(0).values;let different=0;for(let i=0;i<after.length;i++)if(after[i]!==reference[i])different++;
+  // The light moves during an update (playback), then stops (pause): drawing
+  // only while shadows report pending must end with the latest light's shadows.
+  r.draw({...view,sun:{az:0,alt:12}});const latest=r.readShadow(0).values;
+  p.draw({...view,sun:{az:0,alt:20},progressive:true});for(let i=0;i<3;i++)p.draw({...view,sun:{az:0,alt:10},progressive:true});
+  let catchUp=0;for(let pending=true;pending&&catchUp<800;catchUp++)pending=p.draw({...view,sun:{az:0,alt:12},progressive:true}).shadowsPending;
+  const caught=p.readShadow(0).values;let stale=0;for(let i=0;i<caught.length;i++)if(caught[i]!==latest[i])stale++;
   p.destroy();
-  r.destroy();return {plane,ends,progressive:{frames,unchanged,different}};
+  r.destroy();return {plane,ends,progressive:{frames,unchanged,different,catchUp,stale}};
  });
  for(const result of results.plane){assert.equal(result.error,0);assert.ok(result.compared>1000);assert.ok(result.dark<result.compared*.001,JSON.stringify(result));}
  for(const e of results.ends){
@@ -67,5 +73,6 @@ try{
  assert.ok(results.progressive.frames>2,'The update must be spread over frames');
  assert.ok(results.progressive.unchanged,'Partial updates must not be visible');
  assert.equal(results.progressive.different,0,'A finished progressive update equals a full one');
+ assert.equal(results.progressive.stale,0,'After the light stops, shadows catch up with it');
  console.log(JSON.stringify({status:'passed',planeCases:results.plane.length,maxFalseDarkChannels:Math.max(...results.plane.map(x=>x.dark)),ridge:results.ends}));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
