@@ -629,8 +629,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   }
   const perfFrame = (total) => {
     const s = terrainStats.last, now0 = performance.now();
+    // The app draws only while something changes: a pause (over 300 ms) is
+    // idle time, not a slow frame, so it starts a fresh measurement.
+    const idle = !perf.last || now0 - perf.last > 300;
+    if (idle) { perf.since = now0; perf.frames = []; }
+    const gap = idle ? 0 : now0 - perf.last;
+    perf.last = now0;
     if (perf.lite) {
-      perf.frames.push({ total, gap: perf.last ? now0 - perf.last : 0 }); perf.last = now0;
+      perf.frames.push({ total, gap });
       if (now0 - perf.since < 1000) return;
       const gaps = perf.frames.map(f => f.gap).filter(Boolean), n = perf.frames.length;
       perf.box.textContent = `${(n * 1000 / (now0 - perf.since)).toFixed(1)} fps (no GPU waits)\nframe interval ${(gaps.reduce((a, g) => a + g, 0) / Math.max(1, gaps.length)).toFixed(0)} ms · max ${Math.max(0, ...gaps).toFixed(0)} ms\nmain thread ${(perf.frames.reduce((a, f) => a + f.total, 0) / n).toFixed(0)} ms/frame · dpr ${window.devicePixelRatio}`;
