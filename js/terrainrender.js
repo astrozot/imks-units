@@ -244,16 +244,17 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   }
   // Light-dependent pass: one horizon march per shadow texel, then mipmaps.
   // Work is split into horizontal bands rendered into back textures; a
-  // finished set replaces the visible one at once. Progressive drawing does a
-  // number of bands per frame paced by the frame rate itself: more while frames
-  // arrive at the device's usual interval, half as many when they slow down.
-  // A started update finishes with its own light before the next one begins.
+  // finished set replaces the visible one at once. Progressive drawing paces
+  // the bands per frame (possibly fewer than one) on the frame interval that
+  // the scene takes without shadow work, measured on frames that have none:
+  // every 30th frame skips it on purpose. Shadows may lag; the frame rate
+  // comes first. A started update finishes with its own light first.
   let shownKey = '', job = null;
-  const pace = { bands: 2, fastest: Infinity, last: 0 };
+  const pace = { rate: 1, credit: 0, base: 0, probeIn: 3, idle: true, last: 0 };
   const sync = () => { const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
   function shadowJob(light, sourceRadius, key) {
     const rings = meshes.filter(m => m.grid), bands = [];
-    rings.forEach((m, k) => { const S = m.shadowSize, rows = Math.max(8, Math.ceil(S / 32)); for (let y = 0; y < S; y += rows) bands.push({ m, k, y, rows: Math.min(rows, S - y) }); });
+    rings.forEach((m, k) => { const S = m.shadowSize, rows = Math.max(8, Math.ceil(S / 64)); for (let y = 0; y < S; y += rows) bands.push({ m, k, y, rows: Math.min(rows, S - y) }); });
     return { light, sourceRadius, key, rings, bands };
   }
   function runShadowJob(count) {
@@ -352,14 +353,22 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
         // The first shadows of a surface appear complete.
         if (!progressive || !shownKey) shadowTexels = runShadowJob(Infinity);
         else {
-          // Pace on frame intervals (pauses over 250 ms are idle, not slow).
+          // This frame's interval reflects the previous frame's work (pauses
+          // over 250 ms are idle, not slow).
           const gap = pace.last ? t0 - pace.last : 0;
           if (gap > 0 && gap < 250) {
-            pace.fastest = Math.min(gap, pace.fastest + 0.05);
-            if (gap <= pace.fastest * 1.25) pace.bands = Math.min(64, pace.bands + 1);
-            else if (gap > pace.fastest * 1.6) pace.bands = Math.max(1, pace.bands >> 1);
+            if (pace.idle) pace.base = pace.base ? 0.7 * pace.base + 0.3 * gap : gap;
+            else if (pace.base) {
+              if (gap <= pace.base * 1.15) pace.rate = Math.min(64, pace.rate * 1.15 + 0.1);
+              else if (gap > pace.base * 1.35) pace.rate = Math.max(0.2, pace.rate * 0.6);
+            }
           }
-          shadowTexels = runShadowJob(pace.bands);
+          if (--pace.probeIn <= 0 || !pace.base) pace.probeIn = 30;
+          else {
+            pace.credit = Math.min(pace.credit + pace.rate, 64);
+            const n = Math.floor(pace.credit); pace.credit -= n;
+            shadowTexels = n ? runShadowJob(n) : 0;
+          }
         }
         if (profile) { sync(); shadowGpuMs = performance.now() - t0; }
         shadowMs = performance.now() - t0;
@@ -380,8 +389,9 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       for (const [i, tex] of [image, depth].entries()) { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u(post, i ? 'depth' : 'image'), i); }
       gl.uniform1i(u(post, 'outlines'), outlines);gl.uniform1i(u(post,'edgeAA'),antialias===true); gl.drawArrays(gl.TRIANGLES, 0, 3);
       if (profile) sync();
-      if (progressive) pace.last = start;
-      return { canvas, submitMs: performance.now() - start, shadowMs, shadowGpuMs, shadowTexels, shadowsPending: !!job, shadowBands: pace.bands, sceneGpuMs: profile ? performance.now() - sceneStart : 0, width: w, height: h, antialias, drawnTriangles, glError: profile ? gl.getError() : 0 };
+      // The next interval measures the bare scene if this frame did no shadows.
+      if (progressive) { pace.last = start; pace.idle = !shadowTexels; }
+      return { canvas, submitMs: performance.now() - start, shadowMs, shadowGpuMs, shadowTexels, shadowsPending: !!job, shadowBands: Math.round(pace.rate * 10) / 10, sceneGpuMs: profile ? performance.now() - sceneStart : 0, width: w, height: h, antialias, drawnTriangles, glError: profile ? gl.getError() : 0 };
     },
     // Diagnostics: the current visibility texture of grid ring k (row-major,
     // texel centres as for the height grid, 0 = fully shadowed, 255 = lit).
