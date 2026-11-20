@@ -184,7 +184,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   const scene = program(gl, vertex, fragment), post = program(gl, screenVertex, postFragment);
   const normalPass = program(gl, screenVertex, normalFragment), shadowPass = program(gl, screenVertex, shadowFragment);
   const empty = gl.createVertexArray(), anisotropy = gl.getExtension('EXT_texture_filter_anisotropic');
-  let meshes = [], heights = null, maxHeight = 0, framebuffer, image, depth, w = 0, h = 0, shadowKey = '', destroyed = false, lastShadowMs = 0;
+  let meshes = [], heights = null, maxHeight = 0, framebuffer, image, depth, w = 0, h = 0, destroyed = false;
   const locations=new Map();
   const u = (p, name) => {let names=locations.get(p);if(!names){names=new Map();locations.set(p,names);}if(!names.has(name))names.set(name,gl.getUniformLocation(p,name));return names.get(name);};
   function disposeFrame(){
@@ -230,32 +230,49 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
     return triangles;
   }
   function disposeMeshes() {
-    for (const m of meshes) { gl.deleteVertexArray(m.vao); m.buffers.forEach((b) => gl.deleteBuffer(b)); if (m.level) gl.deleteTexture(m.level); for (const name of ['normal', 'shadow']) if (m[name]) { gl.deleteTexture(m[name]); gl.deleteFramebuffer(m[name + 'Target']); } }
+    for (const m of meshes) { gl.deleteVertexArray(m.vao); m.buffers.forEach((b) => gl.deleteBuffer(b)); if (m.level) gl.deleteTexture(m.level); for (const name of ['normal', 'shadow', 'shadowBack']) if (m[name]) { gl.deleteTexture(m[name]); gl.deleteFramebuffer(m[name + 'Target']); } }
     if (heights) gl.deleteTexture(heights);
     meshes = []; heights = null;
   }
   // Light-dependent pass: one horizon march per shadow texel, then mipmaps.
-  function updateShadows(light, sourceRadius) {
-    const rings = meshes.filter(m => m.grid);
-    if (!rings.length) return;
-    const start = performance.now();
+  // Work is split into horizontal bands rendered into back textures; a
+  // finished set replaces the visible one at once. Progressive drawing spreads
+  // the bands over frames within a GPU budget calibrated on this device, and
+  // a started update finishes with its own light before the next one begins.
+  let shownKey = '', job = null, texelsPerMs = 0;
+  function shadowJob(light, sourceRadius, key) {
+    const rings = meshes.filter(m => m.grid), bands = [];
+    rings.forEach((m, k) => { const S = m.shadowSize, rows = Math.max(16, Math.ceil(S / 16)); for (let y = 0; y < S; y += rows) bands.push({ m, k, y, rows: Math.min(rows, S - y) }); });
+    return { light, sourceRadius, key, rings, bands };
+  }
+  function runShadowJob(budget) {
+    const { rings } = job;
     gl.disable(gl.DEPTH_TEST); gl.useProgram(shadowPass); gl.bindVertexArray(empty);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D_ARRAY, heights);
-    gl.uniform3fv(u(shadowPass, 'light'), light); gl.uniform1f(u(shadowPass, 'sourceRadius'), sourceRadius); gl.uniform1f(u(shadowPass, 'maxHeight'), maxHeight); gl.uniform1f(u(shadowPass, 'stepGrowth'), shadowStep);
-    rings.forEach((m, k) => {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, m.shadowTarget); gl.viewport(0, 0, m.shadowSize, m.shadowSize);
-      gl.uniform1i(u(shadowPass, 'ring'), k); gl.uniform1i(u(shadowPass, 'size'), m.shadowSize);
+    gl.uniform3fv(u(shadowPass, 'light'), job.light); gl.uniform1f(u(shadowPass, 'sourceRadius'), job.sourceRadius); gl.uniform1f(u(shadowPass, 'maxHeight'), maxHeight); gl.uniform1f(u(shadowPass, 'stepGrowth'), shadowStep);
+    gl.enable(gl.SCISSOR_TEST);
+    let done = 0;
+    while (job.bands.length && (!done || done < budget)) {
+      const { m, k, y, rows } = job.bands.shift(), S = m.shadowSize;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, m.shadowBackTarget); gl.viewport(0, 0, S, S); gl.scissor(0, y, S, rows);
+      gl.uniform1i(u(shadowPass, 'ring'), k); gl.uniform1i(u(shadowPass, 'size'), S);
       // Hollow centres are never drawn, except where the finer ring fades in.
       gl.uniform1f(u(shadowPass, 'innerSkip'), k ? rings[k - 1].grid.extent * 0.75 : 0);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-      gl.bindTexture(gl.TEXTURE_2D, m.shadow); gl.generateMipmap(gl.TEXTURE_2D);
-      gl.bindTexture(gl.TEXTURE_2D_ARRAY, heights);
-    });
-    lastShadowMs = performance.now() - start;
+      gl.drawArrays(gl.TRIANGLES, 0, 3); done += S * rows;
+    }
+    gl.disable(gl.SCISSOR_TEST);
+    if (!job.bands.length) {
+      for (const m of rings) {
+        [m.shadow, m.shadowBack] = [m.shadowBack, m.shadow]; [m.shadowTarget, m.shadowBackTarget] = [m.shadowBackTarget, m.shadowTarget];
+        gl.bindTexture(gl.TEXTURE_2D, m.shadow); gl.generateMipmap(gl.TEXTURE_2D);
+      }
+      shownKey = job.key; job = null;
+    }
+    return done;
   }
   return {
     setMeshes(data) {
-      disposeMeshes(); shadowKey = '';
+      disposeMeshes(); shownKey = ''; job = null;
       if (data.filter(m => m.grid).length > 5) throw new Error('At most five terrain rings are supported');
       meshes = data.map((m) => {
         const vao = gl.createVertexArray(), buffers = []; gl.bindVertexArray(vao);
@@ -284,6 +301,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
         m.normal = texture(gl.RG8, gl.RG, gl.UNSIGNED_BYTE, size, size, { mipmaps: true, filter: gl.LINEAR }); m.normalTarget = target(m.normal);
         m.shadowSize = terrainShadowSize(size);
         m.shadow = texture(gl.R8, gl.RED, gl.UNSIGNED_BYTE, m.shadowSize, m.shadowSize, { mipmaps: true, filter: gl.LINEAR }); m.shadowTarget = target(m.shadow);
+        m.shadowBack = texture(gl.R8, gl.RED, gl.UNSIGNED_BYTE, m.shadowSize, m.shadowSize, { mipmaps: true, filter: gl.LINEAR }); m.shadowBackTarget = target(m.shadowBack);
         // Water levels: nearest lookup, so neighbouring lakes never blend.
         if (m.waterSource) { gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4); m.level = texture(gl.R32F, gl.RED, gl.FLOAT, m.waterSource.size, m.waterSource.size, { data: Float32Array.from(m.waterSource.levels, v => Number.isFinite(v) ? v : -1e6) }); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2); }
         m.ringIndex = k;
@@ -300,7 +318,8 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       });
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
-    draw({ W, H, radius, rotation, sun, moon, flux, lightingSunAlt = sun.alt, solarFlux = 1, shadows = true, paper = false, outlines = false, exposure = 1, nearField = 100, farField = 150000, waterColor = true, cull = true }) {
+    // profile: wait for the GPU after each pass (diagnostics only: it stalls).
+    draw({ W, H, radius, rotation, sun, moon, flux, lightingSunAlt = sun.alt, solarFlux = 1, shadows = true, paper = false, outlines = false, exposure = 1, nearField = 100, farField = 150000, waterColor = true, cull = true, profile = false, progressive = false, shadowBudgetMs = 4 }) {
       if (destroyed || gl.isContextLost()) return;
       const start = performance.now(), scale = Math.min(1.5, devicePixelRatio || 1), width = Math.max(1,Math.round(W * scale)), height = Math.max(1,Math.round(H * scale));
       if (width !== w || height !== h) {
@@ -314,8 +333,19 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       // Shadows follow a light direction quantised to 0.05°, so ordinary
       // playback reuses them; diffuse lighting uses the exact direction.
       const mapLight = lightVector(Math.round(source.az*20)/20, Math.round(source.alt*20)/20), key = JSON.stringify([mapLight, moonSource]);
-      let shadowMs = 0;
-      if (shadows && shadowKey !== key) { updateShadows(mapLight, moonSource ? MOON_RADIUS : SUN_RADIUS); shadowKey = key; shadowMs = lastShadowMs; }
+      let shadowMs = 0, shadowGpuMs = 0, shadowTexels = 0;
+      const sync = () => { const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
+      if (shadows && heights && (job || shownKey !== key)) {
+        const t0 = performance.now();
+        if (!job) job = shadowJob(mapLight, moonSource ? MOON_RADIUS : SUN_RADIUS, key);
+        // The first shadows of a surface appear complete, and time this device.
+        const full = !progressive || !shownKey || !texelsPerMs;
+        shadowTexels = runShadowJob(full ? Infinity : Math.max(1, texelsPerMs * shadowBudgetMs));
+        if (full && progressive && !texelsPerMs) { sync(); texelsPerMs = shadowTexels / Math.max(0.5, performance.now() - t0); }
+        if (profile) { sync(); shadowGpuMs = performance.now() - t0; }
+        shadowMs = performance.now() - t0;
+      }
+      const sceneStart = performance.now();
       gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer); gl.viewport(0,0,w,h); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
       const r=rotation.slice(0,3), up=rotation.slice(3,6), forward=rotation.slice(6,9);
       gl.useProgram(scene); gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.disable(gl.CULL_FACE);
@@ -330,7 +360,8 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0,0,w,h); gl.bindVertexArray(empty); gl.useProgram(post);
       for (const [i, tex] of [image, depth].entries()) { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u(post, i ? 'depth' : 'image'), i); }
       gl.uniform1i(u(post, 'outlines'), outlines);gl.uniform1i(u(post,'edgeAA'),antialias===true); gl.drawArrays(gl.TRIANGLES, 0, 3);
-      return { canvas, submitMs: performance.now() - start, shadowMs, width: w, height: h, antialias, drawnTriangles, glError: gl.getError() };
+      if (profile) sync();
+      return { canvas, submitMs: performance.now() - start, shadowMs, shadowGpuMs, shadowTexels, shadowsPending: !!job, texelsPerMs, sceneGpuMs: profile ? performance.now() - sceneStart : 0, width: w, height: h, antialias, drawnTriangles, glError: gl.getError() };
     },
     // Diagnostics: the current visibility texture of grid ring k (row-major,
     // texel centres as for the height grid, 0 = fully shadowed, 255 = lit).

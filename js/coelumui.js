@@ -20,7 +20,7 @@ import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, skyPointScale, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
 import { storedHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
 import { prepareTerrain, restoreTerrain, forgetTerrain, storedTerrainHorizon, terrainAppearance, terrainKey, TERRAIN_DEFAULTS } from './skyterrain.js';
-import { releaseTerrainRaster } from './terrainraster.js';
+import { releaseTerrainRaster, terrainStats } from './terrainraster.js';
 import { TERRAIN_GEOMETRY_REVISION, EYE_HEIGHT } from './terrainmesh.js';
 import { skyView as moonSystem } from './sky.js';
 import { moonsView, planetMap, moonDetailProfile, moonDetailStored, downloadMoonDetail, removeMoonDetail } from './skyview.js';
@@ -617,8 +617,28 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (ruler.lastChild.textContent !== text) ruler.lastChild.textContent = text;
   };
   let legendKey = '';
+  // Diagnostics: ?perf in the address (or localStorage imks-perf = 1) shows
+  // GPU-synchronised frame timings, averaged each second. It slows drawing.
+  let perf = null;
+  try { if (/[?&]perf\b/.test(location.search) || localStorage.getItem('imks-perf') === '1') perf = { box: document.createElement('div'), since: performance.now(), frames: [] }; } catch { /* storage unavailable */ }
+  if (perf) {
+    terrainStats.profile = true;
+    perf.box.className = 'coelum-perf'; perf.box.setAttribute('aria-hidden', 'true');
+    root.append(perf.box);
+  }
+  const perfFrame = (total) => {
+    const s = terrainStats.last;
+    perf.frames.push({ total, shadow: s?.shadowGpuMs || 0, shadowRuns: s?.shadowTexels ? 1 : 0, speed: s?.texelsPerMs || 0, scene: s?.sceneGpuMs || 0, triangles: s?.drawnTriangles || 0, px: s ? s.width * s.height : 0 });
+    const now = performance.now();
+    if (now - perf.since < 1000) return;
+    const n = perf.frames.length, avg = (k) => perf.frames.reduce((a, f) => a + f[k], 0) / n, sum = (k) => perf.frames.reduce((a, f) => a + f[k], 0);
+    const shadowRuns = sum('shadowRuns');
+    perf.box.textContent = `${(n * 1000 / (now - perf.since)).toFixed(1)} fps · frame ${avg('total').toFixed(0)} ms\nterrain scene ${avg('scene').toFixed(0)} ms · ${(avg('triangles') / 1000).toFixed(0)}k tri · ${(avg('px') / 1e6).toFixed(2)} Mpx\nshadow work ${shadowRuns}× ${shadowRuns ? (sum('shadow') / shadowRuns).toFixed(0) : 0} ms · ${(perf.frames.at(-1).speed / 1000).toFixed(0)} Mtexel/s\nother ${(avg('total') - avg('scene') - sum('shadow') / n).toFixed(0)} ms · dpr ${window.devicePixelRatio}`;
+    perf.since = now; perf.frames = [];
+  };
   const draw = (recompute = false) => {
     const drawStart = performance.now();
+    if (perf) terrainStats.last = null;
     cancelAnimationFrame(pending); pending = 0;
     if (recompute) { animator = null; frame = skyFrame(t, place); }
     svg.setAttribute('viewBox', `0 0 ${size} ${height}`);
@@ -670,6 +690,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     drawTrajectory(shown.rotation || lookAt(view.az, view.alt), view.scale);
     drawGuide(shown.rotation || lookAt(view.az, view.alt), view.scale);
     updateUI(!playing && !interacting);
+    if (perf && onCanvas) { ctx.getImageData(0, 0, 1, 1); perfFrame(performance.now() - drawStart); }
     orient?.tracker.drawn(performance.now() - drawStart);
   };
   // Gestures redraw at most once per display frame (two fingers send twice
@@ -1132,7 +1153,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         terrainSurface = data; setTerrain(data.profile);
       } catch (e) {
         if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
-        terrainJob = null; syncLayers(); showTerrain(`${esc(e.message)}. Local terrain needs a connection for its first download. <button type="button" class="coelum-chip" data-terrain="refresh">Try again</button>`); return;
+        terrainJob = null; syncLayers(); showTerrain(`${esc(e.message)}.${navigator.onLine === false ? ' Local terrain needs a connection for its first download.' : ''} <button type="button" class="coelum-chip" data-terrain="refresh">Try again</button>`); return;
       }
       terrainJob = null;
     }

@@ -1824,3 +1824,6 @@ body.coelum-app { background: #000; }
 .coelum-terrain-exposure { display: grid; gap: 14px; margin: 16px 0; }
 .coelum-terrain-exposure label { display: grid; gap: 8px; font-size: 14px; }
 .coelum-terrain-exposure input { width: 100%; min-height: 36px; }
+
+/* Diagnostics overlay (?perf) */
+.coelum-perf { position: absolute; z-index: 50; left: 8px; top: 72px; padding: 6px 8px; white-space: pre; font: 11px/1.35 ui-monospace, Menlo, monospace; color: #fff; background: rgba(0,0,0,.6); border-radius: 6px; pointer-events: none; }

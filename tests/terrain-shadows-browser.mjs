@@ -45,7 +45,17 @@ try{
    for(let j=size-1;j>=0;j--){const y=-extent+(j+.5)*step,v=values[j*size+column];if(y>crest-250)continue;if(previous!==null&&v!==previous){const d=Math.sign(v-previous);if(trend&&d!==trend)reversals++;trend=d;}previous=v;if(v<230)inner=y;if(v<128)end=y;if(v<25)outer=y;}
    ends.push({alt,reversals,expected:crest-300/Math.tan(alt*Math.PI/180),crest,end,penumbra:outer-inner,expectedPenumbra:300/Math.sin(alt*Math.PI/180)**2*0.5332*Math.PI/180*.8,step});
   }
-  r.destroy();return {plane,ends};
+  // Progressive updates: the old shadows stay until a complete new set
+  // replaces them, identical to an all-at-once computation.
+  const view={W:300,H:200,radius:550,rotation:lookAt(0,-10),moon:{az:0,alt:-90},flux:0,exposure:1.6,shadows:true};
+  r.draw({...view,sun:{az:0,alt:10}});const reference=r.readShadow(0).values;
+  const p=createTerrainRenderer(document.createElement('canvas'));p.setMeshes([makeRing({place:[0,0,0],sample:ridge,extent:4000,divisions:64,gridSize:1024})]);
+  p.draw({...view,sun:{az:0,alt:20},progressive:true});const before=p.readShadow(0).values;
+  let frames=0,unchanged=true;
+  for(let pending=true;pending&&frames<500;frames++){const result=p.draw({...view,sun:{az:0,alt:10},progressive:true,shadowBudgetMs:.01});pending=result.shadowsPending;if(pending&&p.readShadow(0).values.some((v,i)=>v!==before[i]))unchanged=false;}
+  const after=p.readShadow(0).values;let different=0;for(let i=0;i<after.length;i++)if(after[i]!==reference[i])different++;
+  p.destroy();
+  r.destroy();return {plane,ends,progressive:{frames,unchanged,different}};
  });
  for(const result of results.plane){assert.equal(result.error,0);assert.ok(result.compared>1000);assert.ok(result.dark<result.compared*.001,JSON.stringify(result));}
  for(const e of results.ends){
@@ -54,5 +64,8 @@ try{
   // Penumbrae narrower than a few shadow texels cannot be resolved.
   assert.ok(e.penumbra<e.expectedPenumbra*2+3*e.step&&(e.expectedPenumbra<3*e.step||e.penumbra>e.expectedPenumbra*.5),`Penumbra must follow the solar disc: ${JSON.stringify(e)}`);
  }
+ assert.ok(results.progressive.frames>2,'The update must be spread over frames');
+ assert.ok(results.progressive.unchanged,'Partial updates must not be visible');
+ assert.equal(results.progressive.different,0,'A finished progressive update equals a full one');
  console.log(JSON.stringify({status:'passed',planeCases:results.plane.length,maxFalseDarkChannels:Math.max(...results.plane.map(x=>x.dark)),ridge:results.ends}));
 }finally{await browser.close();await new Promise(r=>server.close(r));}

@@ -83,6 +83,14 @@ try{
   for(const meshes of [[far,near],[near,far]]){r.setMeshes(meshes);r.draw(depthOptions);const actual=pixels();let compared=0,different=0;for(let i=0;i<actual.length;i+=4)if(reference[i+3]===255){compared++;if(actual[i]!==reference[i]||actual[i+1]!==reference[i+1]||actual[i+2]!==reference[i+2])different++;}depthOrder.push({compared,different});}
   r.destroy();return {silhouette,coverage,culling,depthOrder};
  });
+ // A worker from another app version (service-worker update while open) must
+ // be reported as such, not as a corrupt surface.
+ const mismatch=await page.evaluate(async()=>{
+  const real=window.Worker;
+  window.Worker=class{constructor(){setTimeout(()=>this.onmessage?.({data:{type:'ready',surface:{version:4}}}),0);}postMessage(){}terminate(){}};
+  try{const{prepareTerrain}=await import('/js/skyterrain.js');await prepareTerrain([45,10,100],{refresh:true});return null;}catch(e){return {code:e.code,message:e.message};}finally{window.Worker=real;}
+ });
+ assert.equal(mismatch?.code,'app-updated',JSON.stringify(mismatch));
  assert.deepEqual(synthetic.silhouette.sky,synthetic.silhouette.composite,'Distant profile must not leave a dark band above the visible mesh');
  assert.equal(synthetic.coverage[0].partial,0);
  for(const c of synthetic.coverage){assert.ok(c.opaque>1000);assert.equal(c.error,0);}
