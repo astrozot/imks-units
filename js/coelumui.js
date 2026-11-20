@@ -636,19 +636,19 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const gap = idle ? 0 : now0 - perf.last;
     perf.last = now0;
     if (perf.lite) {
-      perf.frames.push({ total, gap });
+      perf.frames.push({ total, gap, shadow: s?.shadowTexels ? 1 : 0 });
       if (now0 - perf.since < 1000) return;
       const gaps = perf.frames.map(f => f.gap).filter(Boolean), n = perf.frames.length;
-      perf.box.textContent = `${(n * 1000 / (now0 - perf.since)).toFixed(1)} fps (no GPU waits)\nframe interval ${(gaps.reduce((a, g) => a + g, 0) / Math.max(1, gaps.length)).toFixed(0)} ms · max ${Math.max(0, ...gaps).toFixed(0)} ms\nmain thread ${(perf.frames.reduce((a, f) => a + f.total, 0) / n).toFixed(0)} ms/frame · dpr ${window.devicePixelRatio}`;
+      perf.box.textContent = `${(n * 1000 / (now0 - perf.since)).toFixed(1)} fps (no GPU waits)\nframe interval ${(gaps.reduce((a, g) => a + g, 0) / Math.max(1, gaps.length)).toFixed(0)} ms · max ${Math.max(0, ...gaps).toFixed(0)} ms\nmain thread ${(perf.frames.reduce((a, f) => a + f.total, 0) / n).toFixed(0)} ms/frame · dpr ${window.devicePixelRatio}\nshadow updates ${perf.frames.filter(f => f.shadow).length}/${n} frames · ${s?.shadowBands ?? 0} bands/frame`;
       perf.since = now0; perf.frames = [];
       return;
     }
-    perf.frames.push({ total, shadow: s?.shadowGpuMs || 0, shadowRuns: s?.shadowTexels ? 1 : 0, speed: s?.texelsPerMs || 0, scene: s?.sceneGpuMs || 0, triangles: s?.drawnTriangles || 0, px: s ? s.width * s.height : 0 });
+    perf.frames.push({ total, shadow: s?.shadowGpuMs || 0, shadowRuns: s?.shadowTexels ? 1 : 0, bands: s?.shadowBands || 0, scene: s?.sceneGpuMs || 0, triangles: s?.drawnTriangles || 0, px: s ? s.width * s.height : 0 });
     const now = performance.now();
     if (now - perf.since < 1000) return;
     const n = perf.frames.length, avg = (k) => perf.frames.reduce((a, f) => a + f[k], 0) / n, sum = (k) => perf.frames.reduce((a, f) => a + f[k], 0);
     const shadowRuns = sum('shadowRuns');
-    perf.box.textContent = `${(n * 1000 / (now - perf.since)).toFixed(1)} fps · frame ${avg('total').toFixed(0)} ms\nterrain scene ${avg('scene').toFixed(0)} ms · ${(avg('triangles') / 1000).toFixed(0)}k tri · ${(avg('px') / 1e6).toFixed(2)} Mpx\nshadow work ${shadowRuns}× ${shadowRuns ? (sum('shadow') / shadowRuns).toFixed(0) : 0} ms · ${(perf.frames.at(-1).speed / 1000).toFixed(0)} Mtexel/s\nother ${(avg('total') - avg('scene') - sum('shadow') / n).toFixed(0)} ms · dpr ${window.devicePixelRatio}`;
+    perf.box.textContent = `${(n * 1000 / (now - perf.since)).toFixed(1)} fps · frame ${avg('total').toFixed(0)} ms\nterrain scene ${avg('scene').toFixed(0)} ms · ${(avg('triangles') / 1000).toFixed(0)}k tri · ${(avg('px') / 1e6).toFixed(2)} Mpx\nshadow work ${shadowRuns}× ${shadowRuns ? (sum('shadow') / shadowRuns).toFixed(0) : 0} ms · ${perf.frames.at(-1).bands} bands/frame\nother ${(avg('total') - avg('scene') - sum('shadow') / n).toFixed(0)} ms · dpr ${window.devicePixelRatio}`;
     perf.since = now; perf.frames = [];
   };
   const draw = (recompute = false) => {
