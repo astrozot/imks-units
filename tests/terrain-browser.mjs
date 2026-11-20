@@ -58,6 +58,14 @@ try{
   }renderer.destroy();return readings;
  });
  for(const value of lighting){assert.ok(value.count>1000);assert.equal(value.error,0);if(value.time.includes('20:')||value.time.includes('21:')){assert.equal(value.white,0);assert.ok(value.mean<45,JSON.stringify(value));}}
+ // Playback draws once per display frame, also while shadows update over
+ // several frames (their redraw request once doubled every frame).
+ await page.goto(origin+'/coelum/');await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true',null,{timeout:30000});
+ const perFrame=await page.evaluate(async()=>{const c=document.querySelector('.coelum-canvas'),steps=[];let prev=+c.dataset.frame;
+  document.querySelector('[data-action="play"]').click();
+  await new Promise(res=>{let n=0;const f=()=>{const v=+c.dataset.frame;steps.push(v-prev);prev=v;if(++n<120)requestAnimationFrame(f);else res();};requestAnimationFrame(f);});
+  document.querySelector('[data-action="play"]').click();return steps;});
+ assert.ok(perFrame.filter(d=>d>1).length<=2,`Doubled frames during playback: ${perFrame.filter(d=>d>1).length}/120`);
  // The Place panel shows the ground elevation and accepts a new one.
  await page.goto(origin+'/coelum/');await page.waitForSelector('.coelum-full');
  await page.click('[data-action="place"]');

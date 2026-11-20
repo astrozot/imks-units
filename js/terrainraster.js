@@ -26,9 +26,11 @@ export function terrainRaster(ctx,surface,{W,H,radius,rotation,sun,moon,lighting
     const flux=moon?moonFlux(moon.phase??180,moon.dist)*10**(-.4*.22*Math.max(0,airmass-1)):0;
     const result=entry.renderer.draw({W,H,radius,rotation,sun,lightingSunAlt,solarFlux,moon:moon||{az:0,alt:-90},flux,paper:preferences.style==='paper',waterColor:preferences.waterColor,shadows:preferences.shadows,outlines:preferences.outlines,exposure:terrainExposure(preferences[night?'nightExposure':'exposure'],night),nearField:100,profile:terrainStats.profile,progressive:true});
     terrainStats.last=result;
-    // Unfinished shadow bands need one more frame, unless the app draws anyway.
+    // Unfinished shadow bands need one more frame, unless the app draws anyway
+    // (playback, gestures). Check after all of the next frame's callbacks have
+    // run: the app's own may come after this one, and must not be doubled.
     const count=entry.frames=(entry.frames||0)+1;
-    if(result?.shadowsPending)requestAnimationFrame(()=>{if(entry.frames===count&&renderers.get(ctx)===entry)onRedraw?.();});
+    if(result?.shadowsPending&&!entry.waiting){entry.waiting=true;requestAnimationFrame(()=>setTimeout(()=>{entry.waiting=false;if(entry.frames===count&&renderers.get(ctx)===entry)onRedraw?.();},0));}
     return result;
   }catch(e){console.warn('Terrain surface fallback:',e.message);releaseTerrainRaster(ctx);return null;}
 }
