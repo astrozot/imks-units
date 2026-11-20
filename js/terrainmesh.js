@@ -1,6 +1,10 @@
 // Terrain surface geometry and height grids; ENU metres, azimuth north through east.
 import { EARTH, RAD, destination } from './terrainmodel.js';
 export const PANORAMA_RINGS = [[14, 1000], [14, 4000], [12, 16000], [11, 64000], [10, 150000]];
+// Surfaces built by this code; the UI offers a rebuild for older ones.
+export const TERRAIN_GEOMETRY_REVISION = 6;
+// The eye is this far above the place's ground elevation.
+export const EYE_HEIGHT = 2;
 // Dense mesh cells per ring side (powers of two for the RTIN simplifier):
 // 7.8 m to 4 km, then 31 / 125 / 586 m, so a cell subtends at most about 0.5°
 // at each ring's inner edge. Adaptive triangulation keeps what the view needs.

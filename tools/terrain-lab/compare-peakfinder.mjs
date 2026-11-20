@@ -12,6 +12,7 @@ const output=process.env.TERRAIN_RESULTS||path.join(os.tmpdir(),'imks-peakfinder
 let browserType;
 for(const name of [process.env.PLAYWRIGHT&&path.join(process.env.PLAYWRIGHT,'index.mjs'),'playwright-core','playwright'].filter(Boolean))try{browserType=(await import(name))[kind];break;}catch{}
 if(!browserType)throw new Error('Set PLAYWRIGHT to a playwright-core installation');
+// The terrain worker adds a 2 m eye height to the ground: 88 m gives the 90 m eye.
 const html=`<!doctype html><meta charset="utf-8"><style>html,body{margin:0;overflow:hidden}canvas{display:block;width:100vw;height:100vh}</style><canvas id="canvas"></canvas>`;
 const server=http.createServer(async(req,res)=>{
  try{
@@ -105,7 +106,7 @@ try{
     },scenario);
    }else{
     await page.evaluate(async s=>{
-     window.surface=await new Promise((resolve,reject)=>{const worker=new Worker('/js/terrainworker.js',{type:'module'});worker.onerror=e=>{worker.terminate();reject(new Error(e.message));};worker.onmessage=({data})=>{if(data.type==='ready'){worker.terminate();resolve(data.surface);}else if(data.type==='error'){worker.terminate();reject(new Error(data.text));}};worker.postMessage({place:[45.88675,10.84577,90]});});
+     window.surface=await new Promise((resolve,reject)=>{const worker=new Worker('/js/terrainworker.js',{type:'module'});worker.onerror=e=>{worker.terminate();reject(new Error(e.message));};worker.onmessage=({data})=>{if(data.type==='ready'){worker.terminate();resolve(data.surface);}else if(data.type==='error'){worker.terminate();reject(new Error(data.text));}};worker.postMessage({place:[45.88675,10.84577,88]});});
      const {createTerrainRenderer}=await import('/js/terrainrender.js'),{lookAt}=await import('/js/coelum.js');
      window.renderer=createTerrainRenderer(canvas);renderer.setMeshes(surface.meshes);window.lookAt=lookAt;
      window.options={W:s.width,H:s.height,radius:s.width/(2*Math.tan(s.horizontalFovDegrees*Math.PI/720)),rotation:lookAt(179.1,-s.alt),sun:{az:180,alt:45},moon:{az:0,alt:-90},flux:0,exposure:2**.7,shadows:true,outlines:false};

@@ -1781,7 +1781,8 @@ body.coelum-app { background: #000; }
 .coelum-time-zone select { min-width: 0; max-width: 100%; padding: 5px; color: var(--c-ink); border: 1px solid var(--c-line); border-radius: 8px; background: var(--c-bg); }
 
 .coelum-time-zone input { box-sizing: border-box; min-width: 0; flex: 1; width: 100%; padding: 6px; color: var(--c-ink); background: var(--c-bg); border: 1px solid var(--c-line); border-radius: 8px; }
-.coelum-time-zone[data-place-zone-row] { display: block; }
+.coelum-time-zone[data-place-zone-row], .coelum-time-zone[data-place-elevation-row] { display: block; }
+.coelum-time-zone[data-place-elevation-row][hidden] { display: none; }
 .coelum-location-zone-controls { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .coelum-location-zone-controls .coelum-chip { flex: none; margin: 0; }
 .coelum-status [data-action="time"] { text-align: left; }

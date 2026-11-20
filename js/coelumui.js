@@ -21,6 +21,7 @@ import { skyScene, skyPointScale, SKY_LAYERS, defaultSkyView, skyRadius, moonTex
 import { storedHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
 import { prepareTerrain, restoreTerrain, forgetTerrain, storedTerrainHorizon, terrainAppearance, terrainKey, TERRAIN_DEFAULTS } from './skyterrain.js';
 import { releaseTerrainRaster } from './terrainraster.js';
+import { TERRAIN_GEOMETRY_REVISION, EYE_HEIGHT } from './terrainmesh.js';
 import { skyView as moonSystem } from './sky.js';
 import { moonsView, planetMap, moonDetailProfile, moonDetailStored, downloadMoonDetail, removeMoonDetail } from './skyview.js';
 import { pickLunarFeature, lunarFeatureDetails, findLunarFeature, lunarFeatureTarget, LUNAR_MIN_RADIUS } from './lunarfeatures.js';
@@ -342,6 +343,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <form class="coelum-place-form"><input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="City, or latitude, longitude" aria-label="Search places"><button type="submit" class="coelum-chip">Search online</button></form>
         <div class="coelum-place-results" role="list"></div>
         <p class="coelum-panel-note coelum-place-status" role="status" aria-live="polite"></p>
+        <label class="coelum-time-zone" data-place-elevation-row><span>Ground elevation (m)</span><span class="coelum-location-zone-controls"><input type="number" inputmode="decimal" step="any" min="-500" max="9000" data-place-elevation aria-label="Ground elevation in metres"><button type="button" class="coelum-chip" data-reset-place-elevation>Automatic</button></span></label>
+        <p class="coelum-panel-note" data-place-elevation-note>The landscape is seen from ${EYE_HEIGHT} m above this elevation. Automatic uses an elevation model (about 90 m resolution).</p>
         <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button>${options.standalone ? '' : '<button type="button" class="coelum-chip" data-place="original">Original place</button>'}<button type="button" class="coelum-chip" data-place="map">Choose on map</button><button type="button" class="coelum-chip" data-place="geocentric">Earth center</button><button type="button" class="coelum-chip" data-place="barycentric">Solar system barycenter</button></div><p class="coelum-panel-note">Earth center gives geocentric coordinates. The solar system barycenter gives approximate barycentric coordinates, close to heliocentric. These views have no ground or atmosphere.</p>
       </div>
       <dialog class="coelum-panel coelum-map-panel" id="${id}-map" aria-label="Choose a place on the map" hidden>
@@ -832,7 +835,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     root.classList.toggle('coelum-show-options', panelOpen() && panels.legend.hidden);
     updateUI(true);
     if (name === 'time' && !panels.time.hidden) showTime();
-    if (name === 'place' && !panels.place.hidden) { placeInput.value = ''; showPlaces(''); }
+    if (name === 'place' && !panels.place.hidden) { placeInput.value = ''; showPlaces(''); showElevation(); }
     const more = extra.find((p) => p.key === name);
     if (more && !panels[name].hidden) more.render(panels[name].querySelector('.coelum-panel-body'), explorer);
     if (leavingAlmanac && panels.almanac.hidden) $('[data-action="almanac"]').focus({ preventScroll: true });
@@ -1103,7 +1106,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const showTerrain = (text) => {
     terrainNote.hidden = horizon !== 'terrain' && !text;
     const buttons = '<span class="coelum-chips"><button type="button" class="coelum-chip" data-terrain="refresh">Download terrain</button><button type="button" class="coelum-chip" data-terrain="forget">Forget</button></span>';
-    const note = terrainSurface ? `The terrain around this place, from Mapterhorn elevation models out to 150 km. ${terrainSurface.persisted ? 'Saved for offline use.' : 'Available this session; offline storage was unavailable.'}${terrainSurface.eye < terrainSurface.pointGround ? ' The supplied eye elevation is below the model ground; check this place’s elevation.' : ''}${terrainSurface.metrics.samplingCoverage?.fallbackSamples ? ' Some areas use coarser source coverage.' : ''}${terrainSurface.metrics.geometryRevision !== 3 ? ' Download terrain again for finer mountain detail.' : ''}` : terrain ? 'A saved skyline is available. Download the mountain surfaces for shading and shadows.' : 'Download local mountains and their horizon (typically 30–50 MB), then use them offline. Source detail varies; the nearest 100 m, buildings and trees are excluded.';
+    const note = terrainSurface ? `The terrain around this place, from Mapterhorn elevation models out to 150 km. ${terrainSurface.persisted ? 'Saved for offline use.' : 'Available this session; offline storage was unavailable.'}${terrainSurface.eye < terrainSurface.pointGround ? ` This place’s elevation (${Math.round(terrainSurface.eye - EYE_HEIGHT)} m) is below the terrain model’s ground here (${Math.round(terrainSurface.pointGround)} m); set it in the Place panel.` : ''}${terrainSurface.metrics.samplingCoverage?.fallbackSamples ? ' Some areas use coarser source coverage.' : ''}${terrainSurface.metrics.geometryRevision !== TERRAIN_GEOMETRY_REVISION ? ' Download terrain again for finer mountain detail.' : ''}` : terrain ? 'A saved skyline is available. Download the mountain surfaces for shading and shadows.' : 'Download local mountains and their horizon (typically 30–50 MB), then use them offline. Source detail varies; the nearest 100 m, buildings and trees are excluded.';
     terrainNote.innerHTML = text || note + buttons;
   };
   const restoreCurrentTerrain = async () => {
@@ -1251,12 +1254,28 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (views.sky?.auto) views.sky = null;
     eventsDay = null; placeStatus.textContent = '';
     options.onPlace?.([...place], placeLabel);
-    showPanel(null);
+    if (p.keepPanel) showElevation(); else showPanel(null);
     animator = null;
     if (origin !== 'topocentric' && mount === 'altaz') { mountSwitch.reset('equatorial'); setMount('equatorial'); }
     showMount();
     if (playing) pause(); else draw(true);
   };
+  // The ground elevation of the current place: shown, editable, or automatic.
+  const elevationInput = $('[data-place-elevation]');
+  const showElevation = () => {
+    const ground = observerOrigin(place) === 'topocentric';
+    $('[data-place-elevation-row]').hidden = $('[data-place-elevation-note]').hidden = !ground;
+    elevationInput.setCustomValidity('');
+    if (ground && document.activeElement !== elevationInput) elevationInput.value = Number.isFinite(place[2]) ? String(Math.round(place[2] * 10) / 10) : '';
+  };
+  elevationInput.addEventListener('input', () => elevationInput.setCustomValidity(''));
+  elevationInput.addEventListener('change', async () => {
+    const h = Number(elevationInput.value.replace('−', '-'));
+    if (elevationInput.value.trim() === '' || !Number.isFinite(h) || h < -500 || h > 9000) { elevationInput.setCustomValidity('Enter the ground elevation in metres, between −500 and 9000.'); elevationInput.reportValidity(); return; }
+    if (h === place[2]) return;
+    await setPlace({ lat: place[0], lon: place[1], h, name: placeLabel, keepPanel: true });
+  });
+  $('[data-reset-place-elevation]').addEventListener('click', () => setPlace({ lat: place[0], lon: place[1], h: null, name: placeLabel, keepPanel: true }));
   const showPlaceMap = () => {
     showPanel('map');
     const preferences = new Map();

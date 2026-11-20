@@ -31,7 +31,8 @@ try{
  await page.waitForFunction(()=>document.querySelector('.coelum-canvas').dataset.terrainSurface==='true',null,{timeout:120000});
  assert.match(await page.locator('.coelum-terrain-note').textContent(),/Saved for offline/);assert.ok(requests>100&&requests<700);
  const downloaded=requests;
- const profile=await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');return(await restoreTerrain([45.89617,10.84333,90])).profile.length;});assert.equal(profile,3600);
+ const stored=await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');const s=await restoreTerrain([45.89617,10.84333,90]);return {profile:s.profile.length,eye:s.eye};});assert.equal(stored.profile,3600);
+ assert.equal(stored.eye,92,'The eye is 2 m above the place’s ground elevation');
  await page.click('[data-action="terrain"]');assert.equal(await page.locator('[data-terrain-setting="style"]').inputValue(),'natural');assert.equal(await page.locator('[data-terrain-setting="outlines"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="shadows"]').isChecked(),true);assert.equal(await page.locator('[data-terrain-setting="nightExposure"]').inputValue(),'0');
  await page.uncheck('[data-terrain-setting="shadows"]');await page.check('[data-terrain-setting="shadows"]');await page.locator('.coelum-terrain-panel [data-action="close-panel"]').click();assert.equal(requests,downloaded);
  assert.equal(await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');return await restoreTerrain([45.89617,10.84333,92]);}),null,'Eye height changes must not reuse the surface');
@@ -57,6 +58,13 @@ try{
   }renderer.destroy();return readings;
  });
  for(const value of lighting){assert.ok(value.count>1000);assert.equal(value.error,0);if(value.time.includes('20:')||value.time.includes('21:')){assert.equal(value.white,0);assert.ok(value.mean<45,JSON.stringify(value));}}
+ // The Place panel shows the ground elevation and accepts a new one.
+ await page.goto(origin+'/coelum/');await page.waitForSelector('.coelum-full');
+ await page.click('[data-action="place"]');
+ assert.equal(await page.locator('[data-place-elevation]').inputValue(),'90');
+ await page.fill('[data-place-elevation]','123.5');await page.press('[data-place-elevation]','Enter');
+ await page.waitForFunction(()=>JSON.parse(localStorage.getItem('imks.coelumPlace')).h===123.5);
+ assert.ok(await page.locator('[data-place-elevation]').isVisible(),'The panel stays open after an elevation change');
  assert.deepEqual(errors,[]);console.log(JSON.stringify({status:'passed',tiles:downloaded,offline:true,sharedWithIMKS:true,lighting}));
  await context.close();
 }finally{await browser.close();await new Promise(r=>server.close(r));}

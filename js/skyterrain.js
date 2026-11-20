@@ -1,7 +1,7 @@
 // Local terrain lifecycle: exact viewpoint keys, bounded offline surfaces, and
 // cancellable worker jobs. A surface is never reused at another eye elevation.
 export const TERRAIN_DEFAULTS = Object.freeze({ style:'natural', waterColor:true, shadows:true, outlines:false, exposure:0, nightExposure:0 });
-const PROFILE_KEY='imks-coelum-terrain-profiles-v2', SETTINGS_KEY='imks-coelum-terrain-appearance-v2', DATABASE='imks-terrain-surfaces-v2';
+const PROFILE_KEY='imks-coelum-terrain-profiles-v3', SETTINGS_KEY='imks-coelum-terrain-appearance-v2', DATABASE='imks-terrain-surfaces-v2';
 export const terrainKey = place => `${Number(place[0])},${Number(place[1])},${Number.isFinite(place[2])?Number(place[2]):'ground+2'}`;
 const readProfiles=()=>{try{return JSON.parse(localStorage.getItem(PROFILE_KEY))||{};}catch{return {};}};
 export function storedTerrainHorizon(place){const p=readProfiles()[terrainKey(place)];return p?.alt?.length===3600 && p.alt.every(Number.isFinite)?Float32Array.from(p.alt):null;}
@@ -32,11 +32,11 @@ async function transaction(mode,fn){const db=await database();try{return await n
   const tx=db.transaction('surfaces',mode),store=tx.objectStore('surfaces');let result;
   fn(store,value=>{result=value;});tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error||new Error('Terrain storage failed'));
 });}finally{db.close();}}
-// Version 4 surfaces carry per-ring height grids and water level maps, with
-// compacted meshes; older ones are rebuilt.
+// Version 5 surfaces carry per-ring height grids and water level maps, with
+// compacted meshes, seen from EYE_HEIGHT above the ground; older ones rebuild.
 const validGrid=g=>Number.isInteger(g?.size)&&g.size>0&&g.heights instanceof Uint16Array&&g.heights.length===g.size*g.size&&Number.isFinite(g.extent)&&Number.isFinite(g.scale)&&Number.isFinite(g.offset);
 const validWater=w=>w===undefined||Number.isInteger(w?.size)&&w.levels instanceof Float32Array&&w.levels.length===w.size*w.size;
-function validSurface(s){return s?.version===4&&s.profile instanceof Float32Array&&s.profile.length===3600&&s.profile.every(Number.isFinite)&&Array.isArray(s.meshes)&&s.meshes.length===5&&s.meshes.every(m=>m.positions instanceof Float32Array&&m.positions.length%3===0&&m.indices instanceof Uint32Array&&validGrid(m.grid)&&validWater(m.water));}
+function validSurface(s){return s?.version===5&&s.profile instanceof Float32Array&&s.profile.length===3600&&s.profile.every(Number.isFinite)&&Array.isArray(s.meshes)&&s.meshes.length===5&&s.meshes.every(m=>m.positions instanceof Float32Array&&m.positions.length%3===0&&m.indices instanceof Uint32Array&&validGrid(m.grid)&&validWater(m.water));}
 export async function restoreTerrain(place){
   try{return (await transaction('readwrite',(store,done)=>{const req=store.get(terrainKey(place));req.onsuccess=()=>{const item=req.result;if(item&&validSurface(item.surface)){item.time=Date.now();store.put(item);done(item.surface);}else if(item)store.delete(item.key);};})) || null;}catch{return null;}
 }
