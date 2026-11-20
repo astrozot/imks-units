@@ -1,0 +1,203 @@
+{
+  "baseline": "Working-tree snapshot with radial velocities and the original 14 binary models",
+  "current": "17 reviewed binary models; shared exact per-system cache",
+  "limitation": "Desktop Chromium CPU throttling is a proxy, not physical-phone validation; complete V12 catalogue loaded for these measurements.",
+  "runs": [
+    {
+      "cpuSlowdown": 4,
+      "viewport": "390x844",
+      "stars": 2308822,
+      "method": "Interleaved before/after medians after warmup; desktop Chromium, no network or catalog loading in measured sections",
+      "skyCanvasMedianMs": [
+        {
+          "ra": 270,
+          "dec": -29,
+          "scale": 1,
+          "before": 30.899999856948853,
+          "after": 31.40000009536743
+        },
+        {
+          "ra": 270,
+          "dec": -29,
+          "scale": 32,
+          "before": 17.5,
+          "after": 17
+        },
+        {
+          "ra": 270,
+          "dec": -29,
+          "scale": 256,
+          "before": 19.799999952316284,
+          "after": 20.100000143051147
+        },
+        {
+          "ra": 180,
+          "dec": 60,
+          "scale": 1,
+          "before": 23.199999809265137,
+          "after": 24.5
+        },
+        {
+          "ra": 180,
+          "dec": 60,
+          "scale": 32,
+          "before": 11,
+          "after": 11.799999952316284
+        },
+        {
+          "ra": 180,
+          "dec": 60,
+          "scale": 256,
+          "before": 10.900000095367432,
+          "after": 11.700000047683716
+        },
+        {
+          "ra": 226.1479260393544,
+          "dec": -17.361821730841157,
+          "scale": 1,
+          "before": 26.90000009536743,
+          "after": 27.40000009536743
+        },
+        {
+          "ra": 226.1479260393544,
+          "dec": -17.361821730841157,
+          "scale": 32,
+          "before": 12.700000047683716,
+          "after": 12.700000047683716
+        },
+        {
+          "ra": 226.1479260393544,
+          "dec": -17.361821730841157,
+          "scale": 256,
+          "before": 12.200000047683716,
+          "after": 12
+        }
+      ],
+      "playbackUpdateMedianMs": {
+        "stars": {
+          "before": 5.699999809265137,
+          "after": 5.700000047683716
+        },
+        "default": {
+          "before": 14.5,
+          "after": 14.700000047683716
+        }
+      },
+      "binarySystemCounts": {
+        "before": 14,
+        "after": 17
+      },
+      "allBinaryComponentsUpdateMedianMs": {
+        "before": 0.03666666348775228,
+        "after": 0.04000000158945719
+      },
+      "combinedPlaybackAndSkyMedianMs": {
+        "before": 63.19999980926514,
+        "after": 63.80000019073486
+      },
+      "boundedBinaryCache": {
+        "orbitEvaluations": 22457,
+        "cachedSystems": 17,
+        "maximumCachedSystems": 17
+      }
+    },
+    {
+      "cpuSlowdown": 6,
+      "viewport": "390x844",
+      "stars": 2308822,
+      "method": "Interleaved before/after medians after warmup; desktop Chromium, no network or catalog loading in measured sections",
+      "skyCanvasMedianMs": [
+        {
+          "ra": 270,
+          "dec": -29,
+          "scale": 1,
+          "before": 47.59999990463257,
+          "after": 48.5
+        },
+        {
+          "ra": 270,
+          "dec": -29,
+          "scale": 32,
+          "before": 25.100000143051147,
+          "after": 25.699999809265137
+        },
+        {
+          "ra": 270,
+          "dec": -29,
+          "scale": 256,
+          "before": 28.299999952316284,
+          "after": 28.299999952316284
+        },
+        {
+          "ra": 180,
+          "dec": 60,
+          "scale": 1,
+          "before": 34,
+          "after": 35.200000047683716
+        },
+        {
+          "ra": 180,
+          "dec": 60,
+          "scale": 32,
+          "before": 17.59999990463257,
+          "after": 17.90000009536743
+        },
+        {
+          "ra": 180,
+          "dec": 60,
+          "scale": 256,
+          "before": 16.399999856948853,
+          "after": 16.90000009536743
+        },
+        {
+          "ra": 226.1479260393544,
+          "dec": -17.361821730841157,
+          "scale": 1,
+          "before": 38.90000009536743,
+          "after": 39
+        },
+        {
+          "ra": 226.1479260393544,
+          "dec": -17.361821730841157,
+          "scale": 32,
+          "before": 18.199999809265137,
+          "after": 17.5
+        },
+        {
+          "ra": 226.1479260393544,
+          "dec": -17.361821730841157,
+          "scale": 256,
+          "before": 17.700000047683716,
+          "after": 16.90000009536743
+        }
+      ],
+      "playbackUpdateMedianMs": {
+        "stars": {
+          "before": 9,
+          "after": 8.899999856948853
+        },
+        "default": {
+          "before": 21.09999990463257,
+          "after": 21.59999990463257
+        }
+      },
+      "binarySystemCounts": {
+        "before": 14,
+        "after": 17
+      },
+      "allBinaryComponentsUpdateMedianMs": {
+        "before": 0.05666666825612386,
+        "after": 0.06333332856496175
+      },
+      "combinedPlaybackAndSkyMedianMs": {
+        "before": 99.89999985694885,
+        "after": 99
+      },
+      "boundedBinaryCache": {
+        "orbitEvaluations": 22457,
+        "cachedSystems": 17,
+        "maximumCachedSystems": 17
+      }
+    }
+  ]
+}

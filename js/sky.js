@@ -94,7 +94,8 @@ const doing = (o) => ["transit", "occulted", "eclipsed", "shadow"].filter((k) =>
 // The moons of a planet at the time t for drawing (skyview.js), kept with
 // the history: in planet radii, the planet's radius in arcseconds, and t;
 // Mercury and Venus alone
-function skyView(planet, t, m = MOON_PLANETS.includes(planet) ? moons(planet, t) : planetDisk(planet, t)) {
+function skyView(planet, t, m = null, place = null) {
+  m ||= MOON_PLANETS.includes(planet) ? moons(planet,t,place) : planetDisk(planet,t,place);
   const r5 = (x) => Math.round(x * 1e5) / 1e5;
   return {
     planet, t, radius: r5(m.radius * 3600), pole: m.pole.map(r5), sun: m.sun.map(r5), sunAngle: m.sunAngle,

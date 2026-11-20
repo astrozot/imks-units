@@ -141,9 +141,9 @@ major lakes blue, with no regional overrides or assumed lake levels. Their
 1:10 million map scale is generalised; small lakes and close shoreline details
 may be missing. Blue water can be disabled in Terrain appearance. Without WebGL2, the
 saved skyline still works with the original ground renderer. **Fainter stars** can be downloaded from the app's
-own `data/`: to magnitude 8 (40,000 more stars, 1.3 MB), 10 (349,000,
-8.3 MB), 11 (937,000, 18.4 MB) or 12 (2,308,825, 58.9 MB), with available
-parallaxes and proper motions and found by their HIP, HD or TYC numbers
+own `data/`: to magnitude 8 (40,000 more stars, 1.5 MB), 10 (349,000,
+9.7 MB), 11 (937,000, 22.2 MB) or 12 (2,308,822, 68.1 MB), with available
+parallaxes, proper motions and radial velocities and found by their HIP, HD or TYC numbers
 (new Gaia stars also by their Gaia DR3 number); one set at a time is stored in Cache
 Storage (the service worker keeps caches named `imks-data…` across
 updates) and appears as you zoom in, in the chart up to the chosen
@@ -339,6 +339,18 @@ keep it in place. The bottom bar shows a ruler under the
 speed, a round angle at the center of the view, and the play button points backward when
 time runs backward.
 
+A normal selection has a yellow circle and four spikes. Holding an object
+for half a second selects it in red with the same marker, before release,
+and keeps its playback trajectory as another object is selected. The yellow
+selection becomes the trajectory's moving reference; changing it rebases the
+existing history. With no separate reference the trail follows the display's
+coordinate frame. Camera locking remains independent of the trajectory reference.
+Binary-system centers of mass appear as small grey crosses when their
+components are resolved, and can be selected or found by searching, for example,
+`Toliman barycenter` or `α Centauri barycenter`. Select that cross and long-press
+a component to show its orbit relative to the center of mass. Empty-sky
+selection clears the selections and trail.
+
 The chart's built-in stars and downloads through magnitude 11 come from
 [AT-HYG](https://codeberg.org/astronexus/athyg) v4.0 (David Nash): Tycho-2,
 Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and
@@ -346,10 +358,11 @@ proper motions, and the IAU star names. V, B−V and the double and variable
 flags of Hipparcos stars come from the Hipparcos catalogue (ESA, 1997), and
 their positions from its new reduction (van Leeuwen, 2007), as AT-HYG gives
 those of the brightest stars at 1991.25. AT-HYG is licensed CC BY-SA 4.0,
-and so are the files made from it: `js/stardata.js` (5,783 stars: to V 6,
-and all with a name, a Bayer letter or a Flamsteed number) and
+and so are the files made from it: `js/stardata.js` (the base catalogue;
+5,796 stars after the binary-component overlay, to V 6 and all with a name,
+a Bayer letter or a Flamsteed number, plus the modelled binary components) and
 `data/stars-8.bin`, `stars-10.bin` and `stars-11.bin` (the others, in sky
-tiles of 3°, each brightest first, 16 bytes a star plus the HIP and HD
+tiles of 3°, each brightest first, 20 bytes a star plus the HIP and HD
 numbers; the layout is described in the tool). To regenerate, download
 `athyg_40.csv.gz` (AT-HYG's `data/`), `hip_main.dat` (VizieR I/239),
 `hip2.dat.gz` (I/311) and `suppl_1.dat.gz` (I/259) — the last three from
@@ -385,7 +398,9 @@ cross-match rows) and refuses a truncated
 extract. It writes `data/stars-12.bin` and `data/stars-12.json`, including
 source and output checksums, counts and attribution. STAR version 2 keeps
 the original arrays and appends 8 bytes per star for Gaia's 64-bit ID (zero
-for retained AT-HYG entries); the reader accepts both versions. The file
+for retained AT-HYG entries). Version 3 appends a float32 radial velocity
+to version 1; version 4 appends it to version 2 (km/s, NaN unknown).
+The reader accepts all four versions. The file
 stays an optional download shared by both apps, outside their offline shell.
 Validate with `node tests/gaia-stars.mjs` and, with Playwright configured as
 for the other browser checks, `node tests/gaia-stars-browser.mjs`.
@@ -420,8 +435,8 @@ modern coordinates. The dated `radec`, `ecl`, `eq2ecl` and `ecl2eq` functions
 use the same equinox and obliquity, including longitude-event searches. Earth position and velocity are shared across a frame;
 downloaded stars retain tile culling,
 with bounds expanded for these corrections. Playback caches catalog space
-motion for at most a day while updating the frame, parallax, deflection and
-aberration each frame.
+motion bases for at most a day while advancing stellar positions and updating
+the frame, parallax, deflection and aberration each frame.
 Coordinate grids retain their geometric rotations. Standard local `altaz`
 and `radec` stellar positions include solar light deflection, and local
 positions include diurnal aberration; geocentric positions exclude the latter.
@@ -442,6 +457,96 @@ geometric SGP4 convention. Stellarium desktop's
 explicitly excludes solar light deflection, so near-Sun apparent stellar
 positions can intentionally differ from Stellarium.
 
+Radial velocities now come from AT-HYG for retained stars and Gaia DR3 for
+new Gaia entries. They enter shared three-dimensional space propagation in
+the chart, calculator, occultation targets and optional JPL reductions.
+The vector retains its distance: radial motion changes annual parallax and
+introduces perspective acceleration, without a first-order angular shift.
+Missing velocities remain `null`/NaN, with zero assumed only for propagation;
+cards distinguish unknown from measured zero. HYG-source zeros are treated
+as unknown because that source historically uses zero for missing RV.
+The V12 download contains 2,156,108 available radial velocities. Existing
+catalogue positions and proper motions are retained; this enrichment is
+not a new astrometric calibration or a treatment of variable spectroscopic RV.
+Old offline catalogues still work; Layers offers **Update star motions** to
+replace one explicitly. No catalogue is downloaded automatically.
+
+Seventeen visual binaries have fixed Kepler models, with both components
+built in: α Centauri, Sirius, 61 Cygni, γ Virginis, Alula Australis, Achird,
+ε¹ and ε² Lyrae, β Muscae, Dalim, ψ Velorum, ρ Ophiuchi, ζ Herculis and
+η Ophiuchi, Castor, Procyon and 70 Ophiuchi. Each system propagates its barycentre and adds mass-weighted
+orbital displacements; component proper motions are not added again.
+The component V magnitudes are separate rather than duplicated integrated
+light. Common names and catalog IDs remain searchable; append A or B to
+select a component. Chart playback updates the orbits on every frame.
+Cards show the orbital period and USNO grade, flagging grades 4–5 as uncertain.
+ρ Ophiuchi uses an explicitly adopted equal-mass, AT-HYG mean barycentre;
+its absolute component positions are approximate. These fixed orbits do not
+provide reliable millennial extrapolations, inner subsystems, or mutual eclipses.
+
+The expansion screen requires ORB6 grades 1–3, primary V ≤ 6, secondary
+V ≤ 12 and relative semimajor axis ≥ 0.2 arcsec. Of 129 screened pairs,
+9 were already modelled and 3 passed this batch's identity, barycentre,
+mass-ratio and hierarchy review; 117 remain candidates, not accepted models.
+The complete screening report is `data/binary-selection.json` and the
+reviewed additions and source provenance are `data/binary-reviewed-additions.json`.
+Castor represents the outer A–B orbit only; its Hipparcos component-A position
+is corrected to the barycentre. Procyon uses the explicitly barycentric
+Hipparcos solution. 70 Ophiuchi retains Gaia's actual J2016.0 reference epoch.
+
+Fixed orbital geometry is compiled once. Both components share one exact
+orbit solve per system and timestamp, with a bounded cache of 17 systems
+and no accumulated time history or interpolation. The three additional
+pairs do not enlarge the optional catalogue downloads.
+
+Relative elements and V magnitudes come from the
+[USNO Sixth Catalog of Orbits of Visual Binary Stars](https://crf.usno.navy.mil/wds-orb6).
+Most barycentre parameters and adopted mass ratios come from Stellarium
+26.3. The source audit identified several inconsistencies: β Muscae's Stellarium
+entry repeats Achird's orbit, and the guide's ρ Ophiuchi corresponds to
+70 Ophiuchi in its data. This app implements the actual ρ Ophiuchi AB.
+Stellarium's ψ Velorum periastron date also exactly repeats Dalim's; this
+app uses USNO Msn2023's ψ Velorum elements and epoch instead.
+Source hashes, attribution and assumptions are in `data/stellar-motion.json`.
+Displayed stellar temperatures remain colour-derived in this release; Gaia NSS orbital
+solutions are not substituted for relative visual orbits.
+
+To reproduce the enrichment, put `athyg_40.csv.gz`, `gaia-rv.csv` (query
+`tools/gaia-radial-velocities.adql`, CSV, MAXREC=10000000), Stellarium 26.3's
+`binary_orbitparam.dat`, and USNO's `orb6.txt`/`orb6-ephemerides.txt` in one
+directory, together with the additional Hipparcos/Gaia source files listed
+in `data/binary-reviewed-additions.json`. Run `python tools/stellar-catalogs.py <directory>` (NumPy), then
+`python tools/space-motion-reference.py` (ERFA and SciPy). Source snapshots
+must match the recorded hashes to reproduce the same output. The Gaia RV
+extract is checked against an independent count of 2,161,040 source rows.
+`node tests/starmotion.mjs` checks ERFA space motion, independent orbital
+solutions, 85 published USNO ephemerides, barycentre conservation, drawing/
+calculator agreement, playback, culling and unique components. Numerical
+results are in `data/stellar-motion-validation.json`; agreement with these
+models is not an estimate of observed astrometric accuracy.
+`tests/starmotion-browser.mjs` checks mobile layout, binary selection,
+legacy catalogue updates, shared caches and offline use in Chromium.
+Interleaved before/after desktop Chromium measurements at 4× CPU throttling
+are in `data/stellar-motion-performance.json`: stars-only playback was
+7.7/7.8 ms and default playback 17.7/19.0 ms in that run. These are desktop
+measurements, not a physical-phone performance guarantee.
+The separate 14-to-17-system expansion benchmark is
+`data/binary-expansion-performance.json`. With the V12 catalogue loaded,
+stars-only playback at 4× CPU throttling was 5.7/5.7 ms before/after;
+default playback was 14.5/14.7 ms. Updating all binary components took
+0.037/0.040 ms. At 6× throttling, combined playback and rendering was
+99.9/99.0 ms. These measurements show little incremental cost; they do
+not imply that dense V12 rendering meets a phone's frame budget.
+`node tools/binary-orbit-audit.mjs` verifies all seven elements of all 14
+systems against their USNO source records, then compares them with a pinned
+Stellarium 26.3 table and 70 published USNO ephemerides. The full comparison
+is `data/binary-stellarium-audit.json`. Seven systems share Stellarium's
+shape and period, with fractional-year epoch conversion differences; six
+use different adopted elements, and ρ Ophiuchi is a different system from
+Stellarium's 70 Ophiuchi entry. The refreshed development file was identical
+to 26.3 on 2026-11-19. These comparisons do not independently validate the
+borrowed barycentre astrometry or adopted component masses.
+
 Satellites (`js/satellites.js`) come from CelesTrak's groups: the space
 stations and the brightest ones by default, science, amateur radio and
 weather satellites on request (Layers). Their elements are fetched once a
@@ -455,6 +560,15 @@ standard magnitudes (`js/satmags.js`; regenerate with
 <https://www.mmccants.org/programs/>), or a default of the group. The
 calculator knows them by CelesTrak's names (`passes("SL-16 R/B #22285",
 today)` for one of several with a name).
+
+The bottom location selector also offers **Earth center** (geocentric) and
+**Solar system barycenter** (approximate barycentric, close to heliocentric).
+These origins update positions, distances, parallax and aberration, including
+playback. Barycentric stars show astrometric space motion and binary orbits,
+without observer parallax, aberration or solar light deflection. They offer EQ and GA mounts; AZ, ground, atmosphere, horizon grids
+and rise/set times require a surface location. The barycenter display uses a
+mass-weighted compact planetary model; selected-object JPL refinement uses
+the kernel’s barycentric origin. The Sun is always hidden in the barycentric view. The standalone app remembers the chosen origin.
 
 ### Coelum, the app
 

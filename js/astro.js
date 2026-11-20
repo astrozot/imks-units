@@ -18,6 +18,7 @@ import { VSOP87 } from "./vsop87.js";
 import { MOONS } from "./moons.js";
 import { MOON } from "./moonseries.js";
 import { moonContactGeometry, contactIntervals } from "./moongeometry.js";
+import { stellarState } from './starmotion.js';
 import { moonSeriesPosition } from "./moonposition.js";
 import { sgp4 } from "./sgp4.js";
 import { precisionFrame } from "./precisionframes.js";
@@ -160,6 +161,60 @@ export function heliocentric(planet, T, velocity = false) {
   return [pos, v];
 }
 
+// Special display locations retain a reference terrestrial orientation in the
+// first three entries; the fourth selects the physical coordinate origin.
+export const observerOrigin = (place) => place?.[3] === 'geocentric' || place?.[3] === 'barycentric' ? place[3] : 'topocentric';
+
+// Approximate solar-system barycentre relative to the Sun, in the analytic
+// theories' ecliptic of date (au, au/day). Planet/Sun mass ratios; omitted
+// minor bodies and the compact theories limit this to a display model.
+const PLANET_MASS = { mercury: 1/6023600, venus: 1/408523.71, earth: 1/328900.56, mars: 1/3098708, jupiter: 1/1047.3486, saturn: 1/3497.898, uranus: 1/22902.98, neptune: 1/19412.24 };
+let baryTime = NaN, baryState;
+export function barycentricObserver(T) {
+  if (T === baryTime) return baryState;
+  const position = [0,0,0], velocity = [0,0,0];
+  let total = 1;
+  for (const [body, mass] of Object.entries(PLANET_MASS)) {
+    const [p,v] = heliocentric(body,T,true); total += mass;
+    for (let i=0;i<3;i++) { position[i] += mass*p[i]; velocity[i] += mass*v[i]; }
+  }
+  baryTime = T; baryState = [position.map(x=>x/total),velocity.map(x=>x/total)];
+  return baryState;
+}
+
+// Apparent directions from the approximate barycentre. Recompute light time
+// from this origin, rather than translating an Earth-retarded planet ray.
+function barycentricEquatorial(body, t) {
+  const T = centuries(t), origin = barycentricObserver(T), [E,V] = origin, n = nutation(T);
+  let p;
+  if (typeof body === 'object' && !body.orbit && !body.orbits && !body.sgp4) p = starEcliptic(body,T,null,origin);
+  else {
+    const position = (delay) => {
+      const epoch = T-delay/36525;
+      if (body === 'sun') return [0,0,0];
+      if (body === 'moon' || body?.sgp4) {
+        const q = body === 'moon' ? moonEcliptic(epoch) : null;
+        let v;
+        if (q) v = [cos(q.lat)*cos(q.lon-nutation(epoch).dpsi),cos(q.lat)*sin(q.lon-nutation(epoch).dpsi),sin(q.lat)].map(x=>x*q.dist/AU);
+        else {
+          const a = equatorial(body,t-delay*86400), e = nutation(epoch);
+          const x = a.dist*cos(a.dec)*cos(a.ra), y = a.dist*cos(a.dec)*sin(a.ra), z = a.dist*sin(a.dec);
+          const b = y*cos(e.eps)+z*sin(e.eps);
+          v = [x*cos(e.dpsi)+b*sin(e.dpsi),-x*sin(e.dpsi)+b*cos(e.dpsi),-y*sin(e.eps)+z*cos(e.eps)].map(x=>x/AU);
+        }
+        return heliocentric('earth',epoch).map((x,i)=>x+v[i]);
+      }
+      return typeof body === 'object' ? eclipticOfDate(orbitPosition(orbitOf(body,epoch),2451545+epoch*36525),T) : heliocentric(body,epoch);
+    };
+    let g, delay=0;
+    for(let i=0;i<3;i++) { g=position(delay).map((x,k)=>x-E[k]); delay=Math.hypot(...g)/C_AU; }
+    const dist=Math.hypot(...g), a=g.map((x,k)=>x+dist*V[k]/C_AU);
+    p={lon:Math.atan2(a[1],a[0])/RAD+n.dpsi,lat:Math.atan2(a[2],Math.hypot(a[0],a[1]))/RAD,dist:dist*AU};
+  }
+  const v=apparentFrame(T).fromLegacy([cos(p.lat)*cos(p.lon),cos(p.lat)*sin(p.lon)*cos(n.eps)-sin(p.lat)*sin(n.eps),cos(p.lat)*sin(p.lon)*sin(n.eps)+sin(p.lat)*cos(n.eps)]);
+  return {ra:mod360(Math.atan2(v[1],v[0])/RAD),dec:Math.atan2(v[2],Math.hypot(v[0],v[1]))/RAD,dist:p.dist};
+}
+
 // The apparent ecliptic longitude and latitude (degrees) and distance (km)
 // of the Sun or a planet: the planet where it was when its light left
 // (light time), seen from the moving Earth (aberration), in the FK5 frame
@@ -282,14 +337,14 @@ function moonEcliptic(T) {
 // (aberration), with solar light deflection and nutation. Without a
 // parallax, 1e18 km (about a
 // hundred light years), far enough for no parallax from the surface
-const MAS = RAD / 3.6e6;
-
 // Solar monopole deflection for distant sources, before aberration. The
 // observer position is heliocentric, in au. Use the ERFA/SOFA angular
 // limiter inside the opaque solar disk: finite everywhere and zero on axis.
 // See ERFA ldsun/ld and data/precision/ERFA-LICENSE.txt.
 export function solarDeflectionState(position) {
   const distance = Math.hypot(...position), limiter = 1e-6 / Math.max(1, distance * distance);
+  // Neutral state for astrometric views, which have no local light bending.
+  if (distance === 0) return { direction: [0,0,0], strength: 0, limiter: 1, maxShift: 0 };
   const strength = 1.97412574336e-8 / distance;
   return { direction: position.map((x) => x / distance), strength, limiter, maxShift: strength * Math.sqrt(2 / limiter) };
 }
@@ -301,15 +356,11 @@ export function solarDeflection(v, state) {
   return v.map((x, i) => x + w * (r * e[i] - pe * x));
 }
 
-function starEcliptic(s, T, observer = null) {
-  const y = T * 100, u = unit(s.ra, s.dec);
-  const e = [-sin(s.ra), cos(s.ra), 0], n = [-sin(s.dec) * cos(s.ra), -sin(s.dec) * sin(s.ra), cos(s.dec)];
-  // the radial velocity as a relative change of the distance per year
-  const vr = s.plx > 0 ? (s.rv || 0) * s.plx / (4.740470 * 1000 * 206264.806) : 0;
-  const p = u.map((x, k) => x + y * (MAS * ((s.pmra || 0) * e[k] + (s.pmdec || 0) * n[k]) + vr * x));
+function starEcliptic(s, T, observer = null, origin = null) {
+  const { vector: p, plx } = stellarState(s, 2451545 + T * 36525);
   const [qx, qy, qz] = precessVector(p, T), eps0 = nutation(T).eps0;
   let g = [qx, qy * cos(eps0) + qz * sin(eps0), -qy * sin(eps0) + qz * cos(eps0)];
-  const [earth, V] = heliocentric("earth", T, true);
+  const [earth, V] = origin || heliocentric("earth", T, true);
   let E = earth;
   if (observer) {
     // True equatorial km -> mean ecliptic au, undoing nutation in longitude.
@@ -320,11 +371,14 @@ function starEcliptic(s, T, observer = null) {
   }
   // Scale the propagated vector by the catalog distance; normalizing it
   // here would discard the distance change from space motion.
-  const d = s.plx > 0 ? 206264806 / s.plx : 0;
-  if (d) g = g.map((x, k) => x * d - E[k]);
+  const d = plx > 0 ? 206264806 / plx : 0;
+  if (d) g = g.map((x, k) => x * d - (origin ? 0 : E[k]));
   const r = Math.hypot(...g);
-  const natural = solarDeflection(g, solarDeflectionState(E));
-  const a = natural.map((x, k) => x + r * V[k] / C_AU);
+  // The barycentric display uses astrometric stellar directions. Applying
+  // observer-side solar deflection near/inside the Sun produces spurious
+  // multi-year wiggles as the Sun moves around the barycentre.
+  const natural = origin ? g : solarDeflection(g, solarDeflectionState(E));
+  const a = natural.map((x, k) => x + (origin ? 0 : r * V[k] / C_AU));
   const lon = Math.atan2(a[1], a[0]) / RAD, lat = Math.atan2(a[2], Math.hypot(a[0], a[1])) / RAD;
   return { lon: mod360(lon + nutation(T).dpsi), lat, dist: d ? r * AU : 1e18 };
 }
@@ -464,7 +518,9 @@ export function apparentEcliptic(body, t, place = null) {
 
 // WGS 84 observer position (km) and rotational velocity / c in the true
 // equator/equinox of date. Height is treated as ellipsoidal, as elsewhere.
-export function surfaceObserver(t, [lat, lon, h = 0]) {
+export function surfaceObserver(t, place) {
+  if (observerOrigin(place) !== 'topocentric') return { position: [0,0,0], beta: [0,0,0] };
+  const [lat, lon, h = 0] = place;
   const lst = siderealTime(t, lon), u = Math.atan(0.99664719 * Math.tan(lat * RAD));
   const rc = 6378.137 * Math.cos(u) + h / 1000 * cos(lat), rs = 6378.137 * 0.99664719 * Math.sin(u) + h / 1000 * sin(lat);
   const position = [rc * cos(lst), rc * sin(lst), rs], spin = 7.29211514670698e-5 / 299792.458;
@@ -476,6 +532,8 @@ export function surfaceObserver(t, [lat, lon, h = 0]) {
 // already include both effects and return before this compact reduction.
 function topocentric(body, t, place, ephemeris = null) {
   if (ephemeris) { const p = ephemeris.topocentric(body, t, place); if (p) return p; }
+  if (observerOrigin(place) === 'geocentric') return equatorial(body,t);
+  if (observerOrigin(place) === 'barycentric') return barycentricEquatorial(body,t);
   const obs = surfaceObserver(t, place), stellar = typeof body === 'object' && !body.orbit && !body.orbits && !body.sgp4;
   // Stellar deflection uses the local Sun-observer ray; parallax is already
   // included by that reduction. Other bodies retain their own models.
@@ -624,7 +682,13 @@ function moonPhase(t) {
 // Earth (delta), and the Earth's from the Sun (R), in km; the phase angle
 // (Sun–body–Earth) and the elongation (Sun–Earth–body, positive east of the
 // Sun), in degrees
-function aspect(body, t) {
+function aspect(body, t, place = null) {
+  if (observerOrigin(place) === 'barycentric') {
+    const s = apparentEcliptic('sun',t,place), p = body === 'sun' ? s : apparentEcliptic(body,t,place);
+    const c = Math.max(-1,Math.min(1,sin(s.lat)*sin(p.lat)+cos(s.lat)*cos(p.lat)*cos(p.lon-s.lon)));
+    const E = Math.acos(c)/RAD, R=s.dist, D=p.dist;
+    return {r:body==='sun'?0:Math.sqrt(R*R+D*D-2*R*D*c),delta:D,R,phase:body==='sun'?0:Math.atan2(R*sin(E),D-R*cos(E))/RAD,elong:mod360(p.lon-s.lon)<180?E:-E};
+  }
   const T = centuries(t);
   const s = ecliptic("sun", T);
   if (body === "sun") return { r: 0, delta: s.dist, R: s.dist, phase: 0, elong: 0 };
@@ -675,8 +739,8 @@ function subLatitudes(body, t) {
 
 // Visual magnitude: the Sun, the Moon (Allen), and the planets of Mallama
 // and Hilton (2018), as in the Astronomical Almanac; Saturn with its rings
-function magnitude(body, t) {
-  const { r, delta, phase: a } = aspect(body, t);
+function magnitude(body, t, place = null) {
+  const { r, delta, phase: a } = aspect(body, t, place);
   const d = 5 * Math.log10(r / AU * delta / AU);
   // comets: total magnitude M1 + 5 log Δ + K log r; minor planets: the H, G
   // system (Bowell et al. 1989)
@@ -761,9 +825,9 @@ const FLATTENING = { mars: 0.00589, jupiter: 0.06487, saturn: 0.09796, uranus: 0
 // north on the sky there, the sunlight (l, from the Sun), its pole (of the
 // date), its distance (km) and the time of its moons (days of TT from
 // J2000, when their light left)
-function system(planet, t) {
+function system(planet, t, place = null) {
   const sys = MOONS[planet], T = centuries(t);
-  const P = equatorial(planet, t), S = equatorial("sun", t);
+  const P = place ? topocentric(planet,t,place) : equatorial(planet,t), S = place ? topocentric("sun",t,place) : equatorial("sun",t);
   const zAxis = unit(sys.pole[0], sys.pole[1]), h = Math.hypot(zAxis[0], zAxis[1]);
   const xAxis = [-zAxis[1] / h, zAxis[0] / h, 0];
   const yAxis = [zAxis[1] * xAxis[2] - zAxis[2] * xAxis[1], zAxis[2] * xAxis[0] - zAxis[0] * xAxis[2], zAxis[0] * xAxis[1] - zAxis[1] * xAxis[0]];
@@ -771,7 +835,7 @@ function system(planet, t) {
   // Remove annual aberration for the physical observer ray and sunlight.
   // Applying the apparent directions directly to a million-km orbit can
   // move its projected limb crossings by tens of km.
-  const [, V] = heliocentric("earth", T, true), n = nutation(T);
+  const [, V] = observerOrigin(place) === 'barycentric' ? barycentricObserver(T) : heliocentric('earth',T,true), n = nutation(T);
   const beta = trueVector([V[0], V[1] * cos(n.eps0) - V[2] * sin(n.eps0), V[1] * sin(n.eps0) + V[2] * cos(n.eps0)], T).map((x) => x / C_AU);
   const geometric = (a) => {
     const b = a.map((x, k) => x * (1 + dot(a, beta)) - beta[k]), len = Math.hypot(...b);
@@ -880,8 +944,8 @@ function lonBelow(pole, W, P, T) {
 // planet's equatorial radius (degrees). For drawing (view): in planet
 // radii, on axes to the west, to the north and toward the Earth, the moons
 // (x, y, z, radius), the north pole and the direction of the Sun
-function moons(planet, t) {
-  const g = system(planet, t), { sys, P, u, east, north } = g;
+function moons(planet, t, place = null) {
+  const g = system(planet, t, place), { sys, P, u, east, north } = g;
   const toView = (v) => [-dot(v, east), dot(v, north), -dot(v, u)];
   const out = Object.keys(sys.moons).map((name) => {
     const v = apparentMoonVector(g, name);
@@ -910,8 +974,8 @@ function moons(planet, t) {
 // north and toward the Earth its north pole (IAU 2015, of the date) and the
 // direction of the Sun
 const DISK_POLE = { mercury: [281.0103, 61.4155], venus: [272.76, 67.16] };
-function planetDisk(planet, t) {
-  const P = equatorial(planet, t), S = equatorial("sun", t), [a0, d0] = DISK_POLE[planet];
+function planetDisk(planet, t, place = null) {
+  const P = place ? topocentric(planet,t,place) : equatorial(planet,t), S = place ? topocentric("sun",t,place) : equatorial("sun",t), [a0, d0] = DISK_POLE[planet];
   const u = unit(P.ra, P.dec), east = [-sin(P.ra), cos(P.ra), 0], north = [-sin(P.dec) * cos(P.ra), -sin(P.dec) * sin(P.ra), cos(P.dec)];
   const toView = (v) => [-dot(v, east), dot(v, north), -dot(v, u)];
   const sv = unit(S.ra, S.dec).map((x) => x * S.dist), toSun = u.map((x, k) => sv[k] - x * P.dist), n = Math.hypot(...toSun);
@@ -926,7 +990,7 @@ function planetDisk(planet, t) {
 // observer (facing). Its rotation is the IAU's (2009, the mean Earth
 // frame), with the librations: up to 8° in longitude and 7° in latitude
 // (the pole's tilt), and the diurnal one of the place's 1°.
-function moonDisk(t, P) {
+function moonDisk(t, P, place = null) {
   const T = centuries(t), d = T * 36525;
   const E = [125.045 - 0.0529921 * d, 250.089 - 0.1059842 * d, 260.008 + 13.0120009 * d, 176.625 + 13.3407154 * d, 357.529 + 0.9856003 * d,
     311.589 + 26.4057084 * d, 134.963 + 13.064993 * d, 276.617 + 0.3287146 * d, 34.226 + 1.7484877 * d, 15.134 - 0.1589763 * d,
@@ -936,23 +1000,23 @@ function moonDisk(t, P) {
   const d0 = 66.5392 + 0.013 * T + 1.5419 * cE[0] + 0.0239 * cE[1] - 0.0278 * cE[2] + 0.0068 * cE[3] - 0.0029 * cE[5] + 0.0009 * cE[6] + 0.0008 * cE[9] - 0.0009 * cE[12];
   const W = 38.3213 + 13.17635815 * d - 1.4e-12 * d * d + 3.561 * sE[0] + 0.1208 * sE[1] - 0.0642 * sE[2] + 0.0158 * sE[3] + 0.0252 * sE[4] - 0.0066 * sE[5]
     - 0.0047 * sE[6] - 0.0046 * sE[7] + 0.0028 * sE[8] + 0.0052 * sE[9] + 0.004 * sE[10] + 0.0019 * sE[11] - 0.0044 * sE[12];
-  const S = equatorial("sun", t), u = unit(P.ra, P.dec), east = [-sin(P.ra), cos(P.ra), 0], north = [-sin(P.dec) * cos(P.ra), -sin(P.dec) * sin(P.ra), cos(P.dec)];
+  const S = place ? topocentric("sun",t,place) : equatorial("sun",t), u = unit(P.ra, P.dec), east = [-sin(P.ra), cos(P.ra), 0], north = [-sin(P.dec) * cos(P.ra), -sin(P.dec) * sin(P.ra), cos(P.dec)];
   const toView = (v) => [-dot(v, east), dot(v, north), -dot(v, u)];
   const sv = unit(S.ra, S.dec).map((x) => x * S.dist), toSun = u.map((x, k) => sv[k] - x * P.dist), n = Math.hypot(...toSun);
   const pole = unit(a0, d0);
   // Earthlight: Earth's phase is seen from the Moon, independent of the
   // observer's location. A Lambert phase curve includes foreshortening of
   // both illuminated and visible terrain; illuminated fraction alone does not.
-  const M = equatorial("moon", t), em = unit(M.ra, M.dec), es = unit(S.ra, S.dec);
+  const M = equatorial("moon", t), GS = equatorial("sun",t), em = unit(M.ra, M.dec), es = unit(GS.ra, GS.dec);
   const alpha = Math.acos(Math.max(-1, Math.min(1, dot(em, es))));
   const phase = Math.max(0, (Math.sin(alpha) + (Math.PI - alpha) * Math.cos(alpha)) / Math.PI);
-  const moonSun = Math.hypot(...sv.map((x, k) => x - em[k] * M.dist));
+  const moonSun = Math.hypot(...es.map((x, k) => x * GS.dist - em[k] * M.dist));
   // Irradiance relative to direct sunlight at the Moon. Mean Earth radius
   // (km), geometric albedo (NASA Earth Fact Sheet), inverse-square dilution.
   // Fixed mean reflectivity: clouds, continents and ocean glint are not resolved.
   // https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html
   // Lambert phase: https://doi.org/10.1088/0004-637X/747/1/25
-  const earthshine = 0.434 * phase * (6371 / M.dist) ** 2 * (moonSun / S.dist) ** 2;
+  const earthshine = 0.434 * phase * (6371 / M.dist) ** 2 * (moonSun / GS.dist) ** 2;
   return { planet: "moon", t, moons: [], radius: Math.asin(1737.4 / P.dist) / RAD, pole: toView(precessVector(pole, T)), sun: toView(toSun.map((x) => x / n)),
     earth: toView(em.map((x) => -x)), earthshine, facing: { lon: lonBelow(pole, W, P, T) } };
 }

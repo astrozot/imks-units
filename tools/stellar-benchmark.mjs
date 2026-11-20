@@ -31,15 +31,18 @@ try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
-  const result = await page.evaluate(async () => {
-    const versions = {}, bytes = await (await fetch('/data/stars-12.bin')).arrayBuffer();
+  const cpuSlowdown=Number(process.env.CPU_SLOWDOWN || 4);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpuSlowdown });
+  const result = await page.evaluate(async (cpuSlowdown) => {
+    const versions = {};
     for (const label of ['before', 'after']) {
       const a = await import(`/${label}/js/coelum.js`), { skyScene } = await import(`/${label}/js/coelumsky.js`);
+      const motion=await import(`/${label}/js/starmotion.js`),{BINARY_SYSTEMS}=await import(`/${label}/js/binarydata.js`);
+      const bytes = await (await fetch(`/${label}/data/stars-12.bin`)).arrayBuffer();
       a.setFaintStars(bytes);
       const frame = a.skyFrame(Date.parse('2026-11-11T00:00Z') / 1000, [45, 9, 0]);
       const canvas = document.createElement('canvas'); canvas.width = 390; canvas.height = 844;
-      versions[label] = { a, skyScene, frame, ctx: canvas.getContext('2d') };
+      versions[label] = { a, skyScene, frame, motion, binaries:BINARY_SYSTEMS, ctx: canvas.getContext('2d') };
     }
     const median = (values) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
     const results = [];
@@ -66,11 +69,28 @@ try {
       }
       playbackResults[mode] = Object.fromEntries(Object.entries(measures).map(([k, v]) => [k, median(v)]));
     }
+    const binaryMeasures={before:[],after:[]};
+    for(let round=0;round<40;round++)for(const label of round%2?['after','before']:['before','after']){
+      const v=versions[label],jd=2451545+round*.731,start=performance.now();
+      for(let k=0;k<30;k++)for(const s of v.binaries)for(const c of s.components)v.motion.binaryState(c.id,jd+k*.0001);
+      if(round>4)binaryMeasures[label].push((performance.now()-start)/30);
+    }
+    const combined={before:[],after:[]};
+    for(const v of Object.values(versions))v.advance=v.a.createSkyAnimator(v.frame.t,v.frame.place,{deep:false,constellations:true,ecliptic:true});
+    for(let round=0;round<40;round++)for(const label of round%2?['after','before']:['before','after']){
+      const v=versions[label],start=performance.now(),frame=v.advance(v.frame.t+round*120),o=frame.catalog(270,-29);
+      v.skyScene(frame,390,844,{ground:false,atmosphere:false,milkyway:false,deep:false,labels:false,constellations:false,magnitude:12},{scale:32,rotation:v.a.lookAt(o.az,o.alt)},v.ctx);
+      if(round>4)combined[label].push(performance.now()-start);
+    }
     return {
-      cpuSlowdown: 4, viewport: '390x844', stars: versions.after.a.faintCount(),
+      cpuSlowdown, viewport: '390x844', stars: versions.after.a.faintCount(),
       method: 'Interleaved before/after medians after warmup; desktop Chromium, no network or catalog loading in measured sections',
       skyCanvasMedianMs: results, playbackUpdateMedianMs: playbackResults,
+      binarySystemCounts:Object.fromEntries(Object.entries(versions).map(([k,v])=>[k,v.binaries.length])),
+      allBinaryComponentsUpdateMedianMs:Object.fromEntries(Object.entries(binaryMeasures).map(([k,v])=>[k,median(v)])),
+      combinedPlaybackAndSkyMedianMs:Object.fromEntries(Object.entries(combined).map(([k,v])=>[k,median(v)])),
+      boundedBinaryCache:versions.after.motion.binaryMotionStats?.(),
     };
-  });
+  },cpuSlowdown);
   console.log(JSON.stringify(result, null, 2));
 } finally { await browser?.close(); server.close(); }

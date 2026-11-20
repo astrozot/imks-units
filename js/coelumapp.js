@@ -34,8 +34,8 @@ let timeMode = store.get('coelumTimeZone', 'device');
 if (!['device', 'utc', 'location'].includes(timeMode)) timeMode = 'device';
 let clockPlace = [51.4769, -0.0005];
 const zoneOverrides = store.get('coelumPlaceZones', {});
-const placeZoneKey = (p = clockPlace) => p.slice(0, 2).map((x) => x.toFixed(4)).join(',');
-const inferredZone = (p = clockPlace) => { const zone = tzlookup(p[0], p[1]); return validSkyZone(zone) ? zone : 'UTC'; };
+const placeZoneKey = (p = clockPlace) => p[3] || p.slice(0, 2).map((x) => x.toFixed(4)).join(',');
+const inferredZone = (p = clockPlace) => { if (p[3]) return 'UTC'; const zone = tzlookup(p[0], p[1]); return validSkyZone(zone) ? zone : 'UTC'; };
 const clockZone = (p = clockPlace) => timeMode === 'utc' ? 'UTC' : timeMode === 'device' ? deviceTimeZone() : zoneOverrides[placeZoneKey(p)] || inferredZone(p);
 const clockWithZone = (t, p = clockPlace, seconds = false) => {
   // Worldwide event maps have no selected place. Use the sky's location
@@ -169,7 +169,7 @@ function openEvent(kind, x, place, explorer) {
 
 const saved = store.get("coelumPlace", null) || settings.location || null;
 const start = saved && Number.isFinite(saved.lat) && Number.isFinite(saved.lon) ? saved : null;
-const placeOf = (p) => [p.lat, p.lon, Number.isFinite(p.h) ? p.h : 0];
+const placeOf = (p) => [p.lat, p.lon, Number.isFinite(p.h) ? p.h : 0, ...(['geocentric','barycentric'].includes(p.origin) ? [p.origin] : [])];
 const model = start
   ? { t: Math.round(Date.now() / 1000), place: placeOf(start), label: start.name || `${start.lat.toFixed(3)}°, ${start.lon.toFixed(3)}°` }
   : { t: Math.round(Date.now() / 1000), place: [51.4769, -0.0005, 46], label: "Greenwich" };
@@ -189,7 +189,7 @@ const explorer = mountCoelum(root, model, formatTime, {
   places: () => lookups().places,
   rememberPlace: (key, place) => { const l = lookups(); l.places[key] = place; store.set("lookups", l); },
   minorBodies: () => Object.values(lookups().objects).filter((o) => o.orbits || o.orbit),
-  onPlace: (p, label) => { clockPlace = [...p]; store.set("coelumPlace", { lat: p[0], lon: p[1], h: p[2], name: label }); },
+  onPlace: (p, label) => { clockPlace = [...p]; store.set("coelumPlace", { lat: p[0], lon: p[1], h: p[2], origin: p[3], name: label }); },
   panels: [eventsPanel({ store, get utc() { return clockZone() === 'UTC'; }, formatTime, formatClock: clockWithZone, opens: "its map or drawing", open: (kind, ...a) => (kind === "occultations" ? openOccultation(...a) : openEvent(kind, ...a)) })],
 });
 if (!start) $('[data-action="place"]', root).click();

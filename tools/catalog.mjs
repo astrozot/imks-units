@@ -38,7 +38,7 @@ const hyg = new Map();
   const [HIP, DIST, PMRA, PMDEC, RV, RA, DEC] = ["hip", "dist", "pmra", "pmdec", "rv", "ra", "dec"].map(col);
   for (const line of lines.slice(1)) {
     const f = line.split(",");
-    if (f[HIP]) hyg.set(Number(f[HIP]), { ra: Number(f[RA]) * 15, dec: Number(f[DEC]), dist: Number(f[DIST]), pmra: Number(f[PMRA]), pmdec: Number(f[PMDEC]), rv: Number(f[RV]) });
+    if (f[HIP]) hyg.set(Number(f[HIP]), { ra: Number(f[RA]) * 15, dec: Number(f[DEC]), dist: Number(f[DIST]), pmra: Number(f[PMRA]), pmdec: Number(f[PMDEC]), rv: f[RV]?.trim() && Number(f[RV]) !== 0 ? Number(f[RV]) : null });
   }
 }
 
@@ -58,7 +58,7 @@ for (const line of read("IAU-CSN.txt").split("\n")) {
   const plx = same && h.dist > 0 && h.dist < 1e5 ? round(1000 / h.dist, 2) : 0;
   // HYG stops at 9999.99 mas/yr: Barnard's Star from Gaia DR3
   if (name === "Barnard's Star") { stars.push([name, round(Number(ra), 6), round(Number(dec), 6), -801.55, 10362.39, 546.98, -110.5, 9.54]); continue; }
-  stars.push([name, round(Number(ra), 6), round(Number(dec), 6), same ? round(h.pmra, 2) : 0, same ? round(h.pmdec, 2) : 0, plx, same ? round(h.rv, 1) : 0, round(Number(mag), 2)]);
+  stars.push([name, round(Number(ra), 6), round(Number(dec), 6), same ? round(h.pmra, 2) : 0, same ? round(h.pmdec, 2) : 0, plx, same && h.rv !== null ? round(h.rv, 1) : null, round(Number(mag), 2)]);
 }
 // those without a magnitude (Geminga) last
 const magOf = (s) => (Number.isFinite(s[7]) ? s[7] : 99);

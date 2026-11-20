@@ -18,7 +18,7 @@ const sepOf = (a, b) => Math.acos(Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] *
 let stars = null;
 const starTargets = () => (stars ??= CHART_STARS
   .filter((s) => s[3] <= OCC_MAG && occultationCandidate("moon", s[1], s[2]))
-  .map(([hip, ra, dec, mag, , , pmra, pmdec, plx, proper, names]) => ({ name: proper || (names ? names.split("|")[0] : `HIP ${hip}`), ra, dec, pmra, pmdec, plx, rv: 0, mag, kind: "star" })));
+  .map(([hip, ra, dec, mag, , , pmra, pmdec, plx, proper, names, , rv = null, binary = null]) => ({ name: proper || (names ? names.split("|")[0] : `HIP ${hip}`), ra, dec, pmra, pmdec, plx, rv, binary, mag, kind: "star" })));
 const nameOf = (target) => (typeof target === "string" ? target[0].toUpperCase() + target.slice(1) : target.name);
 const magOf = (target, t) => (typeof target === "string" ? magnitude(target, t) : target.mag);
 

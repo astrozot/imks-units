@@ -43,7 +43,7 @@ const b = bytes('../data/stars-12.bin'), start = performance.now(), catalog = re
 setFaintStars(b);
 assert.equal(faintDepth(), 12);
 assert.ok(faintCount() > 936502);
-assert.equal(b.byteLength, 24 + 20 * catalog.T + 24 * catalog.n + 8 * catalog.alias.length);
+assert.equal(b.byteLength, 24 + 20 * catalog.T + 28 * catalog.n + 8 * catalog.alias.length);
 assert.deepEqual(findObject(frame, 'HIP 439'), { ...oldStar, estimatedPhotometry: false }, 'Retained identifiers and astrometry');
 const { gaia } = catalog;
 let index = -1, added = 0;

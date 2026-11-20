@@ -1,0 +1,1435 @@
+{
+  "source": {
+    "tag": "v26.3",
+    "commit": "3f23cf3a1a59523a9c7b1ec4540c33bca77addfa",
+    "url": "https://github.com/Stellarium/stellarium/blob/v26.3/stars/hip_gaia3/binary_orbitparam.dat",
+    "sha256": "9c207bfe1814440658b5e1664fca676da491a6bc703c4e30a5a3d967795614c1",
+    "records": 15,
+    "developmentSha256": "9c207bfe1814440658b5e1664fca676da491a6bc703c4e30a5a3d967795614c1",
+    "releaseAndDevelopmentIdentical": true
+  },
+  "scope": "Element and identity audit. Sample offsets use the same relative-orbit evaluator for both element sets; they are not full Stellarium apparent-position or observational-error measurements.",
+  "systems": [
+    {
+      "name": "α Centauri",
+      "classification": "same-elements-year-convention",
+      "reason": "Same orbital shape and period; the periastron date differs only because USNO specifies a fractional Besselian year.",
+      "app": {
+        "periodYears": 79.762,
+        "eccentricity": 0.51947,
+        "inclinationDegrees": 79.243,
+        "nodeDegrees": 205.07300000000004,
+        "periastronArgumentDegrees": 231.519,
+        "periastronJD": 2435314.6310530673,
+        "relativeSemimajorArcsec": 17.493,
+        "components": [
+          {
+            "id": "0:A",
+            "name": "Rigil Kentaurus",
+            "hip": 71683,
+            "gaia": ""
+          },
+          {
+            "id": "0:B",
+            "name": "Toliman",
+            "hip": 71681,
+            "gaia": "5877748442128924544"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 79.762,
+        "eccentricity": 0.51947,
+        "inclinationDegrees": 79.243,
+        "nodeDegrees": 205.07300000000004,
+        "periastronArgumentDegrees": 231.519,
+        "periastronJD": 2435314.751,
+        "relativeSemimajorArcsec": 17.493,
+        "componentIds": [
+          "71683",
+          "71681"
+        ],
+        "actualSystem": "α Centauri"
+      },
+      "differences": {
+        "periastronJD": {
+          "app": 2435314.6310530673,
+          "stellarium": 2435314.751,
+          "deltaDays": -0.11994693288579583
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 1.3318948868555294,
+        "epoch": 2458667.375,
+        "ra": 219.85892215,
+        "dec": -60.831631949999995,
+        "rv": -22.39,
+        "pmra": -3639.95,
+        "pmdec": 700.4
+      },
+      "stellariumBarycentre": {
+        "distance": 1.3318948868555294,
+        "epoch": 2458667.375,
+        "ra": 219.85892215,
+        "dec": -60.83163195,
+        "rv": -22.39,
+        "pmra": -3639.95,
+        "pmdec": 700.4
+      },
+      "appMasses": [
+        1.0788,
+        0.9092
+      ],
+      "stellariumMasses": [
+        1.0788,
+        0.9092
+      ],
+      "usnoReference": "Ake2021",
+      "usnoGrade": 2,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 9.293841964399329,
+        "stellariumElementsSeparationArcsec": 9.293671821532767,
+        "relativeVectorOffsetArcsec": 0.0002177204492841581
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.0011077340382410483,
+        "maxPositionAngleDifferenceDegrees": 0.23004913111276437
+      }
+    },
+    {
+      "name": "Sirius",
+      "classification": "same-elements-year-convention",
+      "reason": "Same orbital shape and period; the periastron date differs only because USNO specifies a fractional Besselian year.",
+      "app": {
+        "periodYears": 50.1284,
+        "eccentricity": 0.59142,
+        "inclinationDegrees": 136.336,
+        "nodeDegrees": 45.4,
+        "periastronArgumentDegrees": 149.161,
+        "periastronJD": 2449561.8161220173,
+        "relativeSemimajorArcsec": 7.4957,
+        "components": [
+          {
+            "id": "1:A",
+            "name": "Sirius",
+            "hip": 32349,
+            "gaia": ""
+          },
+          {
+            "id": "1:B",
+            "name": "Sirius B",
+            "hip": 0,
+            "gaia": "2947050466531873024"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 50.1284,
+        "eccentricity": 0.59142,
+        "inclinationDegrees": 136.336,
+        "nodeDegrees": 45.4,
+        "periastronArgumentDegrees": 149.161,
+        "periastronJD": 2449562.240375,
+        "relativeSemimajorArcsec": 7.4957,
+        "componentIds": [
+          "32349",
+          "2947050466531873024"
+        ],
+        "actualSystem": "Sirius"
+      },
+      "differences": {
+        "periastronJD": {
+          "app": 2449561.8161220173,
+          "stellarium": 2449562.240375,
+          "deltaDays": -0.4242529827170074
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 2.6392187912377936,
+        "epoch": 2451545,
+        "ra": 101.28715533,
+        "dec": -16.71611586,
+        "rv": -8.47,
+        "pmra": -506.3282841530055,
+        "pmdec": -1078.0683606557377
+      },
+      "stellariumBarycentre": {
+        "distance": 2.6392187912377936,
+        "epoch": 2451545,
+        "ra": 101.28715533,
+        "dec": -16.71611586,
+        "rv": -8.47,
+        "pmra": -506.3282841530055,
+        "pmdec": -1078.0683606557377
+      },
+      "appMasses": [
+        2.063,
+        1.018
+      ],
+      "stellariumMasses": [
+        2.063,
+        1.018
+      ],
+      "usnoReference": "BdH2017",
+      "usnoGrade": 2,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 11.163054624302175,
+        "stellariumElementsSeparationArcsec": 11.163184645375557,
+        "relativeVectorOffsetArcsec": 0.00044678205129972093
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.0004191955424452942,
+        "maxPositionAngleDifferenceDegrees": 0.1951022395758173
+      }
+    },
+    {
+      "name": "61 Cygni",
+      "classification": "different-adopted-elements",
+      "reason": "USNO PkO2017b fit instead of Stellarium’s different adopted fit; grade 4, uncertain.",
+      "app": {
+        "periodYears": 664.37,
+        "eccentricity": 0.457,
+        "inclinationDegrees": 53.29,
+        "nodeDegrees": 174.88,
+        "periastronArgumentDegrees": 149.32,
+        "periastronJD": 2342107.013377349,
+        "relativeSemimajorArcsec": 24.36,
+        "components": [
+          {
+            "id": "2:A",
+            "name": "61 Cygni A",
+            "hip": 104214,
+            "gaia": "1872046609345556480"
+          },
+          {
+            "id": "2:B",
+            "name": "61 Cygni B",
+            "hip": 104217,
+            "gaia": "1872046574983497216"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 704.858,
+        "eccentricity": 0.435,
+        "inclinationDegrees": 52.018,
+        "nodeDegrees": 174.56,
+        "periastronArgumentDegrees": 154.04400000000004,
+        "periastronJD": 2340510.461,
+        "relativeSemimajorArcsec": 24.57,
+        "componentIds": [
+          "1872046609345556480",
+          "1872046574983497216"
+        ],
+        "actualSystem": "61 Cygni"
+      },
+      "differences": {
+        "periodYears": {
+          "app": 664.37,
+          "stellarium": 704.858
+        },
+        "eccentricity": {
+          "app": 0.457,
+          "stellarium": 0.435
+        },
+        "inclinationDegrees": {
+          "app": 53.29,
+          "stellarium": 52.018
+        },
+        "nodeDegrees": {
+          "app": 174.88,
+          "stellarium": 174.56
+        },
+        "periastronArgumentDegrees": {
+          "app": 149.32,
+          "stellarium": 154.04400000000004
+        },
+        "periastronJD": {
+          "app": 2342107.013377349,
+          "stellarium": 2340510.461,
+          "deltaDays": 1596.5523773487657
+        },
+        "relativeSemimajorArcsec": {
+          "app": 24.36,
+          "stellarium": 24.57
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 3.496437479851779,
+        "epoch": 2457389,
+        "ra": 316.7510710233,
+        "dec": 38.7599676093,
+        "rv": -65.034,
+        "pmra": 4135.09,
+        "pmdec": 3202.778
+      },
+      "stellariumBarycentre": {
+        "distance": 3.496437479851779,
+        "epoch": 2457389,
+        "ra": 316.7510710233001,
+        "dec": 38.7599676093,
+        "rv": -65.034,
+        "pmra": 4135.09,
+        "pmdec": 3202.778
+      },
+      "appMasses": [
+        0.7,
+        0.63
+      ],
+      "stellariumMasses": [
+        0.7,
+        0.63
+      ],
+      "usnoReference": "PkO2017b",
+      "usnoGrade": 4,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 32.08784352427431,
+        "stellariumElementsSeparationArcsec": 32.131572929014965,
+        "relativeVectorOffsetArcsec": 0.04411283315454204
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.000732097713147084,
+        "maxPositionAngleDifferenceDegrees": 0.17386926181688978
+      }
+    },
+    {
+      "name": "γ Virginis",
+      "classification": "different-adopted-elements",
+      "reason": "USNO Sca2007c fit with different period, inclination, eccentricity, axis and epoch.",
+      "app": {
+        "periodYears": 169.104,
+        "eccentricity": 0.8815,
+        "inclinationDegrees": 149.46,
+        "nodeDegrees": 35.34,
+        "periastronArgumentDegrees": 255.02,
+        "periastronJD": 2453557.383155582,
+        "relativeSemimajorArcsec": 3.639,
+        "components": [
+          {
+            "id": "3:A",
+            "name": "Porrima",
+            "hip": 61941,
+            "gaia": "3683687763520080384"
+          },
+          {
+            "id": "3:B",
+            "name": "γ Virginis B",
+            "hip": 0,
+            "gaia": "3683687763520080256"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 168.93,
+        "eccentricity": 0.8825,
+        "inclinationDegrees": 148.82,
+        "nodeDegrees": 35.34,
+        "periastronArgumentDegrees": 255.02,
+        "periastronJD": 2453531.2295,
+        "relativeSemimajorArcsec": 3.662,
+        "componentIds": [
+          "3683687763520080384",
+          "3683687763520080256"
+        ],
+        "actualSystem": "γ Virginis"
+      },
+      "differences": {
+        "periodYears": {
+          "app": 169.104,
+          "stellarium": 168.93
+        },
+        "eccentricity": {
+          "app": 0.8815,
+          "stellarium": 0.8825
+        },
+        "inclinationDegrees": {
+          "app": 149.46,
+          "stellarium": 148.82
+        },
+        "periastronJD": {
+          "app": 2453557.383155582,
+          "stellarium": 2453531.2295,
+          "deltaDays": 26.153655582107604
+        },
+        "relativeSemimajorArcsec": {
+          "app": 3.639,
+          "stellarium": 3.662
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 11.684973124561814,
+        "epoch": 2451545,
+        "ra": 190.4149391943586,
+        "dec": -1.4494030396953002,
+        "rv": -19.8,
+        "pmra": -569.747,
+        "pmdec": 10.7155
+      },
+      "stellariumBarycentre": {
+        "distance": 11.684973124561814,
+        "epoch": 2451545,
+        "ra": 190.4149391943586,
+        "dec": -1.4494030396953002,
+        "rv": -19.8,
+        "pmra": -569.747,
+        "pmdec": 10.7155
+      },
+      "appMasses": [
+        1.4,
+        1.4
+      ],
+      "stellariumMasses": [
+        1.4,
+        1.4
+      ],
+      "usnoReference": "Sca2007c",
+      "usnoGrade": 2,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 3.570643615605873,
+        "stellariumElementsSeparationArcsec": 3.5920116133166085,
+        "relativeVectorOffsetArcsec": 0.02145498377412582
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.0005308631908418349,
+        "maxPositionAngleDifferenceDegrees": 0.05535461263440311
+      }
+    },
+    {
+      "name": "Alula Australis",
+      "classification": "same-elements-year-convention",
+      "reason": "Same orbital shape and period; the periastron date differs only because USNO specifies a fractional Besselian year.",
+      "app": {
+        "periodYears": 59.8903,
+        "eccentricity": 0.40432,
+        "inclinationDegrees": 122.187,
+        "nodeDegrees": 100.939,
+        "periastronArgumentDegrees": 126.964,
+        "periastronJD": 2427865.8816511277,
+        "relativeSemimajorArcsec": 2.50442,
+        "components": [
+          {
+            "id": "4:A",
+            "name": "Alula Australis",
+            "hip": 0,
+            "gaia": "756853643638639104"
+          },
+          {
+            "id": "4:B",
+            "name": "Alula Australis B",
+            "hip": 0,
+            "gaia": "756853643637996160"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 59.8903,
+        "eccentricity": 0.40432,
+        "inclinationDegrees": 122.187,
+        "nodeDegrees": 100.939,
+        "periastronArgumentDegrees": 126.964,
+        "periastronJD": 2427865.8425000003,
+        "relativeSemimajorArcsec": 2.50442,
+        "componentIds": [
+          "756853643638639104",
+          "756853643637996160"
+        ],
+        "actualSystem": "Alula Australis"
+      },
+      "differences": {
+        "periastronJD": {
+          "app": 2427865.8816511277,
+          "stellarium": 2427865.8425000003,
+          "deltaDays": 0.03915112745016813
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 8.734639045408768,
+        "epoch": 2451545,
+        "ra": 169.54442668460666,
+        "dec": 31.52853473639239,
+        "rv": -17.5,
+        "pmra": -393.113693989071,
+        "pmdec": -599.1503387978142
+      },
+      "stellariumBarycentre": {
+        "distance": 8.734639045408768,
+        "epoch": 2451545,
+        "ra": 169.54442668460666,
+        "dec": 31.52853473639239,
+        "rv": -17.5,
+        "pmra": -393.113693989071,
+        "pmdec": -599.1503387978142
+      },
+      "appMasses": [
+        0.97,
+        0.86
+      ],
+      "stellariumMasses": [
+        0.97,
+        0.86
+      ],
+      "usnoReference": "Izm2019",
+      "usnoGrade": 1,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 2.6681704319074555,
+        "stellariumElementsSeparationArcsec": 2.6681784874412426,
+        "relativeVectorOffsetArcsec": 0.000015190916338335838
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.0005990749586186617,
+        "maxPositionAngleDifferenceDegrees": 0.049180546029447214
+      }
+    },
+    {
+      "name": "Achird",
+      "classification": "same-elements-year-convention",
+      "reason": "Same orbital shape and period; the periastron date differs only because USNO specifies a fractional Besselian year.",
+      "app": {
+        "periodYears": 479.27,
+        "eccentricity": 0.497,
+        "inclinationDegrees": 35.6,
+        "nodeDegrees": 278,
+        "periastronArgumentDegrees": 269.8,
+        "periastronJD": 2411342.324578275,
+        "relativeSemimajorArcsec": 12.04,
+        "components": [
+          {
+            "id": "5:A",
+            "name": "Achird",
+            "hip": 3821,
+            "gaia": "425040000962559616"
+          },
+          {
+            "id": "5:B",
+            "name": "Achird B",
+            "hip": 0,
+            "gaia": "425040000962497792"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 479.27,
+        "eccentricity": 0.497,
+        "inclinationDegrees": 35.6,
+        "nodeDegrees": 278,
+        "periastronArgumentDegrees": 269.8,
+        "periastronJD": 2411341.9325,
+        "relativeSemimajorArcsec": 12.04,
+        "componentIds": [
+          "425040000962559616",
+          "425040000962497792"
+        ],
+        "actualSystem": "Achird"
+      },
+      "differences": {
+        "periastronJD": {
+          "app": 2411342.324578275,
+          "stellarium": 2411341.9325,
+          "deltaDays": 0.3920782748609781
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 5.923040746966515,
+        "epoch": 2451545,
+        "ra": 12.283711400033505,
+        "dec": 57.813857274201595,
+        "rv": 8.5089,
+        "pmra": 1103.3904999999997,
+        "pmdec": -520.583625
+      },
+      "stellariumBarycentre": {
+        "distance": 5.923040746966515,
+        "epoch": 2451545,
+        "ra": 12.283711400033505,
+        "dec": 57.8138572742016,
+        "rv": 8.5089,
+        "pmra": 1103.3904999999997,
+        "pmdec": -520.583625
+      },
+      "appMasses": [
+        0.95,
+        0.57
+      ],
+      "stellariumMasses": [
+        0.95,
+        0.57
+      ],
+      "usnoReference": "Sca2015c",
+      "usnoGrade": 3,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 13.558097024575279,
+        "stellariumElementsSeparationArcsec": 13.558123245102054,
+        "relativeVectorOffsetArcsec": 0.00010935358296354161
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.000559796833146109,
+        "maxPositionAngleDifferenceDegrees": 0.10325008601216723
+      }
+    },
+    {
+      "name": "ε¹ Lyrae",
+      "classification": "same-elements-year-convention",
+      "reason": "Same orbital shape and period; the periastron date differs only because USNO specifies a fractional Besselian year.",
+      "app": {
+        "periodYears": 1725,
+        "eccentricity": 0.243,
+        "inclinationDegrees": 118.60000000000001,
+        "nodeDegrees": 198,
+        "periastronArgumentDegrees": 198,
+        "periastronJD": 1790456.1536044898,
+        "relativeSemimajorArcsec": 4.17,
+        "components": [
+          {
+            "id": "6:A",
+            "name": "ε¹ Lyrae A",
+            "hip": 0,
+            "gaia": "2098237660364079232"
+          },
+          {
+            "id": "6:B",
+            "name": "ε¹ Lyrae B",
+            "hip": 91919,
+            "gaia": "2098237656065233792"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 1725,
+        "eccentricity": 0.243,
+        "inclinationDegrees": 118.60000000000001,
+        "nodeDegrees": 198,
+        "periastronArgumentDegrees": 198,
+        "periastronJD": 1790442.5,
+        "relativeSemimajorArcsec": 4.17,
+        "componentIds": [
+          "2098237660364079232",
+          "2098237656065233792"
+        ],
+        "actualSystem": "ε¹ Lyrae"
+      },
+      "differences": {
+        "periastronJD": {
+          "app": 1790456.1536044898,
+          "stellarium": 1790442.5,
+          "deltaDays": 13.65360448975116
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 48.88206712485458,
+        "epoch": 2451545,
+        "ra": 281.08475708701553,
+        "dec": 39.67067855496124,
+        "rv": 32.25961538461539,
+        "pmra": 19.984807692307694,
+        "pmdec": 23.025403846153846
+      },
+      "stellariumBarycentre": {
+        "distance": 48.88206712485458,
+        "epoch": 2451545,
+        "ra": 281.08475708701553,
+        "dec": 39.67067855496124,
+        "rv": 32.25961538461539,
+        "pmra": 19.984807692307694,
+        "pmdec": 23.025403846153846
+      },
+      "appMasses": [
+        2.03,
+        1.61
+      ],
+      "stellariumMasses": [
+        2.03,
+        1.61
+      ],
+      "usnoReference": "WSI2004b",
+      "usnoGrade": 4,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 2.25601362665187,
+        "stellariumElementsSeparationArcsec": 2.25571036046441,
+        "relativeVectorOffsetArcsec": 0.0005740095712666474
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.0007608587421477075,
+        "maxPositionAngleDifferenceDegrees": 0.2470735605715504
+      }
+    },
+    {
+      "name": "ε² Lyrae",
+      "classification": "same-elements-year-convention",
+      "reason": "Same orbital shape and period; the periastron date differs only because USNO specifies a fractional Besselian year.",
+      "app": {
+        "periodYears": 724.3000000000001,
+        "eccentricity": 0.353,
+        "inclinationDegrees": 126.1,
+        "nodeDegrees": 26.5,
+        "periastronArgumentDegrees": 73.8,
+        "periastronJD": 2533322.2617051657,
+        "relativeSemimajorArcsec": 2.92,
+        "components": [
+          {
+            "id": "7:A",
+            "name": "ε² Lyrae A",
+            "hip": 91926,
+            "gaia": "2098202128093842432"
+          },
+          {
+            "id": "7:B",
+            "name": "ε² Lyrae B",
+            "hip": 0,
+            "gaia": "2098202128100428288"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 724.3000000000001,
+        "eccentricity": 0.353,
+        "inclinationDegrees": 126.1,
+        "nodeDegrees": 26.5,
+        "periastronArgumentDegrees": 73.8,
+        "periastronJD": 2533324.475,
+        "relativeSemimajorArcsec": 2.92,
+        "componentIds": [
+          "2098202128093842432",
+          "2098202128100428288"
+        ],
+        "actualSystem": "ε² Lyrae"
+      },
+      "differences": {
+        "periastronJD": {
+          "app": 2533322.2617051657,
+          "stellarium": 2533324.475,
+          "deltaDays": -2.2132948343642056
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 47.68717215069147,
+        "epoch": 2451545,
+        "ra": 281.0953758085716,
+        "dec": 39.613010644075835,
+        "rv": -26.117840375586855,
+        "pmra": 5.7759940089347666,
+        "pmdec": 57.50554153914594
+      },
+      "stellariumBarycentre": {
+        "distance": 47.68717215069147,
+        "epoch": 2451545,
+        "ra": 281.0953758085716,
+        "dec": 39.613010644075835,
+        "rv": -26.117840375586855,
+        "pmra": 5.7759940089347666,
+        "pmdec": 57.50554153914594
+      },
+      "appMasses": [
+        2.11,
+        2.15
+      ],
+      "stellariumMasses": [
+        2.11,
+        2.15
+      ],
+      "usnoReference": "Doc2020e",
+      "usnoGrade": 4,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 2.418006522140138,
+        "stellariumElementsSeparationArcsec": 2.4179873246102734,
+        "relativeVectorOffsetArcsec": 0.00010397137469130522
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.0004996712017071303,
+        "maxPositionAngleDifferenceDegrees": 0.2012731101464169
+      }
+    },
+    {
+      "name": "β Muscae",
+      "classification": "different-adopted-elements",
+      "reason": "Stellarium’s seven orbital elements exactly repeat Achird’s, despite different component IDs. Use the USNO Tok2020e beta Mus orbit.",
+      "app": {
+        "periodYears": 188,
+        "eccentricity": 0.79,
+        "inclinationDegrees": 53.3,
+        "nodeDegrees": 138.6,
+        "periastronArgumentDegrees": 72.5,
+        "periastronJD": 2405597.0647914503,
+        "relativeSemimajorArcsec": 1.16,
+        "components": [
+          {
+            "id": "8:A",
+            "name": "β Muscae A",
+            "hip": 62322,
+            "gaia": "5855802671046171648"
+          },
+          {
+            "id": "8:B",
+            "name": "β Muscae B",
+            "hip": 0,
+            "gaia": "5855802671045627648"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 479.27,
+        "eccentricity": 0.497,
+        "inclinationDegrees": 35.6,
+        "nodeDegrees": 278,
+        "periastronArgumentDegrees": 269.8,
+        "periastronJD": 2411341.9325,
+        "relativeSemimajorArcsec": 12.04,
+        "componentIds": [
+          "5855802671046171648",
+          "5855802671045627648"
+        ],
+        "actualSystem": "β Muscae"
+      },
+      "differences": {
+        "periodYears": {
+          "app": 188,
+          "stellarium": 479.27
+        },
+        "eccentricity": {
+          "app": 0.79,
+          "stellarium": 0.497
+        },
+        "inclinationDegrees": {
+          "app": 53.3,
+          "stellarium": 35.6
+        },
+        "nodeDegrees": {
+          "app": 138.6,
+          "stellarium": 278
+        },
+        "periastronArgumentDegrees": {
+          "app": 72.5,
+          "stellarium": 269.8
+        },
+        "periastronJD": {
+          "app": 2405597.0647914503,
+          "stellarium": 2411341.9325,
+          "deltaDays": -5744.867708549835
+        },
+        "relativeSemimajorArcsec": {
+          "app": 1.16,
+          "stellarium": 12.04
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 96.80542110358179,
+        "epoch": 2451545,
+        "ra": 191.56982860741647,
+        "dec": -68.10806846587313,
+        "rv": 42,
+        "pmra": -37.47949516527006,
+        "pmdec": -16.40962870405608
+      },
+      "stellariumBarycentre": {
+        "distance": 96.80542110358179,
+        "epoch": 2451545,
+        "ra": 191.56982860741647,
+        "dec": -68.10806846587313,
+        "rv": 42,
+        "pmra": -37.47949516527006,
+        "pmdec": -16.40962870405608
+      },
+      "appMasses": [
+        7.35,
+        6.4
+      ],
+      "stellariumMasses": [
+        2.11,
+        2.15
+      ],
+      "usnoReference": "Tok2020e",
+      "usnoGrade": 3,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 0.9120595441549358,
+        "stellariumElementsSeparationArcsec": 13.558123245102054,
+        "relativeVectorOffsetArcsec": 13.655837969873463
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.0004594592611638637,
+        "maxPositionAngleDifferenceDegrees": 0.11462915928495931
+      }
+    },
+    {
+      "name": "Dalim",
+      "classification": "same-elements-year-convention",
+      "reason": "Same orbital shape and period; the periastron date differs only because USNO specifies a fractional Besselian year.",
+      "app": {
+        "periodYears": 268.212,
+        "eccentricity": 0.73704,
+        "inclinationDegrees": 81.484,
+        "nodeDegrees": 117.39699999999999,
+        "periastronArgumentDegrees": 43.02300000000001,
+        "periastronJD": 2432336.9209790654,
+        "relativeSemimajorArcsec": 3.96341,
+        "components": [
+          {
+            "id": "9:A",
+            "name": "Dalim",
+            "hip": 14879,
+            "gaia": "5059348952161258624"
+          },
+          {
+            "id": "9:B",
+            "name": "Dalim B",
+            "hip": 0,
+            "gaia": "5059349158319689344"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 268.212,
+        "eccentricity": 0.73704,
+        "inclinationDegrees": 81.484,
+        "nodeDegrees": 117.39699999999999,
+        "periastronArgumentDegrees": 43.02300000000001,
+        "periastronJD": 2432336.977325,
+        "relativeSemimajorArcsec": 3.96341,
+        "componentIds": [
+          "5059348952161258624",
+          "5059349158319689344"
+        ],
+        "actualSystem": "Dalim"
+      },
+      "differences": {
+        "periastronJD": {
+          "app": 2432336.9209790654,
+          "stellarium": 2432336.977325,
+          "deltaDays": -0.05634593451395631
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 14.040999719180006,
+        "epoch": 2451545,
+        "ra": 48.02016189207887,
+        "dec": -28.9845932229874,
+        "rv": -19.023605511848338,
+        "pmra": 353.699852158919,
+        "pmdec": 625.3625094672343
+      },
+      "stellariumBarycentre": {
+        "distance": 14.040999719180006,
+        "epoch": 2451545,
+        "ra": 48.02016189207887,
+        "dec": -28.9845932229874,
+        "rv": -19.023605511848338,
+        "pmra": 353.699852158919,
+        "pmdec": 625.3625094672343
+      },
+      "appMasses": [
+        1.33,
+        0.78
+      ],
+      "stellariumMasses": [
+        1.33,
+        0.78
+      ],
+      "usnoReference": "Izm2019",
+      "usnoGrade": 4,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 5.492635963531666,
+        "stellariumElementsSeparationArcsec": 5.49263412491841,
+        "relativeVectorOffsetArcsec": 0.0000021096227910949747
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.0003858819254229928,
+        "maxPositionAngleDifferenceDegrees": 0.17786036270786099
+      }
+    },
+    {
+      "name": "ψ Velorum",
+      "classification": "different-adopted-elements",
+      "reason": "Use USNO Msn2023. Stellarium’s periastron JD exactly repeats Dalim’s, which is a substantial phase discrepancy rather than a year-conversion difference.",
+      "app": {
+        "periodYears": 34.11,
+        "eccentricity": 0.4375,
+        "inclinationDegrees": 58.45,
+        "nodeDegrees": 288.24,
+        "periastronArgumentDegrees": 47.76,
+        "periastronJD": 2453028.1472095484,
+        "relativeSemimajorArcsec": 0.811,
+        "components": [
+          {
+            "id": "10:A",
+            "name": "ψ Velorum A",
+            "hip": 46651,
+            "gaia": "5426587107145955712"
+          },
+          {
+            "id": "10:B",
+            "name": "ψ Velorum B",
+            "hip": 0,
+            "gaia": "5426587107149861120"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 34.12,
+        "eccentricity": 0.439,
+        "inclinationDegrees": 58.400000000000006,
+        "nodeDegrees": 288.2,
+        "periastronArgumentDegrees": 47.7,
+        "periastronJD": 2432336.977325,
+        "relativeSemimajorArcsec": 0.81,
+        "componentIds": [
+          "5426587107145955712",
+          "5426587107149861120"
+        ],
+        "actualSystem": "ψ Velorum"
+      },
+      "differences": {
+        "periodYears": {
+          "app": 34.11,
+          "stellarium": 34.12
+        },
+        "eccentricity": {
+          "app": 0.4375,
+          "stellarium": 0.439
+        },
+        "inclinationDegrees": {
+          "app": 58.45,
+          "stellarium": 58.400000000000006
+        },
+        "nodeDegrees": {
+          "app": 288.24,
+          "stellarium": 288.2
+        },
+        "periastronArgumentDegrees": {
+          "app": 47.76,
+          "stellarium": 47.7
+        },
+        "periastronJD": {
+          "app": 2453028.1472095484,
+          "stellarium": 2432336.977325,
+          "deltaDays": 20691.169884548523
+        },
+        "relativeSemimajorArcsec": {
+          "app": 0.811,
+          "stellarium": 0.81
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 18.363584277833684,
+        "epoch": 2451545,
+        "ra": 142.67382931492276,
+        "dec": -40.46651215769516,
+        "rv": 8.8,
+        "pmra": -190.96888235294116,
+        "pmdec": 69.36568627450981
+      },
+      "stellariumBarycentre": {
+        "distance": 18.363584277833684,
+        "epoch": 2451545,
+        "ra": 142.67382931492276,
+        "dec": -40.46651215769516,
+        "rv": 8.8,
+        "pmra": -190.96888235294116,
+        "pmdec": 69.36568627450981
+      },
+      "appMasses": [
+        1.56,
+        1.5
+      ],
+      "stellariumMasses": [
+        1.56,
+        1.5
+      ],
+      "usnoReference": "Msn2023",
+      "usnoGrade": 1,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 0.6480064895045782,
+        "stellariumElementsSeparationArcsec": 1.0093937701370208,
+        "relativeVectorOffsetArcsec": 0.76470824197091
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.00045229815580782873,
+        "maxPositionAngleDifferenceDegrees": 0.15511131095956898
+      }
+    },
+    {
+      "name": "ρ Ophiuchi",
+      "classification": "different-system",
+      "reason": "Different systems: the guide lists rho Oph, but this Stellarium row identifies 70 Oph. The app implements rho Oph AB (USNO Izm2019, grade 5).",
+      "app": {
+        "periodYears": 4193.4346,
+        "eccentricity": 0.89588,
+        "inclinationDegrees": 105.902,
+        "nodeDegrees": 88.33500000000001,
+        "periastronArgumentDegrees": 244.21800000000002,
+        "periastronJD": 2573006.9953777576,
+        "relativeSemimajorArcsec": 12.63509,
+        "components": [
+          {
+            "id": "11:A",
+            "name": "ρ Ophiuchi A",
+            "hip": 80473,
+            "gaia": "6050943410590451456"
+          },
+          {
+            "id": "11:B",
+            "name": "ρ Ophiuchi B",
+            "hip": 0,
+            "gaia": "6050943410590451328"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 88.3983,
+        "eccentricity": 0.49803,
+        "inclinationDegrees": 120.89200000000001,
+        "nodeDegrees": 121.69200000000001,
+        "periastronArgumentDegrees": 193.376,
+        "periastronJD": 2413493.8394,
+        "relativeSemimajorArcsec": 4.55038,
+        "componentIds": [
+          "4468557611984384512",
+          "4468557611977674496"
+        ],
+        "actualSystem": "70 Ophiuchi"
+      },
+      "differences": {
+        "periodYears": {
+          "app": 4193.4346,
+          "stellarium": 88.3983
+        },
+        "eccentricity": {
+          "app": 0.89588,
+          "stellarium": 0.49803
+        },
+        "inclinationDegrees": {
+          "app": 105.902,
+          "stellarium": 120.89200000000001
+        },
+        "nodeDegrees": {
+          "app": 88.33500000000001,
+          "stellarium": 121.69200000000001
+        },
+        "periastronArgumentDegrees": {
+          "app": 244.21800000000002,
+          "stellarium": 193.376
+        },
+        "periastronJD": {
+          "app": 2573006.9953777576,
+          "stellarium": 2413493.8394,
+          "deltaDays": 159513.15597775765
+        },
+        "relativeSemimajorArcsec": {
+          "app": 12.63509,
+          "stellarium": 4.55038
+        }
+      },
+      "barycentreMatchesStellarium": false,
+      "appBarycentre": {
+        "distance": 137.7226,
+        "epoch": 2451545,
+        "ra": 246.39621712500002,
+        "dec": -23.446757795,
+        "rv": -10,
+        "pmra": -7.105,
+        "pmdec": -29.29
+      },
+      "stellariumBarycentre": {
+        "distance": 5.1095529018581605,
+        "epoch": 2451545,
+        "ra": 271.36509160183584,
+        "dec": 2.4947755106163902,
+        "rv": -6.87,
+        "pmra": 261.9856072570008,
+        "pmdec": -1090.3690455852434
+      },
+      "appMasses": [
+        1,
+        1
+      ],
+      "stellariumMasses": [
+        0.9,
+        0.7
+      ],
+      "usnoReference": "Izm2019",
+      "usnoGrade": 5,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 2.9932491004354342,
+        "stellariumElementsSeparationArcsec": 6.732188649229562,
+        "relativeVectorOffsetArcsec": null
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.0003196794102819922,
+        "maxPositionAngleDifferenceDegrees": 0.1865071853842437
+      }
+    },
+    {
+      "name": "ζ Herculis",
+      "classification": "different-adopted-elements",
+      "reason": "USNO Izm2019 fit. Periastron epochs are about one cycle apart; the orbital elements also differ slightly.",
+      "app": {
+        "periodYears": 34.4638,
+        "eccentricity": 0.46342,
+        "inclinationDegrees": 131.6,
+        "nodeDegrees": 50.601,
+        "periastronArgumentDegrees": 113.177,
+        "periastronJD": 2427201.798285304,
+        "relativeSemimajorArcsec": 1.32834,
+        "components": [
+          {
+            "id": "12:A",
+            "name": "Tianji",
+            "hip": 81693,
+            "gaia": ""
+          },
+          {
+            "id": "12:B",
+            "name": "ζ Herculis B",
+            "hip": 0,
+            "gaia": "1312665361414730624"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 34.45,
+        "eccentricity": 0.46,
+        "inclinationDegrees": 131,
+        "nodeDegrees": 50,
+        "periastronArgumentDegrees": 111,
+        "periastronJD": 2439747.425,
+        "relativeSemimajorArcsec": 1.33,
+        "componentIds": [
+          "1312665361415345920",
+          "1312665361414730624"
+        ],
+        "actualSystem": "ζ Herculis"
+      },
+      "differences": {
+        "periodYears": {
+          "app": 34.4638,
+          "stellarium": 34.45
+        },
+        "eccentricity": {
+          "app": 0.46342,
+          "stellarium": 0.46
+        },
+        "inclinationDegrees": {
+          "app": 131.6,
+          "stellarium": 131
+        },
+        "nodeDegrees": {
+          "app": 50.601,
+          "stellarium": 50
+        },
+        "periastronArgumentDegrees": {
+          "app": 113.177,
+          "stellarium": 111
+        },
+        "periastronJD": {
+          "app": 2427201.798285304,
+          "stellarium": 2439747.425,
+          "deltaDays": -12545.62671469571
+        },
+        "relativeSemimajorArcsec": {
+          "app": 1.32834,
+          "stellarium": 1.33
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 10.715816545220747,
+        "epoch": 2451545,
+        "ra": 250.319197898252,
+        "dec": 31.60458387836,
+        "rv": -67.8,
+        "pmra": -461.52,
+        "pmdec": 342.28
+      },
+      "stellariumBarycentre": {
+        "distance": 10.715816545220747,
+        "epoch": 2451545,
+        "ra": 250.319197898252,
+        "dec": 31.60458387836,
+        "rv": -67.8,
+        "pmra": -461.52,
+        "pmdec": 342.28
+      },
+      "appMasses": [
+        1.45,
+        0.98
+      ],
+      "stellariumMasses": [
+        1.45,
+        0.98
+      ],
+      "usnoReference": "Izm2019",
+      "usnoGrade": 1,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 1.557239250950106,
+        "stellariumElementsSeparationArcsec": 1.5327695499275114,
+        "relativeVectorOffsetArcsec": 0.024748473745267067
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.00025390195722985176,
+        "maxPositionAngleDifferenceDegrees": 0.2220241549008506
+      }
+    },
+    {
+      "name": "η Ophiuchi",
+      "classification": "different-adopted-elements",
+      "reason": "USNO Doc2023c fit instead of Stellarium’s different adopted fit.",
+      "app": {
+        "periodYears": 87.76,
+        "eccentricity": 0.942,
+        "inclinationDegrees": 95.6,
+        "nodeDegrees": 39.2,
+        "periastronArgumentDegrees": 275.3,
+        "periastronJD": 2460482.010002271,
+        "relativeSemimajorArcsec": 1.307,
+        "components": [
+          {
+            "id": "13:A",
+            "name": "Sabik",
+            "hip": 84012,
+            "gaia": ""
+          },
+          {
+            "id": "13:B",
+            "name": "η Ophiuchi B",
+            "hip": 0,
+            "gaia": "4136366183978856960"
+          }
+        ]
+      },
+      "stellarium": {
+        "periodYears": 87.58,
+        "eccentricity": 0.95,
+        "inclinationDegrees": 95.2,
+        "nodeDegrees": 38.9,
+        "periastronArgumentDegrees": 274.8,
+        "periastronJD": 2460559.37,
+        "relativeSemimajorArcsec": 1.396,
+        "componentIds": [
+          "84012",
+          "4136366183978856960"
+        ],
+        "actualSystem": "η Ophiuchi"
+      },
+      "differences": {
+        "periodYears": {
+          "app": 87.76,
+          "stellarium": 87.58
+        },
+        "eccentricity": {
+          "app": 0.942,
+          "stellarium": 0.95
+        },
+        "inclinationDegrees": {
+          "app": 95.6,
+          "stellarium": 95.2
+        },
+        "nodeDegrees": {
+          "app": 39.2,
+          "stellarium": 38.9
+        },
+        "periastronArgumentDegrees": {
+          "app": 275.3,
+          "stellarium": 274.8
+        },
+        "periastronJD": {
+          "app": 2460482.010002271,
+          "stellarium": 2460559.37,
+          "deltaDays": -77.35999772930518
+        },
+        "relativeSemimajorArcsec": {
+          "app": 1.307,
+          "stellarium": 1.396
+        }
+      },
+      "barycentreMatchesStellarium": true,
+      "appBarycentre": {
+        "distance": 27.0929287455974,
+        "epoch": 2451545,
+        "ra": 257.59452871,
+        "dec": -15.724906639999999,
+        "rv": -2.4,
+        "pmra": 40.13,
+        "pmdec": 99.17
+      },
+      "stellariumBarycentre": {
+        "distance": 27.0929287455974,
+        "epoch": 2451545,
+        "ra": 257.59452871,
+        "dec": -15.72490664,
+        "rv": -2.4,
+        "pmra": 40.13,
+        "pmdec": 99.17
+      },
+      "appMasses": [
+        2.966,
+        3.478
+      ],
+      "stellariumMasses": [
+        2.966,
+        3.478
+      ],
+      "usnoReference": "Doc2023c",
+      "usnoGrade": 2,
+      "comparisonAtJ2026": {
+        "ttJD": 2461041.5,
+        "appSeparationArcsec": 0.2752990060760778,
+        "stellariumElementsSeparationArcsec": 0.2656604911368385,
+        "relativeVectorOffsetArcsec": 0.009638535066711999
+      },
+      "usnoEphemerisAgreement": {
+        "samples": 5,
+        "maxSeparationDifferenceArcsec": 0.0004043435549567209,
+        "maxPositionAngleDifferenceDegrees": 0.195294950847142
+      }
+    }
+  ],
+  "summary": {
+    "systems": 14,
+    "sameElementsApartFromYearConvention": 7,
+    "differentAdoptedElements": 6,
+    "differentSystem": 1,
+    "usnoEphemeridesChecked": 70,
+    "appTotalSystems": 17,
+    "additionalReviewedPairs": [
+      "Castor",
+      "Procyon",
+      "70 Ophiuchi"
+    ],
+    "extraStellariumSystem": "Castor A–B; present in the data file but outside the requested guide-listed 14",
+    "caveat": "Matching relative orbits does not independently validate barycentre astrometry or adopted masses. Rho Oph uses an approximate equal-mass barycentre; beta Mus has separately adopted masses."
+  }
+}

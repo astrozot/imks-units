@@ -12,6 +12,7 @@ for (const depth of [8, 10, 11, 12]) {
   setFaintStars(buffer);
   const names = new Set(builtins), exceptional = new Set();
   for (let j = 0; j < catalog.n; j++) {
+    if (catalog.binaryIndices.has(j)) continue; // legacy downloads: components are built in
     const name = new FaintHit(j, 0, 0, 1).name;
     assert.ok(!names.has(name), `V${depth}: ambiguous selection ${name}`);
     names.add(name);
@@ -30,7 +31,7 @@ for (const depth of [8, 10, 11, 12]) {
     while (catalog.start[tile + 1] <= j) tile++;
     const offset = 4 * tile;
     const expected = frame.apparentCatalog(catalog.box[offset] + catalog.ra[j] / 65535 * catalog.box[offset + 2],
-      catalog.box[offset + 1] + catalog.dec[j] / 65535 * catalog.box[offset + 3], catalog.pmra[j], catalog.pmdec[j], catalog.plx[j] * 0.02);
+      catalog.box[offset + 1] + catalog.dec[j] / 65535 * catalog.box[offset + 3], catalog.pmra[j], catalog.pmdec[j], catalog.plx[j] * 0.02, catalog.rv && Number.isFinite(catalog.rv[j]) ? catalog.rv[j] : null);
     assert.equal(star.ra, expected.ra, `V${depth}: correct component RA for ${name}`);
     assert.equal(star.dec, expected.dec, `V${depth}: correct component declination for ${name}`);
     assert.equal(searchSky(frame, name)[0]?.name, name);

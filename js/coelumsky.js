@@ -3,12 +3,12 @@ import { showDeepObject } from './deepcatalog.js';
 // sky's colour with the time of day, stars dimmed by twilight, moonlight and
 // extinction, the Milky Way, the Sun's glare, the textured Moon with its
 // phase, and a landscape in front. Always drawn on a canvas.
-import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, deepColor, fontFor } from './coelum.js';
+import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, binaryCenterVisible, binaryCenterSymbol, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight, hillAt } from './skyraster.js';
 import { terrainRaster } from './terrainraster.js';
 import { terrainForeground } from './terrainmesh.js';
 import { lunarLimb, covered, tracePlanet, planetMap, planetPixelRatio, earthshineBrightness, lunarShadowLight, lunarShadowMean, lunarEclipseColor } from './skyview.js';
-import { moonDisk, moons, planetDisk, equatorial, earthShadow } from './astro.js';
+import { observerOrigin, moonDisk, moons, planetDisk, equatorial, earthShadow } from './astro.js';
 import { projectLunarFeatures, LUNAR_COLOR } from './lunarfeatures.js';
 import { projectMarsFeatures, MARS_COLOR } from './marsfeatures.js';
 
@@ -68,7 +68,7 @@ function skyLighting(frame, atmosphere) {
   // Eclipses: the part of the Sun covered by the Moon darkens the sky as
   // the Sun lower in the sky would (at totality, as 8° below the horizon);
   // the Moon in the Earth's shadow gives less light
-  const sunV = pointVector(sun), moonV = moon ? pointVector(moon) : sunV, sunR = Math.asin(695700 / sun.dist), moonR = moon ? Math.asin(1737.4 / moon.dist) : 0;
+  const sunV = pointVector(sun), moonV = moon ? pointVector(moon) : sunV, sunR = Math.asin(Math.min(1,695700 / sun.dist)), moonR = moon ? Math.asin(1737.4 / moon.dist) : 0;
   const apart = Math.acos(Math.max(-1, Math.min(1, sunV[0] * moonV[0] + sunV[1] * moonV[1] + sunV[2] * moonV[2])));
   const eclipsed = moon && apart < sunR + moonR ? covered(sunR, moonR, apart) : 0, total = moon && apart <= moonR - sunR;
   const sunAlt = eclipsed > 0.5 ? Math.min(sun.alt, 15 + (Math.log10(Math.max(1 - eclipsed, 1e-3)) + 0.5) * 9.2) : sun.alt;
@@ -91,6 +91,7 @@ export function skyPointScale(frame, o, layers = {}) {
 // coordinates), when given, turns the camera (the equatorial mount).
 export function skyScene(frame, W, H, layers, view, ctx) {
   const opts = { ...SKY_LAYERS, ...layers }, radius = skyRadius(W, H, view.scale), rotation = view.rotation || lookAt(view.az, view.alt);
+  if (observerOrigin(frame.place) !== 'topocentric') opts.ground = false;
   const cx = W / 2, cy = H / 2, p = pen(ctx), f = (x) => x.toFixed(2);
   const { sun, moon, eclipsed, total, sunAlt, illum, moonAlt, light } = skyLighting(frame, opts.atmosphere);
   const proj = (v) => { const q = projectVector(v, rotation, true); return { x: cx + q.x * radius, y: cy + q.y * radius, z: q.z }; };
@@ -144,7 +145,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   // The disks of the Sun, the Moon and the planets (pixels; at least the
   // size they are drawn) hide more distant sources, even on their night sides.
   const pxPerRadAt = (q) => radius / 2 / Math.cos(Math.acos(Math.max(-1, Math.min(1, q.z))) / 2) ** 2;
-  const diskOf = (o, pxPerRad) => (o.body === 'sun' ? Math.max(5, Math.asin(695700 / o.dist) * pxPerRad) : o.body === 'moon' ? Math.max(6, Math.asin(1737.4 / o.dist) * pxPerRad) : diskRadius(o) * R * pxPerRad);
+  const diskOf = (o, pxPerRad) => (o.body === 'sun' ? Math.max(5, Math.asin(Math.min(1,695700 / o.dist)) * pxPerRad) : o.body === 'moon' ? Math.max(6, Math.asin(1737.4 / o.dist) * pxPerRad) : diskRadius(o) * R * pxPerRad);
   const disks = [];
   let lunarDisk = null;
   for (const o of frame.bodies) {
@@ -155,7 +156,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (r > 1) {
       let profile = null, north = 0;
       if (o.body === 'moon' && r >= 80) {
-        lunarDisk = moonDisk(frame.t, o);
+        lunarDisk = moonDisk(frame.t, o, frame.place);
         profile = lunarLimb(lunarDisk, r, surfaceCanvas);
         const n = xy(o.north); north = Math.atan2(n.y - q.y, n.x - q.x) + Math.PI / 2;
       }
@@ -283,7 +284,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       r = diskOf(o, pxPerRad);
       const northPoint = xy(o.north), shadowPoint = o.shadow && xy(o.shadow.center);
       if (r >= 10) surfaceBodies.push('moon');
-      const disk = { ...(lunarDisk || moonDisk(frame.t, o)), terrainOutline: r >= 80 }, north = Math.atan2(northPoint.y - q.y, northPoint.x - q.x) + Math.PI / 2;
+      const disk = { ...(lunarDisk || moonDisk(frame.t, o, frame.place)), terrainOutline: r >= 80 }, north = Math.atan2(northPoint.y - q.y, northPoint.x - q.x) + Math.PI / 2;
       const textured = drawMoon(ctx, o, q, r, xy(o.light), northPoint, light, opts.atmosphere, shadowPoint, { t: frame.t, W, H }, disk);
       // Surface positions are transformed exactly like the GPU texture.
       // The fallback near-side photograph has no libration, so needs no labels.
@@ -373,6 +374,11 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   for (const feature of marsLabels) labels.push({ ...feature, size: opts.labelSize, color: MARS_COLOR, r: 2, priority: feature.key === view.selected ? -1 : 2, key: feature.key });
   const surfaceFeatures = [...lunarFeatures, ...marsFeatures];
   const symbols = objects.filter((o) => o.body && !(o.body === 'moon' && lunarFeatures.length || o.body === 'mars' && marsFeatures.length)), names = new Set([...objects.map((o) => o.name), ...surfaceFeatures.map((f) => f.key)]);
+  for (const o of frame.barycenters || []) {
+    if (!binaryCenterVisible(o,frame,xy,view)) continue;
+    const q = xy(o); if (!onScreen(q,4) || !above(q) || behind(q,Infinity)) continue;
+    binaryCenterSymbol(p,q.x,q.y); objects.push({...o,...q,radius:4});
+  }
   let hitLabels = [];
   if (opts.labels || surfaceFeatures.some((f) => f.key === view.selected)) {
     ctx.shadowColor = '#000c'; ctx.shadowBlur = 3;
@@ -387,21 +393,23 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     }).filter((l) => names.has(l.name));
     ctx.shadowBlur = 0;
   }
-  const chosen = findObject(frame, view.selected);
-  if (chosen && !(chosen.body === 'sun' && chosen.hidden)) {
-    const o = objects.find((x) => x.name === chosen.name), q = o || xy(chosen);
-    if (o || q.z > -0.2 && !behind(q, chosen.dist)) reticle(p, q.x, q.y, o ? o.radius : 3, '#ffe9a8');
+  for (const [name,color] of [[view.selected,view.selectionColor || '#ffe9a8'],[view.tracked,'#ff5555']]) {
+    const chosen = findObject(frame,name);
+    if (!chosen || chosen.body === 'sun' && chosen.hidden) continue;
+    const o = objects.find(x=>x.name===chosen.name), q = o || xy(chosen);
+    if (o || q.z > -0.2 && !behind(q,chosen.dist ?? Infinity)) reticle(p,q.x,q.y,o ? o.radius : 3,color);
   }
-  const selectedFeature = lunarFeatures.find((f) => f.key === view.selected);
+  for (const [selectionKey,selectionColor] of [[view.selected,view.selectionColor],[view.tracked,'#ff5555']]) {
+  const selectedFeature = lunarFeatures.find((f) => f.key === selectionKey);
   if (selectedFeature) {
     ctx.save(); ctx.shadowColor = '#08162b'; ctx.shadowBlur = 3;
     const e = selectedFeature.ellipse;
     p.ellipse(e.x, e.y, e.rx, e.ry, e.angle / R, { stroke: '#08162b', width: 3.5 });
-    p.ellipse(e.x, e.y, e.rx, e.ry, e.angle / R, { stroke: LUNAR_COLOR, width: 1.5 });
+    p.ellipse(e.x, e.y, e.rx, e.ry, e.angle / R, { stroke: selectionColor || LUNAR_COLOR, width: 1.5 });
     ctx.restore();
-    if (selectedFeature.sunlight <= 0.005 && selectedFeature.size < 8) reticle(p, selectedFeature.x, selectedFeature.y, 4, LUNAR_COLOR);
+    if (selectedFeature.sunlight <= 0.005 && selectedFeature.size < 8) reticle(p, selectedFeature.x, selectedFeature.y, 4, selectionColor || LUNAR_COLOR);
   }
-  const selectedMars = marsFeatures.find((f) => f.key === view.selected);
+  const selectedMars = marsFeatures.find((f) => f.key === selectionKey);
   if (selectedMars) {
     if (selectedMars.outline) {
       ctx.save(); ctx.beginPath();
@@ -411,8 +419,9 @@ export function skyScene(frame, W, H, layers, view, ctx) {
         previous = point;
       }
       ctx.strokeStyle = '#08162b'; ctx.lineWidth = 3.5; ctx.stroke();
-      ctx.strokeStyle = MARS_COLOR; ctx.lineWidth = 1.5; ctx.stroke(); ctx.restore();
-    } else reticle(p, selectedMars.x, selectedMars.y, 4, MARS_COLOR);
+      ctx.strokeStyle = selectionColor || MARS_COLOR; ctx.lineWidth = 1.5; ctx.stroke(); ctx.restore();
+    } else reticle(p, selectedMars.x, selectedMars.y, 4, selectionColor || MARS_COLOR);
+  }
   }
   return { objects, radius, hitLabels, light, lunarFeatures, marsFeatures, surfaceBodies, moonSizing, terrainSurface: !!surface };
 }

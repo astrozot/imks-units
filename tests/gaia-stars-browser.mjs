@@ -57,13 +57,13 @@ try {
     }
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  assert.deepEqual(await page.locator('[data-catalog-space]').allTextContents(), ['+ 1.3 MB', '+ 8.3 MB', '+ 18.4 MB', '+ 58.9 MB']);
+  assert.deepEqual(await page.locator('[data-catalog-space]').allTextContents(), ['+ 1.5 MB', '+ 9.7 MB', '+ 22.2 MB', '+ 68.1 MB']);
   await page.setViewportSize({ width: 360, height: 844 });
   await page.locator('[data-catalog-select]').selectOption('12');
   await page.waitForFunction((n) => document.querySelector('.coelum-faint-note').textContent.includes(n.toLocaleString('en')), metadata.stars, { timeout: 60000 });
   assert.equal(await page.locator('[data-download="12"]').isChecked(), true);
   assert.equal(await page.locator('[data-catalog-select]').inputValue(), '12');
-  assert.deepEqual(await page.locator('[data-catalog-space]').allTextContents(), ['− 57.5 MB', '− 50.6 MB', '− 40.4 MB', '0.0 MB']);
+  assert.deepEqual(await page.locator('[data-catalog-space]').allTextContents(), ['− 66.6 MB', '− 58.4 MB', '− 45.9 MB', '0.0 MB']);
   await page.setViewportSize({ width: 390, height: 844 });
   if (process.env.CATALOG_SCREENSHOT) {
     await page.locator('.coelum-catalog-choices').scrollIntoViewIfNeeded();

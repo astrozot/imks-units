@@ -10,7 +10,7 @@
 // host.open(kind, event, place or null, explorer): Coelum draws them in a
 // sheet, iMKS computes them. host: { store, utc, formatTime, open, opens
 // (what a tap on those gives, for the note) }.
-import { solarEclipse, solarLocal, lunarEclipse, horizontal, satellitePasses, nextPhase, moonPhase, conjunction, opposition, season, greatestElongation } from "./astro.js";
+import { observerOrigin, solarEclipse, solarLocal, lunarEclipse, horizontal, satellitePasses, nextPhase, moonPhase, conjunction, opposition, season, greatestElongation } from "./astro.js";
 import { satelliteList, satelliteMagnitude, satelliteStatus, onSatellites } from "./satellites.js";
 import { OCC_MAG, lunarOccultations } from "./occultations.js";
 
@@ -256,12 +256,12 @@ const SLOW = {
   },
 };
 function renderEvents(body, explorer) {
-  const scope = host.store.get("coelumScope", "here");
-  const place = explorer.place, from = explorer.time;
+  const place = explorer.place, from = explorer.time, surface = observerOrigin(place) === 'topocentric';
+  const scope = surface ? host.store.get("coelumScope", "here") : "anywhere";
   const key = `${scope}|${Math.floor(from / 3600)}|${place.join(",")}|${satelliteStatus().fetched}|${satelliteList().length}`;
   const at = scope === "here" ? place : null, render = ++renders;
   const slow = Object.entries(SLOW).filter(([, k]) => at || !k.here);
-  body.innerHTML = `<div class="coelum-seg coelum-event-scope" role="group" aria-label="Where">${[["here", "From here"], ["anywhere", "Anywhere"]].map(([s, label]) => `<button type="button" data-scope="${s}" aria-pressed="${s === scope}">${label}</button>`).join("")}</div>
+  body.innerHTML = `<div class="coelum-seg coelum-event-scope" role="group" aria-label="Where">${[["here", "From here"], ["anywhere", "Anywhere"]].map(([s, label]) => `<button type="button" data-scope="${s}" ${!surface && s === "here" ? "disabled" : ""} aria-pressed="${s === scope}">${label}</button>`).join("")}</div>
     <p class="coelum-panel-note">${scope === "here" ? `Seen from ${esc(explorer.placeLabel)}` : "Anywhere on the Earth"}, after ${esc(host.formatTime(from))}. Tap one to see it in the sky, or an eclipse or occultation for ${host.opens}. Moon phases, conjunctions, oppositions and elongations use Earth-centered times; local visibility may vary.</p>
     ${[...slow.map(([kind, k]) => [kind, k.head]), ...Object.entries(SEARCHES).map(([kind, [, , head]]) => [kind, head])].map(([kind, head]) => `<h3 class="coelum-events-head">${head}</h3><div class="coelum-event-list" data-list="${kind}"><p class="coelum-panel-note">Searching…</p></div>`).join("")}`;
   const fillSlow = (kind) => {

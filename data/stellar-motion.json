@@ -1,0 +1,60 @@
+{
+  "sources": {
+    "athyg_40.csv.gz": "69ad04dd33d7c7bb4f5e1b4682798075811547ea9fb8d0e802e5b319c46818a6",
+    "gaia-rv.csv": "619feead400ce5ff728a1baa4f830f585ab43441d46455dee64ad09c9984e967",
+    "binary_orbitparam.dat": "9c207bfe1814440658b5e1664fca676da491a6bc703c4e30a5a3d967795614c1",
+    "orb6.txt": "ac7db7711d638f4d8bc47f9a876fb7294f25436d36942d74eb023aa42325824c",
+    "orb6-ephemerides.txt": "4e7b6111422c7c7d7d5afc49c4de923f1f238a1ed586f551fce6bada095c23da"
+  },
+  "catalogs": {
+    "8": {
+      "stars": 40244,
+      "bytes": 1502000,
+      "radialVelocities": 36005,
+      "unknown": 4239,
+      "sha256": "524aa5e3de1a9e1676e69f881373706498c05732033a44b2ed8b7b855f128bcc"
+    },
+    "10": {
+      "stars": 349351,
+      "bytes": 9717044,
+      "radialVelocities": 305783,
+      "unknown": 43568,
+      "sha256": "23c61bdffaf97f36002034af99bcaca9206d35753fc26a4fcfcae97798efe3ce"
+    },
+    "11": {
+      "stars": 936502,
+      "bytes": 22188744,
+      "radialVelocities": 845252,
+      "unknown": 91250,
+      "sha256": "9c895cfb1fe773e6ab71cab9cc818c627d69be5a142a09f664c9a771a444de41"
+    },
+    "12": {
+      "stars": 2308822,
+      "bytes": 68120296,
+      "radialVelocities": 2156108,
+      "unknown": 152714,
+      "sha256": "5ddcc30b2683f818b175794f554184cacb182d1c9774f2ed613c45cd24b66be8"
+    }
+  },
+  "binaryPairs": 17,
+  "gaiaMeasuredRadialVelocities": 2161040,
+  "attribution": [
+    "AT-HYG v4.0: David Nash, CC BY-SA 4.0, https://codeberg.org/astronexus/athyg",
+    "ESA Gaia DR3 radial_velocity, https://gea.esac.esa.int/archive/",
+    "USNO Sixth Catalog of Orbits of Visual Binary Stars, https://crf.usno.navy.mil/wds-orb6",
+    "Stellarium v26.3 binary_orbitparam.dat: barycentres and adopted mass ratios, GPL-2.0-or-later. https://github.com/Stellarium/stellarium/blob/v26.3/stars/hip_gaia3/binary_orbitparam.dat",
+    "ESA Hipparcos I/239: Castor component-A and Procyon barycentric J1991.25 astrometry, https://vizier.cfa.harvard.edu/ftp/cats/I/239/ReadMe",
+    "ESA Gaia DR3: resolved 70 Ophiuchi J2016.0 astrometry, https://gea.esac.esa.int/archive/",
+    "Bond et al. 2015: Procyon adopted masses, parallax and systemic velocity, https://arxiv.org/abs/1510.00485"
+  ],
+  "limitations": [
+    "Uniform space motion and fixed Kepler orbits are extrapolations, not all-date accuracy guarantees.",
+    "USNO grades 4 and 5 have uncertain orbits. Component masses are adopted; rho Oph uses equal masses and an AT-HYG mean barycentre.",
+    "The Stellarium guide lists rho Oph, but its data row is 70 Oph. We implement the actual rho Oph AB. Its beta Mus row copies Achird orbital elements; USNO elements replace them.",
+    "Existing catalogue positions, proper motions and parallaxes are preserved; source radial velocities are adopted at J2000, with no claim of new astrometric calibration.",
+    "AT-HYG HYG-source zero radial velocities are conservatively unknown; missing values are never reported as measured zero.",
+    "Stellarium also gives psi Velorum exactly the same periastron JD as Dalim; the app uses the USNO Msn2023 epoch. Full 14-system audit: data/binary-stellarium-audit.json."
+  ],
+  "stellariumAudit": "data/binary-stellarium-audit.json",
+  "reviewedExpansion": "data/binary-selection.json"
+}

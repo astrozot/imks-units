@@ -54,14 +54,14 @@ function objectTable() {
   // their designations (Bayer, Flamsteed, HIP, HD, HR), a Bayer letter
   // also spelled out or abbreviated (φ Sgr, phi Sgr; α Sco, alf Sco) and without
   // its superscript; named by the first, as in the chart
-  for (const [hip, ra, dec, mag, , , pmra, pmdec, plx, proper, names] of CHART_STARS) {
+  for (const [hip, ra, dec, mag, , , pmra, pmdec, plx, proper, names, , rv = null, binary = null] of CHART_STARS) {
     const designations = [...names ? names.split("|") : [], ...hip ? [`HIP ${hip}`] : []];
-    const o = { name: proper || designations[0], ra, dec, pmra, pmdec, plx, rv: 0, mag, kind: "star" };
+    const o = { name: proper || designations[0], ra, dec, pmra, pmdec, plx, rv, binary, mag, kind: "star" };
     for (const d of [proper, ...designations]) {
       if (!d) continue;
       const bare = d.replace(/[⁰-⁹¹²³]+/g, "");
       const spelled = /^[α-ω]/.test(bare) ? GREEK[bare[0]].map((g) => g + bare.slice(1)) : [];
-      for (const n of [d, bare, ...spelled]) if (!objects.has(key(n))) objects.set(key(n), o);
+      for (const n of [d, bare, ...spelled]) if (!objects.has(key(n)) || binary && !objects.get(key(n)).binary) objects.set(key(n), o);
     }
   }
   // by name, number and both; a star keeps its name

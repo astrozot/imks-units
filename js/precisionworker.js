@@ -10,7 +10,7 @@ export async function calculatePrecisionEvent(job, pack) {
   const [first,last]=source==='DE441'?HISTORICAL_YEARS:native?[1550,2650]:[1900,2100],year=new Date(t*1000).getUTCFullYear();
   if (!Number.isFinite(t) || year<first || year>last) throw new RangeError(`${source} refinement covers astronomical years ${first}–${last}`);
   if (!['solar', 'lunar', 'occultation', 'position', 'moon-events'].includes(kind)) throw new Error('Unsupported precision calculation');
-  if (!['lunar','moon-events'].includes(kind) && (!Array.isArray(place) || place.length < 2 || !place.every(Number.isFinite) || Math.abs(place[0]) > 90 || Math.abs(place[1]) > 180 || Math.abs(place[2] || 0) > 1e7)) throw new Error('Select a valid observing place first');
+  if (!['lunar','moon-events'].includes(kind) && (!Array.isArray(place) || place.length < 2 || !place.slice(0,3).every(Number.isFinite) || (place.length > 3 && !['geocentric','barycentric'].includes(place[3])) || Math.abs(place[0]) > 90 || Math.abs(place[1]) > 180 || Math.abs(place[2] || 0) > 1e7)) throw new Error('Select a valid observing place first');
   const ephemeris = makePrecisionEphemeris(pack,{allowBarycentres:kind==='position'});
   if (kind === 'occultation' && (!ephemeris.supports(target) || !ephemeris.supports(front))) throw new Error('DE440 refinement supports the Moon, major planets and catalog stars');
   const start = performance.now();

@@ -1,0 +1,12 @@
+{
+  "scope": "Numerical agreement with uniform-space-motion and fixed-Kepler models, not observed stellar-position uncertainty",
+  "erfaSpaceMotionCases": 40,
+  "maxDirectionArcsec": 5.2470477287109814e-11,
+  "independentOrbits": 102,
+  "maxOrbitArcsec": 1.1152211005766736e-13,
+  "usnoEphemerides": 85,
+  "binaryComponents": 34,
+  "nativeBinaryChecks": 5,
+  "maximumCachedSystems": 17,
+  "radialVelocityEntries": 2156108
+}

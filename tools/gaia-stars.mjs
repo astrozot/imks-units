@@ -2,6 +2,7 @@
 // Usage: node tools/gaia-stars.mjs <Gaia CSV> [output.bin]
 // Query: gaia-stars.adql, run asynchronously with MAXREC=10000000 (no TOP).
 // See data/stars-12.json and README.md for provenance and limitations.
+// STAR v4 retains v2 and appends N float32 radial velocities (NaN unknown).
 // STAR v2 retains the v1 layout and appends N little-endian uint64 Gaia IDs
 // (zero for retained AT-HYG entries). Two uint32 words avoid JS number rounding
 // and uint64 alignment requirements. Only new Gaia entries have estimated V/B−V.
@@ -11,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { readStars } from '../js/coelum.js';
 import { CHART_STARS } from '../js/stardata.js';
+import { isBinaryCatalogStar } from '../js/starmotion.js';
 import { visualMagnitude, johnsonColour, j2000 } from './gaia-photometry.mjs';
 
 const input = process.argv[2];
@@ -28,9 +30,9 @@ function tileOf(ra, dec) {
   return first + Math.min(n - 1, Math.floor(ra / 360 * n));
 }
 const clip = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
-function append(t, { ra, dec, pmra, pmdec, plx, mag, bv, tyc = 0, hip = 0, hd = 0, gaia = 0n }) {
-  const tile = tiles[t], o = 32 * tile.n++;
-  if (o + 32 > tile.bytes.length) {
+function append(t, { ra, dec, pmra, pmdec, plx, mag, bv, tyc = 0, hip = 0, hd = 0, gaia = 0n, rv = null }) {
+  const tile = tiles[t], o = 36 * tile.n++;
+  if (o + 36 > tile.bytes.length) {
     const larger = Buffer.alloc(tile.bytes.length * 2); tile.bytes.copy(larger); tile.bytes = larger;
   }
   const b = tile.bytes;
@@ -42,6 +44,7 @@ function append(t, { ra, dec, pmra, pmdec, plx, mag, bv, tyc = 0, hip = 0, hd = 
   b.writeUInt8(clip(mag * 20, 0, 255), o + 22);
   b.writeInt8(bv === null ? -128 : clip(bv * 50, -127, 127), o + 23);
   b.writeUInt32LE(hip, o + 24); b.writeUInt32LE(hd, o + 28);
+  b.writeFloatLE(rv ?? NaN, o + 32);
 }
 
 // A sparse spatial index of the retained catalog, at epoch J2000. Numeric
@@ -82,7 +85,7 @@ for (let t = 0; t < T; t++) for (let j = base.start[t]; j < base.start[t + 1]; j
   const ra = box[4 * t] + base.ra[j] / 65535 * box[4 * t + 2], dec = box[4 * t + 1] + base.dec[j] / 65535 * 3;
   const ids = aliases.get(j) || {};
   append(t, { ra, dec, pmra: base.pmra[j], pmdec: base.pmdec[j], plx: base.plx[j] * 0.02,
-    mag: base.mag[j] / 20, bv: base.bv[j] === -128 ? null : base.bv[j] / 50, tyc: base.tyc[j], ...ids });
+    mag: base.mag[j] / 20, bv: base.bv[j] === -128 ? null : base.bv[j] / 50, tyc: base.tyc[j], rv: base.rv?.[j], ...ids });
   index(ra, dec, base.tyc[j], ids.hip);
 }
 for (const s of CHART_STARS) index(s[1], s[2], 0, s[0]);
@@ -96,7 +99,7 @@ const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
 for await (const line of lines) {
   if (!columns) {
     columns = line.split(',');
-    if (columns.join(',') !== 'source_id,ra,dec,pmra,pmdec,parallax,phot_g_mean_mag,bp_rp,tyc,hip') throw new Error('Unexpected Gaia CSV columns');
+    if (columns.join(',') !== 'source_id,ra,dec,pmra,pmdec,parallax,phot_g_mean_mag,bp_rp,tyc,hip,radial_velocity') throw new Error('Unexpected Gaia CSV columns');
     continue;
   }
   if (!line.trim()) continue;
@@ -114,12 +117,12 @@ for await (const line of lines) {
   const parts = /^(\d+)-(\d+)-(\d+)$/.exec(f[8]);
   const tyc = parts ? Number(parts[1]) * 65536 + Number(parts[2]) * 4 + Number(parts[3]) - 1 : 0;
   const [a, d] = j2000(ra, dec, pmra, pmdec);
-  if ((tyc && tycs.has(tyc)) || (hip && hips.has(hip)) || matched(a, d)) { duplicates++; continue; }
+  if (isBinaryCatalogStar(tyc,gaia.toString()) || (tyc && tycs.has(tyc)) || (hip && hips.has(hip)) || matched(a, d)) { duplicates++; continue; }
   if (value(3) === null || value(4) === null) missingMotion++;
   const bv = johnsonColour(value(7));
   if (bv === null) missingColour++;
   append(tileOf(a, d), { ra: a, dec: d, pmra, pmdec, plx: Math.max(0, value(5) || 0), mag: v,
-    bv, tyc, hip, gaia });
+    bv, tyc, hip, gaia, rv: value(10) });
   added++;
 }
 // Independent COUNT(*) of the selection in gaia-stars.adql. The published
@@ -129,10 +132,10 @@ if (seenGaia.size !== 2323409) throw new Error(`Incomplete Gaia extract: expecte
 let N = 0, A = 0;
 for (const tile of tiles) {
   N += tile.n;
-  for (let j = 0; j < tile.n; j++) A += Number(tile.bytes.readUInt32LE(32 * j + 24) > 0) + Number(tile.bytes.readUInt32LE(32 * j + 28) > 0);
+  for (let j = 0; j < tile.n; j++) A += Number(tile.bytes.readUInt32LE(36 * j + 24) > 0) + Number(tile.bytes.readUInt32LE(36 * j + 28) > 0);
 }
-const buffer = Buffer.alloc(24 + 20 * T + 24 * N + 8 * A);
-buffer.write('STAR'); buffer.writeUInt32LE(2, 4); buffer.writeUInt32LE(T, 8); buffer.writeUInt32LE(N, 12); buffer.writeUInt32LE(A, 16);
+const buffer = Buffer.alloc(24 + 20 * T + 28 * N + 8 * A);
+buffer.write('STAR'); buffer.writeUInt32LE(4, 4); buffer.writeUInt32LE(T, 8); buffer.writeUInt32LE(N, 12); buffer.writeUInt32LE(A, 16);
 Buffer.from(box.buffer, box.byteOffset, box.byteLength).copy(buffer, 20);
 let offset = 20 + 16 * T, first = 0;
 for (const tile of tiles) { buffer.writeUInt32LE(first, offset); offset += 4; first += tile.n; }
@@ -146,12 +149,13 @@ const gaiaAt = at.aliasStar + 8 * A;
 let j = 0, alias = 0;
 for (const tile of tiles) {
   const b = tile.bytes, order = Uint32Array.from({ length: tile.n }, (_, i) => i);
-  order.sort((a, b0) => b[32 * a + 22] - b[32 * b0 + 22] || a - b0);
+  order.sort((a, b0) => b[36 * a + 22] - b[36 * b0 + 22] || a - b0);
   for (const k of order) {
-    const o = 32 * k;
+    const o = 36 * k;
     b.copy(buffer, gaiaAt + 8 * j, o, o + 8); b.copy(buffer, at.tyc + 4 * j, o + 8, o + 12);
     for (const [key, pos] of [['ra', 12], ['dec', 14], ['pmra', 16], ['pmdec', 18], ['plx', 20]]) b.copy(buffer, at[key] + 2 * j, o + pos, o + pos + 2);
     buffer[at.mag + j] = b[o + 22]; buffer[at.bv + j] = b[o + 23];
+    b.copy(buffer, gaiaAt + 8 * N + 4 * j, o + 32, o + 36);
     for (const [pos, flag] of [[24, 1], [28, 2]]) {
       const id = b.readUInt32LE(o + pos);
       if (id) {
@@ -162,7 +166,7 @@ for (const tile of tiles) {
   }
 }
 fs.writeFileSync(output, buffer);
-const metadata = { format: 'STAR v2', depth: 12, stars: N, bytes: buffer.length, retainedATHYG: base.n, addedGaia: added,
+const metadata = { format: 'STAR v4', depth: 12, stars: N, bytes: buffer.length, retainedATHYG: base.n, addedGaia: added,
   inputRows: rows, matchedExisting: duplicates, rejectedRows: rejected, addedWithoutProperMotion: missingMotion,
   uniqueGaiaSources: seenGaia.size, repeatedCrossmatchRows: repeatedRows,
   addedWithoutColour: missingColour,

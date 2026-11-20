@@ -1,0 +1,84 @@
+{
+  "cpuSlowdown": 4,
+  "viewport": "390x844",
+  "stars": 2308822,
+  "method": "Interleaved before/after medians after warmup; desktop Chromium, no network or catalog loading in measured sections",
+  "skyCanvasMedianMs": [
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 1,
+      "before": 41.700000047683716,
+      "after": 42.200000047683716
+    },
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 32,
+      "before": 22.5,
+      "after": 22.100000143051147
+    },
+    {
+      "ra": 270,
+      "dec": -29,
+      "scale": 256,
+      "before": 26.600000143051147,
+      "after": 26.899999856948853
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 1,
+      "before": 31,
+      "after": 33.59999990463257
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 32,
+      "before": 16.299999952316284,
+      "after": 15.5
+    },
+    {
+      "ra": 180,
+      "dec": 60,
+      "scale": 256,
+      "before": 15.400000095367432,
+      "after": 15.600000143051147
+    },
+    {
+      "ra": 226.1479260393544,
+      "dec": -17.361821730841157,
+      "scale": 1,
+      "before": 32.59999990463257,
+      "after": 32.09999990463257
+    },
+    {
+      "ra": 226.1479260393544,
+      "dec": -17.361821730841157,
+      "scale": 32,
+      "before": 16,
+      "after": 17.200000047683716
+    },
+    {
+      "ra": 226.1479260393544,
+      "dec": -17.361821730841157,
+      "scale": 256,
+      "before": 18,
+      "after": 16.5
+    }
+  ],
+  "playbackUpdateMedianMs": {
+    "stars": {
+      "before": 7.699999809265137,
+      "after": 7.799999952316284
+    },
+    "default": {
+      "before": 17.700000047683716,
+      "after": 19
+    }
+  },
+  "baselineCommit": "7e47258",
+  "date": "2026-11-19",
+  "limits": "Desktop Chromium at 4x CPU throttling, not physical-phone memory, battery or frame-rate validation. Each checkout uses its own catalogue format."
+}

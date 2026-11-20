@@ -1,6 +1,7 @@
 SELECT g.source_id, g.ra, g.dec, g.pmra, g.pmdec, g.parallax,
        g.phot_g_mean_mag, g.bp_rp,
-       t.original_ext_source_id AS tyc, h.original_ext_source_id AS hip
+       t.original_ext_source_id AS tyc, h.original_ext_source_id AS hip,
+       g.radial_velocity
 FROM gaiadr3.gaia_source AS g
 LEFT OUTER JOIN gaiadr3.tycho2tdsc_merge_best_neighbour AS t ON g.source_id = t.source_id
 LEFT OUTER JOIN gaiadr3.hipparcos2_best_neighbour AS h ON g.source_id = h.source_id

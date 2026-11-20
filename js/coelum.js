@@ -1,3 +1,4 @@
+import { BINARY_SYSTEMS } from './binarydata.js';
 // Offline whole-sky chart. Positions in this drawing are apparent (without
 // refraction). An azimuthal equidistant camera looks out from inside the
 // celestial sphere; its orientation is rotated by spherical drag gestures.
@@ -5,8 +6,9 @@
 // chart; coelumsky.js draws the realistic sky, coelumui.js the explorer.
 import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { CHART_STARS } from './stardata.js';
+import { spaceVector, binaryState, binaryBarycentreState, binaryComponent, isBinaryCatalogStar, KM_S_TO_PC_YR } from './starmotion.js';
 import { DEEP, showDeepObject } from './deepcatalog.js';
-import { heliocentric, surfaceObserver, solarDeflectionState, apparentFrame, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
+import { observerOrigin, heliocentric, surfaceObserver, solarDeflectionState, apparentFrame, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
 import { satelliteLight } from './satellites.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
@@ -178,27 +180,27 @@ const isComet = (m) => m.M1 !== undefined;
 function solarBodies(t, place, hor, rate = 0) {
   const bodies = SOLAR_BODIES.filter((body) => body === 'sun' || playbackBodyVisible(body, rate)).map((body) => {
     const p = topocentric(body, t, place), h = hor(p);
-    return { ...p, ...h, name: body[0].toUpperCase() + body.slice(1), body, mag: magnitude(body, t), type: body === 'sun' ? 'star' : body === 'moon' ? 'moon' : 'planet', color: BODY_COLORS[body] };
+    return { ...p, ...h, name: body[0].toUpperCase() + body.slice(1), body, mag: magnitude(body, t, place), type: body === 'sun' ? 'star' : body === 'moon' ? 'moon' : 'planet', color: BODY_COLORS[body] };
   });
   bodies[0].bv = 0.65;
   // Retain the Sun's coordinates for lighting/status, but suppress its
-  // disk, label and selection target once Earth's orbit is too fast.
-  bodies[0].hidden = !playbackBodyVisible('sun', rate);
+  // disk, label and selection target at the barycentre or once Earth's orbit is too fast.
+  bodies[0].hidden = observerOrigin(place) === 'barycentric' || !playbackBodyVisible('sun', rate);
   for (const m of playbackBodyVisible('minor', rate) ? minorBodies : []) {
     let p, mag;
-    try { p = topocentric(m, t, place); mag = magnitude(m, t); } catch { continue; }
+    try { p = topocentric(m, t, place); mag = magnitude(m, t, place); } catch { continue; }
     if (!Number.isFinite(p.ra) || !Number.isFinite(p.dec)) continue;
     const comet = isComet(m);
     bodies.push({ ...p, ...hor(p), name: m.name, number: m.number, body: comet ? 'comet' : 'minor', mag, type: comet ? 'comet' : 'minor planet', color: BODY_COLORS[comet ? 'comet' : 'minor'] });
   }
   const moon = bodies.find((o) => o.body === 'moon'), sun = bodies[0];
   for (const o of bodies.filter((o) => ORBIT_DAYS[o.body])) {
-    const a = aspect(o.body, t);
+    const a = aspect(o.body, t, place);
     o.phase = a.phase; o.elong = a.elong; o.light = hor(towardSun(o, sun));
   }
   if (moon) {
     moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
-    moon.shadow = shadowOnMoon(moon, t, hor);
+    moon.shadow = observerOrigin(place) === 'barycentric' ? null : shadowOnMoon(moon, t, hor);
   }
   return bodies;
 }
@@ -268,6 +270,13 @@ const BOUNDARY_POINTS = BOUNDARIES.map((line) => {
 // Shared by all catalog stars, including the tiled drawing path. The Earth
 // state is evaluated once per update, never inside the per-star loop.
 function catalogObserver(t, place, matrix) {
+  if (observerOrigin(place) === 'barycentric') {
+    // ICRS catalog vectors already originate at the solar-system barycentre.
+    // No observer parallax, aberration or local solar light deflection belongs
+    // in this astrometric view (including the tiled faint-star renderer).
+    const zero = [0,0,0], deflection = solarDeflectionState(zero);
+    return { position: zero, beta: zero, positionJ2000: zero, betaJ2000: zero, deflection, deflectionJ2000: deflection };
+  }
   const T = centuries(t), n = nutation(T), [earth, velocity] = heliocentric('earth', T, true);
   const rotate = ([x, y, z]) => {
     const a = x * Math.cos(n.dpsi * R) - y * Math.sin(n.dpsi * R), b = x * Math.sin(n.dpsi * R) + y * Math.cos(n.dpsi * R);
@@ -299,36 +308,72 @@ function apparentCatalogVector(v, parallax, frame) {
 export function skyFrame(t, place, rate = 0) {
   const matrix = dateRotation(t), lst = siderealTime(t, place[1]);
   const state = { matrix, years: centuries(t) * 100, observer: catalogObserver(t, place, matrix) };
-  const eq = (ra, dec, pmra = 0, pmdec = 0) => {
-    const v = vec(ra, dec), years = state.years, mas = R / 3600000;
-    const east = [-Math.sin(ra * R), Math.cos(ra * R), 0], north = [-Math.sin(dec * R) * Math.cos(ra * R), -Math.sin(dec * R) * Math.sin(ra * R), Math.cos(dec * R)];
-    const u = v.map((x, i) => x + years * mas * (pmra * east[i] + pmdec * north[i]));
+  const eq = (ra, dec, pmra = 0, pmdec = 0, parallax = 0, rv = null, binary = null, barycentre = null) => {
+    const u = binaryBarycentreState(barycentre, 2451545 + state.years * 365.25)?.vector || binaryState(binary, 2451545 + state.years * 365.25)?.vector || spaceVector(ra, dec, pmra, pmdec, parallax, rv, state.years);
     const w = [0, 1, 2].map((i) => state.matrix.reduce((sum, col, k) => sum + col[i] * u[k], 0));
     return { ra: (Math.atan2(w[1], w[0]) / R + 360) % 360, dec: Math.atan2(w[2], Math.hypot(w[0], w[1])) / R, catalogVector: u };
   };
   const hor = (p) => horizonPoint(p.ra, p.dec, place[0], lst);
   const catalog = (ra, dec, pmra, pmdec) => { const p = eq(ra, dec, pmra, pmdec); return { ...p, ...(state.hor || hor)(p) }; };
-  const apparentCatalog = (ra, dec, pmra = 0, pmdec = 0, parallax = 0) => {
-    const p = eq(ra, dec, pmra, pmdec), v = apparentCatalogVector(p.catalogVector, parallax, state);
+  const apparentCatalog = (ra, dec, pmra = 0, pmdec = 0, parallax = 0, rv = null, binary = null, barycentre = null) => {
+    const p = eq(ra, dec, pmra, pmdec, parallax, rv, binary, barycentre), v = apparentCatalogVector(p.catalogVector, parallax, state);
     p.ra = (Math.atan2(v[1], v[0]) / R + 360) % 360;
     p.dec = Math.atan2(v[2], Math.hypot(v[0], v[1])) / R;
     return { ...p, parallax, ...(state.hor || hor)(p) };
   };
-  const stars = CHART_STARS.map(([hip, ra, dec, mag, bv, flags, pmra, pmdec, parallax, proper, names, spect], i) => {
+  const stars = CHART_STARS.map(([hip, ra, dec, mag, bv, flags, pmra, pmdec, parallax, proper, names, spect, rv = null, binary = null], i) => {
     // named by the IAU, or by the first designation (Bayer, Flamsteed, HIP)
     const { name, designations } = STAR_NAMES[i];
-    return { ...apparentCatalog(ra, dec, pmra, pmdec, parallax), name, designations, mag, bv: bv ?? undefined, type: 'star', named: Boolean(proper), parallax, pmra, pmdec, spect, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
+    const p = apparentCatalog(ra, dec, pmra, pmdec, parallax, rv, binary);
+    // Cache the constant ICRS velocity, then advance it every playback frame.
+    // This keeps nearby fast stars accurate without repeating trigonometry.
+    const start = spaceVector(ra,dec), next = spaceVector(ra,dec,pmra,pmdec,parallax,rv,1);
+    return { ...p, catalogAtEpoch: p.catalogVector, catalogEpochYears: state.years, catalogVelocity: binary ? null : next.map((x,i)=>x-start[i]), name, designations, mag, bv: bv ?? undefined, type: 'star', named: Boolean(proper), parallax, pmra, pmdec, rv, binary, spect, double: Boolean(flags & 1), variable: Boolean(flags & 2) };
+  });
+  const barycenters = BINARY_SYSTEMS.map((system) => {
+    const b = system.barycentre, id = system.components[0].id;
+    const p = apparentCatalog(b.ra,b.dec,b.pmra,b.pmdec,1000/b.distance,b.rv,null,id);
+    return { ...p, name: `${system.name} barycenter`, type: 'binary barycenter', binaryBarycentre: id,
+      // One system-level name on the card; component aliases are only search
+      // conveniences, not designations of the centre of mass itself.
+      designations: [],
+      searchAliases: [...new Set([system.name,...system.components.flatMap(c=>[c.name,...c.aliases])])].flatMap(name=>[`${name} barycenter`,`${name} barycentre`]),
+      pmra: b.pmra, pmdec: b.pmdec, rv: b.rv, components: system.components.map(c=>c.name) };
   });
   const bodies = [...solarBodies(t, place, hor, rate), ...(playbackBodyVisible('satellite', rate) ? satelliteBodies(t, place, hor) : [])];
   const deep = DEEP.map(([names, ra, dec, mag, type, major, minor, magBand]) => ({ magBand, ...apparentCatalog(ra, dec), name: names[0], description: names.slice(1).join(' · '), mag, size: major ? [major, minor ?? major] : null, type }));
   const constellations = CONSTELLATIONS.map(([name, ra, dec, lines]) => ({ name, type: 'constellation', ...apparentCatalog(ra, dec), lines: lines.map((line) => line.map(([a, d]) => apparentCatalog(a, d))) }));
   const ecliptic = ECLIPTIC.map(([a, d]) => catalog(a, d));
   const boundaries = BOUNDARY_POINTS.map((line) => line.map(([a, d]) => catalog(a, d)));
-  return Object.assign(state, { t, place, stars, bodies, deep, constellations, ecliptic, boundaries, hor, catalog, apparentCatalog });
+  return Object.assign(state, { t, place, stars, barycenters, bodies, deep, constellations, ecliptic, boundaries, hor, catalog, apparentCatalog });
 }
 
-// Cache catalog space motion for a day; update the shared frame, parallax
-// and aberration each frame, and interpolate solar-system positions
+// Evaluate one already-known object at a historical trail timestamp. This
+// avoids rebuilding the whole catalogue when the user changes its reference.
+export function skyObjectAt(o, time, place) {
+  const matrix = dateRotation(time), years = centuries(time)*100;
+  let p;
+  if (o.catalogVector) {
+    const v = o.binaryBarycentre ? binaryBarycentreState(o.binaryBarycentre,2451545+years*365.25).vector
+      : o.binary ? binaryState(o.binary,2451545+years*365.25).vector
+      : o.catalogVelocity ? o.catalogAtEpoch.map((x,i)=>x+(years-o.catalogEpochYears)*o.catalogVelocity[i]) : o.catalogVector;
+    const u = apparentCatalogVector(v,o.parallax,{matrix,observer:catalogObserver(time,place,matrix)});
+    p = {ra:(Math.atan2(u[1],u[0])/R+360)%360,dec:Math.atan2(u[2],Math.hypot(u[0],u[1]))/R};
+  } else if (o.planet) {
+    const parent = planetOf(o.name), host = topocentric(parent,time,place);
+    const m = moons(parent,time,observerOrigin(place)==='topocentric'?null:place).moons.find(m=>m.name===o.name);
+    if (!m) return null;
+    p = {ra:host.ra+m.east/Math.max(1e-6,Math.cos(host.dec*R)),dec:host.dec+m.north};
+  } else {
+    const body = o.satellite || (o.body==='minor'||o.body==='comet' ? minorBodies.find(m=>m.name===o.name) : o.body);
+    if (!body) return null;
+    p = topocentric(body,time,place);
+  }
+  return {...p,...horizonPoint(p.ra,p.dec,place[0],siderealTime(time,place[1])),coordinateMatrix:matrix};
+}
+
+// Cache catalog space-motion bases for a day; advance positions and update
+// the shared frame, parallax and aberration each frame. Interpolate solar-system positions
 // between exact one-minute samples. No catalog rebuilds in the frame loop.
 export function createSkyAnimator(t, place, layers = { deep: true, constellations: true, equatorial: true, ecliptic: true, boundaries: true }, rate = 0) {
   let frame, catalogTime = -Infinity, sampleTime = -Infinity, left, right;
@@ -342,6 +387,9 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
   };
   const update = (p) => Object.assign(p, hor(p));
   const updateStar = (p) => {
+    if (p.binaryBarycentre) p.catalogVector = binaryBarycentreState(p.binaryBarycentre, 2451545 + frame.years * 365.25).vector;
+    else if (p.binary) p.catalogVector = binaryState(p.binary, 2451545 + frame.years * 365.25).vector;
+    else if (p.catalogVelocity) p.catalogVector = p.catalogAtEpoch.map((x,i)=>x+(frame.years-p.catalogEpochYears)*p.catalogVelocity[i]);
     const v = apparentCatalogVector(p.catalogVector, p.parallax, frame);
     p.ra = (Math.atan2(v[1], v[0]) / R + 360) % 360;
     p.dec = Math.atan2(v[2], Math.hypot(v[0], v[1])) / R;
@@ -369,6 +417,7 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
     frame.matrix = dateRotation(time);
     frame.observer = catalogObserver(time, place, frame.matrix);
     for (const p of frame.stars) updateStar(p);
+    for (const p of frame.barycenters) updateStar(p);
     if (layers.deep) for (const p of frame.deep) updateStar(p);
     if (layers.constellations) for (const c of frame.constellations) { updateStar(c); for (const line of c.curves) for (const p of line) updateStar(p); }
     if (layers.ecliptic) for (const p of frame.ecliptic) update(p);
@@ -392,7 +441,7 @@ export function createSkyAnimator(t, place, layers = { deep: true, constellation
     for (const o of frame.bodies.filter((o) => ORBIT_DAYS[o.body])) o.light = hor(towardSun(o, sun));
     if (moon) {
       moon.north = hor({ ra: moon.ra, dec: Math.min(89.999, moon.dec + 0.06) });
-      moon.shadow = shadowOnMoon(moon, time, hor);
+      moon.shadow = observerOrigin(place) === 'barycentric' ? null : shadowOnMoon(moon, time, hor);
     }
     if (playbackBodyVisible('satellite', rate)) frame.bodies.push(...satelliteBodies(time, place, hor));
     return frame;
@@ -528,6 +577,7 @@ export function setFaintStars(data) { STORED = data ? readStars(data) : null; }
 export const faintCount = () => (STORED ? STORED.n : 0);
 // The deepest magnitude of the stored stars.
 export const faintDepth = () => (STORED ? STORED.depth : 6);
+export const faintHasRadialVelocities = () => Boolean(STORED?.rv);
 
 // The file: its arrays, each tile's center (J2000) and radius (radians),
 // a polar cap about the pole, and the fastest proper motion (radians a
@@ -535,9 +585,10 @@ export const faintDepth = () => (STORED ? STORED.depth : 6);
 export function readStars(buffer) {
   if (buffer.byteLength < 20) throw new Error('incomplete star file');
   const head = new Uint32Array(buffer, 0, 5);
-  if (String.fromCharCode(...new Uint8Array(buffer, 0, 4)) !== 'STAR' || ![1, 2].includes(head[1])) throw new Error('not a star file of this version');
+  if (String.fromCharCode(...new Uint8Array(buffer, 0, 4)) !== 'STAR' || ![1, 2, 3, 4].includes(head[1])) throw new Error('not a star file of this version');
   const [, , T, n, A] = head;
-  if (buffer.byteLength !== 24 + 20 * T + (head[1] === 2 ? 24 : 16) * n + 8 * A) throw new Error('incomplete star file');
+  const hasGaia = head[1] === 2 || head[1] === 4, hasRV = head[1] >= 3;
+  if (buffer.byteLength !== 24 + 20 * T + (16 + (hasGaia ? 8 : 0) + (hasRV ? 4 : 0)) * n + 8 * A) throw new Error('incomplete star file');
   const box = new Float32Array(buffer, 20, 4 * T);
   let o = 20 + 16 * T;
   const start = new Uint32Array(buffer, o, T + 1); o += 4 * (T + 1);
@@ -551,7 +602,16 @@ export function readStars(buffer) {
   const bv = new Int8Array(buffer, o, n); o += n;
   const aliasStar = new Uint32Array(buffer, o, A), alias = new Uint32Array(buffer, o + 4 * A, A);
   // v2 appends exact Gaia DR3 IDs as low/high words, zero for AT-HYG stars.
-  const gaia = head[1] === 2 ? new Uint32Array(buffer, o + 8 * A, 2 * n) : null;
+  const gaia = hasGaia ? new Uint32Array(buffer, o + 8 * A, 2 * n) : null;
+  // Gaia words need no uint64 alignment; RV follows the ID words, if any.
+  const rv = hasRV ? new Float32Array(buffer, o + 8 * A + (hasGaia ? 8 * n : 0), n) : null;
+  const binaryIndices = new Set();
+  let maxRadial = 0;
+  for (let j = 0; j < n; j++) {
+    const id = gaia && (gaia[2 * j] || gaia[2 * j + 1]) ? ((BigInt(gaia[2 * j + 1]) << 32n) + BigInt(gaia[2 * j])).toString() : '';
+    if (isBinaryCatalogStar(tyc[j], id)) binaryIndices.add(j);
+    if (rv && Number.isFinite(rv[j])) maxRadial = Math.max(maxRadial, Math.abs(rv[j]) * KM_S_TO_PC_YR * plx[j] * 0.02 / 1000);
+  }
   const center = new Float64Array(3 * T), reach = new Float32Array(T);
   let depth = 0, fastest = 0;
   for (let t = 0; t < T; t++) {
@@ -574,7 +634,7 @@ export function readStars(buffer) {
     if (seenAliases.has(code)) sharedNames.add(`${code >= 2 ** 29 ? 'HD' : 'HIP'} ${code % 2 ** 28}`);
     seenAliases.add(code);
   }
-  return { n, T, box, start, tyc, ra, dec, pmra, pmdec, plx, mag, bv, aliasStar, alias, gaia, center, reach, depth, sharedNames, maxParallax: plx.reduce((a, b) => Math.max(a, b), 0) * 0.02, fastest: Math.SQRT2 * fastest * R / 3.6e6 };
+  return { n, T, box, start, tyc, ra, dec, pmra, pmdec, plx, mag, bv, aliasStar, alias, gaia, rv, binaryIndices, maxRadial, center, reach, depth, sharedNames, maxParallax: plx.reduce((a, b) => Math.max(a, b), 0) * 0.02, fastest: Math.SQRT2 * fastest * R / 3.6e6 };
 }
 // Stored star j: its J2000 vector at the epoch, its tile and data
 function storedStar(j) {
@@ -582,7 +642,7 @@ function storedStar(j) {
   let lo = 0, hi = S.T - 1;
   while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S.start[m] <= j) lo = m; else hi = m - 1; }
   const b = 4 * lo, ra = S.box[b] + S.ra[j] / 65535 * S.box[b + 2], dec = S.box[b + 1] + S.dec[j] / 65535 * S.box[b + 3];
-  return { ra, dec, pmra: S.pmra[j], pmdec: S.pmdec[j], mag: S.mag[j] / 20, bv: S.bv[j] === -128 ? undefined : S.bv[j] / 50, parallax: S.plx[j] * 0.02 };
+  return { ra, dec, pmra: S.pmra[j], pmdec: S.pmdec[j], mag: S.mag[j] / 20, bv: S.bv[j] === -128 ? undefined : S.bv[j] / 50, parallax: S.plx[j] * 0.02, rv: S.rv && Number.isFinite(S.rv[j]) ? S.rv[j] : null };
 }
 // Its designations, HIP and HD (from the aliases, sorted by star) then TYC
 function storedNames(j) {
@@ -613,18 +673,21 @@ export function eachFaint(frame, limit, visit, cone = null) {
   const c = cone && [0, 1, 2].map((i) => H[3 * i] * cone.v[0] + H[3 * i + 1] * cone.v[1] + H[3 * i + 2] * cone.v[2]);
   const obs = frame.observer, beta = obs.betaJ2000, earth = obs.positionJ2000, solar = obs.deflectionJ2000, sun = solar.direction;
   // Double-precision tile centres keep tiny cones safe at arcsecond zoom.
-  const margin = cone ? cone.radius + 1e-7 + S.fastest * Math.abs(years) + (Math.hypot(...beta) + solar.maxShift) * 1.01 + S.maxParallax / 206264806 * Math.hypot(...earth) : 0;
+  const minDistance = Math.max(0, 1 - S.maxRadial * Math.abs(years));
+  const margin = cone ? cone.radius + 1e-7 + (minDistance ? S.fastest * Math.abs(years) / minDistance : Math.PI) + (Math.hypot(...beta) + solar.maxShift) * 1.01 + (minDistance ? S.maxParallax / 206264806 * Math.hypot(...earth) / minDistance : Math.PI) : 0;
   for (let t = 0; t < S.T; t++) {
     const first = S.start[t], end = S.start[t + 1];
     if (first === end || S.mag[first] > top) continue;
     if (c && c[0] * S.center[3 * t] + c[1] * S.center[3 * t + 1] + c[2] * S.center[3 * t + 2] < Math.cos(Math.min(Math.PI, margin + S.reach[t]))) continue;
     const b = 4 * t, a0 = S.box[b] * R, d0 = S.box[b + 1] * R, ka = S.box[b + 2] * R / 65535, kd = S.box[b + 3] * R / 65535;
     for (let j = first; j < end && S.mag[j] <= top; j++) {
+      if (S.binaryIndices.has(j)) continue;
       // moved in the tangent plane: east × μα cos δ + north × μδ
       const a = a0 + S.ra[j] * ka, d = d0 + S.dec[j] * kd, ca = Math.cos(a), sa = Math.sin(a), cd = Math.cos(d), sd = Math.sin(d);
       const e = S.pmra[j] * k, nn = S.pmdec[j] * k;
-      let x = cd * ca - e * sa - nn * sd * ca, y = cd * sa + e * ca - nn * sd * sa, z = sd + nn * cd;
       const px = S.plx[j] * 0.02 / 206264806;
+      const radius = 1 + (S.rv && Number.isFinite(S.rv[j]) ? years * S.rv[j] * KM_S_TO_PC_YR * S.plx[j] * 0.02 / 1000 : 0);
+      let x = radius * cd * ca - e * sa - nn * sd * ca, y = radius * cd * sa + e * ca - nn * sd * sa, z = radius * sd + nn * cd;
       x -= px * earth[0]; y -= px * earth[1]; z -= px * earth[2];
       const distance = Math.sqrt(x * x + y * y + z * z);
       const pe = (x * sun[0] + y * sun[1] + z * sun[2]) / distance;
@@ -643,8 +706,9 @@ export class FaintHit {
 }
 // Stored star j as an object (as the built-in stars), at the frame's time
 function faintObject(frame, j) {
-  const s = storedStar(j), [name, ...designations] = storedNames(j), p = frame.apparentCatalog(s.ra, s.dec, s.pmra, s.pmdec, s.parallax);
-  return { ...p, ...frame.hor(p), name, designations, type: 'star', mag: s.mag, bv: s.bv, parallax: s.parallax, pmra: s.pmra, pmdec: s.pmdec,
+  const s = storedStar(j), [name, ...designations] = storedNames(j), p = frame.apparentCatalog(s.ra, s.dec, s.pmra, s.pmdec, s.parallax, s.rv);
+  const base=spaceVector(s.ra,s.dec),next=spaceVector(s.ra,s.dec,s.pmra,s.pmdec,s.parallax,s.rv,1);
+  return { ...p, ...frame.hor(p), catalogAtEpoch:base,catalogEpochYears:0,catalogVelocity:next.map((x,i)=>x-base[i]), name, designations, type: 'star', mag: s.mag, bv: s.bv, parallax: s.parallax, pmra: s.pmra, pmdec: s.pmdec, rv: s.rv,
     estimatedPhotometry: Boolean(STORED.gaia && (STORED.gaia[2 * j] || STORED.gaia[2 * j + 1])) };
 }
 // A stored star by one of its designations: HIP 12345, HD 12345, TYC 1-2-1
@@ -652,7 +716,8 @@ function findFaint(frame, name) {
   if (!STORED) return null;
   // A selected star is resolved on every frame. Keep its index rather than
   // rescanning a multi-million-star ID array while panning or playing time.
-  if (name && STORED.lookupName === name) return faintObject(frame, STORED.lookupIndex);
+  const indices=STORED.lookupIndices ||= new Map();
+  if (indices.has(name)) return faintObject(frame,indices.get(name));
   const m = /^(HIP|HD) (\d+)$/.exec(name || ''), t = /^TYC (\d+)-(\d+)-(\d+)$/.exec(name || '');
   const row = /^Catalog V([\d.]+) star (\d+)$/.exec(name || '');
   let j = -1;
@@ -664,7 +729,8 @@ function findFaint(frame, name) {
     if (id > 0n) for (let k = 0; k < STORED.n; k++) if (STORED.gaia[2 * k] === lo && STORED.gaia[2 * k + 1] === hi) { j = k; break; }
   }
   if (j < 0) return null;
-  STORED.lookupName = name; STORED.lookupIndex = j;
+  if(indices.size>=64)indices.delete(indices.keys().next().value);
+  indices.set(name,j);
   return faintObject(frame, j);
 }
 
@@ -844,6 +910,17 @@ export function moonSymbol(p, ctx, o, x, y, r, lightAngle) {
   else p.raw(`<path d="${d}Z" fill="${o.color}" transform="translate(${f(x)} ${f(y)}) rotate(${f(lightAngle)})"/>`);
 }
 
+// Keep unresolved systems unobtrusive: show centres once their components
+// separate on screen, plus any explicitly selected/tracked centre.
+export function binaryCenterVisible(o, frame, xy, view) {
+  if (o.name === view.selected || o.name === view.tracked) return true;
+  const [a,b] = o.components.map(name => frame.stars.find(s=>s.name===name)).map(s=>s && xy(s));
+  return a && b && Math.hypot(a.x-b.x,a.y-b.y) >= 18;
+}
+export function binaryCenterSymbol(p,x,y) {
+  p.path(`M${x-3},${y}H${x+3}M${x},${y-3}V${y+3}`, { stroke: '#888888', width: 1, opacity: 0.65 });
+}
+
 // The selected object: a reticle, drawn even when the ground hides it.
 export function reticle(p, x, y, r, color) {
   const a = r + 5, b = r + 10, f = (v) => v.toFixed(2);
@@ -853,7 +930,7 @@ export function reticle(p, x, y, r, color) {
 
 export function findObject(frame, name) {
   if (!name) return null;
-  return frame.bodies.find((o) => o.name === name) || frame.stars.find((o) => o.name === name) || frame.deep.find((o) => o.name === name) || frame.constellations.find((o) => o.name === name) || frame.stars.find((o) => o.designations?.includes(name)) || findFaint(frame, name) || findMoon(frame, name);
+  return frame.bodies.find((o) => o.name === name) || frame.stars.find((o) => o.name === name) || frame.barycenters?.find((o) => o.name === name || o.searchAliases?.includes(name)) || frame.deep.find((o) => o.name === name) || frame.constellations.find((o) => o.name === name) || frame.stars.find((o) => o.designations?.includes(name)) || findFaint(frame, name) || findMoon(frame, name);
 }
 
 // The major moons of a planet at the frame's time, placed by their offsets
@@ -872,7 +949,7 @@ export function planetMoons(frame, planet) {
   let cache = moonCache.get(frame);
   if (!cache || cache.t !== frame.t) { cache = { t: frame.t }; moonCache.set(frame, cache); }
   if (cache[planet.body]) return cache[planet.body];
-  const c = Math.max(1e-6, Math.cos(planet.dec * R)), system = moons(planet.body, frame.t);
+  const c = Math.max(1e-6, Math.cos(planet.dec * R)), system = moons(planet.body, frame.t, observerOrigin(frame.place) === 'topocentric' ? null : frame.place);
   cache[`${planet.body}-pole`] = system.pole;
   return (cache[planet.body] = system.moons.map((m) => {
     const p = { ra: (planet.ra + m.east / c + 360) % 360, dec: planet.dec + m.north };
@@ -910,6 +987,7 @@ const chartKey = {};
 const canvasGround = new WeakMap();
 export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view = {}, ctx = null) {
   const opts = { ...DEFAULT_LAYERS, ...layers }, scale = view.scale || 1, radius = chartRadius(W, H, scale);
+  if (observerOrigin(frame.place) !== 'topocentric') opts.ground = false;
   const rotation = view.rotation || SKY_IDENTITY, cx = W / 2, cy = H / 2, p = pen(ctx), c = PALETTE;
   const xy = (o) => { const v = o.vector ? projectVector(o.vector, rotation) : projectSky(o.alt, o.az, rotation); return { x: cx + v.x * radius, y: cy + v.y * radius }; };
   const visible = (o) => (!opts.ground || o.alt >= 0) && Number.isFinite(o.x) && Number.isFinite(o.y) && o.x >= 0 && o.x <= W && o.y >= 0 && o.y <= H;
@@ -1079,6 +1157,11 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     satelliteSymbol(p, o, q.x, q.y, r);
     if (o.name === view.selected || o.lit && (o.satellite.group === 'stations' || o.mag < 1)) labels.push({ ...q, name: o.name, color: c.satellite, r: r + 2, priority: o.name === view.selected ? 0 : 2, mag: o.mag });
   }
+  for (const o of frame.barycenters || []) {
+    if (!binaryCenterVisible(o,frame,xy,view)) continue;
+    const q = add(o,4); if (!q) continue;
+    binaryCenterSymbol(p,q.x,q.y);
+  }
   const symbols = objects.filter((o) => o.body), names = new Set(objects.map((o) => o.name));
   let hitLabels = [];
   if (opts.labels) {
@@ -1091,10 +1174,11 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   if (opts.ground) for (const [name, az, size, color] of [['N', 0, 15, '#eef3fa'], ['NE', 45, 11, '#a9bccf'], ['E', 90, 15, '#eef3fa'], ['SE', 135, 11, '#a9bccf'], ['S', 180, 15, '#eef3fa'], ['SW', 225, 11, '#a9bccf'], ['W', 270, 15, '#eef3fa'], ['NW', 315, 11, '#a9bccf']]) {
     const q = xy({ alt: -6.5, az }); p.text(q.x, q.y + size / 3, name, color, size, 'middle', c.ground, 700);
   }
-  const chosen = findObject(frame, view.selected);
-  if (chosen && !(chosen.body === 'sun' && chosen.hidden)) {
-    const o = objects.find((x) => x.name === chosen.name), q = o || xy(chosen);
-    if (Number.isFinite(q.x)) reticle(p, q.x, q.y, o ? o.radius : 3, '#ffcf5a');
+  for (const [name,color] of [[view.selected,view.selectionColor || '#ffcf5a'],[view.tracked,'#ff5555']]) {
+    const chosen = findObject(frame,name);
+    if (!chosen || chosen.body === 'sun' && chosen.hidden) continue;
+    const o = objects.find(x=>x.name===chosen.name), q = o || xy(chosen);
+    if (Number.isFinite(q.x)) reticle(p,q.x,q.y,o ? o.radius : 3,color);
   }
   p.raw('</g>');
   return { svg: p.svg, objects, radius, hitLabels };
@@ -1145,7 +1229,7 @@ const starKeys = new WeakMap();
 const keysOf = (o) => {
   let keys = starKeys.get(o);
   if (!keys) {
-    keys = [o.name, ...o.designations || []];
+    keys = [o.name, ...o.designations || [], ...o.searchAliases || []];
     for (const k of [...keys]) if (/^[α-ω]/.test(k)) { const bare = k.replace(/[⁰-⁹¹²³]+/g, ''); keys.push(bare, bare.replace(/^[α-ω]/, (c) => GREEK[c][1])); }
     starKeys.set(o, keys);
   }
@@ -1160,7 +1244,7 @@ export function searchAngularField(o) {
     return Math.min(170, Math.max(10, reach * 2.5));
   }
   if (o.size?.[0]) return Math.max(0.1, o.size[0] / 60 * 2);
-  if (o.body === 'moon' || o.body === 'sun') return 2 * Math.asin((o.body === 'moon' ? 1737.4 : 695700) / o.dist) / R * 1.8;
+  if (o.body === 'moon' || o.body === 'sun') return 2 * Math.asin(Math.min(1,(o.body === 'moon' ? 1737.4 : 695700) / o.dist)) / R * 1.8;
   if (o.planet) return Math.max(o.separation * 3, (o.diameter || 0) * 6, 0.01);
   const radius = diskRadius(o);
   if (radius) return radius * 2 * (o.body === 'saturn' ? 2.3 : 1) * 4;
@@ -1176,6 +1260,7 @@ export function searchSky(frame, query, limit = 8) {
     ...frame.bodies.map((o) => ({ o, keys: o.satellite ? [o.name, ...o.satellite.keys] : o.number ? [o.name, String(o.number)] : [o.name] })),
     ...frame.bodies.filter(hasMoons).flatMap((planet) => planetMoons(frame, planet).map((o) => ({ o, keys: [o.name] }))),
     ...frame.stars.map((o) => ({ o, keys: keysOf(o) })),
+    ...(frame.barycenters || []).map((o) => ({ o, keys: keysOf(o) })),
     ...frame.deep.map((o) => ({ o, keys: [o.name, ...(o.description ? o.description.split(' · ') : [])] })),
     ...frame.constellations.map((o) => ({ o, keys: [o.name] })),
   ];
@@ -1191,7 +1276,7 @@ export function searchSky(frame, query, limit = 8) {
   }
   const lunar = searchLunarFeatures(query, limit), moon = frame.bodies.find((o) => o.body === 'moon');
   if (lunar.length && moon) {
-    const disk = moonDisk(frame.t, moon);
+    const disk = moonDisk(frame.t, moon, frame.place);
     for (const feature of lunar) {
       const state = lunarFeatureState(disk, feature);
       out.push({ score: feature.score, alias: null, object: { ...feature, type: 'lunar feature', alt: moon.alt,
@@ -1241,7 +1326,7 @@ const angleText = (deg) => {
 };
 // The apparent diameter (degrees) of a body or a planet's moon: the Sun,
 // the Moon, a planet's equator, a moon of MOON_RADIUS
-const apparentDiameter = (o) => (o.body === 'sun' ? 2 * Math.asin(695700 / o.dist) / R : o.body === 'moon' ? 2 * Math.asin(1737.4 / o.dist) / R : o.body ? 2 * diskRadius(o) : o.diameter) || 0;
+const apparentDiameter = (o) => (o.body === 'sun' ? 2 * Math.asin(Math.min(1,695700 / o.dist)) / R : o.body === 'moon' ? 2 * Math.asin(1737.4 / o.dist) / R : o.body ? 2 * diskRadius(o) : o.diameter) || 0;
 // A distance in parsecs, and in light years
 const distanceText = (pc) => {
   const f = (x) => (x < 100 ? x.toFixed(x < 10 ? 2 : 1) : Math.round(x).toLocaleString('en'));
@@ -1256,12 +1341,12 @@ const motionText = (pmra, pmdec) => {
 // A satellite's card: where it is, how far and how high, how bright, and
 // the age of its elements
 const GROUP_NAMES = { stations: 'Space station or crewed craft', visual: 'Bright satellite', science: 'Science satellite', amateur: 'Amateur radio satellite', weather: 'Weather satellite' };
-function satelliteDetails(o, row, galacticRows) {
+function satelliteDetails(o, row, galacticRows, origin) {
   const s = o.satellite, age = (Date.now() / 1000 - s.epoch) / 3600, km = (x) => `${Math.round(x).toLocaleString('en')} km`;
   return `<div class="coelum-object-head"><h3>${esc(o.name)}</h3><span>${esc(GROUP_NAMES[s.group] || 'Satellite')}</span></div><dl>
-    ${row('Altitude (Alt)', sexagesimal(o.alt, false, true))}
+    ${Number.isFinite(o.alt) ? row('Altitude (Alt)', sexagesimal(o.alt, false, true)) : ''}
     ${Number.isFinite(o.apparentAlt) ? row('Apparent altitude', sexagesimal(o.apparentAlt, false, true)) : ''}
-    ${row('Azimuth (Az)', sexagesimal(o.az))}
+    ${Number.isFinite(o.az) ? row('Azimuth (Az)', sexagesimal(o.az)) : ''}
     ${row('Right ascension (RA)', sexagesimal(o.ra / 15, true))}
     ${row('Declination (Dec)', sexagesimal(o.dec, false, true))}
     ${galacticRows}
@@ -1270,13 +1355,13 @@ function satelliteDetails(o, row, galacticRows) {
     ${row('Visual magnitude', o.lit ? `${o.mag.toFixed(1)} (${s.stdKnown ? 'estimated' : 'rough guess'})` : 'In the Earth’s shadow')}
     ${row('NORAD number', String(s.norad))}
     ${row('Elements', `${age < 48 ? `${Math.max(0, Math.round(age))} hours` : `${Math.round(age / 24)} days`} old (CelesTrak)`)}
-    </dl><p class="coelum-coordinate-note">Seen from the place (topocentric), without refraction in the chart · SGP4 positions, good to a few km while the elements are fresh · brightness from the standard magnitude for the distance and the phase; tumbling and flares are not modeled${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
+    </dl><p class="coelum-coordinate-note">${origin === 'barycentric' ? 'Approximate solar system barycentre' : origin === 'geocentric' ? 'Earth’s centre' : 'Seen from the place (topocentric), without refraction in the chart'} · SGP4 positions, good to a few km while the elements are fresh · brightness from the standard magnitude for the distance and the phase; tumbling and flares are not modeled${o.alt < 0 ? ' · below the horizon' : ''}.</p>`;
 }
 const preciseAngle=(value,hours=false,signed=false)=>{
  const digits=hours?3:2,scale=10**digits,total=Math.round(Math.abs(value)*3600*scale),a=Math.floor(total/(3600*scale)),b=Math.floor(total/(60*scale))%60,c=(total/scale%60).toFixed(digits).padStart(digits+3,'0'),sign=value<0?'−':signed?'+':'';
  return hours?`${String(a%24).padStart(2,'0')}h ${String(b).padStart(2,'0')}m ${c}s`:`${sign}${a}° ${String(b).padStart(2,'0')}′ ${c}″`;
 };
-const FIXED_OBJECT_TYPES = new Set(['star', 'dark nebula', 'emission nebula', 'galaxy triplet', 'nova', 'object', ...DEEP.map((row) => row[4])]);
+const FIXED_OBJECT_TYPES = new Set(['star', 'binary barycenter', 'dark nebula', 'emission nebula', 'galaxy triplet', 'nova', 'object', ...DEEP.map((row) => row[4])]);
 // The physical offset is useful in the selected object's card. Calculate
 // it on demand rather than storing another value for every drawn star.
 function catalogSolarDeflection(o, frame) {
@@ -1287,13 +1372,15 @@ function catalogSolarDeflection(o, frame) {
   return Math.atan(solar.strength * Math.sqrt(Math.max(0, 1 - pe * pe)) / Math.max(1 + pe, solar.limiter)) / R * 3600;
 }
 export function objectDetails(o, frame = null) {
+  if (observerOrigin(frame?.place) !== 'topocentric') { o = { ...o }; delete o.alt; delete o.az; delete o.apparentAlt; }
   const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`;
   const deflection = catalogSolarDeflection(o, frame);
+  const binary = binaryComponent(o.binary);
   const detailedCoordinates = o.preciseSource || (!o.body && !o.planet && !o.satellite && FIXED_OBJECT_TYPES.has(o.type));
   const angle=(value,hours=false,signed=false)=>detailedCoordinates ? preciseAngle(value,hours,signed) : sexagesimal(value,hours,signed);
   const g = frame && galacticCoordinates(o, o.coordinateMatrix?{matrix:o.coordinateMatrix}:frame);
   const galacticRows = g ? row('Galactic longitude (l)', angle(g.lon)) + row('Galactic latitude (b)', angle(g.lat, false, true)) : '';
-  if (o.satellite) return satelliteDetails(o, row, galacticRows);
+  if (o.satellite) return satelliteDetails(o, row, galacticRows, observerOrigin(frame?.place));
   const notes = [o.double && 'double or multiple', o.variable && 'variable'].filter(Boolean);
   // a planet, or a planet's moon: a button for the close-up of the planet
   // (with its moons)
@@ -1302,25 +1389,29 @@ export function objectDetails(o, frame = null) {
     ${o.description ? `<p>${esc(o.description)}</p>` : ''}<dl>
     ${row('Right ascension (RA)', angle(o.ra / 15, true))}
     ${row('Declination (Dec)', angle(o.dec, false, true))}
-    ${deflection !== null ? row('Solar light deflection', `${deflection.toFixed(3)}″ (included)`) : ''}
+    ${deflection !== null ? row('Solar light deflection', observerOrigin(frame?.place) === 'barycentric' ? 'Not applied (barycentric)' : `${deflection.toFixed(3)}″ (included)`) : ''}
     ${galacticRows}
     ${Number.isFinite(o.alt) ? row('Altitude (Alt)', angle(o.alt, false, true)) : ''}
     ${Number.isFinite(o.apparentAlt) ? row('Apparent altitude', angle(o.apparentAlt, false, true)) : ''}
     ${Number.isFinite(o.az) ? row('Azimuth (Az)', angle(o.az)) : ''}
-    ${o.type === 'constellation' ? '' : row(o.magBand === 'B' ? 'Blue magnitude (B)' : 'Visual magnitude', Number.isFinite(o.mag) ? o.mag.toFixed(2) + (o.estimatedPhotometry ? ' (estimated)' : '') : 'Not available')}
+    ${o.type === 'binary barycenter' ? row('Components', o.components.join(' · ')) : o.type === 'constellation' ? '' : row(o.magBand === 'B' ? 'Blue magnitude (B)' : 'Visual magnitude', Number.isFinite(o.mag) ? o.mag.toFixed(2) + (o.estimatedPhotometry ? ' (estimated)' : '') : 'Not available')}
     ${apparentDiameter(o) > 0 ? row(o.body === 'saturn' ? 'Apparent diameter (globe)' : 'Apparent diameter', angleText(apparentDiameter(o))) : ''}
     ${o.size ? row('Apparent size', o.size.map((x) => `${x < 10 ? Number(x.toFixed(1)) : Math.round(x)}′`).filter((x, i, all) => !i || x !== all[0]).join(' × ')) : ''}
-    ${notes.length ? row('Hipparcos', notes.join(', ')) : ''}
+    ${notes.length ? row(binary ? 'System' : 'Hipparcos', notes.join(', ')) : ''}
     ${o.estimatedPhotometry ? row('Photometry', `V${Number.isFinite(o.bv) ? ' and B−V' : ''} estimated from Gaia G and BP−RP`) : ''}
     ${o.designations?.length ? row('Designations', o.designations.join(' · ')) : ''}
     ${o.spect ? row('Spectral type', o.spect) : ''}
     ${o.parallax > 0 ? row('Parallax', `${o.parallax.toFixed(o.parallax < 10 ? 3 : 2)} mas`) + row('Distance', distanceText(1000 / o.parallax)) : ''}
     ${Number.isFinite(o.pmra) && (o.pmra || o.pmdec) ? row('Proper motion', motionText(o.pmra, o.pmdec)) : ''}
+    ${o.type === 'star' ? row(binary ? 'System radial velocity' : 'Radial velocity', Number.isFinite(o.rv) ? `${o.rv > 0 ? '+' : ''}${o.rv.toFixed(2)} km/s${o.rv < 0 ? ' (approaching)' : o.rv > 0 ? ' (receding)' : ''}` : 'Unknown; zero assumed for propagation') : ''}
+    ${binary ? row('Binary orbit', `${binary.system.name} · ${(binary.system.orbit[0] / 365.25).toFixed(2)} years · USNO grade ${binary.system.grade}${binary.system.grade >= 4 ? ' (uncertain)' : ''}`) : ''}
+    ${binary?.system.note ? row('Orbit coverage', binary.system.note) : ''}
+    ${binary?.system.name === 'ρ Ophiuchi' ? row('Orbit assumptions', 'Equal component masses adopted; absolute component positions are approximate') : ''}
     ${(o.body || o.planet) && Number.isFinite(o.dist) ? row('Distance', o.preciseSource ? (o.dist>1e7?`${(o.dist/149597870.7).toFixed(10)} au`:`${o.dist.toLocaleString('en',{maximumFractionDigits:3})} km`) : o.dist > 1e7 ? `${(o.dist / 149597870.7).toFixed(3)} au` : `${Math.round(o.dist).toLocaleString('en')} km`) : ''}
     ${(o.body === 'moon' || o.type === 'planet') && Number.isFinite(o.phase) ? row('Illuminated', `${((1 + Math.cos(o.phase * R)) * 50).toFixed(1)} %`) : ''}
     ${o.type === 'planet' && Number.isFinite(o.phase) ? row('Phase angle', `${o.phase.toFixed(1)}°`) : ''}
-    ${o.type === 'planet' && Number.isFinite(o.elong) ? row('Solar elongation', `${Math.abs(o.elong).toFixed(1)}° ${o.elong < 0 ? 'west' : 'east'} (geocentric)`) : ''}
-    </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">${esc(o.precisionNote || 'Equatorial coordinates of date')} · ${o.coordinateOrigin==='geocentric' ? 'Earth’s centre' : `${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}`}.</p>`;
+    ${o.type === 'planet' && Number.isFinite(o.elong) ? row('Solar elongation', `${Math.abs(o.elong).toFixed(1)}° ${o.elong < 0 ? 'west' : 'east'} (${observerOrigin(frame?.place) === 'barycentric' ? 'barycentric' : 'geocentric'})`) : ''}
+    </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">${esc(o.precisionNote || 'Equatorial coordinates of date')} · ${observerOrigin(frame?.place)==='barycentric' ? 'Solar system barycentre (approximate)' : observerOrigin(frame?.place)==='geocentric' || o.coordinateOrigin==='geocentric' ? 'Earth’s centre' : `${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}`}.</p>`;
 }
 
 // A star's colour index as a temperature (Ballesteros 2012), a rough

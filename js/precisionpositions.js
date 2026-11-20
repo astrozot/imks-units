@@ -3,14 +3,17 @@
 import {mountEphemerisSwitch} from './precisionui.js';
 import {nativeBody} from './precisioncatalog.js';
 import {EPHEMERIS_YEARS} from './precisionconfig.js';
-import {siderealTime} from './astro.js';
+import {observerOrigin,surfaceObserver} from './astro.js';
 const R=Math.PI/180;
 // Undo the observer translation for the existing compact-model position. This
 // also supports natural moons, whose compact offsets are in the sky frame.
-export function geocentricPosition(p,t,[lat,lon,h=0]){
- const u=Math.atan(.99664719*Math.tan(lat*R)),lst=siderealTime(t,lon)*R;
- const rc=6378.137*Math.cos(u)+h/1000*Math.cos(lat*R),rs=6378.137*.99664719*Math.sin(u)+h/1000*Math.sin(lat*R);
- const x=p.dist*Math.cos(p.dec*R)*Math.cos(p.ra*R)+rc*Math.cos(lst),y=p.dist*Math.cos(p.dec*R)*Math.sin(p.ra*R)+rc*Math.sin(lst),z=p.dist*Math.sin(p.dec*R)+rs;
+export function geocentricPosition(p,t,place){
+ if(observerOrigin(place)==='geocentric')return p;
+ const {position,beta}=surfaceObserver(t,place);
+ const u=[Math.cos(p.dec*R)*Math.cos(p.ra*R),Math.cos(p.dec*R)*Math.sin(p.ra*R),Math.sin(p.dec*R)];
+ // Reverse the compact model's diurnal aberration before translating.
+ const ub=u.reduce((sum,x,i)=>sum+x*beta[i],0),b2=beta.reduce((sum,x)=>sum+x*x,0),scale=ub+Math.sqrt(1-b2+ub*ub);
+ const [x,y,z]=u.map((v,i)=>p.dist*(scale*v-beta[i])+position[i]);
  return {ra:(Math.atan2(y,x)/R+360)%360,dec:Math.atan2(z,Math.hypot(x,y))/R,dist:Math.hypot(x,y,z)};
 }
 export function precisePositionControls(root,formatTime,changed=()=>{}){
@@ -50,6 +53,7 @@ export function precisePositionControls(root,formatTime,changed=()=>{}){
    if(!value||!nativeBody(value.body)||!Number.isFinite(value.t)||year<EPHEMERIS_YEARS[0]||year>EPHEMERIS_YEARS[1]){cancelRefresh();if(current)toggle.reset();current=null;note='';root.hidden=true;return;}
    const body=value.body.toLowerCase();
    if(current&&(current.body!==body||current.place.length!==value.place.length||current.place.some((x,i)=>x!==value.place[i]))){cancelRefresh();toggle.reset();note='';}
+   label.hidden=observerOrigin(value.place)!=='topocentric';
    current={body,t:value.t,place:[...value.place],visible:value.visible};root.hidden=!value.visible;
    const cached=toggle.cachedResult;
    if(cached?.interval&&!toggle.result&&(value.t<cached.interval.from||value.t>cached.interval.to))toggle.reset();
@@ -58,9 +62,9 @@ export function precisePositionControls(root,formatTime,changed=()=>{}){
   position(o){
    if(!current)return o;
    refresh();
-   const r=toggle.result,geo=frame.value==='geocentric';
+   const r=toggle.result,origin=observerOrigin(current.place),geo=origin==='geocentric'||(origin==='topocentric'&&frame.value==='geocentric');
    const p=r?(geo?r.geocentric:r.position):geo?geocentricPosition(o,current.t,current.place):o;
-   const result={...o,...p,coordinateOrigin:geo?'geocentric':'topocentric',preciseSource:r?.source,coordinateMatrix:r?.coordinateMatrix,precisionNote:r?`${r.source}${r.centreModel==='system barycentre'?' · system barycentre':r.centreModel.startsWith('compact')?' · compact centre correction':''} · ${formatTime(r.t)}${r.rotationErrorSeconds!==null?` · Earth-rotation uncertainty ≈${r.rotationErrorSeconds.toFixed(1)} s`:''}. Position follows chart time within the loaded interval; other properties use standard models. Digits show resolution.`:toggle.error?`JPL ephemeris unavailable: ${toggle.error}. Approximate coordinates of date`:note};
+   const result={...o,...p,coordinateOrigin:origin==='barycentric'?'barycentric':geo?'geocentric':'topocentric',preciseSource:r?.source,coordinateMatrix:r?.coordinateMatrix,precisionNote:r?`${r.source}${r.centreModel==='system barycentre'?' · system barycentre':r.centreModel.startsWith('compact')?' · compact centre correction':''} · ${formatTime(r.t)}${r.rotationErrorSeconds!==null?` · Earth-rotation uncertainty ≈${r.rotationErrorSeconds.toFixed(1)} s`:''}. Position follows chart time within the loaded interval; other properties use standard models. Digits show resolution.`:toggle.error?`JPL ephemeris unavailable: ${toggle.error}. Approximate coordinates of date`:note};
    if(geo){delete result.apparentAlt;delete result.alt;delete result.az;}
    else if(r)delete result.apparentAlt;
    if(o.diameter&&o.dist&&p.dist)result.diameter=o.diameter*o.dist/p.dist;

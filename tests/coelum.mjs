@@ -310,12 +310,12 @@ for (const phase of [0, 45, 90, 135, 180]) {
   const { STARS } = await import('../js/catalog.js');
   const R = Math.PI / 180, sep = (a, b) => Math.acos(Math.min(1, Math.sin(a.dec * R) * Math.sin(b.dec * R) + Math.cos(a.dec * R) * Math.cos(b.dec * R) * Math.cos((a.ra - b.ra) * R))) / R;
   const named = new Map(CHART_STARS.filter((s) => s[9]).map((s) => [s[9], s]));
-  const off = STARS.filter((s) => named.has(s[0]) && sep({ ra: s[1], dec: s[2] }, { ra: named.get(s[0])[1], dec: named.get(s[0])[2] }) * 3600 > 0.5).map((s) => s[0]);
+  const off = STARS.filter((s) => named.has(s[0]) && !named.get(s[0])[13] && sep({ ra: s[1], dec: s[2] }, { ra: named.get(s[0])[1], dec: named.get(s[0])[2] }) * 3600 > 0.5).map((s) => s[0]);
   assert.ok(named.size > 500 && off.length <= 2 && off.includes("Barnard's Star"), `Positions differ: ${off}`);
   // against the J2000 place without motion, both precessed to 1000
   const barnard = named.get("Barnard's Star"), then = skyFrame(Date.UTC(1000, 0, 1) / 1000, [45, 9, 0]);
   const moved = sep(findObject(then, "Barnard's Star"), then.catalog(barnard[1], barnard[2]));
-  assert.ok(Math.abs(moved - Math.hypot(barnard[6], barnard[7]) * 1000 / 3.6e6) < 0.05, `Barnard's Star moved ${moved}°`);
+  assert.ok(moved > 2.5 && moved < 2.9, `Barnard's Star space motion including perspective acceleration: ${moved}°`);
   const f = skyFrame(Date.UTC(2026, 10, 6, 21) / 1000, [41.892, 12.511, 20]);
   for (const q of ['alpha Lyr', 'alf Lyr', 'α Lyr', 'HD 172167', 'HR 7001', 'HIP 91262', '3 Lyr']) assert.equal(searchSky(f, q)[0].name, 'Vega', q);
   assert.equal(searchSky(f, 'alpha Cen')[0].name, 'Rigil Kentaurus');

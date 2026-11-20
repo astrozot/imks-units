@@ -1,0 +1,125 @@
+{
+  "selection": {
+    "grades": [
+      1,
+      2,
+      3
+    ],
+    "primaryVisualMagnitudeMax": 6,
+    "secondaryVisualMagnitudeMax": 12,
+    "relativeSemimajorArcsecMin": 0.2,
+    "policy": "Screen relative visual orbits, then require reviewed component identities, a credible barycentre and an adopted mass ratio. Infrared-only magnitudes and unknown component magnitudes do not pass automatically. Hierarchical pairs require explicit scope. Existing 14 examples remain labelled exceptions where appropriate."
+  },
+  "systems": [
+    {
+      "name": "Castor",
+      "idPrefix": "14",
+      "orbitRecord": "07346+3153r",
+      "primaryHip": 36850,
+      "secondaryProper": "Castor B",
+      "componentNames": [
+        "Castor",
+        "Castor B"
+      ],
+      "extraAliases": [
+        [
+          "Castor A",
+          "α Gem A"
+        ],
+        [
+          "α Gem B"
+        ]
+      ],
+      "stellariumPrimaryId": "36850",
+      "note": "Outer A–B orbit only; the inner spectroscopic pairs and Castor C are not modelled. Absolute astrometry is anchored to Hipparcos component A.",
+      "review": "USNO grade 3 CIA2022d outer orbit. Adopted subsystem masses, distance and systemic velocity/proper motion come from Stellarium 26.3. Hipparcos I/239 HIP 36850 has AstroRef=A, so the component-A orbital displacement is removed from its J1991.25 position to obtain the barycentre anchor. Gaia DR3 G=2.925 identifies B; its shared AT-HYG Gaia alias is assigned only to B. Catalogue and adopted systemic-motion uncertainties limit absolute positions.",
+      "sources": [
+        "https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt",
+        "https://github.com/Stellarium/stellarium/blob/v26.3/stars/hip_gaia3/binary_orbitparam.dat",
+        "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/239/hip_main&HIP=36850&-out.all"
+      ],
+      "sourceFiles": [
+        "castor-gaia.csv",
+        "hip-castor.tsv",
+        "hip-readme.txt",
+        "expansion-gaia-astrometry.csv"
+      ]
+    },
+    {
+      "name": "Procyon",
+      "idPrefix": "15",
+      "orbitRecord": "07393+0514c",
+      "primaryHip": 37279,
+      "componentNames": [
+        "Procyon",
+        "Procyon B"
+      ],
+      "extraAliases": [
+        [
+          "Procyon A",
+          "α CMi A"
+        ],
+        [
+          "α CMi B"
+        ]
+      ],
+      "masses": [
+        1.478,
+        0.592
+      ],
+      "barycentre": {
+        "distance": 3.508771929824561,
+        "epoch": 2448349.0625,
+        "ra": 114.82724194,
+        "dec": 5.22750767,
+        "rv": -4.115,
+        "pmra": -716.57,
+        "pmdec": -1034.58
+      },
+      "secondarySpectrum": "DQZ",
+      "note": "The Hipparcos 1997 '+' astrometric reference is the centre of mass at J1991.25. Component positions are derived from that barycentre; no primary orbital motion is added to catalogue proper motion.",
+      "review": "USNO grade 3 BdH2015. Masses, adopted 285.0 mas parallax and -4.115 km/s systemic velocity follow Bond et al. (2015). Barycentric position and proper motion come from Hipparcos I/239 HIP 37279, AstroRef='+', MultFlag='O'. The astrometric anchor retains catalogue uncertainty; the relative orbit is independently checked against USNO ephemerides.",
+      "sources": [
+        "https://arxiv.org/html/1510.00485",
+        "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/239/hip_main&HIP=37279&-out.all",
+        "https://vizier.cfa.harvard.edu/ftp/cats/I/239/ReadMe"
+      ],
+      "sourceFiles": [
+        "hip-procyon.tsv",
+        "hip-readme.txt"
+      ]
+    },
+    {
+      "name": "70 Ophiuchi",
+      "idPrefix": "16",
+      "orbitRecord": "18055+0230d",
+      "primaryHip": 88601,
+      "secondaryGaia": "4468557611977674496",
+      "componentNames": [
+        "70 Ophiuchi A",
+        "70 Ophiuchi B"
+      ],
+      "extraAliases": [
+        [
+          "70 Oph",
+          "70 Ophiuchi",
+          "70 Oph A"
+        ],
+        [
+          "70 Oph B"
+        ]
+      ],
+      "stellariumPrimaryId": "4468557611984384512",
+      "review": "USNO grade 1 Izm2019 orbit and adopted masses 0.9/0.7 from Stellarium 26.3. Absolute astrometry is the mass-weighted Gaia DR3 component solution at J2016.0. Stellarium uses a J2000 label for essentially J2016 component data; the original reference epoch is preserved here. Median component radial velocities are adopted, with catalogue limitations.",
+      "sources": [
+        "https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt",
+        "https://github.com/Stellarium/stellarium/blob/v26.3/stars/hip_gaia3/binary_orbitparam.dat",
+        "https://gea.esac.esa.int/archive/"
+      ],
+      "sourceFiles": [
+        "expansion-gaia-astrometry.csv"
+      ],
+      "note": "Barycentre derived from the two resolved Gaia DR3 sources at their actual J2016.0 reference epoch, with adopted component masses 0.9/0.7."
+    }
+  ]
+}

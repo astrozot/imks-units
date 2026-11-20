@@ -1,0 +1,7 @@
+SELECT source_id, radial_velocity
+FROM gaiadr3.gaia_source
+WHERE phot_g_mean_mag < 12.1
+  AND bp_rp BETWEEN -0.5 AND 5.0
+  AND phot_g_mean_mag + 0.02704 - 0.01424*bp_rp
+      + 0.2156*POWER(bp_rp, 2) - 0.01426*POWER(bp_rp, 3) <= 12.0
+  AND radial_velocity IS NOT NULL

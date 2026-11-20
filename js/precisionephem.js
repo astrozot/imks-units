@@ -1,11 +1,12 @@
 // Optional DE440 event ephemeris. Every cache here is bounded to one
 // instant. No global provider is installed in astro.js or the sky renderer.
 import { precisionFrame } from './precisionframes.js';
-import { deltaT } from './astro.js';
+import { observerOrigin, deltaT } from './astro.js';
 import { MOONS } from './moons.js';
 import { moonSeriesPosition } from './moonposition.js';
 import { SYSTEM_GM } from './precision-gm.js';
 import { NATIVE_MOONS as SATELLITES } from './precisioncatalog.js';
+import { stellarState } from './starmotion.js';
 const RAD = Math.PI / 180, AU = 149597870.7, C = 299792.458, AS = RAD / 3600;
 const dot = (a, b) => a.reduce((s, x, i) => s + x * b[i], 0);
 const add = (a, b, scale = 1) => a.map((x, i) => x + scale * b[i]);
@@ -82,7 +83,8 @@ export function makePrecisionEphemeris(pack, { satelliteState = null, allowBaryc
     return context;
   };
   const observer = (c, place) => {
-    if (!place) return { position:c.earth.position, velocity:c.earth.velocity };
+    if (observerOrigin(place) === 'barycentric') return { position:[0,0,0], velocity:[0,0,0] };
+    if (!place || observerOrigin(place) === 'geocentric') return { position:c.earth.position, velocity:c.earth.velocity };
     const [lat,lon,h=0] = place, phi = lat*RAD, u = Math.atan(0.99664719*Math.tan(phi));
     const rc = 6378.137*Math.cos(u)+h/1000*Math.cos(phi), rs = 6378.137*0.99664719*Math.sin(u)+h/1000*Math.sin(phi);
     let v = [rc*Math.cos(lon*RAD),rc*Math.sin(lon*RAD),rs];
@@ -98,16 +100,14 @@ export function makePrecisionEphemeris(pack, { satelliteState = null, allowBaryc
     let p, dist;
     if (typeof body === 'object') {
       if (body.orbit || body.orbits || body.sgp4 || !Number.isFinite(body.ra) || !Number.isFinite(body.dec)) return null;
-      const a=body.ra*RAD,d=body.dec*RAD, u=[Math.cos(d)*Math.cos(a),Math.cos(d)*Math.sin(a),Math.sin(d)], east=[-Math.sin(a),Math.cos(a),0], north=[-Math.sin(d)*Math.cos(a),-Math.sin(d)*Math.sin(a),Math.cos(d)];
-      const years=(c.ttJD-2451545)/365.25, distance=body.plx>0 ? 206264806/body.plx*AU : 1e18;
-      const radial=(body.rv||0)*31557600/distance;
-      p=u.map((x,i) => distance*(x+years*((body.pmra||0)*AS/1000*east[i]+(body.pmdec||0)*AS/1000*north[i]+radial*x)));
+      const state=stellarState(body,c.ttJD), distance=state.plx>0 ? 206264806/state.plx*AU : 1e18;
+      p=state.vector.map(x=>distance*x);
     } else {
       let delay=0;
       for (let i=0;i<4;i++) { p=centre(body,c.tdbJD-delay).position; delay=Math.hypot(...add(p,obs.position,-1))/C/86400; }
     }
     let q=add(p,obs.position,-1); dist=Math.hypot(...q); let direction=unit(q);
-    if (body!=='sun') {
+    if (body!=='sun' && !(typeof body === 'object' && observerOrigin(place) === 'barycentric')) {
       const e=unit(add(obs.position,c.sun.position,-1)), source=unit(add(p,c.sun.position,-1)), em=Math.hypot(...add(obs.position,c.sun.position,-1))/AU;
       const scale=1.97412574336e-8/(em*Math.max(dot(source,add(source,e)),1e-6/(em*em)));
       direction=unit(add(direction,cross(direction,cross(e,source)),scale));
