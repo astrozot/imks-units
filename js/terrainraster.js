@@ -26,6 +26,8 @@ export function terrainRaster(ctx,surface,{W,H,radius,rotation,sun,moon,lighting
     const sine=Math.max(0,Math.sin((moon?.alt??-90)*Math.PI/180)),airmass=1/(sine+.025*Math.exp(-11*sine));
     const flux=moon?moonFlux(moon.phase??180,moon.dist)*10**(-.4*.22*Math.max(0,airmass-1)):0;
     const result=entry.renderer.draw({W,H,radius,rotation,sun,lightingSunAlt,solarFlux,moon:moon||{az:0,alt:-90},flux,paper:preferences.style==='paper',waterColor:preferences.waterColor,shadows:preferences.shadows,outlines:preferences.outlines,exposure:terrainExposure(preferences[night?'nightExposure':'exposure'],night),nearField:surface.metrics?.nearField??100,profile:terrainStats.profile,progressive:true,atmosphere,eyeElevation:surface.eye,
+      // Ground-anchored noise: the place in metres, folded to keep precision.
+      noiseOrigin:surface.place?[(surface.place[1]*111320*Math.cos(surface.place[0]*Math.PI/180))%100000,(surface.place[0]*110574)%100000]:[0,0],
       // The sky's own colours, so haze and sky light match the visible sky.
       sky:skyColours({sun:{alt:lightingSunAlt},moon:moon?{alt:moon.alt,illum:(1+Math.cos((moon.phase??180)*Math.PI/180))/2}:null,atmosphere})});
     terrainStats.last=result;

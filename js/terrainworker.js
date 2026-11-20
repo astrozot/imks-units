@@ -2,6 +2,7 @@
 // worker aborts fetches and computation; no app state is written here.
 import { providers, tilesFor, tileSampler, resampleGrid } from './terrainmodel.js';
 import { loadWaterMask, waterLevels, WATER_TOLERANCE } from './terrainwater.js';
+import { loadLandcover } from './terrainlandcover.js';
 import { PANORAMA_RINGS, TERRAIN_GEOMETRY_REVISION, TERRAIN_SURFACE_VERSION, nearFieldFor, EYE_HEIGHT, TERRAIN_GRID_SIZES, TERRAIN_DIVISIONS, makeRing, stitchRings, meshHorizon, packGrid, compactMesh } from './terrainmesh.js';
 import { simplifyTerrainRTIN } from './terrainlod.js';
 import { terrainDrawGroups } from './terrainlighting.js';
@@ -48,6 +49,14 @@ self.onmessage = async ({ data }) => {
     const eye = (Number.isFinite(place[2]) ? place[2] : pointGround) + EYE_HEIGHT, meshes = [];
     let water = null, waterMetrics = {available:false};
     try { const result=await loadWaterMask(place,{progress:text=>progress(text,.65)}); water=result.mask;waterMetrics={...result.metrics,available:!result.metrics.missing.length,observer:null}; } catch(e) { waterMetrics.error=e.message; }
+    // Land cover chooses surface materials; without it, slope-based colours.
+    let cover = null, coverMetrics = { available: false };
+    try {
+      const decode = async blob => { const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }), c = new OffscreenCanvas(bitmap.width, bitmap.height), g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bitmap, 0, 0); bitmap.close(); return g.getImageData(0, 0, c.width, c.height).data; };
+      const result = await loadLandcover({ place, rings: PANORAMA_RINGS, sizes: TERRAIN_GRID_SIZES.map(s => Math.min(1024, s)), decode, progress: text => progress(text, .66) });
+      coverMetrics = { ...result.metrics, available: result.metrics.failed < result.metrics.tiles / 4 };
+      if (coverMetrics.available) cover = result.grids;
+    } catch (e) { coverMetrics.error = e.message; }
     const loadMs = performance.now() - started;
     // Experiments may override the mesh budget; the app always uses defaults.
     const divisions = data.options?.divisions ?? TERRAIN_DIVISIONS, angularError = data.options?.angularError ?? .05;
@@ -58,6 +67,7 @@ self.onmessage = async ({ data }) => {
       const values = resampleGrid({ tiles, place, zoom, extent, size: n, eye, fallback: sample, corners: true });
       const mesh = makeRing({ place: [place[0], place[1], eye], extent, inner, divisions: divisions[index], values });
       mesh.grid = packGrid(resampleGrid({ tiles, place, zoom, extent, size, eye, fallback: sample }), extent, size);
+      if (cover) mesh.cover = cover[index];
       meshes.push(mesh); inner = extent;
     }
     stitchRings(meshes);
@@ -72,8 +82,8 @@ self.onmessage = async ({ data }) => {
       // Standing in water only if the DEM at the observer lies at that level.
       const centre = result.maps[0], level = centre.levels[(centre.size >> 1) * centre.size + (centre.size >> 1)] + eye;
       waterMetrics.observer = Number.isFinite(level) && Math.abs(pointGround - level) < WATER_TOLERANCE ? (Math.abs(level) < WATER_TOLERANCE ? 'ocean' : 'lake') : null; }
-    const surface = { version: TERRAIN_SURFACE_VERSION, place, eye, pointGround, profile: horizon, meshes, metrics: { source: 'Mapterhorn', geometryRevision:TERRAIN_GEOMETRY_REVISION,eyeHeight:EYE_HEIGHT,gridTexels:meshes.reduce((s,m)=>s+m.grid.heights.length,0), divisions, angularError, denseTriangles, water:waterMetrics, bytes, tiles: tiles.size, requested, errors, loadMs, buildMs: performance.now() - started - loadMs, triangles: meshes.reduce((s,m)=>s+m.indices.length/3,0), vertices: meshes.reduce((s,m)=>s+m.positions.length/3,0), missingVertices, samplingCoverage: sample.stats, sourceUrl: 'https://mapterhorn.com/attribution/', nearField, radius:150000 } };
+    const surface = { version: TERRAIN_SURFACE_VERSION, place, eye, pointGround, profile: horizon, meshes, metrics: { source: 'Mapterhorn', geometryRevision:TERRAIN_GEOMETRY_REVISION,eyeHeight:EYE_HEIGHT,gridTexels:meshes.reduce((s,m)=>s+m.grid.heights.length,0), divisions, angularError, denseTriangles, water:waterMetrics, landCover:coverMetrics, bytes, tiles: tiles.size, requested, errors, loadMs, buildMs: performance.now() - started - loadMs, triangles: meshes.reduce((s,m)=>s+m.indices.length/3,0), vertices: meshes.reduce((s,m)=>s+m.positions.length/3,0), missingVertices, samplingCoverage: sample.stats, sourceUrl: 'https://mapterhorn.com/attribution/', nearField, radius:150000 } };
     if (surface.metrics.missingVertices) throw new Error('Terrain surface coverage is incomplete. Try again when online');
-    self.postMessage({ type:'ready', surface }, [surface.profile.buffer, ...meshes.flatMap(m=>[m.positions.buffer,m.indices.buffer,m.grid.heights.buffer,...(m.water?[m.water.levels.buffer]:[])])]);
+    self.postMessage({ type:'ready', surface }, [surface.profile.buffer, ...meshes.flatMap(m=>[m.positions.buffer,m.indices.buffer,m.grid.heights.buffer,...(m.water?[m.water.levels.buffer]:[]),...(m.cover?[m.cover.classes.buffer]:[])])]);
   } catch(e) { self.postMessage({type:'error',text:e.message}); }
 };

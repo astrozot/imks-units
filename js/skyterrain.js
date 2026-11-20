@@ -45,7 +45,8 @@ const touch=key=>{const used=readUsed();used[key]=Date.now();try{localStorage.se
 // compacted meshes, seen from EYE_HEIGHT above the ground; older ones rebuild.
 const validGrid=g=>Number.isInteger(g?.size)&&g.size>0&&g.heights instanceof Uint16Array&&g.heights.length===g.size*g.size&&Number.isFinite(g.extent)&&Number.isFinite(g.scale)&&Number.isFinite(g.offset);
 const validWater=w=>w===undefined||Number.isInteger(w?.size)&&w.levels instanceof Float32Array&&w.levels.length===w.size*w.size;
-function validSurface(s){return s?.version===TERRAIN_SURFACE_VERSION&&s.profile instanceof Float32Array&&s.profile.length===3600&&s.profile.every(Number.isFinite)&&Array.isArray(s.meshes)&&s.meshes.length===5&&s.meshes.every(m=>m.positions instanceof Float32Array&&m.positions.length%3===0&&m.indices instanceof Uint32Array&&validGrid(m.grid)&&validWater(m.water));}
+const validCover=c=>c===undefined||Number.isInteger(c?.size)&&c.classes instanceof Uint8Array&&c.classes.length===c.size*c.size;
+function validSurface(s){return s?.version===TERRAIN_SURFACE_VERSION&&s.profile instanceof Float32Array&&s.profile.length===3600&&s.profile.every(Number.isFinite)&&Array.isArray(s.meshes)&&s.meshes.length===5&&s.meshes.every(m=>m.positions instanceof Float32Array&&m.positions.length%3===0&&m.indices instanceof Uint32Array&&validGrid(m.grid)&&validWater(m.water)&&validCover(m.cover));}
 export async function restoreTerrain(place){
   const key=terrainKey(place);
   try{

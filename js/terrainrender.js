@@ -151,7 +151,48 @@ uniform bool shadows, paper, moonSource, waterColor, atmosphere;
 // The app's sky model (skyraster.js), for haze that meets the visible sky.
 uniform vec3 skyZenith, skyHorizon, sunDir;
 uniform float skyGlow, skySunUp, eyeElevation;
+// Land cover (compact WorldCover class indices) and the noise anchor.
+precision highp usampler2D;
+uniform highp usampler2D coverMap,nextCoverMap;
+uniform bool hasCover,nextHasCover;
+uniform vec2 noiseOrigin;
 out vec4 colour;
+// Surface albedo per class: unknown, tree cover, shrubland, grassland,
+// cropland, built-up, bare/sparse, snow and ice, water, wetland, mangroves,
+// moss and lichen. LUSH marks vegetation (cliffs within it are rock, and its
+// hue varies).
+const vec3 COVER[12]=vec3[12](vec3(0.2),vec3(0.075,0.105,0.06),vec3(0.15,0.16,0.10),vec3(0.17,0.21,0.10),vec3(0.21,0.21,0.13),vec3(0.25,0.23,0.21),vec3(0.42),vec3(0.80,0.82,0.86),vec3(0.06,0.09,0.11),vec3(0.12,0.15,0.10),vec3(0.07,0.10,0.06),vec3(0.20,0.21,0.15));
+const float LUSH[12]=float[12](0.0,1.0,1.0,1.0,0.6,0.0,0.0,0.0,0.0,1.0,1.0,0.6);
+// Neutral, light limestone grey (photos of the Garda cliffs): the warm cast
+// of sunlit rock comes from the light, not the surface.
+const vec3 ROCK=vec3(0.46);
+vec3 slopeAlbedo(vec3 n){return mix(vec3(0.18,0.21,0.16),ROCK,1.0-smoothstep(0.15,0.65,n.z));}
+vec4 material(uint c,vec3 n){
+ if(c==0u)return vec4(slopeAlbedo(n),0.5);
+ return vec4(mix(COVER[c],ROCK,LUSH[c]*(1.0-smoothstep(0.3,0.6,n.z))),LUSH[c]);
+}
+// Blend the four nearest classes' materials (bilinear in colour), so 10 m
+// class edges are soft rather than blocky. Returns albedo and vegetation.
+vec4 coverAt(highp usampler2D map,float E,vec2 q,vec3 n){
+ ivec2 size=textureSize(map,0),m=size-1;
+ vec2 t=(q+E)/(2.0*E)*vec2(size)-0.5,f=fract(t);ivec2 i=ivec2(floor(t));
+ vec4 a=material(texelFetch(map,clamp(i,ivec2(0),m),0).r,n),b=material(texelFetch(map,clamp(i+ivec2(1,0),ivec2(0),m),0).r,n);
+ vec4 c=material(texelFetch(map,clamp(i+ivec2(0,1),ivec2(0),m),0).r,n),d=material(texelFetch(map,clamp(i+ivec2(1,1),ivec2(0),m),0).r,n);
+ return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+}
+// Ground-anchored variation from a fixed random texture (R: brightness,
+// G: hue) at 15, 80 and 400 m. Mipmaps average it out where a scale is
+// smaller than a pixel, so distant ground never shimmers.
+uniform sampler2D noiseMap;
+vec2 groundNoise(vec2 w){
+ vec2 total=vec2(0);
+ for(int k=0;k<3;k++){
+  float scale=k==0?15.0:k==1?80.0:400.0,weight=k==0?0.45:k==1?0.35:0.2;
+  vec2 c=w/(scale*256.0)+float(k)*0.37;
+  total+=weight*(textureGrad(noiseMap,fract(c),dFdx(c),dFdy(c)).rg*2.0-1.0);
+ }
+ return total;
+}
 vec3 srgb(vec3 c){return mix(12.92*c,1.055*pow(max(c,vec3(0)),vec3(1.0/2.4))-0.055,step(vec3(0.0031308),c));}
 vec3 skyTone(vec3 x){return min(vec3(1.0),x/(1.0+0.22*x)*1.22);}
 // The sky's display colour in direction v, as the sky raster draws it
@@ -193,6 +234,8 @@ void main(){
  // flat so DEM noise over water cannot look like waves.
  bool lake=false;
  if(ringIndex>=0){float level=texture(levelMap,uv).r;lake=level>-1.0e5&&abs(gridHeight(ringIndex,P.xy)-level)<waterTolerance;}
+ // Rivers and small lakes from land cover, where the ground is level.
+ if(!lake&&hasCover&&n.z>0.97){ivec2 size=textureSize(coverMap,0);lake=texelFetch(coverMap,clamp(ivec2((P.xy+extent)/(2.0*extent)*vec2(size)),ivec2(0),size-1),0).r==8u;}
  if(lake)n=vec3(0,0,1);
  float day=smoothstep(-5.0,6.0,sunAlt),twilight=smoothstep(-18.0,-3.0,sunAlt);
  float direct=max(0.0,dot(n,light))*visible;
@@ -212,7 +255,18 @@ void main(){
  // with half the dimming on a log scale, so alpenglow stays vivid.
  float sunLuminance=max(1e-4,dot(tint,vec3(0.2126,0.7152,0.0722)));
  if(moonSource)tint/=max(1e-4,tint.g);else tint/=sqrt(sunLuminance);
- vec3 albedo=paper?vec3(0.79):mix(vec3(0.18,0.21,0.16),vec3(0.27,0.26,0.24),(1.0-smoothstep(0.15,0.65,n.z)));
+ vec3 albedo=vec3(0.79);
+ if(!paper){
+  vec4 surface=hasCover?coverAt(coverMap,extent,P.xy,n):vec4(slopeAlbedo(n),0.5);
+  if(edge>0.0&&nextHasCover)surface=mix(surface,coverAt(nextCoverMap,nextExtent,P.xy,n),edge);
+  albedo=surface.rgb;
+  // Patches of lighter and darker ground, and yellower or bluer vegetation.
+  vec2 w=P.xy+noiseOrigin;
+  vec2 variation=groundNoise(w);
+  albedo*=1.0+0.13*variation.x;
+  float hue=0.14*surface.a*variation.y;
+  albedo*=vec3(1.0+hue,1.0,1.0-hue);
+ }
  if(lake)albedo=waterColor?vec3(0.035,0.14,0.34):(paper?vec3(0.83):vec3(0.10,0.19,0.21));
  // Night adaptation applies to weak moonlight/ambient light, never sunlight
  // or twilight. Amplifying twilight here made mountains turn white at dusk.
@@ -295,6 +349,19 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   const flatNormal = texture(gl.RG8, gl.RG, gl.UNSIGNED_BYTE, 1, 1, { data: new Uint8Array([128, 128]) });
   const fullLight = texture(gl.R8, gl.RED, gl.UNSIGNED_BYTE, 1, 1, { data: new Uint8Array([255]) });
   const noWater = texture(gl.R32F, gl.RED, gl.FLOAT, 1, 1, { data: new Float32Array([-1e6]) });
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  const noCover = texture(gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE, 1, 1, { data: new Uint8Array([0]) });
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  // Fixed-seed random texture for ground variation (deterministic everywhere).
+  const noise = (() => {
+    const t = gl.createTexture(), data = new Uint8Array(256 * 256 * 4);
+    let seed = 0x9e3779b9;
+    for (let i = 0; i < data.length; i++) { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; data[i] = (seed >>> 0) & 255; }
+    gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 256, 0, gl.RGBA, gl.UNSIGNED_BYTE, data); gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    return t;
+  })();
   function target(tex) { const fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0); if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('Terrain texture framebuffer unavailable'); return fbo; }
   function ringUniforms(p, rings) {
     gl.useProgram(p);
@@ -311,6 +378,8 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       const next=m.grid&&meshes[i+1]?.grid?meshes[i+1]:m;
       [[m.normal,m.grid?m.normal:flatNormal],[next.normal,next.grid?next.normal:flatNormal],[m.shadow,m.grid?m.shadow:fullLight],[next.shadow,next.grid?next.shadow:fullLight]].forEach(([,tex],unit)=>{gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,tex);});
       gl.activeTexture(gl.TEXTURE6);gl.bindTexture(gl.TEXTURE_2D,m.sky??fullLight);gl.activeTexture(gl.TEXTURE7);gl.bindTexture(gl.TEXTURE_2D,next.sky??fullLight);
+      gl.activeTexture(gl.TEXTURE8);gl.bindTexture(gl.TEXTURE_2D,m.cover??noCover);gl.activeTexture(gl.TEXTURE9);gl.bindTexture(gl.TEXTURE_2D,next.cover??noCover);
+      gl.uniform1i(u(scene,'hasCover'),!!m.cover);gl.uniform1i(u(scene,'nextHasCover'),!!next.cover);
       gl.activeTexture(gl.TEXTURE5);gl.bindTexture(gl.TEXTURE_2D,m.level??noWater);gl.uniform1i(u(scene,'ringIndex'),m.level?m.ringIndex:-1);
       gl.uniform1f(u(scene,'extent'),m.grid?.extent??1e9);gl.uniform1f(u(scene,'nextExtent'),next.grid?.extent??1e9);
       gl.bindVertexArray(m.vao);
@@ -323,7 +392,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
     return triangles;
   }
   function disposeMeshes() {
-    for (const m of meshes) { gl.deleteVertexArray(m.vao); m.buffers.forEach((b) => gl.deleteBuffer(b)); if (m.level) gl.deleteTexture(m.level); for (const name of ['normal', 'shadow', 'shadowBack', 'sky']) if (m[name]) { gl.deleteTexture(m[name]); gl.deleteFramebuffer(m[name + 'Target']); } }
+    for (const m of meshes) { gl.deleteVertexArray(m.vao); m.buffers.forEach((b) => gl.deleteBuffer(b)); if (m.level) gl.deleteTexture(m.level); if (m.cover) gl.deleteTexture(m.cover); for (const name of ['normal', 'shadow', 'shadowBack', 'sky']) if (m[name]) { gl.deleteTexture(m[name]); gl.deleteFramebuffer(m[name + 'Target']); } }
     if (heights) gl.deleteTexture(heights);
     meshes = []; heights = null;
   }
@@ -377,7 +446,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
         const stride=TERRAIN_VERTEX_STRIDE*4;
         gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,3,gl.FLOAT,false,stride,0);
         const grouped=m.groups?{indices:packed.indices,groups:m.groups}:terrainDrawGroups(packed),b=gl.createBuffer();buffers.push(b);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,b);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,grouped.indices,gl.STATIC_DRAW);
-        return { vao, buffers, count: m.indices.length, groups:grouped.groups, grid: m.grid ? { size: m.grid.size, extent: m.grid.extent, scale: m.grid.scale, offset: m.grid.offset } : null, source: m.grid, waterSource: m.water };
+        return { vao, buffers, count: m.indices.length, groups:grouped.groups, grid: m.grid ? { size: m.grid.size, extent: m.grid.extent, scale: m.grid.scale, offset: m.grid.offset } : null, source: m.grid, waterSource: m.water, coverSource: m.cover };
       });
       gl.bindVertexArray(null);
       const rings = meshes.filter(m => m.grid);
@@ -399,6 +468,8 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
         m.shadowSize = terrainShadowSize(size);
         m.shadow = texture(gl.R8, gl.RED, gl.UNSIGNED_BYTE, m.shadowSize, m.shadowSize, { mipmaps: true, filter: gl.LINEAR }); m.shadowTarget = target(m.shadow);
         m.shadowBack = texture(gl.R8, gl.RED, gl.UNSIGNED_BYTE, m.shadowSize, m.shadowSize, { mipmaps: true, filter: gl.LINEAR }); m.shadowBackTarget = target(m.shadowBack);
+        if (m.coverSource) { gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); m.cover = texture(gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE, m.coverSource.size, m.coverSource.size, { data: m.coverSource.classes }); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2); }
+        delete m.coverSource;
         m.skySize = Math.max(64, m.shadowSize >> 1);
         m.sky = texture(gl.R8, gl.RED, gl.UNSIGNED_BYTE, m.skySize, m.skySize, { mipmaps: true, filter: gl.LINEAR }); m.skyTarget = target(m.sky);
         // Water levels: nearest lookup, so neighbouring lakes never blend.
@@ -425,7 +496,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
     // profile: wait for the GPU after each pass (diagnostics only: it stalls).
-    draw({ W, H, radius, rotation, sun, moon, flux, lightingSunAlt = sun.alt, solarFlux = 1, shadows = true, paper = false, outlines = false, exposure = 1, nearField = 100, farField = 150000, waterColor = true, cull = true, profile = false, progressive = false, atmosphere = true, eyeElevation = 0, sky = null }) {
+    draw({ W, H, radius, rotation, sun, moon, flux, lightingSunAlt = sun.alt, solarFlux = 1, shadows = true, paper = false, outlines = false, exposure = 1, nearField = 100, farField = 150000, waterColor = true, cull = true, profile = false, progressive = false, atmosphere = true, eyeElevation = 0, sky = null, noiseOrigin = [0, 0] }) {
       if (destroyed || gl.isContextLost()) return;
       const start = performance.now(), scale = Math.min(1.5, devicePixelRatio || 1), width = Math.max(1,Math.round(W * scale)), height = Math.max(1,Math.round(H * scale));
       if (width !== w || height !== h) {
@@ -476,7 +547,9 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       gl.uniform1f(u(scene, 'sunAlt'), lightingSunAlt); gl.uniform1f(u(scene, 'solarFlux'), sun.alt < -2 ? 0 : solarFlux); gl.uniform1f(u(scene, 'moonFlux'), source.alt < -2 ? 0 : flux); gl.uniform1f(u(scene, 'exposure'), exposure); gl.uniform1f(u(scene, 'nearField'), nearField);
       gl.uniform1f(u(scene,'farField'),farField);
       for (const [name, value] of Object.entries({ shadows, paper, moonSource, waterColor })) gl.uniform1i(u(scene, name), value);
-      ['normalMap','nextNormalMap','shadowMap','nextShadowMap','heights','levelMap','skyMap','nextSkyMap'].forEach((name,i)=>gl.uniform1i(u(scene,name),i));
+      ['normalMap','nextNormalMap','shadowMap','nextShadowMap','heights','levelMap','skyMap','nextSkyMap','coverMap','nextCoverMap','noiseMap'].forEach((name,i)=>gl.uniform1i(u(scene,name),i));
+      gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, noise);
+      gl.uniform2fv(u(scene,'noiseOrigin'),noiseOrigin);
       // Without the app's sky colours (tests, other hosts), a plain day sky.
       const skyColour = sky || { zenith: [0.13, 0.32, 0.72], horizon: [0.6, 0.73, 0.88], glow: 0, sunUp: 1 };
       gl.uniform3fv(u(scene, 'skyZenith'), skyColour.zenith); gl.uniform3fv(u(scene, 'skyHorizon'), skyColour.horizon); gl.uniform3fv(u(scene, 'sunDir'), lightVector(sun.az, sun.alt));
@@ -501,6 +574,6 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       for (let i = 0; i < values.length; i++) values[i] = rgba[i * 4];
       return { size: n, extent: m.grid.extent, values };
     },
-    destroy() { destroyed = true; disposeMeshes(); [scene, post, normalPass, shadowPass, skyPass].forEach((p) => gl.deleteProgram(p)); gl.deleteVertexArray(empty); gl.deleteTexture(flatNormal); gl.deleteTexture(fullLight); gl.deleteTexture(noWater); disposeFrame(); },
+    destroy() { destroyed = true; disposeMeshes(); [scene, post, normalPass, shadowPass, skyPass].forEach((p) => gl.deleteProgram(p)); gl.deleteVertexArray(empty); gl.deleteTexture(flatNormal); gl.deleteTexture(fullLight); gl.deleteTexture(noWater); gl.deleteTexture(noCover); gl.deleteTexture(noise); disposeFrame(); },
   };
 }

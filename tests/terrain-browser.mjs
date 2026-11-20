@@ -27,11 +27,15 @@ try{
  const low=await tile(0),high=await tile(2000);let requests=0;
  const respond=r=>{requests++;return r.fulfill({contentType:'image/png',headers:{'access-control-allow-origin':'*'},body:/mapterhorn\.com\/10\//.test(r.request().url())?high:low});};
  await page.route('https://tiles.mapterhorn.com/**',respond);
+ // Land cover: synthetic grassland tiles, never the real service.
+ const grass=Buffer.from((await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d');g.fillStyle='rgb(30,30,30)';g.fillRect(0,0,256,256);return c.toDataURL('image/png');})).split(',')[1],'base64');
+ let coverRequests=0;await context.route('https://planetarycomputer.microsoft.com/**',r=>{coverRequests++;return r.fulfill({contentType:'image/png',headers:{'access-control-allow-origin':'*'},body:grass});});
  await page.click('[data-action="layers"]');await page.selectOption('[data-horizon]','terrain');
  await page.waitForFunction(()=>document.querySelector('.coelum-canvas').dataset.terrainSurface==='true',null,{timeout:120000});
  assert.match(await page.locator('.coelum-terrain-note').textContent(),/Saved for offline/);assert.ok(requests>100&&requests<700);
  const downloaded=requests;
- const stored=await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');const s=await restoreTerrain([45.89617,10.84333,90]);return {profile:s.profile.length,eye:s.eye};});assert.equal(stored.profile,3600);
+ const stored=await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');const s=await restoreTerrain([45.89617,10.84333,90]);return {profile:s.profile.length,eye:s.eye,cover:s.meshes.every(m=>m.cover?.classes.every(c=>c===3)),landCover:s.metrics.landCover};});assert.equal(stored.profile,3600);
+ assert.ok(coverRequests>20&&stored.cover,`Land cover stored with the terrain: ${JSON.stringify(stored.landCover)}`);
  assert.equal(stored.eye,92,'The eye is 2 m above the place’s ground elevation');
  await page.click('[data-action="terrain"]');assert.equal(await page.locator('[data-terrain-setting="style"]').inputValue(),'natural');assert.equal(await page.locator('[data-terrain-setting="outlines"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="shadows"]').isChecked(),true);assert.equal(await page.locator('[data-terrain-setting="nightExposure"]').inputValue(),'0');
  await page.uncheck('[data-terrain-setting="shadows"]');await page.check('[data-terrain-setting="shadows"]');await page.locator('.coelum-terrain-panel [data-action="close-panel"]').click();assert.equal(requests,downloaded);
