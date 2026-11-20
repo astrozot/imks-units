@@ -178,7 +178,11 @@ void main() {
     if (alt < 0.0) c *= 0.35 + 0.65 * exp(alt / 0.08);
   }
   if (mw > 0.0) c += vec3(0.82, 0.86, 1.0) * mw * mwLight * (atmosphere ? clamp(alt / 0.2, 0.0, 1.0) : 1.0) * 0.3;
-  colour = vec4(tone(c), 1.0);
+  // Dither by under half an 8-bit step: dark, slowly varying twilight blues
+  // otherwise show as banded contours.
+  // In the sky's own pixel coordinates: identical with or without the ground rows.
+  float noise = fract(52.9829189 * fract(dot(vec2(gl_FragCoord.x, y), vec2(0.06711056, 0.00583715))));
+  colour = vec4(tone(c) + (noise - 0.5) / 255.0, 1.0);
 }`;
 let gpu = null;
 function gpuContext() {

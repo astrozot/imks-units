@@ -32,8 +32,15 @@ export function terrainRaster(ctx,surface,{W,H,radius,rotation,sun,moon,lighting
     // Unfinished shadow bands need one more frame, unless the app draws anyway
     // (playback, gestures). Check after all of the next frame's callbacks have
     // run: the app's own may come after this one, and must not be doubled.
-    const count=entry.frames=(entry.frames||0)+1;
-    if(result?.shadowsPending&&!entry.waiting){entry.waiting=true;requestAnimationFrame(()=>setTimeout(()=>{entry.waiting=false;if(entry.frames===count&&renderers.get(ctx)===entry)onRedraw?.();},0));}
+    // While someone else keeps drawing, keep watching: those draws do not
+    // schedule their own request while this one waits.
+    entry.frames=(entry.frames||0)+1;entry.pending=!!result?.shadowsPending;
+    const watch=count=>{entry.waiting=true;requestAnimationFrame(()=>setTimeout(()=>{
+      entry.waiting=false;
+      if(!entry.pending||renderers.get(ctx)!==entry)return;
+      if(entry.frames===count)onRedraw?.();else watch(entry.frames);
+    },0));};
+    if(entry.pending&&!entry.waiting)watch(entry.frames);
     return result;
   }catch(e){console.warn('Terrain surface fallback:',e.message);releaseTerrainRaster(ctx);return null;}
 }

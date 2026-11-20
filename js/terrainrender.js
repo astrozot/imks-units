@@ -235,6 +235,8 @@ void main(){
   vec3 T=exp(-(BETA_R*density(eyeElevation,height,H_R)+BETA_A*density(eyeElevation,height,H_A))*range);
   c=c*T+skyAt(P/max(range,1.0))*(1.0-T);
  }
+ // Dither by under half an 8-bit step, as the sky: haze gradients band too.
+ c+=(fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(0.06711056,0.00583715))))-0.5)/255.0;
  colour=vec4(c,1);
 }`;
 const postFragment = `#version 300 es
