@@ -620,14 +620,23 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // Diagnostics: ?perf in the address (or localStorage imks-perf = 1) shows
   // GPU-synchronised frame timings, averaged each second. It slows drawing.
   let perf = null;
-  try { if (/[?&]perf\b/.test(location.search) || localStorage.getItem('imks-perf') === '1') perf = { box: document.createElement('div'), since: performance.now(), frames: [] }; } catch { /* storage unavailable */ }
+  // ?perf=lite shows only the frame rate and intervals, with no GPU waits.
+  try { if (/[?&]perf\b/.test(location.search) || localStorage.getItem('imks-perf') === '1') perf = { box: document.createElement('div'), since: performance.now(), frames: [], lite: /[?&]perf=lite\b/.test(location.search), last: 0 }; } catch { /* storage unavailable */ }
   if (perf) {
-    terrainStats.profile = true;
+    terrainStats.profile = !perf.lite;
     perf.box.className = 'coelum-perf'; perf.box.setAttribute('aria-hidden', 'true');
     root.append(perf.box);
   }
   const perfFrame = (total) => {
-    const s = terrainStats.last;
+    const s = terrainStats.last, now0 = performance.now();
+    if (perf.lite) {
+      perf.frames.push({ total, gap: perf.last ? now0 - perf.last : 0 }); perf.last = now0;
+      if (now0 - perf.since < 1000) return;
+      const gaps = perf.frames.map(f => f.gap).filter(Boolean), n = perf.frames.length;
+      perf.box.textContent = `${(n * 1000 / (now0 - perf.since)).toFixed(1)} fps (no GPU waits)\nframe interval ${(gaps.reduce((a, g) => a + g, 0) / Math.max(1, gaps.length)).toFixed(0)} ms · max ${Math.max(0, ...gaps).toFixed(0)} ms\nmain thread ${(perf.frames.reduce((a, f) => a + f.total, 0) / n).toFixed(0)} ms/frame · dpr ${window.devicePixelRatio}`;
+      perf.since = now0; perf.frames = [];
+      return;
+    }
     perf.frames.push({ total, shadow: s?.shadowGpuMs || 0, shadowRuns: s?.shadowTexels ? 1 : 0, speed: s?.texelsPerMs || 0, scene: s?.sceneGpuMs || 0, triangles: s?.drawnTriangles || 0, px: s ? s.width * s.height : 0 });
     const now = performance.now();
     if (now - perf.since < 1000) return;
@@ -690,7 +699,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     drawTrajectory(shown.rotation || lookAt(view.az, view.alt), view.scale);
     drawGuide(shown.rotation || lookAt(view.az, view.alt), view.scale);
     updateUI(!playing && !interacting);
-    if (perf && onCanvas) { ctx.getImageData(0, 0, 1, 1); perfFrame(performance.now() - drawStart); }
+    if (perf && onCanvas) { if (!perf.lite) ctx.getImageData(0, 0, 1, 1); perfFrame(performance.now() - drawStart); }
     orient?.tracker.drawn(performance.now() - drawStart);
   };
   // Gestures redraw at most once per display frame (two fingers send twice

@@ -27,7 +27,7 @@ try{
   const plane=[];
   for(const az of [140,180,220,260])for(const alt of [8,17,35,60]){
    const options={W:700,H:400,radius:550,rotation:lookAt(0,10),sun:{az,alt},moon:{az:0,alt:-90},flux:0,exposure:1.6,outlines:false};
-   r.draw({...options,shadows:false});const lit=pixels(),info=r.draw({...options,shadows:true}),shaded=pixels();let compared=0,dark=0,max=0;
+   r.draw({...options,shadows:false});const lit=pixels(),info=r.draw({...options,shadows:true,profile:true}),shaded=pixels();let compared=0,dark=0,max=0;
    for(let i=0;i<lit.length;i+=4)if(lit[i+3]&&shaded[i+3]){compared++;for(let j=0;j<3;j++){const d=lit[i+j]-shaded[i+j];if(d>3)dark++;max=Math.max(max,d);}}
    plane.push({az,alt,compared,dark,max,error:info.glError});
   }

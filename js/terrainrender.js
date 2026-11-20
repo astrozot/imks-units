@@ -237,29 +237,38 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   // Light-dependent pass: one horizon march per shadow texel, then mipmaps.
   // Work is split into horizontal bands rendered into back textures; a
   // finished set replaces the visible one at once. Progressive drawing spreads
-  // the bands over frames within a GPU budget calibrated on this device, and
-  // a started update finishes with its own light before the next one begins.
-  let shownKey = '', job = null, texelsPerMs = 0;
+  // the bands over frames within a GPU budget, using each ring's own cost per
+  // texel measured on this device (rings differ several-fold), and a started
+  // update finishes with its own light before the next one begins.
+  let shownKey = '', job = null, rates = [];
+  const sync = () => { const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
   function shadowJob(light, sourceRadius, key) {
     const rings = meshes.filter(m => m.grid), bands = [];
-    rings.forEach((m, k) => { const S = m.shadowSize, rows = Math.max(16, Math.ceil(S / 16)); for (let y = 0; y < S; y += rows) bands.push({ m, k, y, rows: Math.min(rows, S - y) }); });
+    rings.forEach((m, k) => { const S = m.shadowSize, rows = Math.max(8, Math.ceil(S / 32)); for (let y = 0; y < S; y += rows) bands.push({ m, k, y, rows: Math.min(rows, S - y) }); });
     return { light, sourceRadius, key, rings, bands };
   }
-  function runShadowJob(budget) {
+  // budgetMs: Infinity for a complete update; calibrate times every ring.
+  function runShadowJob(budgetMs, calibrate = false) {
     const { rings } = job;
     gl.disable(gl.DEPTH_TEST); gl.useProgram(shadowPass); gl.bindVertexArray(empty);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D_ARRAY, heights);
     gl.uniform3fv(u(shadowPass, 'light'), job.light); gl.uniform1f(u(shadowPass, 'sourceRadius'), job.sourceRadius); gl.uniform1f(u(shadowPass, 'maxHeight'), maxHeight); gl.uniform1f(u(shadowPass, 'stepGrowth'), shadowStep);
     gl.enable(gl.SCISSOR_TEST);
-    let done = 0;
-    while (job.bands.length && (!done || done < budget)) {
-      const { m, k, y, rows } = job.bands.shift(), S = m.shadowSize;
+    let done = 0, spent = 0, ring = job.bands[0]?.k, ringTexels = 0, ringStart = 0;
+    const measure = () => { sync(); const now = performance.now(); if (ringTexels) rates[ring] = ringTexels / Math.max(0.05, now - ringStart); ringStart = now; ringTexels = 0; };
+    if (calibrate) { sync(); ringStart = performance.now(); }
+    while (job.bands.length) {
+      const { m, k, y, rows } = job.bands[0], S = m.shadowSize, cost = rates[k] ? S * rows / rates[k] : 0;
+      if (calibrate && k !== ring) { gl.bindFramebuffer(gl.FRAMEBUFFER, rings[ring].shadowBackTarget); measure(); ring = k; }
+      if (done && spent + cost > budgetMs) break;
+      job.bands.shift();
       gl.bindFramebuffer(gl.FRAMEBUFFER, m.shadowBackTarget); gl.viewport(0, 0, S, S); gl.scissor(0, y, S, rows);
       gl.uniform1i(u(shadowPass, 'ring'), k); gl.uniform1i(u(shadowPass, 'size'), S);
       // Hollow centres are never drawn, except where the finer ring fades in.
       gl.uniform1f(u(shadowPass, 'innerSkip'), k ? rings[k - 1].grid.extent * 0.75 : 0);
-      gl.drawArrays(gl.TRIANGLES, 0, 3); done += S * rows;
+      gl.drawArrays(gl.TRIANGLES, 0, 3); done += S * rows; spent += cost; ringTexels += S * rows;
     }
+    if (calibrate) measure();
     gl.disable(gl.SCISSOR_TEST);
     if (!job.bands.length) {
       for (const m of rings) {
@@ -272,7 +281,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   }
   return {
     setMeshes(data) {
-      disposeMeshes(); shownKey = ''; job = null;
+      disposeMeshes(); shownKey = ''; job = null; rates = [];
       if (data.filter(m => m.grid).length > 5) throw new Error('At most five terrain rings are supported');
       meshes = data.map((m) => {
         const vao = gl.createVertexArray(), buffers = []; gl.bindVertexArray(vao);
@@ -319,7 +328,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
     // profile: wait for the GPU after each pass (diagnostics only: it stalls).
-    draw({ W, H, radius, rotation, sun, moon, flux, lightingSunAlt = sun.alt, solarFlux = 1, shadows = true, paper = false, outlines = false, exposure = 1, nearField = 100, farField = 150000, waterColor = true, cull = true, profile = false, progressive = false, shadowBudgetMs = 4 }) {
+    draw({ W, H, radius, rotation, sun, moon, flux, lightingSunAlt = sun.alt, solarFlux = 1, shadows = true, paper = false, outlines = false, exposure = 1, nearField = 100, farField = 150000, waterColor = true, cull = true, profile = false, progressive = false, shadowBudgetMs = 3 }) {
       if (destroyed || gl.isContextLost()) return;
       const start = performance.now(), scale = Math.min(1.5, devicePixelRatio || 1), width = Math.max(1,Math.round(W * scale)), height = Math.max(1,Math.round(H * scale));
       if (width !== w || height !== h) {
@@ -334,14 +343,12 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       // playback reuses them; diffuse lighting uses the exact direction.
       const mapLight = lightVector(Math.round(source.az*20)/20, Math.round(source.alt*20)/20), key = JSON.stringify([mapLight, moonSource]);
       let shadowMs = 0, shadowGpuMs = 0, shadowTexels = 0;
-      const sync = () => { const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
       if (shadows && heights && (job || shownKey !== key)) {
         const t0 = performance.now();
         if (!job) job = shadowJob(mapLight, moonSource ? MOON_RADIUS : SUN_RADIUS, key);
-        // The first shadows of a surface appear complete, and time this device.
-        const full = !progressive || !shownKey || !texelsPerMs;
-        shadowTexels = runShadowJob(full ? Infinity : Math.max(1, texelsPerMs * shadowBudgetMs));
-        if (full && progressive && !texelsPerMs) { sync(); texelsPerMs = shadowTexels / Math.max(0.5, performance.now() - t0); }
+        // The first shadows of a surface appear complete, and time each ring.
+        const calibrate = progressive && !rates.length, full = !progressive || !shownKey || calibrate;
+        shadowTexels = runShadowJob(full ? Infinity : shadowBudgetMs, calibrate);
         if (profile) { sync(); shadowGpuMs = performance.now() - t0; }
         shadowMs = performance.now() - t0;
       }
@@ -361,7 +368,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       for (const [i, tex] of [image, depth].entries()) { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u(post, i ? 'depth' : 'image'), i); }
       gl.uniform1i(u(post, 'outlines'), outlines);gl.uniform1i(u(post,'edgeAA'),antialias===true); gl.drawArrays(gl.TRIANGLES, 0, 3);
       if (profile) sync();
-      return { canvas, submitMs: performance.now() - start, shadowMs, shadowGpuMs, shadowTexels, shadowsPending: !!job, texelsPerMs, sceneGpuMs: profile ? performance.now() - sceneStart : 0, width: w, height: h, antialias, drawnTriangles, glError: gl.getError() };
+      return { canvas, submitMs: performance.now() - start, shadowMs, shadowGpuMs, shadowTexels, shadowsPending: !!job, texelsPerMs: rates.length ? rates.reduce((a, r) => a + r, 0) / rates.length : 0, sceneGpuMs: profile ? performance.now() - sceneStart : 0, width: w, height: h, antialias, drawnTriangles, glError: profile ? gl.getError() : 0 };
     },
     // Diagnostics: the current visibility texture of grid ring k (row-major,
     // texel centres as for the height grid, 0 = fully shadowed, 255 = lit).
