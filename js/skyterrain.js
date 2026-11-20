@@ -29,23 +29,39 @@ function database(){return new Promise((resolve,reject)=>{
   req.onupgradeneeded=()=>{const store=req.result.objectStoreNames.contains('surfaces')?req.transaction.objectStore('surfaces'):req.result.createObjectStore('surfaces',{keyPath:'key'});if(!store.indexNames.contains('used'))store.createIndex('used','time');};
   req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);req.onblocked=()=>reject(new Error('Terrain storage is busy'));
 });}
-async function transaction(mode,fn){const db=await database();try{return await new Promise((resolve,reject)=>{
+// iOS can leave IndexedDB requests unanswered (neither success nor error),
+// e.g. after many reloads; never wait for storage forever.
+const withTimeout=(promise,ms)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Terrain storage did not respond')),ms))]);
+async function transaction(mode,fn,ms=20000){return withTimeout((async()=>{const db=await database();try{return await new Promise((resolve,reject)=>{
   const tx=db.transaction('surfaces',mode),store=tx.objectStore('surfaces');let result;
   fn(store,value=>{result=value;});tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error||new Error('Terrain storage failed'));
-});}finally{db.close();}}
+});}finally{db.close();}})(),ms);}
+// Last use of each stored surface, for keeping the three most recent. Kept
+// apart so that opening a surface never rewrites its tens of megabytes.
+const USED_KEY='imks-coelum-terrain-used';
+const readUsed=()=>{try{return JSON.parse(localStorage.getItem(USED_KEY))||{};}catch{return {};}};
+const touch=key=>{const used=readUsed();used[key]=Date.now();try{localStorage.setItem(USED_KEY,JSON.stringify(used));}catch{}};
 // Version 5 surfaces carry per-ring height grids and water level maps, with
 // compacted meshes, seen from EYE_HEIGHT above the ground; older ones rebuild.
 const validGrid=g=>Number.isInteger(g?.size)&&g.size>0&&g.heights instanceof Uint16Array&&g.heights.length===g.size*g.size&&Number.isFinite(g.extent)&&Number.isFinite(g.scale)&&Number.isFinite(g.offset);
 const validWater=w=>w===undefined||Number.isInteger(w?.size)&&w.levels instanceof Float32Array&&w.levels.length===w.size*w.size;
 function validSurface(s){return s?.version===TERRAIN_SURFACE_VERSION&&s.profile instanceof Float32Array&&s.profile.length===3600&&s.profile.every(Number.isFinite)&&Array.isArray(s.meshes)&&s.meshes.length===5&&s.meshes.every(m=>m.positions instanceof Float32Array&&m.positions.length%3===0&&m.indices instanceof Uint32Array&&validGrid(m.grid)&&validWater(m.water));}
 export async function restoreTerrain(place){
-  try{return (await transaction('readwrite',(store,done)=>{const req=store.get(terrainKey(place));req.onsuccess=()=>{const item=req.result;if(item&&validSurface(item.surface)){item.time=Date.now();store.put(item);done(item.surface);}else if(item)store.delete(item.key);};})) || null;}catch{return null;}
+  const key=terrainKey(place);
+  try{
+    const item=await transaction('readonly',(store,done)=>{const req=store.get(key);req.onsuccess=()=>done(req.result);},10000);
+    if(item&&validSurface(item.surface)){touch(key);return item.surface;}
+    if(item)await transaction('readwrite',store=>store.delete(key),10000);
+  }catch{}
+  return null;
 }
 async function saveSurface(surface){
   try{
+    const key=terrainKey(surface.place);touch(key);
     await transaction('readwrite',(store)=>{
-      store.put({key:terrainKey(surface.place),time:Date.now(),surface:{...surface,persisted:true}});
-      let count=0;const req=store.index('used').openKeyCursor(null,'prev');req.onsuccess=()=>{const cursor=req.result;if(!cursor)return;if(++count>3)store.delete(cursor.primaryKey);cursor.continue();};
+      store.put({key,time:Date.now(),surface:{...surface,persisted:true}});
+      const used=readUsed(),req=store.getAllKeys();
+      req.onsuccess=()=>{for(const old of req.result.sort((a,b)=>(used[b]||0)-(used[a]||0)).slice(3))store.delete(old);};
     });surface.persisted=true;
   }catch{surface.persisted=false;}
   const all=readProfiles();all[terrainKey(surface.place)]={time:Date.now(),alt:Array.from(surface.profile),eye:surface.eye};
