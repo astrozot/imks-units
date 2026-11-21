@@ -37,14 +37,55 @@ try{
  const stored=await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');const s=await restoreTerrain([45.89617,10.84333,90]);return {profile:s.profile.length,eye:s.eye,cover:s.meshes.every(m=>m.cover?.classes.every(c=>c===3)),landCover:s.metrics.landCover};});assert.equal(stored.profile,3600);
  assert.ok(coverRequests>20&&stored.cover,`Land cover stored with the terrain: ${JSON.stringify(stored.landCover)}`);
  assert.equal(stored.eye,92,'The eye is 2 m above the place’s ground elevation');
+ await page.waitForFunction(()=>/Peak names: \d+ visible/.test(document.querySelector('.coelum-terrain-note').textContent),null,{timeout:60000});
+ const nameCache=await page.evaluate(async()=>{const c=await caches.open('imks-data-terrain-names-v2');return (await c.keys()).length;});
+ assert.ok(nameCache>=2,'Nearby name tiles and index are saved independently of the terrain surface');
+ await page.evaluate(()=>{
+  window.peakLabels=[];window.peakDots=[];
+  // Summit dots: a filled 2 px arc in the label colour.
+  const arc=CanvasRenderingContext2D.prototype.arc,fillPath=CanvasRenderingContext2D.prototype.fill;
+  CanvasRenderingContext2D.prototype.arc=function(x,y,r,...rest){this.__arc=[x,y,r];return arc.call(this,x,y,r,...rest);};
+  CanvasRenderingContext2D.prototype.fill=function(...a){if(this.canvas.classList.contains('coelum-canvas')&&this.fillStyle==='#ffdf9e'&&this.__arc?.[2]===2)window.peakDots.push({x:this.__arc[0],y:this.__arc[1]});return fillPath.apply(this,a);};
+  const fill=CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...rest){
+   if(this.canvas.classList.contains('coelum-canvas')&&this.fillStyle==='#ffdf9e')window.peakLabels.push({text,x,y});
+   return fill.call(this,text,x,y,...rest);
+  };
+ });
  await page.click('[data-action="terrain"]');assert.equal(await page.locator('[data-terrain-setting="style"]').inputValue(),'landcover');assert.equal(await page.locator('[data-terrain-setting="shadowSync"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="outlines"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="shadows"]').isChecked(),true);assert.equal(await page.locator('[data-terrain-setting="nightExposure"]').inputValue(),'0');
- await page.uncheck('[data-terrain-setting="shadows"]');await page.check('[data-terrain-setting="shadows"]');await page.locator('.coelum-terrain-panel [data-action="close-panel"]').click();assert.equal(requests,downloaded);
+ await page.uncheck('[data-terrain-setting="shadows"]');await page.check('[data-terrain-setting="shadows"]');
+ assert.equal(await page.locator('[data-terrain-setting="peakNames"]').isChecked(),true);
+ await page.uncheck('[data-terrain-setting="peakNames"]');assert.equal(await page.locator('.coelum-canvas').getAttribute('data-terrain-names'),'0');
+ await page.check('[data-terrain-setting="peakNames"]');
+ await page.locator('.coelum-terrain-panel [data-action="close-panel"]').click();assert.equal(requests,downloaded);
+ const peakLabel=await page.evaluate(()=>{
+  const svg=document.querySelector('.coelum-full'),h=svg.viewBox.baseVal.height;
+  const label=window.peakLabels.find(l=>l.x>30&&l.x<svg.viewBox.baseVal.width-80&&l.y>100&&l.y<h-100);
+  if(!label)return null;
+  const p=svg.createSVGPoint();p.x=label.x+10;p.y=label.y-5;const client=p.matrixTransform(svg.getScreenCTM());
+  return {name:label.text,x:client.x,y:client.y};
+ });
+ assert.ok(peakLabel,'The synthetic terrain has a displayed, tappable peak name');
+ await page.mouse.click(peakLabel.x,peakLabel.y);
+ await page.waitForFunction(()=>document.querySelector('.coelum-full').dataset.selected.startsWith('terrain:'));
+ assert.match(await page.locator('.coelum-detail').textContent(),/Distance/);
+ assert.match(await page.locator('.coelum-detail').textContent(),/OpenStreetMap|GeoNames/);
+ await page.click('[data-action="deselect"]');
+ // The summit's dot itself is tappable, not only its name (2026-11-21).
+ const peakDot=await page.evaluate(()=>{
+  const svg=document.querySelector('.coelum-full'),w=svg.viewBox.baseVal.width,h=svg.viewBox.baseVal.height;
+  const dot=window.peakDots.slice(-200).find(d=>d.x>30&&d.x<w-80&&d.y>100&&d.y<h-100&&!window.peakLabels.some(l=>Math.abs(l.x-d.x)<120&&Math.abs(l.y-12-d.y)<16));
+  if(!dot)return null;
+  const p=svg.createSVGPoint();p.x=dot.x;p.y=dot.y;const client=p.matrixTransform(svg.getScreenCTM());return {x:client.x,y:client.y};
+ });
+ if(peakDot){await page.mouse.click(peakDot.x+3,peakDot.y+2);await page.waitForFunction(()=>document.querySelector('.coelum-full').dataset.selected.startsWith('terrain:'));await page.click('[data-action="deselect"]');}
+ else console.log('No isolated summit dot on the synthetic terrain; dot tap not exercised');
  assert.equal(await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');return await restoreTerrain([45.89617,10.84333,92]);}),null,'Eye height changes must not reuse the surface');
  // A cancelled refresh keeps the existing surface and cannot apply stale results.
  await page.unroute('https://tiles.mapterhorn.com/**',respond);const held=[];await page.route('https://tiles.mapterhorn.com/**',r=>held.push(r));
  await page.click('[data-action="layers"]');await page.click('[data-terrain="refresh"]');await page.click('[data-terrain="cancel"]');for(const r of held)await r.abort().catch(()=>{});
  assert.equal(await page.locator('[data-horizon]').inputValue(),'terrain');assert.match(await page.locator('.coelum-terrain-note').textContent(),/Saved for offline/);
- await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>navigator.serviceWorker.controller);await page.reload();await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true');await context.setOffline(true);await page.reload();await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true',null,{timeout:30000});assert.equal(requests,downloaded,'Offline reload uses stored geometry');
+ await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>navigator.serviceWorker.controller);await page.reload();await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true');await context.setOffline(true);await page.reload();await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true',null,{timeout:30000});await page.waitForFunction(()=>/Peak names: \d+ visible/.test(document.querySelector('.coelum-terrain-note').textContent),null,{timeout:30000});assert.equal(requests,downloaded,'Offline reload uses stored geometry');
  await context.setOffline(false);await page.goto(origin+'/');await page.waitForSelector('#expr');await page.waitForFunction(()=>document.querySelectorAll('.key').length>0);await page.keyboard.type('coelum(now)');await page.keyboard.press('Enter');await page.waitForSelector('.coelum-preview');await page.click('.coelum-preview');
  await page.waitForFunction(()=>document.querySelector('.coelum-explorer .coelum-canvas')?.dataset.terrainSurface==='true',null,{timeout:30000});assert.equal(requests,downloaded,'iMKS shares Coelum terrain storage');
  // Render a known slope directly: the regression made twilight terrain white.

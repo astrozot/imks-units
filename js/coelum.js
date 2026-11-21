@@ -820,14 +820,16 @@ export function placeLabels(labels, { W, H, size, symbols, draw, leader, history
   for (const l of labels.sort((a, b) => a.priority - b.priority || (a.mag || 0) - (b.mag || 0))) {
     const key = l.key || l.name;
     const font = l.size || size, width = measureLabel(l.name, font, l.weight), gap = l.r + 5;
-    const candidates = [
+    // Labels marked "up" (summits) stay above their point, in the sky, and
+    // stack higher with a leader instead of covering the ground below.
+    const candidates = l.up ? [[l.x + gap, l.y - gap], [l.x - gap - width, l.y - gap], [l.x - width / 2, l.y - gap]] : [
       [l.x + gap, l.y - gap], [l.x + gap, l.y + gap + font],
       [l.x - gap - width, l.y - gap], [l.x - gap - width, l.y + gap + font],
       [l.x - width / 2, l.y - gap], [l.x - width / 2, l.y + gap + font],
     ];
     if (l.center) candidates.unshift([l.x - width / 2, l.y + font / 3]);
-    if (l.important) for (let distance = 25; distance <= 100; distance += 25) {
-      for (const side of [-1, 1]) candidates.push([l.x + gap, l.y + side * distance], [l.x - gap - width, l.y + side * distance]);
+    if (l.important) for (let distance = 25; distance <= (l.up ? 150 : 100); distance += l.up ? font + 4 : 25) {
+      for (const side of l.up ? [-1] : [-1, 1]) candidates.push([l.x + gap, l.y + side * distance], [l.x - gap - width, l.y + side * distance]);
     }
     const prior = history?.get(key);
     const order = candidates.map((_, i) => i);

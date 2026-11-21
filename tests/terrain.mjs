@@ -9,7 +9,7 @@ assert.notEqual(terrainKey([45,10,90]),terrainKey([45.000001,10,90]));
 assert.equal(horizonAt([0,10,20,30])(315),15);
 assert.equal(horizonAt(new Float32Array(3600).fill(4))(231.7),4);
 const settings=terrainAppearance({style:'bad',shadows:false,outlines:'yes',exposure:Infinity,nightExposure:1});
-assert.deepEqual(settings,{style:'landcover',waterColor:true,shadows:false,shadowSync:false,outlines:false,exposure:0,nightExposure:1});
+assert.deepEqual(settings,{style:'landcover',waterColor:true,shadows:false,shadowSync:false,outlines:false,peakNames:true,exposure:0,nightExposure:1});
 assert.equal(terrainAppearance({style:'natural'}).style,'natural');
 const p=await profile({place:[0,0,0],sample:()=>0,rings:[[14,1000]],radius:1000,step:90,startDistance:100});
 assert.ok(p.alt.every(v=>v<0),'Negative terrain elevations are retained');

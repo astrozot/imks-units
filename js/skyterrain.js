@@ -4,7 +4,7 @@ import { TERRAIN_SURFACE_VERSION } from './terrainmesh.js';
 // style: landcover (WorldCover materials), natural (muted earth, by slope) or
 // paper (pale relief). shadowSync redraws shadows with every frame of
 // playback instead of letting them catch up over a few frames.
-export const TERRAIN_DEFAULTS = Object.freeze({ style:'landcover', waterColor:true, shadows:true, shadowSync:false, outlines:false, exposure:0, nightExposure:0 });
+export const TERRAIN_DEFAULTS = Object.freeze({ style:'landcover', waterColor:true, shadows:true, shadowSync:false, outlines:false, peakNames:true, exposure:0, nightExposure:0 });
 export const TERRAIN_STYLES = Object.freeze(['landcover','natural','paper']);
 const PROFILE_KEY='imks-coelum-terrain-profiles-v3', SETTINGS_KEY='imks-coelum-terrain-appearance-v3', DATABASE='imks-terrain-surfaces-v2';
 export const terrainKey = place => `${Number(place[0])},${Number(place[1])},${Number.isFinite(place[2])?Number(place[2]):'ground+2'}`;

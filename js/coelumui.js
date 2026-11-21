@@ -20,6 +20,8 @@ import { searchPlaces, fetchPlace, fetchElevation } from './lookup.js';
 import { skyScene, skyPointScale, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
 import { storedHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
 import { prepareTerrain, restoreTerrain, forgetTerrain, storedTerrainHorizon, terrainAppearance, terrainKey, TERRAIN_DEFAULTS } from './skyterrain.js';
+import { prepareTerrainNames } from './terrainnames.js';
+import { terrainFeatureDetails } from './terrainfeatures.js';
 import { releaseTerrainRaster, terrainStats } from './terrainraster.js';
 import { TERRAIN_GEOMETRY_REVISION, EYE_HEIGHT } from './terrainmesh.js';
 import { skyView as moonSystem } from './sky.js';
@@ -321,9 +323,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       <div class="coelum-panel coelum-terrain-panel" id="${id}-terrain" role="group" aria-label="Terrain appearance" hidden>
         <div class="coelum-panel-head"><h3>Terrain appearance</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close terrain appearance">${ICONS.close}</button></div>
         <div class="coelum-selects"><label>Appearance <select data-terrain-setting="style"><option value="landcover">Land cover colours</option><option value="natural">Muted earth</option><option value="paper">Pale relief</option></select></label></div>
-        <div class="coelum-switches"><label><input type="checkbox" role="switch" data-terrain-setting="waterColor"><span>Blue water</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadows"><span>Terrain shadows</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadowSync"><span>Shadows in sync</span></label><label><input type="checkbox" role="switch" data-terrain-setting="outlines"><span>Ridge outlines</span></label></div>
+        <div class="coelum-switches"><label><input type="checkbox" role="switch" data-terrain-setting="waterColor"><span>Blue water</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadows"><span>Terrain shadows</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadowSync"><span>Shadows in sync</span></label><label><input type="checkbox" role="switch" data-terrain-setting="outlines"><span>Ridge outlines</span></label><label><input type="checkbox" role="switch" data-terrain-setting="peakNames"><span>Peak names</span></label></div>
         <div class="coelum-terrain-exposure"><label>Daylight exposure <output data-terrain-output="exposure"></output><input type="range" min="-2" max="2" step="0.1" data-terrain-setting="exposure"></label><label>Night exposure <output data-terrain-output="nightExposure"></output><input type="range" min="-2" max="2" step="0.1" data-terrain-setting="nightExposure"></label></div>
-        <p class="coelum-panel-note">Land cover colours come from ESA WorldCover; muted earth colours by slope only. While time runs, shadows normally catch up a moment later to keep the motion smooth; in sync, they are redrawn with every frame, at a lower frame rate on phones.</p>
+        <p class="coelum-panel-note">Peak names identify visible summits from OpenStreetMap and GeoNames, placed on the terrain model’s summit nearest to each catalogued point; tap a summit or its name for elevation and distance. Coverage varies. Land cover colours come from ESA WorldCover; muted earth colours by slope only. While time runs, shadows normally catch up a moment later to keep the motion smooth; in sync, they are redrawn with every frame, at a lower frame rate on phones.</p>
         <p class="coelum-panel-note">The centre keeps the recommended brightness, including visible moonlight. Night exposure is used automatically after twilight. These options affect local terrain and are saved on this device.</p>
         <button type="button" class="coelum-chip" data-terrain="defaults">Restore defaults</button>
       </div>
@@ -383,7 +385,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     </div>
     <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><div data-object-heading></div><div data-object-precision hidden></div><div data-object-basic><p>Tap an object or its label to see its characteristics.</p></div></div></section>
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
-    <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars: IAU / HYG. Deep-sky objects: <a href="https://github.com/mattiaverga/OpenNGC" target="_blank" rel="noopener">OpenNGC</a>, Mattia Verga (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>), converted and merged with the built-in selection. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Local terrain: <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener">Mapterhorn and its underlying elevation sources</a>. Ocean and major-lake outlines: Natural Earth, public domain (generalised 1:10 million scale). Terrain colours from land cover: ESA WorldCover 2021 (© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>), served by Microsoft Planetary Computer. The landscape models exclude buildings and trees; source detail and height datums vary. Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
+    <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars: IAU / HYG. Deep-sky objects: <a href="https://github.com/mattiaverga/OpenNGC" target="_blank" rel="noopener">OpenNGC</a>, Mattia Verga (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>), converted and merged with the built-in selection. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Peak names: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL) and <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>). Local terrain: <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener">Mapterhorn and its underlying elevation sources</a>. Ocean and major-lake outlines: Natural Earth, public domain (generalised 1:10 million scale). Terrain colours from land cover: ESA WorldCover 2021 (© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>), served by Microsoft Planetary Computer. The landscape models exclude buildings and trees; source detail and height datums vary. Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   root.appendChild($('.coelum-map-panel'));
   const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('[data-object-basic]'), viewport = $('.coelum-viewport');
@@ -484,7 +486,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // The horizon (shared by both views): the terrain's profile, if computed.
   // The horizon is flat or the local terrain (an older generic landscape
   // option reads as flat).
-  let horizon = 'flat', terrain = null, terrainSurface = null;
+  let horizon = 'flat', terrain = null, terrainSurface = null, terrainNames = null;
   let appearance = terrainAppearance();
   try { if (localStorage.getItem('imks-coelum-horizon') === 'terrain') horizon = 'terrain'; } catch { /* private mode */ }
   const setTerrain = (profile) => { terrain = profile ? horizonAt(profile) : null; };
@@ -493,6 +495,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     layers.sky.horizon = horizon; layers.sky.terrain = terrain;
     layers.sky.terrainSurface = horizon === 'terrain' ? terrainSurface : null;
     layers.sky.terrainAppearance = appearance;
+    layers.sky.terrainFeatures = terrainNames?.surface === terrainSurface ? terrainNames.features : [];
     layers.chart.terrain = horizon === 'terrain' ? terrain : null;
   };
   applyHorizon();
@@ -542,8 +545,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (!force && now - lastUI < 200) return;
     lastUI = now;
     // Retire selections that leave the projected layer (search may allow unlit).
-    const feature = [...(drawn?.lunarFeatures || []), ...(drawn?.marsFeatures || [])].find((f) => f.key === selected);
-    if ((selected?.startsWith('lunar:') || selected?.startsWith('mars:')) && !feature) { selected = null; unlitLunar = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label to see its characteristics.</p>'; }
+    const feature = [...(drawn?.lunarFeatures || []), ...(drawn?.marsFeatures || []), ...(drawn?.terrainFeatures || [])].find((f) => f.key === selected);
+    if ((selected?.startsWith('lunar:') || selected?.startsWith('mars:') || selected?.startsWith('terrain:')) && !feature) { selected = null; unlitLunar = null; detailHTML = ''; detail.innerHTML = '<p>Tap an object or its label to see its characteristics.</p>'; }
     root.classList.toggle('coelum-has-selection', Boolean(selected));
     root.classList.toggle('coelum-show-detail', Boolean(selected) && detailShown);
     const sun = frame.bodies[0].alt, condition = sun >= 0 ? 'Daylight' : sun >= -6 ? 'Civil twilight' : sun >= -12 ? 'Nautical twilight' : sun >= -18 ? 'Astr. twilight' : 'Night';
@@ -561,7 +564,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       precisePosition.update({body:o&&!feature?(o.planet?o.name:o.body):null,t,place,visible:detailShown&&!root.classList.contains('coelum-show-options')&&!root.classList.contains('coelum-moons-open')});
       const displayObject=o&&{...precisePosition.position(o,frame.matrix)};
       if(displayObject&&mode==='sky'&&atmosphereOn()&&Number.isFinite(displayObject.alt))displayObject.apparentAlt=displayObject.alt+refraction(displayObject.alt,place[2]||0);
-      const html = feature ? (feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : displayObject && objectDetails(displayObject, frame);
+      const html = feature ? (feature.key.startsWith('terrain:') ? terrainFeatureDetails(feature) : feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : displayObject && objectDetails(displayObject, frame);
       // unchanged, the card stays (a tap on its button is not lost)
       if (html && html !== detailHTML) {
         detail.innerHTML = detailHTML = html;
@@ -708,6 +711,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     canvas.dataset.content = onCanvas ? 'scene' : 'backdrop';
     canvas.dataset.atmosphere = String(mode === 'sky' && atmosphereOn());
     canvas.dataset.terrainSurface = String(mode === 'sky' && !!drawn.terrainSurface);
+    canvas.dataset.terrainNames = String(drawn.terrainFeatures?.length || 0);
     drawTrajectory(shown.rotation || lookAt(view.az, view.alt), view.scale);
     drawGuide(shown.rotation || lookAt(view.az, view.alt), view.scale);
     updateUI(!playing && !interacting);
@@ -1129,8 +1133,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
 
   // Local terrain is generated in a cancellable worker and retained offline.
   const terrainNote = $('.coelum-terrain-note');
-  let terrainJob = null, terrainRestoreSerial = 0;
-  const cancelTerrain = () => { terrainRestoreSerial++; terrainJob?.abort(); terrainJob = null; };
+  let terrainJob = null, terrainNamesJob = null, terrainRestoreSerial = 0;
+  const cancelTerrainNames = () => { terrainNamesJob?.abort(); terrainNamesJob = null; if (terrainNames?.status === 'loading') terrainNames = null; };
+  const cancelTerrain = () => { terrainRestoreSerial++; terrainJob?.abort(); terrainJob = null; cancelTerrainNames(); };
   const appearanceControls = () => {
     for (const el of root.querySelectorAll('[data-terrain-setting]')) {
       const key = el.dataset.terrainSetting;
@@ -1144,12 +1149,36 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (!key) return;
     appearance = terrainAppearance({ ...appearance, [key]: ev.target.type === 'checkbox' ? ev.target.checked : ev.target.type === 'range' ? Number(ev.target.value) : ev.target.value });
     appearanceControls(); applyHorizon(); draw();
+    if (key === 'peakNames') { if (appearance.peakNames) void loadCurrentTerrainNames(); else cancelTerrainNames(); showTerrain(); }
   });
   const showTerrain = (text) => {
     terrainNote.hidden = horizon !== 'terrain' && !text;
     const buttons = '<span class="coelum-chips"><button type="button" class="coelum-chip" data-terrain="refresh">Download terrain</button><button type="button" class="coelum-chip" data-terrain="forget">Forget</button></span>';
     const note = terrainSurface ? `The terrain around this place, from Mapterhorn elevation models out to 150 km. ${terrainSurface.persisted ? 'Saved for offline use.' : 'Available this session; offline storage did not respond (closing and reopening Coelum usually fixes this).'}${terrainSurface.eye < terrainSurface.pointGround ? ` This place’s elevation (${Math.round(terrainSurface.eye - EYE_HEIGHT)} m) is below the terrain model’s ground here (${Math.round(terrainSurface.pointGround)} m); set it in the Place panel.` : ''}${terrainSurface.metrics.samplingCoverage?.fallbackSamples ? ' Some areas use coarser source coverage.' : ''}${terrainSurface.metrics.geometryRevision !== TERRAIN_GEOMETRY_REVISION ? ' Download terrain again for finer mountain detail.' : ''}` : terrain ? 'A saved skyline is available. Download the mountain surfaces for shading and shadows.' : 'Download local mountains and their horizon (typically 30–50 MB), then use them offline. Source detail varies; buildings and trees are excluded.';
-    terrainNote.innerHTML = text || note + buttons;
+    const names = terrainNames?.surface === terrainSurface ? terrainNames : null;
+    const nameNote = !terrainSurface || !appearance.peakNames ? '' : names?.status === 'ready'
+      ? ` Peak names: ${names.features.length} visible of ${names.total} nearby. ${names.persisted ? 'Names saved for offline use.' : 'Names available this session.'}`
+      : names?.status === 'error' ? ` Peak names unavailable: ${esc(names.error)}.` : names?.status === 'loading' ? ' Loading peak names…' : '';
+    const nameButton = terrainSurface && appearance.peakNames ? ' <button type="button" class="coelum-chip" data-terrain="names">Download peak names</button>' : '';
+    terrainNote.innerHTML = text || note + nameNote + buttons + nameButton;
+  };
+  const loadCurrentTerrainNames = async (refresh = false) => {
+    if (horizon !== 'terrain' || !terrainSurface || !appearance.peakNames) return;
+    if (!refresh && (terrainNamesJob || terrainNames?.surface === terrainSurface && terrainNames.status === 'ready')) return;
+    cancelTerrainNames();
+    const job = new AbortController(), requestedSurface = terrainSurface;
+    terrainNamesJob = job; terrainNames = { surface: requestedSurface, status: 'loading', features: [] };
+    applyHorizon(); showTerrain(); draw();
+    try {
+      const result = await prepareTerrainNames(requestedSurface, { signal: job.signal, refresh });
+      if (!root.isConnected || terrainNamesJob !== job || requestedSurface !== terrainSurface) return;
+      terrainNames = { ...result, surface: requestedSurface, status: 'ready' };
+    } catch (e) {
+      if (!root.isConnected || terrainNamesJob !== job || requestedSurface !== terrainSurface) return;
+      terrainNames = { surface: requestedSurface, status: 'error', features: [], error: e.message };
+    }
+    if (terrainNamesJob === job) terrainNamesJob = null;
+    applyHorizon(); showTerrain(); draw();
   };
   const restoreCurrentTerrain = async () => {
     const serial = ++terrainRestoreSerial;
@@ -1157,12 +1186,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const key = terrainKey(place), data = await restoreTerrain([...place]);
     if (!root.isConnected || serial !== terrainRestoreSerial || key !== terrainKey(place) || terrainJob || !data) return;
     terrainSurface = data; setTerrain(data.profile); applyHorizon(); syncLayers(); showTerrain(); draw();
+    void loadCurrentTerrainNames();
   };
   const chooseHorizon = async (value, refresh = false) => {
     if (observerOrigin(place) !== 'topocentric') { say('Choose a location on Earth to use terrain.'); return; }
     if (value !== 'terrain') { cancelTerrain(); releaseTerrainRaster(ctx); }
     if (value === 'terrain' && (!terrainSurface || refresh)) {
       if (terrainJob) return;
+      cancelTerrainNames(); terrainNames = null;
       const job = new AbortController(), requestedPlace = [...place], key = terrainKey(place);
       terrainJob = job;
       showTerrain('Preparing terrain… <button type="button" class="coelum-chip" data-terrain="cancel">Cancel</button>');
@@ -1181,6 +1212,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     horizon = value;
     try { localStorage.setItem('imks-coelum-horizon', value); } catch { /* private mode */ }
     applyHorizon(); syncLayers(); showTerrain(); draw();
+    if (value === 'terrain') void loadCurrentTerrainNames(refresh);
   };
   // A new place keeps the chosen horizon: local terrain is restored, or built
   // (tiles kept from nearby places are not downloaded again).
@@ -1293,7 +1325,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const origin = observerOrigin([0,0,0,p.origin]);
     let h = origin === 'topocentric' ? p.h : 0;
     if (!Number.isFinite(h)) { placeStatus.textContent = 'Getting the elevation…'; try { h = await fetchElevation(p.lat, p.lon); } catch { h = 0; } }
-    cancelTerrain(); terrainSurface = null; releaseTerrainRaster(ctx);
+    cancelTerrain(); terrainSurface = null; terrainNames = null; releaseTerrainRaster(ctx);
     trajectory.length = 0; trajectoryTime = null;
     place = [p.lat, p.lon, h, ...(origin === 'topocentric' ? [] : [origin])]; placeLabel = p.name.split(',').slice(0, 2).join(',');
     setTerrain(observerOrigin(place) === 'topocentric' ? storedTerrainHorizon(place) || storedHorizon(place) : null);
@@ -1802,8 +1834,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const terrainAction = ev.target.closest('[data-terrain]')?.dataset.terrain;
     if (terrainAction === 'refresh') { chooseHorizon('terrain', true); return; }
     if (terrainAction === 'cancel') { cancelTerrain(); syncLayers(); showTerrain(); return; }
-    if (terrainAction === 'defaults') { appearance = terrainAppearance(TERRAIN_DEFAULTS); appearanceControls(); applyHorizon(); draw(); return; }
-    if (terrainAction === 'forget') { cancelTerrain(); void forgetTerrain([...place]); forgetHorizon(place); terrainSurface = null; setTerrain(null); chooseHorizon('flat'); return; }
+    if (terrainAction === 'names') { void loadCurrentTerrainNames(true); return; }
+    if (terrainAction === 'defaults') { appearance = terrainAppearance(TERRAIN_DEFAULTS); appearanceControls(); applyHorizon(); draw(); void loadCurrentTerrainNames(); showTerrain(); return; }
+    if (terrainAction === 'forget') { cancelTerrain(); void forgetTerrain([...place]); forgetHorizon(place); terrainSurface = null; terrainNames = null; setTerrain(null); chooseHorizon('flat'); return; }
     const viewButton = ev.target.closest('[data-view]');
     if (viewButton) { setMode(viewButton.dataset.view); return; }
     const button = ev.target.closest('[data-action]'), action = button?.dataset.action;
@@ -1883,8 +1916,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const onMoon = lunarDisk && Math.hypot(p.x - lunarDisk.x, p.y - lunarDisk.y) <= lunarDisk.radius;
     const marsDisk = drawn.objects.find((o) => o.body === 'mars');
     const onMars = marsDisk && Math.hypot(p.x - marsDisk.x, p.y - marsDisk.y) <= marsDisk.radius;
+    // Summit dots on the terrain: the nearest within a finger's reach.
+    const summit = !direct && !onMoon && !onMars && (drawn.terrainFeatures || []).map((f) => ({ f, d: Math.hypot(f.x - p.x, f.y - p.y) })).filter(({ d }) => d < 14).sort((a, b) => a.d - b.d)[0]?.f.key;
     const feature = label?.name.startsWith('lunar:') || label?.name.startsWith('mars:') ? label.name
-      : onMoon ? pickLunarFeature(drawn.lunarFeatures, p.x, p.y)?.key : onMars && pickMarsFeature(drawn.marsFeatures, p.x, p.y)?.key;
+      : onMoon ? pickLunarFeature(drawn.lunarFeatures, p.x, p.y)?.key : onMars ? pickMarsFeature(drawn.marsFeatures, p.x, p.y)?.key : summit && !label ? summit : null;
     select(feature || direct || label?.name || nearby[0]?.o.name || null, { details: !held, longPress: held });
     lastTap = held ? null : { time: performance.now(), x: p.x, y: p.y };
     draw();
@@ -2055,7 +2090,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { cancelSkyPress(); cancelTerrain(); terrainSurface = null; setTerrain(null); applyHorizon(); releaseTerrainRaster(ctx); precisePosition.destroy(); stopAlmanac?.(); placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { cancelSkyPress(); cancelTerrain(); terrainSurface = null; terrainNames = null; setTerrain(null); applyHorizon(); releaseTerrainRaster(ctx); precisePosition.destroy(); stopAlmanac?.(); placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   const explorer = {

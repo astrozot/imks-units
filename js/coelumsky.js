@@ -373,6 +373,33 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     .sort((a, b) => Number(b.key === view.selected)-Number(a.key === view.selected) || Number(b.major)-Number(a.major) || b.size-a.size).slice(0, 28);
   for (const feature of marsLabels) labels.push({ ...feature, size: opts.labelSize, color: MARS_COLOR, r: 2, priority: feature.key === view.selected ? -1 : 2, key: feature.key });
   const surfaceFeatures = [...lunarFeatures, ...marsFeatures];
+  // Terrestrial features are already occlusion-tested against the mesh.
+  // Project them directly, bypassing astronomical refraction and sky clipping.
+  const terrainFeatures = [];
+  if (surface && opts.terrainAppearance?.peakNames !== false && opts.labels) {
+    // Skyline summits first, then the highest: what a person names first.
+    // A first pass takes the best two per screen column, so a distant high
+    // range does not take every label from the rest of the panorama.
+    const ranked = (opts.terrainFeatures || []).map(feature => ({ ...feature, ...proj(feature.vector) }))
+      .filter(q => onScreen(q, 8)).sort((a, b) => Number(b.key === view.selected) - Number(a.key === view.selected) || Number(b.skyline) - Number(a.skyline)
+        || (b.elevation ?? b.modelElevation) - (a.elevation ?? a.modelElevation) || a.distance - b.distance);
+    const limit = Math.min(120, Math.ceil(W / 24 * Math.sqrt(view.scale || 1))), columns = new Map(), rest = [];
+    for (const f of ranked) {
+      const c = Math.floor(f.x / 48), n = columns.get(c) || 0;
+      if (n < 2 || f.key === view.selected) { columns.set(c, n + 1); terrainFeatures.push(f); } else rest.push(f);
+      if (terrainFeatures.length >= limit) break;
+    }
+    terrainFeatures.push(...rest.slice(0, Math.max(0, limit - terrainFeatures.length)));
+  }
+  for (const [rank, feature] of terrainFeatures.entries()) {
+    const chosen = feature.key === view.selected;
+    p.circle(feature.x, feature.y, chosen ? 3 : 2, { fill: '#ffdf9e', stroke: '#17202b', width: 1 });
+    // Bilingual OSM names ("Königspitze - Gran Zebrù"): the first on the
+    // label, both in the details.
+    labels.push({ ...feature, name: feature.name.split(/ - | \/ /)[0] || feature.name, size: opts.labelSize, color: '#ffdf9e', r: 3, priority: chosen ? -1 : 3, important: true, up: true, mag: rank });
+    if (chosen) reticle(p, feature.x, feature.y, 5, '#ffdf9e');
+  }
+  surfaceFeatures.push(...terrainFeatures);
   const symbols = objects.filter((o) => o.body && !(o.body === 'moon' && lunarFeatures.length || o.body === 'mars' && marsFeatures.length)), names = new Set([...objects.map((o) => o.name), ...surfaceFeatures.map((f) => f.key)]);
   for (const o of frame.barycenters || []) {
     if (!binaryCenterVisible(o,frame,xy,view)) continue;
@@ -423,7 +450,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     } else reticle(p, selectedMars.x, selectedMars.y, 4, selectionColor || MARS_COLOR);
   }
   }
-  return { objects, radius, hitLabels, light, lunarFeatures, marsFeatures, surfaceBodies, moonSizing, terrainSurface: !!surface };
+  return { objects, radius, hitLabels, light, lunarFeatures, marsFeatures, terrainFeatures, surfaceBodies, moonSizing, terrainSurface: !!surface };
 }
 
 // Keep the physical disk and moon-shadow geometry with the frame, independent

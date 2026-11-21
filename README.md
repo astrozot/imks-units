@@ -133,6 +133,33 @@ it increases surface memory and can make shadow-regenerating light updates slowe
 **Terrain appearance** in Layers opens separate controls: muted earth by default,
 shadows on, ridge outlines off, both exposure controls centred. The centred day and night settings retain the
 reviewed brightness independently, with night exposure applied automatically after twilight. Preferences are saved on the device.
+
+**Peak names** in Terrain appearance labels visible summits in the Sky view.
+Names come from a static, geographically tiled [catalog](data/terrain-names/README.md)
+merging OpenStreetMap (preferred: denser, surveyed positions; © OpenStreetMap
+contributors, ODbL) with GeoNames (CC BY 4.0) where OSM has nothing nearby.
+It is downloaded alongside local terrain and cached separately for offline use.
+Catalogued points often lie a little off the summit, so each one climbs the
+terrain's height grid to its top (up to 250 m, never across a saddle), and
+duplicates reaching the same summit merge. A summit is named when it is
+visible or hidden only slightly, as a person would still name it: by no more
+than 0.08° (the displayed mesh's own accuracy) or 5 m, ignoring its own slope
+just in front of it. A taller mountain behind never hides it. The label then
+sits on the visible crest. Tap a summit or its name for its recorded
+elevation (when known), distance, bearing and source. Labels use the terrain
+surface's height and projection, including terrestrial refraction, and stay
+above their summit with a leader when crowded; skyline summits and higher
+ones are labelled first, more as you zoom. The sightline work runs in a
+worker; camera movement reuses its results. Turn off Peak names or Labels to
+hide them. **Download peak names** updates the catalog without rebuilding
+the terrain; name failures leave the terrain usable. The bounded name cache
+retains up to 48 geographic tiles. Named ranges, valleys and lakes are not
+yet labelled. Run `node tests/terrain-names.mjs` for geometry, snapping,
+catalog and offline checks; the existing terrain browser checks also verify
+name downloads and caching. `node tests/terrain-names-browser.mjs` checks
+worker visibility, projection, label picking keys, cache invalidation and
+offline reuse in Chromium or WebKit (the usual `PLAYWRIGHT`, `CHROME` and
+`TERRAIN_BROWSER` options apply).
 A supplied altitude is the eye elevation and is never automatically raised to
 the DEM; a below-ground mismatch is reported. The first 100 m is omitted to avoid
 local model obstructions. Source resolution, mesh detail and vertical datums vary;
