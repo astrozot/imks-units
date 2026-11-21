@@ -488,7 +488,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-catalog-choices label:has(input:disabled) { opacity: 0.6; cursor: progress; }
 .coelum-star-downloads { container-type: inline-size; }
 .coelum-catalog-select { display: none; margin: 10px 0; font-size: 12px; }
-.coelum-catalog-select select { display: block; box-sizing: border-box; width: 100%; min-height: 40px; margin-top: 6px; padding: 6px 8px; border: 1px solid var(--c-line); border-radius: 8px; background: var(--c-bg); color: var(--c-muted); font: inherit; font-size: 14px; }
+.coelum-catalog-select select { display: block; box-sizing: border-box; width: 100%; min-height: 40px; margin-top: 6px; padding: 6px 8px; border: 1px solid var(--c-line); border-radius: 8px; background: var(--c-bg); color: var(--c-muted); font: inherit; }
 @container (max-width: 245px) {
   .coelum-catalog-choices { display: none; }
   .coelum-catalog-select { display: block; }
@@ -671,7 +671,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .lunar-time, .map-slider { flex: 1; min-width: 0; accent-color: var(--accent); touch-action: none; }
 .map-svg { display: block; width: 100%; max-width: 420px; margin: 0 auto 4px; cursor: zoom-in; }
 .map-views { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; color: var(--muted); }
-.map-select { font: inherit; font-size: 15px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
+.map-select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
 .osm-map { width: 100%; border-radius: 10px; overflow: hidden; touch-action: none; }
 .osm-label span { font: 10px var(--mono); white-space: nowrap; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff; }
 .osm-map.dark .osm-label span { text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
@@ -1780,10 +1780,11 @@ body.coelum-app { background: #000; }
 .coelum-map-body .map-views, .coelum-map-body .sky-hint { color: var(--c-muted); }
 .coelum-map-body .map-select { color: var(--c-ink); border-color: var(--c-line); background: var(--c-bg); }
 .coelum-map-body .chip { color: var(--c-ink); border-color: var(--c-line); background: var(--c-hover); }
-.coelum-app input, .coelum-app select, .coelum-explorer input:not([type=checkbox]):not([type=range]), .coelum-explorer select { font-size: 16px; }
+/* Keep text-entry controls at 16px; dropdowns use their component typography. */
+.coelum-app input, .coelum-explorer input:not([type=checkbox]):not([type=range]) { font-size: 16px; }
 
 .coelum-time-zone { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--c-muted); font-size: 13px; }
-.coelum-time-zone select { min-width: 0; max-width: 100%; padding: 5px; color: var(--c-ink); border: 1px solid var(--c-line); border-radius: 8px; background: var(--c-bg); }
+.coelum-time-zone select { min-width: 0; max-width: 100%; padding: 5px; color: var(--c-ink); border: 1px solid var(--c-line); border-radius: 8px; background: var(--c-bg); font: inherit; }
 
 .coelum-time-zone input { box-sizing: border-box; min-width: 0; flex: 1; width: 100%; padding: 6px; color: var(--c-ink); background: var(--c-bg); border: 1px solid var(--c-line); border-radius: 8px; }
 .coelum-time-zone[data-place-zone-row], .coelum-time-zone[data-place-elevation-row] { display: block; }
