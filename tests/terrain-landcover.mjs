@@ -11,6 +11,8 @@ assert.deepEqual(itemsForTile(14, 8685, 5836), ['ESA_WorldCover_10m_2021_v200_N4
 // Codes map to compact indices; unknown codes are 0.
 LANDCOVER_CODES.forEach((code, i) => assert.equal(landcoverIndex(code), i + 1));
 assert.equal(landcoverIndex(0), 0); assert.equal(landcoverIndex(55), 0);
+// Safari returns decoded class values up to ±2 off: they snap to the code.
+for (const [v, code] of [[9, 10], [11, 10], [8, 10], [79, 80], [82, 80], [93, 95], [97, 95], [98, 100]]) assert.equal(landcoverIndex(v), landcoverIndex(code), `${v}`);
 // Merging: each item's tile is transparent outside the item.
 const part = (value, from, to) => { const rgba = new Uint8Array(256 * 256 * 4); for (let i = from; i < to; i++) { rgba[i * 4] = value; rgba[i * 4 + 3] = 255; } return rgba; };
 const merged = mergeTiles([part(10, 0, 30000), part(80, 30000, 65536)]);

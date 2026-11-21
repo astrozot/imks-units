@@ -13,8 +13,11 @@ export const LANDCOVER = Object.freeze({
 });
 // WorldCover codes → compact indices used by the shader (0 = unknown).
 export const LANDCOVER_CODES = [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100];
+// Safari colour-manages greyscale PNGs while decoding: class values come back
+// up to ±2 off (9 or 11 for 10). Codes are at least 5 apart, so values within
+// 2 of a code are snapped to it; anything else is unknown.
 const INDEX = new Uint8Array(256);
-LANDCOVER_CODES.forEach((code, i) => { INDEX[code] = i + 1; });
+LANDCOVER_CODES.forEach((code, i) => { for (let v = code - 2; v <= code + 2; v++) INDEX[v] = i + 1; });
 export const landcoverIndex = code => INDEX[code] || 0;
 // Zoom per terrain ring: tile pixels near each ring's texel size.
 export const LANDCOVER_ZOOMS = [14, 14, 12, 10, 9];
