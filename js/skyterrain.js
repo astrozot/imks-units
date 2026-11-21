@@ -1,8 +1,12 @@
 import { TERRAIN_SURFACE_VERSION } from './terrainmesh.js';
 // Local terrain lifecycle: exact viewpoint keys, bounded offline surfaces, and
 // cancellable worker jobs. A surface is never reused at another eye elevation.
-export const TERRAIN_DEFAULTS = Object.freeze({ style:'natural', waterColor:true, shadows:true, outlines:false, exposure:0, nightExposure:0 });
-const PROFILE_KEY='imks-coelum-terrain-profiles-v3', SETTINGS_KEY='imks-coelum-terrain-appearance-v2', DATABASE='imks-terrain-surfaces-v2';
+// style: landcover (WorldCover materials), natural (muted earth, by slope) or
+// paper (pale relief). shadowSync redraws shadows with every frame of
+// playback instead of letting them catch up over a few frames.
+export const TERRAIN_DEFAULTS = Object.freeze({ style:'landcover', waterColor:true, shadows:true, shadowSync:false, outlines:false, exposure:0, nightExposure:0 });
+export const TERRAIN_STYLES = Object.freeze(['landcover','natural','paper']);
+const PROFILE_KEY='imks-coelum-terrain-profiles-v3', SETTINGS_KEY='imks-coelum-terrain-appearance-v3', DATABASE='imks-terrain-surfaces-v2';
 export const terrainKey = place => `${Number(place[0])},${Number(place[1])},${Number.isFinite(place[2])?Number(place[2]):'ground+2'}`;
 const readProfiles=()=>{try{return JSON.parse(localStorage.getItem(PROFILE_KEY))||{};}catch{return {};}};
 export function storedTerrainHorizon(place){const p=readProfiles()[terrainKey(place)];return p?.alt?.length===3600 && p.alt.every(Number.isFinite)?Float32Array.from(p.alt):null;}
@@ -11,6 +15,8 @@ export function terrainAppearance(values=null){
   if(!saved)try{
     const current=localStorage.getItem(SETTINGS_KEY);
     if(current)saved=JSON.parse(current);
+    // Version 2 had no land-cover style: its natural look had become land cover.
+    else if(localStorage.getItem('imks-coelum-terrain-appearance-v2')){saved=JSON.parse(localStorage.getItem('imks-coelum-terrain-appearance-v2'));if(saved?.style==='natural')saved.style='landcover';}
     else{
       const old=JSON.parse(localStorage.getItem('imks-coelum-terrain-appearance')||localStorage.getItem('imks-terrain-lab-appearance-v1')||'null');
       if(old)saved={...old,exposure:Math.max(-2,Math.min(2,(old.exposure??.7)-.7)),nightExposure:Math.max(-2,Math.min(2,(old.nightExposure??2)-2))};
@@ -19,7 +25,7 @@ export function terrainAppearance(values=null){
   const out={...TERRAIN_DEFAULTS};
   for(const [key,def]of Object.entries(out)){
     const value=saved?.[key];
-    if(typeof def==='boolean'&&typeof value==='boolean'||key==='style'&&['natural','paper'].includes(value)||typeof def==='number'&&Number.isFinite(value)&&value>=-2&&value<=2)out[key]=value;
+    if(typeof def==='boolean'&&typeof value==='boolean'||key==='style'&&TERRAIN_STYLES.includes(value)||typeof def==='number'&&Number.isFinite(value)&&value>=-2&&value<=2)out[key]=value;
   }
   if(values)try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(out));}catch{}
   return out;

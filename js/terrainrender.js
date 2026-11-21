@@ -372,6 +372,8 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
     gl.uniform1fv(u(p, 'ringTexel'), Float32Array.from({ length: 5 }, (_, k) => rings[k] ? rings[k].extent * 2 / rings[k].size : 1));
     gl.uniform1i(u(p, 'rings'), rings.length); gl.uniform1i(u(p, 'heights'), 0);
   }
+  // Land-cover materials, unless the muted-earth or pale-relief style is drawn.
+  let useCover=true;
   function drawMeshes(forward=null,viewAngle=0) {
     let triangles=0;
     meshes.forEach((m,i)=>{
@@ -379,7 +381,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       [[m.normal,m.grid?m.normal:flatNormal],[next.normal,next.grid?next.normal:flatNormal],[m.shadow,m.grid?m.shadow:fullLight],[next.shadow,next.grid?next.shadow:fullLight]].forEach(([,tex],unit)=>{gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,tex);});
       gl.activeTexture(gl.TEXTURE6);gl.bindTexture(gl.TEXTURE_2D,m.sky??fullLight);gl.activeTexture(gl.TEXTURE7);gl.bindTexture(gl.TEXTURE_2D,next.sky??fullLight);
       gl.activeTexture(gl.TEXTURE8);gl.bindTexture(gl.TEXTURE_2D,m.cover??noCover);gl.activeTexture(gl.TEXTURE9);gl.bindTexture(gl.TEXTURE_2D,next.cover??noCover);
-      gl.uniform1i(u(scene,'hasCover'),!!m.cover);gl.uniform1i(u(scene,'nextHasCover'),!!next.cover);
+      gl.uniform1i(u(scene,'hasCover'),useCover&&!!m.cover);gl.uniform1i(u(scene,'nextHasCover'),useCover&&!!next.cover);
       gl.activeTexture(gl.TEXTURE5);gl.bindTexture(gl.TEXTURE_2D,m.level??noWater);gl.uniform1i(u(scene,'ringIndex'),m.level?m.ringIndex:-1);
       gl.uniform1f(u(scene,'extent'),m.grid?.extent??1e9);gl.uniform1f(u(scene,'nextExtent'),next.grid?.extent??1e9);
       gl.bindVertexArray(m.vao);
@@ -496,7 +498,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
     // profile: wait for the GPU after each pass (diagnostics only: it stalls).
-    draw({ W, H, radius, rotation, sun, moon, flux, lightingSunAlt = sun.alt, solarFlux = 1, shadows = true, paper = false, outlines = false, exposure = 1, nearField = 100, farField = 150000, waterColor = true, cull = true, profile = false, progressive = false, atmosphere = true, eyeElevation = 0, sky = null, noiseOrigin = [0, 0] }) {
+    draw({ W, H, radius, rotation, sun, moon, flux, lightingSunAlt = sun.alt, solarFlux = 1, shadows = true, paper = false, outlines = false, exposure = 1, nearField = 100, farField = 150000, waterColor = true, landCover = true, cull = true, profile = false, progressive = false, atmosphere = true, eyeElevation = 0, sky = null, noiseOrigin = [0, 0] }) {
       if (destroyed || gl.isContextLost()) return;
       const start = performance.now(), scale = Math.min(1.5, devicePixelRatio || 1), width = Math.max(1,Math.round(W * scale)), height = Math.max(1,Math.round(H * scale));
       if (width !== w || height !== h) {
@@ -513,6 +515,8 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       let shadowMs = 0, shadowGpuMs = 0, shadowTexels = 0;
       if (shadows && heights && (job || shownKey !== key)) {
         const t0 = performance.now();
+        // In sync, an unfinished job for an older light is dropped, not finished.
+        if (!progressive && job && job.key !== key) job = null;
         if (!job) job = shadowJob(mapLight, moonSource ? MOON_RADIUS : SUN_RADIUS, key);
         // The first shadows of a surface appear complete, and time each ring.
         // The first shadows of a surface appear complete.
@@ -555,6 +559,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       gl.uniform3fv(u(scene, 'skyZenith'), skyColour.zenith); gl.uniform3fv(u(scene, 'skyHorizon'), skyColour.horizon); gl.uniform3fv(u(scene, 'sunDir'), lightVector(sun.az, sun.alt));
       gl.uniform1f(u(scene, 'skyGlow'), skyColour.glow); gl.uniform1f(u(scene, 'skySunUp'), skyColour.sunUp); gl.uniform1f(u(scene, 'eyeElevation'), eyeElevation); gl.uniform1i(u(scene, 'atmosphere'), atmosphere);gl.uniform1f(u(scene,'waterTolerance'),WATER_TOLERANCE);
       gl.activeTexture(gl.TEXTURE4);gl.bindTexture(gl.TEXTURE_2D_ARRAY,heights);
+      useCover=landCover;
       const drawnTriangles=drawMeshes(cull?forward:null,2*Math.atan(Math.hypot(W,H)/(2*radius))); gl.disable(gl.DEPTH_TEST);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0,0,w,h); gl.bindVertexArray(empty); gl.useProgram(post);
       for (const [i, tex] of [image, depth].entries()) { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u(post, i ? 'depth' : 'image'), i); }

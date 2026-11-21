@@ -5,18 +5,21 @@ import { loadWaterMask, waterLevels, WATER_TOLERANCE } from './terrainwater.js';
 import { loadLandcover } from './terrainlandcover.js';
 import { PANORAMA_RINGS, TERRAIN_GEOMETRY_REVISION, TERRAIN_SURFACE_VERSION, nearFieldFor, EYE_HEIGHT, TERRAIN_GRID_SIZES, TERRAIN_DIVISIONS, makeRing, stitchRings, meshHorizon, packGrid, compactMesh } from './terrainmesh.js';
 import { simplifyTerrainRTIN } from './terrainlod.js';
+import { terrainTileStore } from './terraintiles.js';
 import { terrainDrawGroups } from './terrainlighting.js';
 self.onmessage = async ({ data }) => {
   try {
     const started = performance.now(), { place } = data;
     const tiles = new Map(), jobs = tilesFor(place, PANORAMA_RINGS, 150000), requested = jobs.length, errors = [];
     let done = 0, bytes = 0;
+    // Tiles kept from earlier builds nearby are not downloaded again.
+    const store = terrainTileStore();
     const progress = (text, fraction) => self.postMessage({ type: 'progress', text, fraction });
     await Promise.all(Array.from({ length: 4 }, async () => {
       while (jobs.length) {
         const [z, x, y] = jobs.shift();
         try {
-          const response = await fetch(providers.mapterhorn.url(z, x, y));
+          const response = await store.fetch(providers.mapterhorn.url(z, x, y));
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const blob = await response.blob(); bytes += blob.size;
           const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
@@ -38,7 +41,7 @@ self.onmessage = async ({ data }) => {
           for (let i = 0; i < h.length; i++) h[i] = Number.isNaN(values[i]) ? 65535 : Math.round((values[i] - offset) / scale);
           tiles.set(`${z}/${x}/${y}`, { size, h, scale, offset, noData:65535 });
         } catch (e) { errors.push({ z, x, y, message: e.message }); }
-        progress(`Downloading terrain… ${++done}/${requested} tiles · ${(bytes / 1e6).toFixed(1)} MB`, done / requested * .65);
+        ++done; progress(store.stats.fetched ? `Downloading terrain… ${done}/${requested} tiles · ${(store.stats.bytes / 1e6).toFixed(1)} MB${store.stats.cached ? ` (${store.stats.cached} already saved)` : ''}` : `Reading saved terrain… ${done}/${requested} tiles`, done / requested * .65);
       }
     }));
     if (errors.length > requested / 4) throw new Error('Could not download enough terrain. Check your connection');
@@ -53,7 +56,7 @@ self.onmessage = async ({ data }) => {
     let cover = null, coverMetrics = { available: false };
     try {
       const decode = async blob => { const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }), c = new OffscreenCanvas(bitmap.width, bitmap.height), g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bitmap, 0, 0); bitmap.close(); return g.getImageData(0, 0, c.width, c.height).data; };
-      const result = await loadLandcover({ place, rings: PANORAMA_RINGS, sizes: TERRAIN_GRID_SIZES.map(s => Math.min(1024, s)), decode, progress: text => progress(text, .66) });
+      const result = await loadLandcover({ fetchImpl: store.fetch, place, rings: PANORAMA_RINGS, sizes: TERRAIN_GRID_SIZES.map(s => Math.min(1024, s)), decode, progress: text => progress(text, .66) });
       coverMetrics = { ...result.metrics, available: result.metrics.failed < result.metrics.tiles / 4 };
       if (coverMetrics.available) cover = result.grids;
     } catch (e) { coverMetrics.error = e.message; }
@@ -82,8 +85,9 @@ self.onmessage = async ({ data }) => {
       // Standing in water only if the DEM at the observer lies at that level.
       const centre = result.maps[0], level = centre.levels[(centre.size >> 1) * centre.size + (centre.size >> 1)] + eye;
       waterMetrics.observer = Number.isFinite(level) && Math.abs(pointGround - level) < WATER_TOLERANCE ? (Math.abs(level) < WATER_TOLERANCE ? 'ocean' : 'lake') : null; }
-    const surface = { version: TERRAIN_SURFACE_VERSION, place, eye, pointGround, profile: horizon, meshes, metrics: { source: 'Mapterhorn', geometryRevision:TERRAIN_GEOMETRY_REVISION,eyeHeight:EYE_HEIGHT,gridTexels:meshes.reduce((s,m)=>s+m.grid.heights.length,0), divisions, angularError, denseTriangles, water:waterMetrics, landCover:coverMetrics, bytes, tiles: tiles.size, requested, errors, loadMs, buildMs: performance.now() - started - loadMs, triangles: meshes.reduce((s,m)=>s+m.indices.length/3,0), vertices: meshes.reduce((s,m)=>s+m.positions.length/3,0), missingVertices, samplingCoverage: sample.stats, sourceUrl: 'https://mapterhorn.com/attribution/', nearField, radius:150000 } };
+    const surface = { version: TERRAIN_SURFACE_VERSION, place, eye, pointGround, profile: horizon, meshes, metrics: { source: 'Mapterhorn', geometryRevision:TERRAIN_GEOMETRY_REVISION,eyeHeight:EYE_HEIGHT,gridTexels:meshes.reduce((s,m)=>s+m.grid.heights.length,0), divisions, angularError, denseTriangles, water:waterMetrics, landCover:coverMetrics, bytes, tiles: tiles.size, requested, errors, downloaded: store.stats.bytes, cachedTiles: store.stats.cached, loadMs, buildMs: performance.now() - started - loadMs, triangles: meshes.reduce((s,m)=>s+m.indices.length/3,0), vertices: meshes.reduce((s,m)=>s+m.positions.length/3,0), missingVertices, samplingCoverage: sample.stats, sourceUrl: 'https://mapterhorn.com/attribution/', nearField, radius:150000 } };
     if (surface.metrics.missingVertices) throw new Error('Terrain surface coverage is incomplete. Try again when online');
+    await store.commit();
     self.postMessage({ type:'ready', surface }, [surface.profile.buffer, ...meshes.flatMap(m=>[m.positions.buffer,m.indices.buffer,m.grid.heights.buffer,...(m.water?[m.water.levels.buffer]:[]),...(m.cover?[m.cover.classes.buffer]:[])])]);
   } catch(e) { self.postMessage({type:'error',text:e.message}); }
 };

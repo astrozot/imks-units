@@ -25,7 +25,10 @@ export function terrainRaster(ctx,surface,{W,H,radius,rotation,sun,moon,lighting
     const preferences=appearance||terrainAppearance(),night=sun.alt < -6;
     const sine=Math.max(0,Math.sin((moon?.alt??-90)*Math.PI/180)),airmass=1/(sine+.025*Math.exp(-11*sine));
     const flux=moon?moonFlux(moon.phase??180,moon.dist)*10**(-.4*.22*Math.max(0,airmass-1)):0;
-    const result=entry.renderer.draw({W,H,radius,rotation,sun,lightingSunAlt,solarFlux,moon:moon||{az:0,alt:-90},flux,paper:preferences.style==='paper',waterColor:preferences.waterColor,shadows:preferences.shadows,outlines:preferences.outlines,exposure:terrainExposure(preferences[night?'nightExposure':'exposure'],night),nearField:surface.metrics?.nearField??100,profile:terrainStats.profile,progressive:true,atmosphere,eyeElevation:surface.eye,
+    const result=entry.renderer.draw({W,H,radius,rotation,sun,lightingSunAlt,solarFlux,moon:moon||{az:0,alt:-90},flux,paper:preferences.style==='paper',waterColor:preferences.waterColor,landCover:preferences.style==='landcover',shadows:preferences.shadows,outlines:preferences.outlines,exposure:terrainExposure(preferences[night?'nightExposure':'exposure'],night),nearField:surface.metrics?.nearField??100,profile:terrainStats.profile,
+      // Shadows catch up over a few frames (smooth playback), or are redrawn
+      // whole whenever the light moves (in sync, slower).
+      progressive:!preferences.shadowSync,atmosphere,eyeElevation:surface.eye,
       // Ground-anchored noise: the place in metres, folded to keep precision.
       noiseOrigin:surface.place?[(surface.place[1]*111320*Math.cos(surface.place[0]*Math.PI/180))%100000,(surface.place[0]*110574)%100000]:[0,0],
       // The sky's own colours, so haze and sky light match the visible sky.

@@ -37,7 +37,7 @@ try{
  const stored=await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');const s=await restoreTerrain([45.89617,10.84333,90]);return {profile:s.profile.length,eye:s.eye,cover:s.meshes.every(m=>m.cover?.classes.every(c=>c===3)),landCover:s.metrics.landCover};});assert.equal(stored.profile,3600);
  assert.ok(coverRequests>20&&stored.cover,`Land cover stored with the terrain: ${JSON.stringify(stored.landCover)}`);
  assert.equal(stored.eye,92,'The eye is 2 m above the place’s ground elevation');
- await page.click('[data-action="terrain"]');assert.equal(await page.locator('[data-terrain-setting="style"]').inputValue(),'natural');assert.equal(await page.locator('[data-terrain-setting="outlines"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="shadows"]').isChecked(),true);assert.equal(await page.locator('[data-terrain-setting="nightExposure"]').inputValue(),'0');
+ await page.click('[data-action="terrain"]');assert.equal(await page.locator('[data-terrain-setting="style"]').inputValue(),'landcover');assert.equal(await page.locator('[data-terrain-setting="shadowSync"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="outlines"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="shadows"]').isChecked(),true);assert.equal(await page.locator('[data-terrain-setting="nightExposure"]').inputValue(),'0');
  await page.uncheck('[data-terrain-setting="shadows"]');await page.check('[data-terrain-setting="shadows"]');await page.locator('.coelum-terrain-panel [data-action="close-panel"]').click();assert.equal(requests,downloaded);
  assert.equal(await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');return await restoreTerrain([45.89617,10.84333,92]);}),null,'Eye height changes must not reuse the surface');
  // A cancelled refresh keeps the existing surface and cannot apply stale results.
@@ -71,12 +71,19 @@ try{
   document.querySelector('[data-action="play"]').click();return steps;});
  assert.ok(perFrame.filter(d=>d>1).length<=2,`Doubled frames during playback: ${perFrame.filter(d=>d>1).length}/120`);
  // The Place panel shows the ground elevation and accepts a new one.
+ await page.unroute('https://tiles.mapterhorn.com/**');await page.route('https://tiles.mapterhorn.com/**',respond);
  await page.goto(origin+'/coelum/');await page.waitForSelector('.coelum-full');
  await page.click('[data-action="place"]');
  assert.equal(await page.locator('[data-place-elevation]').inputValue(),'90');
  await page.fill('[data-place-elevation]','123.5');await page.press('[data-place-elevation]','Enter');
  await page.waitForFunction(()=>JSON.parse(localStorage.getItem('imks.coelumPlace')).h===123.5);
  assert.ok(await page.locator('[data-place-elevation]').isVisible(),'The panel stays open after an elevation change');
+ // The new elevation keeps Local terrain and rebuilds it from the saved
+ // source tiles: nothing is downloaded again.
+ assert.equal(await page.locator('[data-horizon]').inputValue(),'terrain');
+ await page.waitForFunction(()=>document.querySelector('.coelum-canvas').dataset.terrainSurface==='true'&&/Saved for offline/.test(document.querySelector('.coelum-terrain-note').textContent),null,{timeout:120000});
+ assert.equal(await page.evaluate(async()=>(await (await import('/js/skyterrain.js')).restoreTerrain([45.89617,10.84333,123.5]))?.eye),125.5);
+ assert.equal(requests,downloaded,'A rebuild nearby reuses the saved tiles');
  assert.deepEqual(errors,[]);console.log(JSON.stringify({status:'passed',tiles:downloaded,offline:true,sharedWithIMKS:true,lighting}));
  await context.close();
 }finally{await browser.close();await new Promise(r=>server.close(r));}

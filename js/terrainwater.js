@@ -3,7 +3,7 @@
 // The 1:10 million outlines are far coarser than the DEM, so they only mark
 // where to look: each lake's level comes from its own flat DEM surface, and
 // the drawn shoreline is the DEM contour at that level (see waterLevels).
-import { destination } from './terrainmodel.js';
+import { destination, squareBounds } from './terrainmodel.js';
 const normalLon=lon=>((lon+180)%360+360)%360-180;
 function decodePolygon(encoded){
  const rings=encoded.map(flat=>{const out=new Int32Array(flat.length);let x=0,y=0;for(let i=0;i<flat.length;i+=2){x+=flat[i];y+=flat[i+1];out[i]=x;out[i+1]=y;}return out;});
@@ -42,8 +42,9 @@ export async function loadWaterMask(place,{radius=150000,progress=()=>{}}={}){
  if(!res.ok)throw new Error(`Water index HTTP ${res.status}`);
  const manifest=await res.json(),size=manifest.tileSize,tiles=new Map(),missing=[],jobs=[];
  if(manifest.version!==1)throw new Error('Unsupported water polygons');
- const dy=radius/110000+.02,cos=Math.cos(Math.min(84.9,Math.abs(place[0])+dy)*Math.PI/180),dx=Math.min(180,radius/(110000*cos)+.02);
- const x0=Math.floor((place[1]-dx+180)/size),x1=Math.floor((place[1]+dx+180)/size),y0=Math.max(0,Math.floor((place[0]-dy-manifest.south)/size)),y1=Math.min((manifest.north-manifest.south)/size-1,Math.floor((place[0]+dy-manifest.south)/size)),nx=360/size;
+ // The meshes' squares reach √2·radius at the corners; .02° margin as before.
+ const b=squareBounds(place,radius);
+ const x0=Math.floor((b.west-.02+180)/size),x1=Math.floor((b.east+.02+180)/size),y0=Math.max(0,Math.floor((b.south-.02-manifest.south)/size)),y1=Math.min((manifest.north-manifest.south)/size-1,Math.floor((b.north+.02-manifest.south)/size)),nx=360/size;
  const keys=new Set();
  for(let x=x0;x<=x1;x++)for(let y=y0;y<=y1;y++){const key=`${(x%nx+nx)%nx}_${y}`;if(manifest.tiles[key]==='p')keys.add(key);}
  jobs.push(...keys);let done=0,bytes=0;

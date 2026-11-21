@@ -296,8 +296,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       </div>
       <div class="coelum-panel coelum-toolbar" id="${id}-layers" role="group" aria-label="Sky layers" hidden>
         <div class="coelum-panel-head"><h3>Layers</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close layers">${ICONS.close}</button></div>
-        <div class="coelum-switches">${LAYERS.map(([key, label, modes]) => `<label data-modes="${modes}"><input type="checkbox" role="switch" data-layer="${key}"><span>${label}</span></label>`).join('')}</div>
-        <div class="coelum-selects"><label data-modes="chart">Stars to magnitude <select data-limit>${[3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => `<option value="${n}" ${n === 6 ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label>Horizon <select data-horizon><option value="landscape">Landscape</option><option value="terrain">Local terrain</option><option value="flat">Flat</option></select></label><label>Text size <select data-label-size><option value="14">Normal</option><option value="17">Large</option><option value="20">Larger</option></select></label></div>
+        <div class="coelum-switches">${LAYERS.map(([key, label, modes]) => key === 'ground'
+          // The horizon's shape sits beside the ground switch it belongs to.
+          ? `<div class="coelum-ground" data-modes="${modes}"><label><input type="checkbox" role="switch" data-layer="${key}"><span>${label}</span></label><select data-horizon aria-label="Horizon"><option value="flat">Flat</option><option value="terrain">Local terrain</option></select></div>`
+          : `<label data-modes="${modes}"><input type="checkbox" role="switch" data-layer="${key}"><span>${label}</span></label>`).join('')}</div>
+        <div class="coelum-selects"><label data-modes="chart">Stars to magnitude <select data-limit>${[3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => `<option value="${n}" ${n === 6 ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label>Text size <select data-label-size><option value="14">Normal</option><option value="17">Large</option><option value="20">Larger</option></select></label></div>
         <div class="coelum-downloads" data-phone-options${orientationSupported() ? '' : ' hidden'}><h3>Phone orientation</h3>
           <p class="coelum-panel-note" data-orient-quality>Turn on following with the phone button. Pan to align the sky; pinch to zoom.</p>
           <div class="coelum-switches"><label><input type="checkbox" role="switch" data-orient-level><span>Keep the horizon level</span></label></div>
@@ -317,9 +320,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       </div>
       <div class="coelum-panel coelum-terrain-panel" id="${id}-terrain" role="group" aria-label="Terrain appearance" hidden>
         <div class="coelum-panel-head"><h3>Terrain appearance</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close terrain appearance">${ICONS.close}</button></div>
-        <div class="coelum-selects"><label>Appearance <select data-terrain-setting="style"><option value="natural">Muted earth</option><option value="paper">Pale relief</option></select></label></div>
-        <div class="coelum-switches"><label><input type="checkbox" role="switch" data-terrain-setting="waterColor"><span>Blue water</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadows"><span>Terrain shadows</span></label><label><input type="checkbox" role="switch" data-terrain-setting="outlines"><span>Ridge outlines</span></label></div>
+        <div class="coelum-selects"><label>Appearance <select data-terrain-setting="style"><option value="landcover">Land cover colours</option><option value="natural">Muted earth</option><option value="paper">Pale relief</option></select></label></div>
+        <div class="coelum-switches"><label><input type="checkbox" role="switch" data-terrain-setting="waterColor"><span>Blue water</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadows"><span>Terrain shadows</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadowSync"><span>Shadows in sync</span></label><label><input type="checkbox" role="switch" data-terrain-setting="outlines"><span>Ridge outlines</span></label></div>
         <div class="coelum-terrain-exposure"><label>Daylight exposure <output data-terrain-output="exposure"></output><input type="range" min="-2" max="2" step="0.1" data-terrain-setting="exposure"></label><label>Night exposure <output data-terrain-output="nightExposure"></output><input type="range" min="-2" max="2" step="0.1" data-terrain-setting="nightExposure"></label></div>
+        <p class="coelum-panel-note">Land cover colours come from ESA WorldCover; muted earth colours by slope only. While time runs, shadows normally catch up a moment later to keep the motion smooth; in sync, they are redrawn with every frame, at a lower frame rate on phones.</p>
         <p class="coelum-panel-note">The centre keeps the recommended brightness, including visible moonlight. Night exposure is used automatically after twilight. These options affect local terrain and are saved on this device.</p>
         <button type="button" class="coelum-chip" data-terrain="defaults">Restore defaults</button>
       </div>
@@ -478,9 +482,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // without changing the atmosphere preference saved in the layer controls.
   const atmosphereOn = () => observerOrigin(place) === 'topocentric' && layers.sky.atmosphere && (!playing || Math.abs(speed) < 86400);
   // The horizon (shared by both views): the terrain's profile, if computed.
-  let horizon = 'landscape', terrain = null, terrainSurface = null;
+  // The horizon is flat or the local terrain (an older generic landscape
+  // option reads as flat).
+  let horizon = 'flat', terrain = null, terrainSurface = null;
   let appearance = terrainAppearance();
-  try { horizon = localStorage.getItem('imks-coelum-horizon') || 'landscape'; } catch { /* private mode */ }
+  try { if (localStorage.getItem('imks-coelum-horizon') === 'terrain') horizon = 'terrain'; } catch { /* private mode */ }
   const setTerrain = (profile) => { terrain = profile ? horizonAt(profile) : null; };
   setTerrain(observerOrigin(place) === 'topocentric' ? storedTerrainHorizon(place) || storedHorizon(place) : null);
   const applyHorizon = () => {
@@ -1176,6 +1182,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     try { localStorage.setItem('imks-coelum-horizon', value); } catch { /* private mode */ }
     applyHorizon(); syncLayers(); showTerrain(); draw();
   };
+  // A new place keeps the chosen horizon: local terrain is restored, or built
+  // (tiles kept from nearby places are not downloaded again).
+  const terrainForPlace = () => {
+    if (horizon === 'terrain' && observerOrigin(place) === 'topocentric') void chooseHorizon('terrain');
+    else void restoreCurrentTerrain();
+  };
   // Date and time: a field on the device's clock, and the day's events of
   // the Sun (with twilights) and the Moon at the place.
   const timeInput = $('[data-time-input]'), events = $('.coelum-events');
@@ -1285,8 +1297,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     trajectory.length = 0; trajectoryTime = null;
     place = [p.lat, p.lon, h, ...(origin === 'topocentric' ? [] : [origin])]; placeLabel = p.name.split(',').slice(0, 2).join(',');
     setTerrain(observerOrigin(place) === 'topocentric' ? storedTerrainHorizon(place) || storedHorizon(place) : null);
-    if (horizon === 'terrain' && !terrain) horizon = 'landscape';
-    applyHorizon(); syncLayers(); showTerrain(); void restoreCurrentTerrain();
+    applyHorizon(); syncLayers(); showTerrain(); terrainForPlace();
     if (views.sky?.auto) views.sky = null;
     eventsDay = null; placeStatus.textContent = '';
     options.onPlace?.([...place], placeLabel);
@@ -1792,7 +1803,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (terrainAction === 'refresh') { chooseHorizon('terrain', true); return; }
     if (terrainAction === 'cancel') { cancelTerrain(); syncLayers(); showTerrain(); return; }
     if (terrainAction === 'defaults') { appearance = terrainAppearance(TERRAIN_DEFAULTS); appearanceControls(); applyHorizon(); draw(); return; }
-    if (terrainAction === 'forget') { cancelTerrain(); void forgetTerrain([...place]); forgetHorizon(place); terrainSurface = null; setTerrain(null); chooseHorizon('landscape'); return; }
+    if (terrainAction === 'forget') { cancelTerrain(); void forgetTerrain([...place]); forgetHorizon(place); terrainSurface = null; setTerrain(null); chooseHorizon('flat'); return; }
     const viewButton = ev.target.closest('[data-view]');
     if (viewButton) { setMode(viewButton.dataset.view); return; }
     const button = ev.target.closest('[data-action]'), action = button?.dataset.action;
@@ -2022,7 +2033,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   syncLayers();
   showFaint(); showOpenNGC(); showTerrain(); showSatellites();
   layers.sky.onTerrainRedraw = () => { if (root.isConnected) draw(); };
-  void restoreCurrentTerrain();
+  terrainForPlace();
   loadSatellites();
   if (options.standalone) { root.classList.add('coelum-standalone'); fullscreen(true, false); }
   draw();

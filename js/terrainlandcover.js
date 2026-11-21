@@ -3,7 +3,7 @@
 // browser requests (the original files on AWS do not). Classes only choose a
 // material; colour and light come from the renderer. Missing or failed tiles
 // stay 0 and keep the plain slope-based colouring.
-import { RAD, tileXY, destination } from './terrainmodel.js';
+import { RAD, tileXY, destination, squareBounds } from './terrainmodel.js';
 
 export const LANDCOVER = Object.freeze({
   source: 'ESA WorldCover 2021 v200',
@@ -69,8 +69,8 @@ export function resampleClasses({ tiles, place, zoom, extent, size, block = 32 }
 
 // Tiles (z/x/y) covering a ring's square, as for elevation.
 function tilesForRing(place, zoom, extent) {
-  const [lat, lon] = place, dy = extent / 110500, dx = extent / (110500 * Math.cos(lat * RAD)), jobs = new Map();
-  const [x0, y1] = tileXY(lat - dy, lon - dx, zoom), [x1, y0] = tileXY(lat + dy, lon + dx, zoom);
+  const { south, north, west, east } = squareBounds(place, extent), jobs = new Map();
+  const [x0, y1] = tileXY(south, west, zoom), [x1, y0] = tileXY(north, east, zoom);
   for (let y = Math.max(0, Math.floor(y0)); y <= Math.min(2 ** zoom - 1, Math.floor(y1)); y++)
     for (let x = Math.floor(x0); x <= Math.floor(x1); x++) jobs.set(`${zoom}/${x}/${y}`, [zoom, ((x % 2 ** zoom) + 2 ** zoom) % 2 ** zoom, y]);
   return jobs;

@@ -460,6 +460,11 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-switches { display: grid; grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 6px; }
 .coelum-switches label { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.045); font-size: 14px; cursor: pointer; user-select: none; }
 @media (hover: hover) and (pointer: fine) { .coelum-switches label:hover { background: rgba(255, 255, 255, 0.08); } }
+.coelum-ground { grid-column: span 2; display: flex; align-items: center; gap: 6px; padding-right: 6px; border-radius: 10px; background: rgba(255, 255, 255, 0.045); }
+.coelum-ground[hidden] { display: none; }
+.coelum-terrain-panel .coelum-switches { margin-top: 10px; }
+.coelum-switches .coelum-ground label { flex: 1; min-width: 0; background: none; }
+.coelum-ground select { flex: none; padding: 5px 8px; border: 1px solid var(--c-line); border-radius: 8px; background: #1a2541; color: var(--c-ink); font: 14px system-ui, -apple-system, sans-serif; }
 .coelum-switches input { appearance: none; -webkit-appearance: none; position: relative; flex: none; width: 34px; height: 20px; margin: 0; border-radius: 999px; background: #3a4562; cursor: pointer; transition: background 0.15s; }
 .coelum-switches input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); transition: transform 0.15s; }
 .coelum-switches input:checked { background: var(--c-accent); }

@@ -10,11 +10,28 @@ export function destination(lat, lon, az, distance) {
   const q = Math.asin(Math.sin(p) * Math.cos(a) + Math.cos(p) * Math.sin(a) * Math.cos(t));
   return [q / RAD, lon + Math.atan2(Math.sin(t) * Math.sin(a) * Math.cos(p), Math.cos(a) - Math.sin(p) * Math.sin(q)) / RAD];
 }
+// Latitude/longitude bounds of a ring's square (local east/north, half-side
+// `extent`, mapped as the meshes are). Corners lie √2·extent away and, away
+// from the equator, meridians converge: a box from extent/cos(lat) misses
+// tiles near the poleward corners. A smooth one-to-one map takes its extremes
+// on the boundary, so sampling the perimeter is enough (chord error ≪ 1 m).
+export function squareBounds(place, extent, steps = 64) {
+  const [lat, lon] = place;
+  let s = 90, n = -90, w = Infinity, e = -Infinity;
+  for (let k = 0; k <= steps; k++) {
+    const t = -extent + 2 * extent * k / steps;
+    for (const [x, y] of [[t, -extent], [t, extent], [-extent, t], [extent, t]]) {
+      const [a, b] = destination(lat, lon, Math.atan2(x, y) / RAD, Math.hypot(x, y));
+      s = Math.min(s, a); n = Math.max(n, a); w = Math.min(w, b); e = Math.max(e, b);
+    }
+  }
+  return { south: Math.max(-85, s), north: Math.min(85, n), west: w, east: e };
+}
 export function tilesFor(place, rings, radius) {
-  const jobs = new Map(), [lat, lon] = place;
+  const jobs = new Map();
   for (const [z, end] of rings) {
-    const d = Math.min(end, radius), dy = d / 110500, dx = d / (110500 * Math.cos(lat * RAD));
-    const [x0, y1] = tileXY(lat - dy, lon - dx, z), [x1, y0] = tileXY(lat + dy, lon + dx, z);
+    const { south, north, west, east } = squareBounds(place, Math.min(end, radius));
+    const [x0, y1] = tileXY(south, west, z), [x1, y0] = tileXY(north, east, z);
     // One pixel of padding for interpolation across tile boundaries.
     const pad = 1 / 256;
     for (let y = Math.max(0, Math.floor(y0 - pad)); y <= Math.min(2 ** z - 1, Math.floor(y1 + pad)); y++)

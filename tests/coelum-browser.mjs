@@ -635,7 +635,7 @@ try {
   assert.ok(tiles > 100 && tiles < 700, `${tiles} tiles`);
   assert.ok((await page.locator('.coelum-full').innerHTML()).includes('#9fd58c'), 'The local horizon on the chart');
   await page.locator('[data-terrain="forget"]').click();
-  assert.equal(await page.locator('[data-horizon]').inputValue(), 'landscape');
+  assert.equal(await page.locator('[data-horizon]').inputValue(), 'flat');
   await page.unrouteAll();
   // To magnitude 10: found by HIP, HD or TYC number, with its parallax and
   // proper motion; drawn from the tiles in view only, with what the whole

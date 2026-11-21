@@ -2,9 +2,9 @@ import { showDeepObject } from './deepcatalog.js';
 // The realistic view of coelum: a stereographic camera at the horizon, the
 // sky's colour with the time of day, stars dimmed by twilight, moonlight and
 // extinction, the Milky Way, the Sun's glare, the textured Moon with its
-// phase, and a landscape in front. Always drawn on a canvas.
+// phase, and the ground in front. Always drawn on a canvas.
 import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, binaryCenterVisible, binaryCenterSymbol, deepColor, fontFor } from './coelum.js';
-import { skyRaster, skyLight, hillAt } from './skyraster.js';
+import { skyRaster, skyLight } from './skyraster.js';
 import { terrainRaster } from './terrainraster.js';
 import { terrainForeground } from './terrainmesh.js';
 import { lunarLimb, covered, tracePlanet, planetMap, planetPixelRatio, earthshineBrightness, lunarShadowLight, lunarShadowMean, lunarEclipseColor } from './skyview.js';
@@ -16,7 +16,7 @@ import { limbRadius, appendLunarLimb } from './lunarlimb.js';
 
 const SOLID = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const FLAT = () => 0;
-export const SKY_LAYERS = { horizon: 'landscape', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, galactic: false, deep: false, minor: false, satellites: true, labels: true, labelSize: 14, moonSize: 'magnitude' };
+export const SKY_LAYERS = { horizon: 'flat', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, galactic: false, deep: false, minor: false, satellites: true, labels: true, labelSize: 14, moonSize: 'magnitude' };
 // The diagonal of the view spans 140° at scale 1.
 export const skyRadius = (W, H, scale) => Math.hypot(W, H) / 2 / Math.tan(35 * R) * scale;
 // The default direction: toward the Sun near sunrise or sunset, otherwise
@@ -100,8 +100,8 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const height = frame.place[2] || 0, refract = opts.atmosphere ? (v) => refractVector(v, height) : (v) => v;
   const apparent = (v) => { const q = proj(v); q.alt = Math.asin(Math.max(-1, Math.min(1, v[2]))) / R; q.az = (Math.atan2(v[0], v[1]) / R + 360) % 360; return q; };
   const xy = (o) => apparent(refract(pointVector(o)));
-  // The horizon: a generic landscape, the local terrain, or flat.
-  const hill = opts.horizon === 'flat' ? FLAT : opts.horizon === 'terrain' && opts.terrain ? opts.terrain : hillAt;
+  // The horizon: the local terrain (its skyline, while the surface loads), or flat.
+  const hill = opts.horizon === 'terrain' && opts.terrain ? opts.terrain : FLAT;
   // Render first so a lost/unavailable WebGL context still gets the complete
   // legacy ground fallback. A successful surface owns its distant silhouette.
   const surface = opts.ground && opts.horizon === 'terrain' && opts.terrainSurface ? terrainRaster(ctx, opts.terrainSurface, { W, H, radius, rotation, sun, lightingSunAlt: sunAlt, solarFlux: 1 - eclipsed, moon, appearance: opts.terrainAppearance, atmosphere: opts.atmosphere, onRedraw: opts.onTerrainRedraw }) : null;
