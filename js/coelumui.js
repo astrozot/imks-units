@@ -175,6 +175,7 @@ const LAYERS = [
   ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['galactic', 'Galactic l / b grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['satellites', 'Satellites', 'chart sky'], ['labels', 'Labels', 'chart sky'],
 ];
 // Layer controls use the approved 24-unit drawings at the rail’s 22 px size.
+const gridIcon = (label, tilt) => icon(`<g transform="translate(-0.5 4.5) scale(0.76)" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><g transform="rotate(${tilt} 12 12)"><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5q7 4 14 0M5 17.5q7-4 14 0"/></g></g><text x="25" y="5.5" text-anchor="end" fill="currentColor" stroke="none" font-family="system-ui, sans-serif" font-size="8.5" font-weight="700">${label}</text>`);
 const LAYER_ICONS = {
   ground: icon('<path d="M3 14h18M5 18h14"/>'),
   terrain: icon('<path d="m2 18 6-10 4 6 3-4 7 8H2Z"/>'),
@@ -188,9 +189,9 @@ const LAYER_ICONS = {
   satellites: icon('<g transform="rotate(-35 12 12)"><rect x="9" y="8" width="6" height="8" rx="1"/><path d="M3 9h6v6H3ZM15 9h6v6h-6M12 8V4m-2 0h4M12 16v4"/></g>'),
   // Lucide CaseSensitive and Settings (ISC); see data/lucide-LICENSE.txt.
   labels: icon('<path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"/><path d="M22 9v7"/><path d="M3.304 13h6.392"/><circle cx="18.5" cy="12.5" r="3.5"/>'),
-  horizontal: icon('<circle cx="12" cy="12" r="9"/><g transform="rotate(-0 12 12)"><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5q7 4 14 0M5 17.5q7-4 14 0"/></g>'),
-  equatorial: icon('<circle cx="12" cy="12" r="9"/><g transform="rotate(-25 12 12)"><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5q7 4 14 0M5 17.5q7-4 14 0"/></g>'),
-  galactic: icon('<circle cx="12" cy="12" r="9"/><g transform="rotate(-60 12 12)"><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5q7 4 14 0M5 17.5q7-4 14 0"/></g>'),
+  horizontal: gridIcon('AZ', 0),
+  equatorial: gridIcon('EQ', -25),
+  galactic: gridIcon('GA', -60),
   configure: icon('<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>'),
 };
 const MODES = { chart: 'Chart', sky: 'Sky' };

@@ -1842,6 +1842,8 @@ body.coelum-app { background: #000; }
 /* Match perceived symbol size: Lyra is narrow and the galaxy is flattened. */
 .coelum-layerbar [data-toggle-layer="constellations"] svg { width: 26px; height: 26px; }
 .coelum-layerbar [data-toggle-layer="deep"] svg { width: 28px; height: 28px; }
+/* Reserve readable upper-right initials beside the smaller grid spheres. */
+.coelum-layerbar :is([data-toggle-layer="horizontal"], [data-toggle-layer="equatorial"], [data-toggle-layer="galactic"]) svg { width: 26px; height: 26px; overflow: visible; }
 .coelum-layerbar .coelum-btn[aria-pressed="true"] { background: rgba(140, 184, 255, 0.24); color: #fff; }
 .coelum-layerbar .coelum-btn:disabled { opacity: 0.35; cursor: default; }
 @media (hover: hover) and (pointer: fine) { .coelum-layerbar .coelum-btn:not(.coelum-layer-scroll):not(:disabled):hover { background: var(--c-hover); } }
