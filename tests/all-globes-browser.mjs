@@ -14,7 +14,7 @@ if (!browserType) { console.log('Skipped: Playwright is not installed'); process
 const root = fileURLToPath(new URL('../', import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.webp': 'image/webp' };
 const server = http.createServer((req, res) => {
-  if(req.url==='/globe-test'){res.writeHead(200,{'content-type':'text/html'});res.end('<link rel="stylesheet" href="/styles.css"><style>body{margin:0;background:#101b30;color:#ddd}#event{padding:12px;max-width:680px;margin:auto}.map-globe-view{border-radius:10px;overflow:hidden}button{color:inherit}</style><main id="event"></main><div id="preview"></div>');return;}
+  if(req.url==='/globe-test'){res.writeHead(200,{'content-type':'text/html'});res.end('<link rel="stylesheet" href="/styles.css"><style>body{margin:0;background:#101b30;color:#ddd;--text:#ddd;--muted:#8c9bb0}#event{padding:12px;max-width:680px;margin:auto}.map-globe-view{border-radius:10px;overflow:hidden}button{color:inherit}</style><main id="event"></main><div id="preview"></div>');return;}
   const filename = path.join(root, new URL(req.url, 'http://localhost').pathname.replace(/\/$/, '/index.html'));
   if (!filename.startsWith(root) || !fs.existsSync(filename)) { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'content-type': types[path.extname(filename)] || 'application/octet-stream' });
@@ -39,6 +39,9 @@ try {
   },{kind,stamp});
   await page.waitForFunction(()=>document.querySelector('.map-full')?.dataset.renderer==='webgl'||document.querySelector('.map-full .map-coast'));
  };
+ let blockLeaflet;
+ await page.route('https://cdnjs.cloudflare.com/**',route=>route.abort());
+ await page.route('**/leaflet.min.js',route=>new Promise(resolve=>{blockLeaflet=()=>route.abort().then(resolve);}));
  const scenes=[['solar','2026-08-12T17:45:00Z'],['annular','2023-10-14T17:59:00Z'],['occultation','2025-01-04T17:00:00Z'],['place','2026-11-22T12:00:00Z']];
  for(const [kind,stamp]of scenes){
   await mount(kind,stamp);const svg=page.locator('#event .map-full'),gpu=await svg.getAttribute('data-renderer')==='webgl';
@@ -52,6 +55,14 @@ try {
    assert.match(await page.locator('.map-when').textContent(),/umbra/);
    await page.screenshot({path:`/private/tmp/globe-${kind}-${process.env.BROWSER||'chromium'}-sim.png`});
    await page.click('[data-map="play"]');const before=await page.locator('.map-slider').inputValue();await page.waitForFunction(old=>document.querySelector('.map-slider').value!==old,before);await page.click('[data-map="play"]');await page.click('[data-map-mode="map"]');
+  }
+  if(kind==='solar'){
+   await page.selectOption('.map-select','osm');await page.waitForFunction(()=>document.querySelector('.map-globe-view').hidden);
+   if(gpu)assert.equal(await page.locator('.map-webgl').isVisible(),false,'GPU layer does not cover tile maps');
+   await page.waitForFunction(()=>document.querySelector('.osm-map').hidden===false);
+   while(!blockLeaflet)await new Promise(r=>setTimeout(r,10));await blockLeaflet();
+   await page.waitForFunction(()=>!document.querySelector('.map-globe-view').hidden);
+   assert.equal(await page.locator('.map-select').inputValue(),'globe','Offline tile error returns to the globe');
   }
   if(kind==='place'){
    const b=await svg.boundingBox();await svg.click({position:{x:b.width/2,y:b.height/2}});await page.click('[data-map="choose-place"]');assert.ok(await page.evaluate(()=>Array.isArray(window.chosenPlace)));

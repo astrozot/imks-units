@@ -508,9 +508,10 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   mode(host.store.get("solarView", "sim"));
   // A calculator sheet is mounted while hidden. Measure again once it is
   // visible, and when its available width changes (including rotation).
+  let resizeFrame = 0;
   const observer = new ResizeObserver(() => {
     if (!svg.isConnected) observer.disconnect();
-    else if (svg.clientWidth) size();
+    else if (svg.clientWidth && !resizeFrame) resizeFrame = requestAnimationFrame(() => { resizeFrame = 0; size(); });
   });
   observer.observe(svg);
   host.onResize?.(() => { if (svg.isConnected) size(); });
@@ -581,7 +582,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     },
     zoom: factor => { lastTap = 0; lastTapPoint = null; v = { ...v, s: clampS(v.s * factor) }; chosen = true; redraw(); },
     reset: () => { clearTimeout(tapPick); lastTap = 0; lastTapPoint = null; v = mapView(m, W, H); chosen = false; redraw(); },
-    destroy: () => { gpu?.destroy(); lifecycle.abort(); precision?.destroy(); ++shown; observer.disconnect(); stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
+    destroy: () => { gpu?.destroy(); lifecycle.abort(); precision?.destroy(); ++shown; observer.disconnect(); cancelAnimationFrame(resizeFrame); stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
     share: () => {
       const cap = sim ? [...caption, when.textContent] : caption, name = occ ? "occultation" : "solar-eclipse";
       if (osm.hidden && gpu) draw(); // Refresh the buffer immediately before snapshot() freezes canvas and labels.
