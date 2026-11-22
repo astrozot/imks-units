@@ -1833,3 +1833,15 @@ body.coelum-app { background: #000; }
 
 /* Diagnostics overlay (?perf) */
 .coelum-perf { position: absolute; z-index: 50; left: 8px; top: 72px; padding: 6px 8px; white-space: pre; font: 11px/1.35 ui-monospace, Menlo, monospace; color: #fff; background: rgba(0,0,0,.6); border-radius: 6px; pointer-events: none; }
+
+/* Layer shortcuts unfold toward the sky, level with the Layers rail button. */
+.coelum-layerbar { position: absolute; z-index: 5; display: flex; align-items: center; gap: 4px; box-sizing: border-box; width: max-content; padding: 5px; border: 1px solid var(--c-line); border-radius: 14px; background: var(--c-bg); color: var(--c-ink); }
+.coelum-layerbar[hidden] { display: none; }
+.coelum-layer-toggles { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; touch-action: pan-x; }
+.coelum-layerbar .coelum-btn { width: 36px; height: 36px; border-color: transparent; background: transparent; }
+/* Match perceived symbol size: Lyra is narrow and the galaxy is flattened. */
+.coelum-layerbar [data-toggle-layer="constellations"] svg { width: 26px; height: 26px; }
+.coelum-layerbar [data-toggle-layer="deep"] svg { width: 28px; height: 28px; }
+.coelum-layerbar .coelum-btn[aria-pressed="true"] { background: rgba(140, 184, 255, 0.24); color: #fff; }
+.coelum-layerbar .coelum-btn:disabled { opacity: 0.35; cursor: default; }
+@media (hover: hover) and (pointer: fine) { .coelum-layerbar .coelum-btn:not(:disabled):hover { background: var(--c-hover); } }

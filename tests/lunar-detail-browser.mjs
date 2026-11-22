@@ -1,3 +1,4 @@
+import { toggleLayerSettings } from './layer-settings.mjs';
 // Optional lunar maps, deep-zoom quality and rendering cost; PLAYWRIGHT/CHROME as in browser.mjs.
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -101,7 +102,7 @@ try {
   await page.unroute('**/img/planets/moon-8k.jpg');
   await page.unroute('**/img/planets/moon-heights-16.png');
   await page.reload();
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.locator('[data-moon-detail="download"]').click();
   await page.locator('[data-moon-detail="remove"]').waitFor({ state: 'visible' });
   assert.match(await page.locator('[data-moon-detail-note]').textContent(), /stored for offline/);

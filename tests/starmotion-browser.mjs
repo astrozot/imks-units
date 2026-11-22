@@ -1,3 +1,4 @@
+import { toggleLayerSettings } from './layer-settings.mjs';
 // Binary selection/playback and legacy catalogue update in both apps.
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -56,7 +57,7 @@ try{
     await (await caches.open('imks-data-stars')).put(new URL('/coelum-faint-stars.bin',location.origin),new Response(b,{headers:{'x-variant':'8'}}));
   });
   await page.reload();await page.waitForSelector('.coelum-full');
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   assert.equal(await page.locator('[data-download="refresh"]').isVisible(),true);
   await page.locator('[data-download="refresh"]').click();
   await page.waitForFunction(()=>document.querySelector('.coelum-faint-note').textContent.includes('40,244'));

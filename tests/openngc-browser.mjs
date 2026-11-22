@@ -1,3 +1,4 @@
+import { toggleLayerSettings } from './layer-settings.mjs';
 // Browser interaction/offline checks. Same PLAYWRIGHT/CHROME options as browser.mjs.
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -27,7 +28,7 @@ try {
   page.on('pageerror', (e) => errors.push(e.message));
   const url = `http://localhost:${server.address().port}/coelum/`;
   await page.goto(url);
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.locator('[data-openngc="download"]').click();
   await page.waitForFunction(() => document.querySelector('[data-openngc-note]')?.textContent.includes('13,366'));
   const result = await page.evaluate(async () => {
@@ -45,7 +46,7 @@ try {
   await context.setOffline(true);
   await page.reload();
   await page.waitForFunction(() => document.querySelector('[data-openngc-note]')?.textContent.includes('13,366'));
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.locator('[data-openngc="remove"]').click();
   await page.waitForFunction(() => document.querySelector('[data-openngc-note]')?.textContent.includes('232 Messier'));
   assert.equal(await page.evaluate(async () => (await import('/js/deepcatalog.js')).DEEP.length), 232);

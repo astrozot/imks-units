@@ -174,6 +174,25 @@ const LAYERS = [
   ['constellations', 'Constellations', 'chart sky'], ['boundaries', 'Boundaries', 'chart sky'], ['ecliptic', 'Ecliptic', 'chart sky'],
   ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['galactic', 'Galactic l / b grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['satellites', 'Satellites', 'chart sky'], ['labels', 'Labels', 'chart sky'],
 ];
+// Layer controls use the approved 24-unit drawings at the rail’s 22 px size.
+const LAYER_ICONS = {
+  ground: icon('<path d="M3 14h18M5 18h14"/>'),
+  terrain: icon('<path d="m2 18 6-10 4 6 3-4 7 8H2Z"/>'),
+  atmosphere: icon('<path d="M3 19h18M4 15a8 8 0 0 1 16 0M7 15a5 5 0 0 1 10 0"/>'),
+  milkyway: icon('<g fill="currentColor" stroke="none"><circle cx="4" cy="20" r="0.8"/><circle cx="7" cy="20" r="0.65"/><circle cx="5" cy="16" r="1"/><circle cx="8" cy="17" r="0.85"/><circle cx="8" cy="13" r="1.1"/><circle cx="11" cy="15" r="0.7"/><circle cx="11" cy="11" r="1.1"/><circle cx="14" cy="12" r="0.85"/><circle cx="14" cy="8" r="1.1"/><circle cx="17" cy="9" r="0.9"/><circle cx="16" cy="5" r="0.8"/><circle cx="19" cy="6" r="0.75"/><circle cx="20" cy="3" r="0.65"/></g><path d="M4 5v4M2 7h4M20 16v4M18 18h4" stroke-width="1.4"/>'),
+  constellations: icon('<path d="M13.755 8.450 L13.897 3.500 L17.491 5.471 L13.755 8.450 L8.982 10.172 L6.509 20.500 L11.119 18.905 L13.755 8.450" stroke-width="1.15"/><circle cx="13.755241445928794" cy="8.450244173188208" r="1.05" fill="currentColor" stroke="none"/><circle cx="13.89700424885961" cy="3.5" r="1.05" fill="currentColor" stroke="none"/><circle cx="17.49112298124157" cy="5.470524749194598" r="1.55" fill="currentColor" stroke="none"/><circle cx="8.981994998729107" cy="10.172223208699972" r="1.05" fill="currentColor" stroke="none"/><circle cx="6.50887701875843" cy="20.5" r="1.05" fill="currentColor" stroke="none"/><circle cx="11.118642905905341" cy="18.90516538031108" r="1.05" fill="currentColor" stroke="none"/>'),
+  boundaries: icon('<path d="M4 4h9v4h7v12H8v-5H4Z" stroke-dasharray="3 3"/>'),
+  ecliptic: icon('<ellipse cx="12" cy="12" rx="10" ry="5" transform="rotate(-28 12 12)"/><circle cx="12" cy="12" r="2"/>'),
+  deep: icon('<g transform="rotate(-17 12 12)"><path d="M13.153 11.566 L13.731 11.518 L14.055 11.607 L14.303 11.746 L14.642 12.145 L14.726 12.376 L14.761 12.733 L14.618 13.356 L14.294 13.925 L13.773 14.507 L13.058 15.064 L12.356 15.467 L11.553 15.809 L10.668 16.073 L9.964 16.209 L8.994 16.294 L8.258 16.279 L7.531 16.193 L6.599 15.96 L5.54 15.475 L4.986 15.083 L4.66 14.78 L4.243 14.266 L4.019 13.887 L3.716 13.046 L3.625 12.354 L3.634 11.868 L3.827 10.849 L4.258 9.79 L4.906 8.712 L4.142 9.776 L3.624 10.85 L3.35 11.902 L3.304 12.412 L3.344 13.145 L3.594 14.051 L3.798 14.467 L4.196 15.038 L4.693 15.54 L5.075 15.833 L6.176 16.414 L7.437 16.771 L8.791 16.901 L10.172 16.815 L11.516 16.533 L12.279 16.28 L13.224 15.859 L13.865 15.492 L14.614 14.948 L15.227 14.362 L15.591 13.907 L15.945 13.296 L16.146 12.7 L16.197 12.137 L16.106 11.623 L15.884 11.174 L15.446 10.721 L14.99 10.457 L14.322 10.26 L13.739 10.213 L12.989 10.293Z" fill="currentColor" stroke="none"/><path d="M10.847 12.434 L10.269 12.482 L9.945 12.393 L9.697 12.254 L9.358 11.855 L9.274 11.624 L9.239 11.267 L9.382 10.644 L9.706 10.075 L10.227 9.493 L10.942 8.936 L11.644 8.533 L12.447 8.191 L13.332 7.927 L14.036 7.791 L15.006 7.706 L15.742 7.721 L16.469 7.807 L17.401 8.04 L18.46 8.525 L19.014 8.917 L19.34 9.22 L19.757 9.734 L19.981 10.113 L20.284 10.954 L20.375 11.646 L20.366 12.132 L20.173 13.151 L19.742 14.21 L19.094 15.288 L19.858 14.224 L20.376 13.15 L20.65 12.098 L20.696 11.588 L20.656 10.855 L20.406 9.949 L20.202 9.533 L19.804 8.962 L19.307 8.46 L18.925 8.167 L17.824 7.586 L16.563 7.229 L15.209 7.099 L13.828 7.185 L12.484 7.467 L11.721 7.72 L10.776 8.141 L10.135 8.508 L9.386 9.052 L8.773 9.638 L8.409 10.093 L8.055 10.704 L7.854 11.3 L7.803 11.863 L7.894 12.377 L8.116 12.826 L8.554 13.279 L9.01 13.543 L9.678 13.74 L10.261 13.787 L11.011 13.707Z" fill="currentColor" stroke="none"/><ellipse cx="12" cy="12" rx="2.7" ry="1.9" transform="rotate(-18.3 12 12)" fill="currentColor" stroke="none"/></g>'),
+  minor: icon('<path d="M2.6 7.7C1.7 6.4 2.4 5.1 3.5 4.6L4.7 4.2C5.4 4.1 6.1 4.9 7.1 4.8L9.4 4.1C10.1 3.9 10.9 5 11.7 5.5L14.4 7.7C16.2 8.7 17.7 9 19.6 10.3 20.5 10.9 20.8 11.9 21.2 12.7L21.4 15.6 21.8 16.8C21 17.9 20.3 18.9 18.9 19.4L17.6 19.6 16.5 18.8C14.7 19.1 13.7 17.7 12.4 18.1L10 17.8C9 17.5 8.5 16.9 8.4 15.8L6.9 15C5.3 14.8 5.3 13.9 5 12.8L4.2 11.1C3.6 9.9 3.1 9.2 2.6 7.7Z" fill="currentColor" fill-opacity=".1" stroke-width="1.5"/><path d="M4.3 8.2 7 9.3 9 8.7M17.7 11.9 18.6 14.3 18 16.9" stroke-width="1.05"/>'),
+  satellites: icon('<g transform="rotate(-35 12 12)"><rect x="9" y="8" width="6" height="8" rx="1"/><path d="M3 9h6v6H3ZM15 9h6v6h-6M12 8V4m-2 0h4M12 16v4"/></g>'),
+  // Lucide CaseSensitive and Settings (ISC); see data/lucide-LICENSE.txt.
+  labels: icon('<path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"/><path d="M22 9v7"/><path d="M3.304 13h6.392"/><circle cx="18.5" cy="12.5" r="3.5"/>'),
+  horizontal: icon('<circle cx="12" cy="12" r="9"/><g transform="rotate(-0 12 12)"><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5q7 4 14 0M5 17.5q7-4 14 0"/></g>'),
+  equatorial: icon('<circle cx="12" cy="12" r="9"/><g transform="rotate(-25 12 12)"><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5q7 4 14 0M5 17.5q7-4 14 0"/></g>'),
+  galactic: icon('<circle cx="12" cy="12" r="9"/><g transform="rotate(-60 12 12)"><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5q7 4 14 0M5 17.5q7-4 14 0"/></g>'),
+  configure: icon('<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>'),
+};
 const MODES = { chart: 'Chart', sky: 'Sky' };
 // Match the chart and Sky limits, with enough magnification for mapped
 // moons; the separate planet view remains available for their systems.
@@ -293,8 +312,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <button type="button" class="coelum-btn coelum-btn-text coelum-mount" data-action="mount" aria-pressed="false" aria-label="Equatorial mount" title="Alt-az: the horizon level (tap for equatorial)">AZ</button>
         <span class="coelum-rail-gap" aria-hidden="true"></span>
         ${extra.map((p) => `<button type="button" class="coelum-btn" data-action="${p.key}" aria-expanded="false" aria-controls="${id}-${p.key}" aria-label="${esc(p.label)}" title="${esc(p.label)}">${p.icon}</button>`).join('')}
-        <button type="button" class="coelum-btn" data-action="layers" aria-expanded="false" aria-controls="${id}-layers" aria-label="Layers and labels" title="Layers and labels">${ICONS.layers}</button>
+        <button type="button" class="coelum-btn" data-action="layers" aria-expanded="false" aria-controls="${id}-layerbar" aria-label="Layers" title="Layers">${ICONS.layers}</button>
         <button type="button" class="coelum-btn" data-action="legend" data-modes="chart" aria-expanded="false" aria-controls="${id}-legend" aria-label="Legend" title="Legend">${ICONS.legend}</button>
+      </div>
+      <div class="coelum-layerbar coelum-hud" id="${id}-layerbar" role="group" aria-label="Sky layers" hidden>
+        <div class="coelum-layer-toggles">${LAYERS.map(([key, label, modes]) => `<button type="button" class="coelum-btn" data-toggle-layer="${key}" data-modes="${modes}" aria-label="${label}" title="${label}" aria-pressed="false">${LAYER_ICONS[key]}</button>`).join('')}</div>
+        <button type="button" class="coelum-btn" data-action="configure-layers" aria-label="Configure layers" title="Configure layers" aria-expanded="false" aria-controls="${id}-layers">${LAYER_ICONS.configure}</button>
       </div>
       <div class="coelum-panel coelum-toolbar" id="${id}-layers" role="group" aria-label="Sky layers" hidden>
         <div class="coelum-panel-head"><h3>Layers</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close layers">${ICONS.close}</button></div>
@@ -862,7 +885,15 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
 
   // Panels: one at a time; they keep the full-screen controls awake.
-  const panels = { terrain: $('.coelum-terrain-panel'), layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel'), map: $('.coelum-map-panel') };
+  const panels = { layerbar: $('.coelum-layerbar'), terrain: $('.coelum-terrain-panel'), layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel'), map: $('.coelum-map-panel') };
+  const layerButton = $('[data-action="layers"]');
+  const positionLayerBar = () => {
+    if (panels.layerbar.hidden) return;
+    const viewport = $('.coelum-viewport').getBoundingClientRect(), anchor = layerButton.getBoundingClientRect();
+    panels.layerbar.style.right = `${viewport.right - anchor.left + 8}px`;
+    panels.layerbar.style.maxWidth = `${Math.max(0, anchor.left - viewport.left - 16)}px`;
+    panels.layerbar.style.top = `${anchor.top - viewport.top + (anchor.height - panels.layerbar.offsetHeight) / 2}px`;
+  };
   let placeMap = null;
   for (const p of extra) panels[p.key] = $(`[data-panel="${p.key}"]`);
   panels.almanac.setAttribute('role', 'dialog');
@@ -876,10 +907,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       const on = key === name && panel.hidden;
       panel.hidden = !on;
       if (key === 'map') { if (on) panel.showModal(); else panel.close(); }
-      $(`[data-action="${key}"]`)?.setAttribute('aria-expanded', String(on));
+      $(`[data-action="${key === 'layerbar' ? 'layers' : key === 'layers' ? 'configure-layers' : key}"]`)?.setAttribute('aria-expanded', String(on));
     }
     root.classList.toggle('coelum-show-options', panelOpen() && panels.legend.hidden);
     updateUI(true);
+    positionLayerBar();
     if (name === 'time' && !panels.time.hidden) showTime();
     if (name === 'place' && !panels.place.hidden) { placeInput.value = ''; showPlaces(''); showElevation(); }
     const more = extra.find((p) => p.key === name);
@@ -888,7 +920,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     wake();
   };
   panels.map.addEventListener('cancel', (ev) => { ev.preventDefault(); showPanel(null); });
-  const dismissiblePanel = () => [panels.layers, panels.events].find((panel) => panel && !panel.hidden);
+  const dismissiblePanel = () => [panels.layerbar, panels.layers, panels.events].find((panel) => panel && !panel.hidden);
   // Consume the whole outside gesture, including its synthesized click,
   // before it reaches sky picking or another control. Listen on document
   // so Layers and Events also dismiss outside an embedded explorer.
@@ -1031,6 +1063,23 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     for (const box of root.querySelectorAll('[data-layer]')) {
       box.disabled = !surface && ['ground','atmosphere','horizontal'].includes(box.dataset.layer);
       box.checked = !box.disabled && Boolean(layers[mode][box.dataset.layer]);
+    }
+    for (const button of root.querySelectorAll('[data-toggle-layer]')) {
+      const key = button.dataset.toggleLayer;
+      button.disabled = !surface && ['ground', 'atmosphere', 'horizontal'].includes(key);
+      const on = !button.disabled && Boolean(layers[mode][key]);
+      button.setAttribute('aria-pressed', String(on));
+      if (key === 'ground') {
+        const shape = terrainJob ? 'terrain' : horizon;
+        const state = on ? shape === 'terrain' ? 'Local terrain' : 'Flat' : 'Off';
+        const label = `Ground: ${state}. Next: ${!on ? 'local terrain' : shape === 'terrain' ? 'flat' : 'off'}`;
+        if (button.dataset.groundShape !== shape) {
+          button.innerHTML = LAYER_ICONS[shape === 'terrain' ? 'terrain' : 'ground'];
+          button.dataset.groundShape = shape;
+        }
+        button.title = label; button.setAttribute('aria-label', label);
+        button.setAttribute('aria-busy', String(Boolean(terrainJob)));
+      }
     }
     $('[data-horizon]').disabled = !surface;
     $('[data-label-size]').value = String(layers[mode].labelSize);
@@ -1195,7 +1244,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       if (terrainJob) return;
       cancelTerrainNames(); terrainNames = null;
       const job = new AbortController(), requestedPlace = [...place], key = terrainKey(place);
-      terrainJob = job;
+      terrainJob = job; syncLayers();
       showTerrain('Preparing terrain… <button type="button" class="coelum-chip" data-terrain="cancel">Cancel</button>');
       try {
         const data = await prepareTerrain(requestedPlace, { signal: job.signal, refresh, progress: text => {
@@ -1205,7 +1254,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         terrainSurface = data; setTerrain(data.profile);
       } catch (e) {
         if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
-        terrainJob = null; syncLayers(); showTerrain(`${esc(e.message)}.${navigator.onLine === false ? ' Local terrain needs a connection for its first download.' : ''} <button type="button" class="coelum-chip" data-terrain="refresh">Try again</button>`); return;
+        terrainJob = null; syncLayers(); say(e.message); showTerrain(`${esc(e.message)}.${navigator.onLine === false ? ' Local terrain needs a connection for its first download.' : ''} <button type="button" class="coelum-chip" data-terrain="refresh">Try again</button>`); return;
       }
       terrainJob = null;
     }
@@ -1697,7 +1746,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (!panels.almanac.hidden) { ev.preventDefault(); ev.stopPropagation(); showPanel(null); return; }
     if (moonEventsList.isOpen) { ev.preventDefault(); ev.stopPropagation(); moonEventsList.close(); $('[data-action="moon-events"]').focus(); }
     else if (moons) { ev.preventDefault(); ev.stopPropagation(); closeMoons(); }
-    else if (panelOpen()) { ev.preventDefault(); ev.stopPropagation(); showPanel(null); }
+    else if (panelOpen()) { ev.preventDefault(); ev.stopPropagation(); const layersOpen = !panels.layerbar.hidden || !panels.layers.hidden; showPanel(null); if (layersOpen) layerButton.focus({ preventScroll: true }); }
     else if (immersive() && !options.standalone) { ev.preventDefault(); ev.stopPropagation(); fullscreen(false); }
   });
   root.addEventListener('change', (ev) => {
@@ -1711,6 +1760,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (ev.target.matches('[data-orient-level]')) { phoneLevel = ev.target.checked; try { localStorage.setItem('imks-phone-level', String(phoneLevel)); } catch { /* private mode */ } if (orient) applyPhone(); }
     if (ev.target.dataset.layer) {
       L[ev.target.dataset.layer] = ev.target.checked;
+      if (ev.target.dataset.layer === 'ground') layers.chart.ground = layers.sky.ground = ev.target.checked;
       // An explicit layer change takes precedence over earlier reveals.
       const bodies = ev.target.dataset.layer === 'minor' ? ['minor', 'comet'] : ev.target.dataset.layer === 'satellites' ? ['satellite'] : [];
       for (const name of revealed) if (bodies.includes(findObject(frame, name)?.body)) revealed.delete(name);
@@ -1719,7 +1769,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (ev.target.matches('[data-label-size]')) layers.chart.labelSize = layers.sky.labelSize = Number(ev.target.value);
     if (ev.target.matches('[data-horizon]')) { chooseHorizon(ev.target.value); return; }
     if (ev.target.matches('[data-satellite-group]')) { chooseGroups([...root.querySelectorAll('[data-satellite-group]:checked')].map((b) => b.dataset.satelliteGroup)); return; }
-    draw();
+    syncLayers(); draw();
   });
   const resetButton = $('[data-action="reset"]');
   let resetTimer = 0, resetPointer = null, resetStart = null, resetHeld = false, updating = false;
@@ -1804,6 +1854,22 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) for (const hold of controlHolds.values()) hold.cancel(); });
   root.addEventListener('click', async (ev) => {
+    const toggle = ev.target.closest('[data-toggle-layer]');
+    if (toggle && !toggle.disabled) {
+      const key = toggle.dataset.toggleLayer;
+      if (key === 'ground') {
+        if (!layers[mode].ground) {
+          layers.chart.ground = layers.sky.ground = true;
+          void chooseHorizon('terrain');
+        } else if (terrainJob || horizon === 'terrain') void chooseHorizon('flat');
+        else layers.chart.ground = layers.sky.ground = false;
+      } else {
+        const box = $(`[data-layer="${key}"]`);
+        box.checked = !layers[mode][key];
+        box.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      syncLayers(); draw(); return;
+    }
     const moonDetailButton = ev.target.closest('[data-moon-detail]');
     if (moonDetailButton) { await changeMoonDetail(moonDetailButton.dataset.moonDetail); return; }
     const deepAction = ev.target.closest('[data-openngc]');
@@ -1848,7 +1914,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (hold?.held) { hold.held = false; ev.preventDefault(); return; }
     if (action === 'reset' && resetHeld) { resetHeld = false; ev.preventDefault(); return; }
     if (action === 'fullscreen') fullscreen(!immersive());
-    else if (action === 'layers' || action === 'legend' || action === 'time' || action === 'place' || action in panels) showPanel(action);
+    else if (action === 'layers') {
+      showPanel('layerbar');
+      if (!panels.layerbar.hidden && ev.detail === 0) panels.layerbar.querySelector('button:not(:disabled)').focus({ preventScroll: true });
+    }
+    else if (action === 'configure-layers') { showPanel('layers'); panels.layers.querySelector('[data-action="close-panel"]').focus({ preventScroll: true }); }
+    else if (action === 'legend' || action === 'time' || action === 'place' || action in panels) showPanel(action);
     else if (action === 'moons') showMoons(button.dataset.planet);
     else if (action === 'moon-events' && moons) {
       if (moonEventsList.isOpen) moonEventsList.close();
@@ -2078,7 +2149,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const resize = new ResizeObserver(() => {
     root.style.setProperty('--coelum-controls-height', `${Math.ceil($('.coelum-timebar').getBoundingClientRect().height) + 16}px`);
     const box = svg.getBoundingClientRect(), width = Math.round(box.width), high = Math.round(box.height);
-    sizeMoons();
+    sizeMoons(); positionLayerBar();
     if (moonEventsList.isOpen) positionMoonEvents();
     placeMap?.resize();
     if (width > 0 && high > 0 && (width !== size || high !== height)) {

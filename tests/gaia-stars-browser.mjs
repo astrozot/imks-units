@@ -1,3 +1,4 @@
+import { toggleLayerSettings } from './layer-settings.mjs';
 // Download/offline/search checks and phone-viewport rendering measurements.
 // Same PLAYWRIGHT/CHROME settings as tests/coelum-browser.mjs.
 import assert from 'node:assert/strict';
@@ -35,7 +36,7 @@ try {
   const origin = `http://localhost:${server.address().port}`;
   await page.goto(`${origin}/coelum/`);
   await page.waitForSelector('.coelum-full');
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   assert.equal(await page.locator('[data-limit] option[value="12"]').evaluate((o) => o.disabled), true);
   const radios = page.locator('.coelum-catalog-choices input[type="radio"]');
   assert.equal(await radios.count(), 4);
@@ -82,7 +83,7 @@ try {
   });
   assert.equal(sample.bytes, metadata.bytes);
   assert.equal(await page.evaluate(async () => (await (await caches.open('imks-data-stars')).keys()).length), 1);
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   const input = page.locator('.coelum-search input');
   await input.fill(sample.name); await input.press('Enter');
   await page.waitForFunction((name) => document.querySelector('.coelum-detail h3')?.textContent === name, sample.name);
@@ -121,7 +122,7 @@ try {
   await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
   await context.setOffline(true);
   await page.reload(); await page.waitForSelector('.coelum-full');
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.waitForFunction((n) => document.querySelector('.coelum-faint-note').textContent.includes(n.toLocaleString('en')), metadata.stars);
   assert.equal(await page.locator('[data-limit] option[value="12"]').evaluate((o) => o.disabled), false);
   assert.equal(await page.locator('[data-download="12"]').isChecked(), true);
@@ -131,7 +132,7 @@ try {
   await page.goto(`${origin}/`); await page.waitForSelector('#expr');
   await page.keyboard.type('coelum(2026.11.11 00:00 Z, "Milan")'); await page.keyboard.press('Enter');
   await page.locator('.coelum-preview').last().click(); await page.waitForSelector('.coelum-full');
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.waitForFunction((n) => document.querySelector('.coelum-faint-note').textContent.includes(n.toLocaleString('en')), metadata.stars);
   await page.locator('[data-download="remove"]').click();
   await page.waitForFunction(() => /Only stars to magnitude 6/.test(document.querySelector('.coelum-faint-note').textContent));

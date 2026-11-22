@@ -1,3 +1,4 @@
+import { toggleLayerSettings } from './layer-settings.mjs';
 // Synthetic phone sensors through both real app entry points. Uses the same
 // PLAYWRIGHT / CHROME options as coelum-browser.mjs; no physical sensors needed.
 import assert from 'node:assert/strict';
@@ -74,11 +75,11 @@ try {
   await page.evaluate(()=>{sensor.alpha=350;sensor.heading=70;sensor.accuracy=-1;});
   await page.waitForTimeout(250);const moved=await rotation();assert.notEqual(moved,panned,'Phone still moves after a pan');
   await page.waitForTimeout(300);assert.equal(await rotation(),moved,'No compass pull-back');
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   assert.match(await page.locator('[data-orient-quality]').textContent(),/Aligned|unreliable/);
   await page.locator('[data-orient-level]').check();
   assert.equal(await page.locator('[data-action="orient"]').getAttribute('aria-pressed'),'true');
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   // Both views keep following through mode and mount changes.
   await page.locator('[data-view="chart"]').click();
   assert.equal(await page.locator('[data-action="orient"]').getAttribute('aria-pressed'),'true');
@@ -97,14 +98,14 @@ try {
   assert.match(await guide.getAttribute('aria-label'),/Vega/);
   const farRadius=Number(await guide.getAttribute('data-radius'));
   await page.waitForTimeout(100);
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.locator('[data-orient-level]').uncheck();
   assert.equal(await page.locator('[data-action="orient-align"]').isEnabled(),true);
   await page.locator('[data-action="orient-align"]').click();
   assert.match(await page.locator('[data-orient-quality]').textContent(),/Aligned with the sky/);
   if(app) await page.screenshot({path:'/private/tmp/phoneorientation-options.png'});
   const aligned=await rotation();await page.waitForTimeout(100);assert.equal(await rotation(),aligned);
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   // Calibration above adjusts heading only. Restart with synthetic sensors
   // physically aimed at the selected object's displayed horizontal position.
   const aim=await page.evaluate(()=>{

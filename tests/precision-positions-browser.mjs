@@ -1,3 +1,4 @@
+import { toggleLayerSettings } from './layer-settings.mjs';
 // Detail playback, bounded worker reuse, caching, interval expiry and cancel.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -122,8 +123,8 @@ try{
  await page.waitForFunction(()=>positionReads>0&&workers===1);await page.locator('[data-action="deselect"]').click();
  await page.waitForFunction(()=>workers===0&&positionAborts>0);
  await page.evaluate(()=>explorer.select('Jupiter',{details:true}));await page.locator('[data-precise-position]').click();
- await page.waitForFunction(()=>positionReads>1&&workers===1);await page.locator('[data-action="layers"]').click();
- await page.waitForFunction(()=>workers===0&&positionAborts>1);await page.locator('[data-action="layers"]').click();
+ await page.waitForFunction(()=>positionReads>1&&workers===1);await toggleLayerSettings(page);
+ await page.waitForFunction(()=>workers===0&&positionAborts>1);await toggleLayerSettings(page);
  await page.locator('[data-precise-position]').click();await page.waitForFunction(()=>positionReads>2&&workers===1);
  await page.locator('.coelum-moons-button').click();await page.waitForFunction(()=>workers===0&&positionAborts>2);
  assert.deepEqual(errors,[]);const report={engine,source:remote||'local native fixtures',cpuThrottleRate:safari?1:6,responsiveness,requests,autoDownloads:0,positionCases:['Moon',...extraBodies],offline:safari?'Cache-only reuse (WebKit emulator limitation)':'Passed',cancel:'Fetch aborted and worker terminated',errors};console.log(JSON.stringify(report,null,2));if(process.env.REPORT)fs.writeFileSync(process.env.REPORT,JSON.stringify(report,null,2)+'\n');

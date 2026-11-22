@@ -1,3 +1,4 @@
+import { toggleLayerSettings } from './layer-settings.mjs';
 // Browser interaction/offline checks. Same PLAYWRIGHT/CHROME options as browser.mjs.
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -48,10 +49,10 @@ try {
   const fullBox = await page.locator('.coelum-full').boundingBox();
   assert.ok(fullBox.width >= 389 && fullBox.height >= 843);
   assert.equal(await page.locator('.coelum-toolbar').isVisible(), false);
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.locator('[data-layer="ground"]').uncheck();
   await page.locator('[data-layer="ground"]').check();
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.locator('.coelum-full').focus(); await page.keyboard.press('ArrowRight');
   const fullRotation = await page.locator('.coelum-full').getAttribute('data-rotation');
   await page.keyboard.press('Escape');
@@ -60,7 +61,7 @@ try {
   assert.equal(await page.locator('.coelum-full').getAttribute('data-rotation'), fullRotation);
   await page.locator('.coelum-full').press('Home');
   const baseline = await page.locator('.coelum-full').innerHTML();
-  const layersPanel = () => page.locator('[data-action="layers"]').click();
+  const layersPanel = () => toggleLayerSettings(page);
   await layersPanel();
   for (const layer of ['constellations', 'horizontal', 'equatorial', 'galactic', 'deep']) await page.locator(`[data-layer="${layer}"]`).check();
   assert.notEqual(await page.locator('.coelum-full').innerHTML(), baseline);
@@ -492,7 +493,7 @@ try {
   assert.equal(await page.locator('.coelum-timebar').evaluate((el) => getComputedStyle(el).pointerEvents), 'none');
   await page.mouse.move(200, 300); await page.mouse.move(210, 310);
   assert.equal(await page.locator('.coelum-explorer.coelum-idle').count(), 0);
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.waitForTimeout(3900);
   assert.equal(await page.locator('.coelum-explorer.coelum-idle').count(), 0, 'An open panel keeps the controls');
   await page.keyboard.press('Escape');
@@ -590,7 +591,7 @@ try {
   // Fainter stars (the app's file to magnitude 8): kept in Cache Storage,
   // found by search, drawn when zoomed in (a star high in the sky), then
   // removed.
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   assert.match(await page.locator('.coelum-faint-note').textContent(), /Only stars to magnitude 6/);
   assert.equal(await page.locator('[data-limit] option[value="8"]').evaluate((o) => o.disabled), true, 'Magnitudes past 6 need a download');
   await page.locator('[data-download="8"]').click();
@@ -598,7 +599,7 @@ try {
   assert.equal(await page.locator('[data-limit] option[value="8"]').evaluate((o) => o.disabled), false);
   assert.equal(await page.locator('[data-limit] option[value="9"]').evaluate((o) => o.disabled), true);
   await page.locator('[data-limit]').selectOption('8');
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   const overhead = await page.locator('.coelum-full').evaluate(async (svg) => {
     const { skyFrame, eachFaint, FaintHit } = await import('./js/coelum.js');
     let best = null;
@@ -626,7 +627,7 @@ try {
     tiles++;
     route.fulfill({ status: 200, contentType: 'image/png', headers: { 'access-control-allow-origin': '*' }, body: /mapterhorn\.com\/10\//.test(route.request().url()) ? high : low });
   });
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.locator('[data-horizon]').selectOption('terrain');
   await page.waitForFunction(() => /terrain around this place, from/.test(document.querySelector('.coelum-terrain-note').textContent), null, { timeout: 120000 });
   const stored = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('imks-coelum-terrain-profiles-v1'))));
@@ -644,7 +645,7 @@ try {
   await page.waitForFunction(() => /349,351 more stars/.test(document.querySelector('.coelum-faint-note').textContent), null, { timeout: 30000 });
   assert.deepEqual(await page.locator('[data-limit] option').evaluateAll((os) => os.filter((o) => !o.disabled).map((o) => o.value)), ['3', '4', '5', '6', '7', '8', '9', '10']);
   assert.equal(await page.evaluate(async () => (await (await caches.open('imks-data-stars')).keys()).length), 1);
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await input.fill('HD 225213'); await page.keyboard.press('Enter'); await page.waitForTimeout(900);
   assert.equal(await page.locator('.coelum-detail h3').textContent(), 'HIP 439');
   assert.match(await page.locator('.coelum-detail').textContent(), /HD 225213 · TYC 6995-1264-1.*230\.10 mas.*6\.10″ a year/s);
@@ -662,7 +663,7 @@ try {
   });
   assert.ok(inView.found && inView.drawn > 100 && inView.drawn >= inView.all, `Stored stars in view: ${JSON.stringify(inView)}`);
   await page.locator('[data-action="deselect"]').click();
-  await page.locator('[data-action="layers"]').click();
+  await toggleLayerSettings(page);
   await page.locator('[data-download="remove"]').click();
   await page.waitForFunction(() => /Only stars to magnitude 6/.test(document.querySelector('.coelum-faint-note').textContent));
   // Gestures: no page scrolling over the sky; a finger that never sent

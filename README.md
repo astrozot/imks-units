@@ -100,9 +100,13 @@ and distance, proper motion, double/variable flags). The search field finds
 stars (by name, Bayer letter as "α Lyr", "alpha Lyr" or "alf Lyr",
 Flamsteed number, HIP, HD and HR numbers), planets, deep-sky objects (also
 by their other names, as "Andromeda Galaxy") and constellations, and flies
-to the object. The layers button toggles ground, atmosphere (Sky), Milky Way,
-constellations, boundaries, the ecliptic, grids, deep-sky objects and
-labels; each view keeps its own layers, and the last view used opens next
+to the object. The layers button opens a single row of icon buttons to its
+left: ground, atmosphere (Sky), Milky Way, constellations, boundaries, the
+ecliptic, grids, deep-sky objects, minor planets, satellites and labels.
+Selected icons mark visible layers; ground cycles through local terrain,
+flat and off. On narrow screens the row scrolls, with the configure gear
+always visible. The gear opens the full Layers settings. Each view keeps
+its own layers, with ground shared, and the last view used opens next
 time. Grids get finer as you zoom (30° down to 2′; RA from 2h down to
 20s), labelled along the left edge and low in the view. Star sizes follow
 the magnitude below the view's limit, which deepens with zoom, so a

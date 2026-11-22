@@ -1,3 +1,4 @@
+import { toggleLayerSettings } from './layer-settings.mjs';
 // Focused checks of Layers, galactic coordinates and signed date entry:
 // node tests/coelum-improvements-browser.mjs. PLAYWRIGHT/CHROME as browser.mjs;
 // BROWSER=webkit and BROWSER_EXECUTABLE select another engine.
@@ -129,7 +130,7 @@ try {
   await page.locator('.coelum-results li [data-search-hint*="Deep sky"]').first().click();
   assert.match(await page.locator('.coelum-search-hint').textContent(), /Deep sky layer is off/);
   await page.fill('.coelum-search input', '');
-  await page.click('[data-action="layers"]'); await page.check('[data-layer="deep"]'); await page.click('[data-action="layers"]');
+  await toggleLayerSettings(page); await page.check('[data-layer="deep"]'); await toggleLayerSettings(page);
   await page.fill('.coelum-search input', 'M42');
   assert.equal(await page.locator('.coelum-results li [data-search-hint*="Deep sky"]').count(), 0);
   await page.fill('.coelum-search input', '');
@@ -148,11 +149,11 @@ try {
   assert.deepEqual(canceled, [[true, true, true], [true, true, true]]);
   for (const mode of ['chart', 'sky']) {
     await page.click(`[data-view="${mode}"]`);
-    await page.click('[data-action="layers"]');
+    await toggleLayerSettings(page);
     assert.equal(await page.locator('[data-layer="galactic"]').isChecked(), false);
     await page.check('[data-layer="galactic"]');
     assert.equal(await page.locator('.coelum-toolbar').isVisible(), true, 'Inside taps leave Layers open');
-    await page.click('[data-action="layers"]');
+    await toggleLayerSettings(page);
     if (mode === 'chart') assert.match(await page.locator('.coelum-full').innerHTML(), /[lb] [−\d]+°/);
   }
   // Center the Sun, then open Layers. Choose a visible sky point outside it.
@@ -160,7 +161,7 @@ try {
   await page.keyboard.press('Enter');
   await page.waitForTimeout(1100);
   const selected = await page.locator('.coelum-detail h3').textContent();
-  await page.click('[data-action="layers"]');
+  await toggleLayerSettings(page);
   const outside = await page.evaluate(() => {
     for (let y = 180; y < innerHeight - 110; y += 20) for (let x = 10; x < innerWidth - 60; x += 20)
       if (document.elementFromPoint(x, y)?.closest('.coelum-full')) return { x, y };
@@ -175,7 +176,7 @@ try {
   assert.equal(await page.locator('.coelum-detail').isVisible(), true);
   assert.match(await page.locator('.coelum-detail').textContent(), /Galactic longitude.*Galactic latitude/s);
   // Clicking another control dismisses Layers without activating the control.
-  await page.click('[data-action="layers"]');
+  await toggleLayerSettings(page);
   await page.click('[data-action="time"]');
   assert.equal(await page.locator('.coelum-toolbar').isVisible(), false);
   assert.equal(await page.locator('.coelum-timepanel').isVisible(), false);
@@ -290,8 +291,8 @@ try {
   await third.page.reload(); await third.page.waitForSelector('.coelum-full');
   assert.equal(await mount.textContent(), 'EQ', 'The mount is saved');
   await mount.click(); assert.equal(await mount.textContent(), 'GA', 'The pair is saved');
-  await third.page.click('[data-action="layers"]');
-  await third.page.uncheck('[data-layer="ground"]'); await third.page.click('[data-action="layers"]');
+  await toggleLayerSettings(third.page);
+  await third.page.uncheck('[data-layer="ground"]'); await toggleLayerSettings(third.page);
   // Actual chart labels stay still over an hour in the Galactic mount.
   const star = await third.page.evaluate(() => {
     const names = ['Vega', 'Deneb', 'Altair', 'Capella', 'Aldebaran', 'Sirius', 'Betelgeuse', 'Rigel', 'Arcturus', 'Polaris'];

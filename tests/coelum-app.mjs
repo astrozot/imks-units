@@ -1,3 +1,4 @@
+import { toggleLayerSettings } from './layer-settings.mjs';
 // Checks of Coelum as an app of its own (coelum/index.html) in a browser:
 // node tests/coelum-app.mjs. Same PLAYWRIGHT/CHROME options as browser.mjs.
 import assert from 'node:assert/strict';
@@ -205,9 +206,9 @@ try {
   assert.equal(await timeButton.getAttribute('aria-label'), `Date and time: ${first[1].split(' – ')[0]}`, 'The sky at the start of the pass, in the same timezone');
   assert.equal(await page.locator('[data-speed]').textContent(), '1×');
   assert.match(await page.locator('.coelum-detail-body').textContent(), /NORAD number\d+/);
-  await page.click('[data-action="layers"]');
+  await toggleLayerSettings(page);
   assert.match(await page.locator('.coelum-satellite-note').textContent(), /^\d+ satellites, from CelesTrak under an hour ago; updated once a day/);
-  await page.click('[data-action="layers"]');
+  await toggleLayerSettings(page);
   await page.fill('.coelum-search input', 'ISS');
   await page.waitForSelector('.coelum-results li');
   assert.match(await page.locator('.coelum-results').textContent(), /ISS \(ZARYA\)/);
@@ -234,7 +235,7 @@ try {
   // Search centers a body; tapping it opens its card. Use the chart without
   // ground so these telescope checks also work for bodies below the horizon.
   await page.click('[data-view="chart"]');
-  await page.click('[data-action="layers"]');
+  await toggleLayerSettings(page);
   await page.locator('[data-layer="ground"]').uncheck();
   await page.locator('.coelum-toolbar [data-action="close-panel"]').click();
   const telescope = async (name) => {

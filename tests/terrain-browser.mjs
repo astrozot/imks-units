@@ -1,3 +1,4 @@
+import { toggleLayerSettings } from './layer-settings.mjs';
 // Shared-app terrain: worker downloads, cancellation, offline reuse, settings,
 // and the June 21 twilight regression. Synthetic DEMs avoid provider traffic.
 import assert from 'node:assert/strict';
@@ -30,10 +31,22 @@ try{
  // Land cover: synthetic grassland tiles, never the real service.
  const grass=Buffer.from((await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d');g.fillStyle='rgb(30,30,30)';g.fillRect(0,0,256,256);return c.toDataURL('image/png');})).split(',')[1],'base64');
  let coverRequests=0;await context.route('https://planetarycomputer.microsoft.com/**',r=>{coverRequests++;return r.fulfill({contentType:'image/png',headers:{'access-control-allow-origin':'*'},body:grass});});
- await page.click('[data-action="layers"]');await page.selectOption('[data-horizon]','terrain');
+ await toggleLayerSettings(page);await page.selectOption('[data-horizon]','terrain');
  await page.waitForFunction(()=>document.querySelector('.coelum-canvas').dataset.terrainSurface==='true',null,{timeout:120000});
  assert.match(await page.locator('.coelum-terrain-note').textContent(),/Saved for offline/);assert.ok(requests>100&&requests<700);
  const downloaded=requests;
+ // The ground shortcut cycles all three states and reuses the loaded surface.
+ await page.click('[data-action="layers"]'); // dismiss settings
+ await page.click('[data-action="layers"]');
+ const groundButton=page.locator('[data-toggle-layer="ground"]');
+ assert.match(await groundButton.getAttribute('aria-label'),/Ground: Local terrain/);
+ await groundButton.click();assert.match(await groundButton.getAttribute('aria-label'),/Ground: Flat/);
+ await groundButton.click();assert.equal(await groundButton.getAttribute('aria-pressed'),'false');
+ await groundButton.click();assert.match(await groundButton.getAttribute('aria-label'),/Ground: Local terrain/);
+ assert.equal(await groundButton.getAttribute('aria-pressed'),'true');
+ assert.equal(requests,downloaded,'Ground cycling reuses the existing terrain');
+ await page.click('[data-action="layers"]'); // dismiss shortcuts
+ await toggleLayerSettings(page);
  const stored=await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');const s=await restoreTerrain([45.89617,10.84333,90]);return {profile:s.profile.length,eye:s.eye,cover:s.meshes.every(m=>m.cover?.classes.every(c=>c===3)),landCover:s.metrics.landCover};});assert.equal(stored.profile,3600);
  assert.ok(coverRequests>20&&stored.cover,`Land cover stored with the terrain: ${JSON.stringify(stored.landCover)}`);
  assert.equal(stored.eye,92,'The eye is 2 m above the place’s ground elevation');
@@ -83,7 +96,7 @@ try{
  assert.equal(await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');return await restoreTerrain([45.89617,10.84333,92]);}),null,'Eye height changes must not reuse the surface');
  // A cancelled refresh keeps the existing surface and cannot apply stale results.
  await page.unroute('https://tiles.mapterhorn.com/**',respond);const held=[];await page.route('https://tiles.mapterhorn.com/**',r=>held.push(r));
- await page.click('[data-action="layers"]');await page.click('[data-terrain="refresh"]');await page.click('[data-terrain="cancel"]');for(const r of held)await r.abort().catch(()=>{});
+ await toggleLayerSettings(page);await page.click('[data-terrain="refresh"]');await page.click('[data-terrain="cancel"]');for(const r of held)await r.abort().catch(()=>{});
  assert.equal(await page.locator('[data-horizon]').inputValue(),'terrain');assert.match(await page.locator('.coelum-terrain-note').textContent(),/Saved for offline/);
  await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>navigator.serviceWorker.controller);await page.reload();await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true');await context.setOffline(true);await page.reload();await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true',null,{timeout:30000});await page.waitForFunction(()=>/Peak names: \d+ visible/.test(document.querySelector('.coelum-terrain-note').textContent),null,{timeout:30000});assert.equal(requests,downloaded,'Offline reload uses stored geometry');
  await context.setOffline(false);await page.goto(origin+'/');await page.waitForSelector('#expr');await page.waitForFunction(()=>document.querySelectorAll('.key').length>0);await page.keyboard.type('coelum(now)');await page.keyboard.press('Enter');await page.waitForSelector('.coelum-preview');await page.click('.coelum-preview');
