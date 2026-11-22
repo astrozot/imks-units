@@ -51,7 +51,7 @@ try {
    await page.click('[data-map-mode="sim"]');await page.locator('.map-sim').waitFor();await page.click('[data-map-t]:text-is("max")');
    assert.match(await page.locator('.map-when').textContent(),/umbra/);
    await page.screenshot({path:`/private/tmp/globe-${kind}-${process.env.BROWSER||'chromium'}-sim.png`});
-   await page.click('[data-map="play"]');const before=await page.locator('.map-slider').inputValue();await page.waitForTimeout(250);assert.notEqual(await page.locator('.map-slider').inputValue(),before);await page.click('[data-map="play"]');await page.click('[data-map-mode="map"]');
+   await page.click('[data-map="play"]');const before=await page.locator('.map-slider').inputValue();await page.waitForFunction(old=>document.querySelector('.map-slider').value!==old,before);await page.click('[data-map="play"]');await page.click('[data-map-mode="map"]');
   }
   if(kind==='place'){
    const b=await svg.boundingBox();await svg.click({position:{x:b.width/2,y:b.height/2}});await page.click('[data-map="choose-place"]');assert.ok(await page.evaluate(()=>Array.isArray(window.chosenPlace)));

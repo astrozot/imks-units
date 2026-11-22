@@ -40,7 +40,8 @@ try {
   await page.click('[data-scope="anywhere"]');
   await page.click('.coelum-event[data-event="solar"]');
   const globe = page.locator('.map-full');
-  await globe.locator('.map-coast').waitFor();
+  await page.waitForSelector('.map-full .map-coast, .map-full[data-renderer=webgl]');
+  const gpu=await globe.getAttribute('data-renderer')==='webgl';
   // Dismissal of Events must not interfere with subsequent map gestures.
   await page.click('[data-map-mode="sim"]');
   await page.click('[data-map-mode="map"]');
@@ -55,7 +56,7 @@ try {
     assert.ok(Math.abs(g.w-g.width)<1, 'Projection uses the displayed width');
   };
   await fitted();
-  const coast = () => globe.locator('.map-coast').getAttribute('d');
+  const coast = () => gpu ? globe.locator('.map-label').evaluateAll(nodes=>JSON.stringify(nodes.map(el=>[el.textContent,el.getAttribute('x'),el.getAttribute('y')]))) : globe.locator('.map-coast').getAttribute('d');
   const original = await coast(), box = await globe.boundingBox();
   if (process.env.BROWSER !== 'webkit') {
     // Real touchscreen input exercises pointer capture and scroll prevention.
@@ -75,16 +76,15 @@ try {
   for (const mode of ['sim','map','sim']) {
     await page.click(`[data-map-mode="${mode}"]`);
     await fitted();
-    assert.ok((await coast()).length>1000,'Coastlines remain rendered');
+    assert.ok(gpu ? await page.locator('.map-webgl').isVisible() : (await coast()).length>1000,'Globe remains rendered');
     assert.equal(await page.locator('.map-sim').isVisible(),mode==='sim');
     if (mode==='sim') {
-      assert.equal(await globe.locator('.map-shade').count(),5);
+      if(!gpu)assert.equal(await globe.locator('.map-shade').count(),5);
       await page.click('[data-map-t]:text-is("max")');
       assert.match(await page.locator('.map-when').textContent(),/umbra/);
       await page.locator('[data-map="play"]').click();
       const before = await page.locator('.map-slider').inputValue();
-      await page.waitForTimeout(250);
-      assert.notEqual(await page.locator('.map-slider').inputValue(),before,'Simulation advances');
+      await page.waitForFunction(old=>document.querySelector('.map-slider').value!==old,before);
       await page.locator('[data-map="play"]').click();
     }
   }

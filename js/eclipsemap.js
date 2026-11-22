@@ -205,7 +205,7 @@ function mapSVG(m, W, H, view, place = null, at = null, overlay = null, annotati
       if (!annotationsOnly) svg += `<path class="map-umbra ${at.umbra.kind}" d="${ring(at.umbra.line)}"/>`;
       if (at.umbra.center) svg += mark(at.umbra.center, `map-umbra-ring ${at.umbra.kind}`, 7);
     }
-    if (place && !annotationsOnly) svg += mark(place, "map-place");
+    if (place) svg += mark(place, "map-place");
     return svg;
   }
   // the hours (UTC) when the partial eclipse begins and ends, labeled at
@@ -240,7 +240,7 @@ function mapSVG(m, W, H, view, place = null, at = null, overlay = null, annotati
     }
   }
   if (m.greatest) svg += mark(m.greatest, "map-greatest");
-  if (place && !annotationsOnly) svg += mark(place, "map-place");
+  if (place) svg += mark(place, "map-place");
   return svg;
 }
 

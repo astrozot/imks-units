@@ -100,7 +100,7 @@ try {
   await page.click('[data-action="place"]');
   assert.equal(await page.locator('[data-place="original"]').count(), 0, 'Standalone Coelum has no Original place');
   await page.click('[data-place="map"]');
-  await page.waitForSelector('.coelum-map-panel .map-coast');
+  await page.waitForSelector('.coelum-map-panel .map-coast, .coelum-map-panel .map-full[data-renderer=webgl]');
   const largeMap = await page.locator('.coelum-map-panel').boundingBox();
   assert.ok(largeMap.width > 390 * 0.95 && largeMap.height > 844 * 0.95, 'The location map uses the full phone window');
   assert.equal(await page.locator('.coelum-map-panel').evaluate((el) => el.matches(':modal')), true);
@@ -121,7 +121,7 @@ try {
   // The offline globe remains usable without network access.
   await context.setOffline(true);
   await page.click('[data-action="place"]'); await page.click('[data-place="map"]');
-  await page.waitForSelector('.coelum-map-panel .map-coast');
+  await page.waitForSelector('.coelum-map-panel .map-coast, .coelum-map-panel .map-full[data-renderer=webgl]');
   await page.click('[aria-label="Close map"]');
   await context.setOffline(false);
   // Hidden-layer symbols explain M42 without changing the layer setting.

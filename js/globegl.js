@@ -246,7 +246,7 @@ export function createGlobeGL(svg, { boundaries = null, selected = () => '', onL
         const edge=shadow.partial.find(region=>!region.m);if(edge)layer(dynamicGeometry('partial-edge',edge.line,false),[.91,.75,.44,1],1);
         if(shadow.umbra){const annular=shadow.umbra.kind==='annular';polygon(dynamicGeometry('umbra-fill',shadow.umbra.line,true),annular?[.227,.102,0,.85]:[0,0,0,.85]);layer(dynamicGeometry('umbra-edge',shadow.umbra.line,false),annular?[1,.478,.27,1]:[0,0,0,1],1);}
       }
-      if (place) {
+      if (place && !svgOverlay) {
         gl.useProgram(point.p); gl.bindBuffer(gl.ARRAY_BUFFER,marker); gl.bufferSubData(gl.ARRAY_BUFFER,0,new Float32Array(unit(place[0],place[1]))); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0); instanced.vertexAttribDivisorANGLE(0,0); gl.disableVertexAttribArray(1); gl.disableVertexAttribArray(2); gl.disableVertexAttribArray(3);
         gl.uniformMatrix3fv(point.u('u_rotation'),false,rotation); gl.uniform2f(point.u('u_size'),W,H); gl.uniform1f(point.u('u_radius'),view.s); gl.uniform1f(point.u('u_dpr'),ratio); gl.drawArrays(gl.POINTS,0,1);
       }

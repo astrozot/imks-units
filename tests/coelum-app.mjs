@@ -166,7 +166,7 @@ try {
 
   // A solar eclipse: its map from the place, then the sky then, at the Sun
   await page.click('.coelum-event[data-event="solar"]');
-  await page.waitForSelector('.map-svg.map-full path');
+  await page.waitForSelector('.map-svg.map-full path, .map-svg.map-full[data-renderer=webgl]');
   assert.match(await page.locator('.map-local').textContent(), /partial eclipse, magnitude 0\.687, 62% of the Sun covered/);
   assert.equal(await page.locator('[data-map="calc"]').count(), 0, 'No Calculate here without the calculator');
   await page.click('[data-map="sky"]');

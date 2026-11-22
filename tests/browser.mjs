@@ -642,14 +642,14 @@ try {
   check(Boolean(await (await lastEntry()).$(".map-svg .map-place")), "solareclipse: the place on the map");
   await (await (await lastEntry()).$(".map-svg")).click();
   await page.waitForTimeout(300);
-  check(Boolean(await page.$(".map-full .map-coast")), "solareclipse: the zoom view of the map");
+  check(Boolean(await page.$(".map-full .map-coast, .map-full[data-renderer=webgl]")), "solareclipse: the zoom view of the map");
   // the globe or online maps (not loaded here)
   check(await page.$$eval(".map-select option", (o) => o.length) === 5, "solareclipse: the choice of maps");
   // the simulation: the shadow at the maximum, totality at Dallas at C2
   await page.click('[data-map-mode="sim"]');
   await page.click('[data-map-t]:text-is("max")');
   await page.waitForTimeout(100);
-  check(await page.$$eval(".map-full .map-shade", (x) => x.length) === 5 && Boolean(await page.$(".map-full .map-umbra.total")), "solar eclipse: the penumbra and the umbra");
+  check(Boolean(await page.$(".map-full[data-renderer=webgl] .map-umbra-ring.total")) || (await page.$$eval(".map-full .map-shade", (x) => x.length) === 5 && Boolean(await page.$(".map-full .map-umbra.total"))), "solar eclipse: the penumbra and the umbra");
   expect(await page.$eval(".map-when", (x) => x.textContent), /^18:17 UTC .*: the umbra at 25\.\d° N, 104\.\d° W · at the place: partial/, "solar eclipse: the shadow at the maximum");
   await page.click('[data-map-t]:text-is("C2")');
   await page.waitForTimeout(100);
