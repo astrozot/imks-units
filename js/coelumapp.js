@@ -1,3 +1,4 @@
+import { timezoneAt } from './timezoneboundaries.js';
 // Coelum, the sky of iMKS as an app of its own (coelum/index.html): the
 // explorer (coelumui.js) over the whole screen, now, at the place last
 // chosen, with the events of the sky in a panel of its own; their maps and
@@ -35,7 +36,7 @@ if (!['device', 'utc', 'location'].includes(timeMode)) timeMode = 'device';
 let clockPlace = [51.4769, -0.0005];
 const zoneOverrides = store.get('coelumPlaceZones', {});
 const placeZoneKey = (p = clockPlace) => p[3] || p.slice(0, 2).map((x) => x.toFixed(4)).join(',');
-const inferredZone = (p = clockPlace) => { if (p[3]) return 'UTC'; const zone = tzlookup(p[0], p[1]); return validSkyZone(zone) ? zone : 'UTC'; };
+const inferredZone = (p = clockPlace) => { if (p[3]) return 'UTC'; const zone = timezoneAt(p[0], p[1]) || tzlookup(p[0], p[1]); return validSkyZone(zone) ? zone : 'UTC'; };
 const clockZone = (p = clockPlace) => timeMode === 'utc' ? 'UTC' : timeMode === 'device' ? deviceTimeZone() : zoneOverrides[placeZoneKey(p)] || inferredZone(p);
 const clockWithZone = (t, p = clockPlace, seconds = false) => {
   // Worldwide event maps have no selected place. Use the sky's location

@@ -256,12 +256,13 @@ const SHADES = [0, 0.2, 0.4, 0.6, 0.8];
 // zoom 0) that match at the center of the view
 const zoomOf = (s, lat) => Math.log2((s * 2 * Math.PI * Math.cos(lat * Math.PI / 180)) / 256);
 const scaleOf = (zoom, lat) => (256 * 2 ** zoom) / (2 * Math.PI * Math.cos(lat * Math.PI / 180));
-function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null } = {}) {
+function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null, onPickPlace = null, overlay = null, globeOnly = false, pickerDetails = true, pickHint = null } = {}) {
   const originalMap=m;let playbackEphemeris=null;
+  const lifecycle = new AbortController();
   const views = [["globe", "Globe"], ...Object.entries(TILES).map(([k, t]) => [k, t.name])];
   // an occultation: no simulation of the shadow (made for the Sun), but
   // places tapped for the occultation there
-  const locationPicker = Boolean(onSelectPlace);
+  const locationPicker = Boolean(onSelectPlace || onPickPlace);
   const occ = m.occ || null, canSim = !locationPicker && typeof m.t === "number" && !occ, canPick = locationPicker || canSim || Boolean(occ);
   const localAt = (p) => locationPicker ? null : (occ ? occultationLocal(occ.target, occ.front, m.t, p) : solarLocal(m.t, p));
   const what = locationPicker ? "selected location" : occ ? "occultation" : "eclipse";
@@ -279,7 +280,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   root.innerHTML = `${head}
       <div class="map-precision"></div>
       ${canSim ? `<div class="seg map-modes" role="tablist">${modes.map(([v, n]) => `<button data-map-mode="${v}" role="tab">${n}</button>`).join("")}</div>` : ""}
-      <label class="map-views">Map <select class="map-select" aria-label="Map">${views.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
+      <label class="map-views">Map <select class="map-select" aria-label="Map">${(globeOnly ? views.slice(0, 1) : views).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
       <svg class="map-svg map-full" role="img" aria-label="Map of the ${what}"></svg><div class="osm-map" hidden></div>
       <div class="map-sim" hidden>
       <p class="map-when"></p>
@@ -330,7 +331,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     svg.style.display = globe ? "" : "none";
     osm.hidden = globe;
     osm.classList.toggle("dark", Boolean(TILES[view]?.dark));
-    hint.textContent = (globe ? "Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back" : "Online map: drag to move, pinch or scroll to zoom") + (locationPicker ? "; tap a place, then choose Use this place" : canPick ? `; tap a place for the ${what} there` : "");
+    hint.textContent = (globe ? "Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back" : "Online map: drag to move, pinch or scroll to zoom") + (locationPicker ? `; ${pickHint || "tap a place, then choose Use this place"}` : canPick ? `; tap a place for the ${what} there` : "");
     if (sim) hint.textContent += "; the penumbra darker where more of the Sun is covered, the umbra in a ring";
     host.store.set("mapView", view);
     if (globe) return redraw();
@@ -348,7 +349,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     }
   };
   root.querySelector(".map-select").addEventListener("change", (ev) => show(ev.target.value));
-  const draw = () => { if (svg.style.display !== "none") svg.innerHTML = mapSVG(m, W, H, v, place, sim ? at : null); };
+  const draw = () => { if (svg.style.display !== "none") svg.innerHTML = mapSVG(m, W, H, v, place, sim ? at : null, overlay); };
   function redraw() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); }
   const size = () => {
     const zoom = v ? v.s / base0() : 1;
@@ -388,7 +389,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   // Sun covered, the contacts (UTC, and local), the Sun's altitude; and a
   // button for the whole calculation there
   const showLocal = () => {
-    if (!place) { localBox.innerHTML = ""; return; }
+    if (!place || !pickerDetails) { localBox.innerHTML = ""; return; }
     const head = `<b>${ll(place)}</b>`;
     if (locationPicker) {
       localBox.innerHTML = `<p>${head}</p><button type="button" class="chip" data-map="choose-place">Use this place</button>`;
@@ -429,6 +430,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     if(canSim){from=(c.P1??m.t-3*3600)-600;to=(c.P4??m.t+3*3600)+600;slider.min=from;slider.max=to;}
     place = [Math.round(p[0] * 1e4) / 1e4, Math.round(p[1] * 1e4) / 1e4];
     l = canPick ? localAt(place) : null;
+    onPickPlace?.([...place]);
     showLocal();
     showPrecision();
     root.querySelector(".lunar-chips").innerHTML = chips();
@@ -459,7 +461,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     if (!sim && play) stop();
     if (sim) setTime(cur);
     size();
-    show(host.store.get("mapView", "globe"));
+    show(globeOnly ? "globe" : host.store.get("mapView", "globe"));
   };
   root.addEventListener("click", (ev) => {
     const md = ev.target.closest("[data-map-mode]");
@@ -481,7 +483,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     b.textContent = "❚❚";
     last = 0;
     play = requestAnimationFrame(step);
-  });
+  }, { signal: lifecycle.signal });
   slider.addEventListener("input", () => { stop(); setTime(Number(slider.value)); });
   dragTrack(slider, (t) => { stop(); slider.value = t; setTime(t); });
   showLocal();
@@ -551,7 +553,15 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   // the simulation
   return {
     resize: size,
-    destroy: () => { precision?.destroy(); ++shown; observer.disconnect(); stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
+    redraw,
+    setPlace: (p, { center = false } = {}) => {
+      place = p && [...p];
+      if (center && place) v = { ...v, lat0: place[0], lon0: place[1] };
+      showLocal(); redraw();
+    },
+    zoom: factor => { v = { ...v, s: clampS(v.s * factor) }; chosen = true; redraw(); },
+    reset: () => { v = mapView(m, W, H); chosen = false; redraw(); },
+    destroy: () => { lifecycle.abort(); precision?.destroy(); ++shown; observer.disconnect(); stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
     share: () => {
       const cap = sim ? [...caption, when.textContent] : caption, name = occ ? "occultation" : "solar-eclipse";
       return osm.hidden

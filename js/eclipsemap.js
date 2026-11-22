@@ -4,26 +4,25 @@
 // eclipse, the point of greatest eclipse and a place; from the track of
 // eclipseTrack() in astro.js.
 
-import { COAST } from "./coast.js";
+import { COAST_SCALE, COAST_LEVELS } from "./coast.js";
 
 const RAD = Math.PI / 180;
-let coastLines = null;
-// the coastlines as [latitude, longitude] lines (coast.js stores tenths
-// of degrees, after the first point as differences)
-function coast() {
-  if (!coastLines) {
-    coastLines = COAST.map((l) => {
-      const pts = [];
-      let x = 0, y = 0;
-      for (let i = 0; i < l.length; i += 2) {
-        x += l[i];
-        y += l[i + 1];
-        pts.push([y / 10, x / 10]);
+const coastLines = new Map();
+// Use the detailed geographic coast at high zoom, with generalized views
+// of the same source when their displacement is smaller than a screen pixel.
+function coast(radius) {
+  const tolerance = 6371000 / Math.max(1, radius) * .65;
+  const level = COAST_LEVELS.find(level => level.tolerance <= tolerance) || COAST_LEVELS.at(-1);
+  if (!coastLines.has(level)) {
+    coastLines.set(level, level.lines.map(line => {
+      const points = []; let lon = 0, lat = 0;
+      for (let i = 0; i < line.length; i += 2) {
+        lon += line[i]; lat += line[i + 1]; points.push([lat / COAST_SCALE, lon / COAST_SCALE]);
       }
-      return pts;
-    });
+      return points;
+    }));
   }
-  return coastLines;
+  return coastLines.get(level);
 }
 
 const unit = ([lat, lon]) => [Math.cos(lat * RAD) * Math.cos(lon * RAD), Math.cos(lat * RAD) * Math.sin(lon * RAD), Math.sin(lat * RAD)];
@@ -66,7 +65,7 @@ const distinct = (pts) => pts.filter((p, i) => i === 0 || p[0] !== pts[i - 1][0]
 
 // an SVG path of lines, broken where they go behind the Earth; smooth:
 // curves through the points
-function linesPath(lines, P, smooth = false) {
+function linesPath(lines, P, smooth = false, viewport = null) {
   let d = "";
   const run = (all) => {
     const pts = distinct(all);
@@ -77,11 +76,17 @@ function linesPath(lines, P, smooth = false) {
     }
   };
   for (const line of lines) {
-    let pts = [];
+    let pts = [], previous = null;
     for (const p of line) {
       const q = P(p);
-      if (q[2]) pts.push(q);
-      else { run(pts); pts = []; }
+      // Detailed world coasts contain many off-screen points at high zoom.
+      // Drop segments wholly beyond one viewport edge, preserving crossings.
+      const outside = viewport && previous?.[2] && ((previous[0] < 0 && q[0] < 0) || (previous[1] < 0 && q[1] < 0) || (previous[0] > viewport[0] && q[0] > viewport[0]) || (previous[1] > viewport[1] && q[1] > viewport[1]));
+      if (q[2] && !outside) {
+        if (viewport && !pts.length && previous?.[2]) pts.push(previous);
+        pts.push(q);
+      } else { run(pts); pts = []; }
+      previous = q;
     }
     run(pts);
   }
@@ -160,7 +165,7 @@ const hourText = (m, h) => (m.step && m.step < 1 ? hm(h) : `${p2(((Math.round(h)
 // per Earth radius); place: [latitude, longitude] or null; at: the shadow
 // at a moment (shadowMap() in astro.js), drawn with the night then instead
 // of the hours
-function mapSVG(m, W, H, view, place = null, at = null) {
+function mapSVG(m, W, H, view, place = null, at = null, overlay = null) {
   const P = projector(view, W, H), R = view.s, cx = W / 2, cy = H / 2;
   const f1 = (x) => x.toFixed(1);
   let svg = `<rect class="map-bg" width="${W}" height="${H}" rx="10"/><circle class="map-sea" cx="${f1(cx)}" cy="${f1(cy)}" r="${f1(R)}"/>`;
@@ -180,7 +185,8 @@ function mapSVG(m, W, H, view, place = null, at = null) {
   // the penumbra darker where more of the Sun is covered, one shade over
   // the other
   if (at) for (const p of at.partial) svg += `<path class="map-shade${p.m ? "" : " edge"}" d="${ring(p.line)}"/>`;
-  svg += `<path class="map-coast" d="${linesPath(coast(), P)}"/>`;
+  if (overlay) svg += overlay(P, view, W, H);
+  svg += `<path class="map-coast" d="${linesPath(coast(R), P, false, [W, H])}"/>`;
   // the limits of the partial eclipse (older results: the outline of where
   // it is seen)
   svg += `<path class="map-partial${at ? " faint" : ""}" d="${linesPath(m.outline || [...m.penN, ...m.penS], P, true)}"/>`;
@@ -243,4 +249,4 @@ function mapView(m, W, H) {
   return { lat0, lon0, s: Math.min(W, H) / 2 - 8 };
 }
 
-export { mapSVG, mapView, unproject, hm, hourText };
+export { mapSVG, mapView, unproject, linesPath, hm, hourText };

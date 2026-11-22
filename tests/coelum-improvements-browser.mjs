@@ -1,3 +1,4 @@
+import { activeTimeMode, setTimeMode, setLocalTimezone, resetLocalTimezone } from './timezone-controls.mjs';
 import { toggleLayerSettings } from './layer-settings.mjs';
 // Focused checks of Layers, galactic coordinates and signed date entry:
 // node tests/coelum-improvements-browser.mjs. PLAYWRIGHT/CHROME as browser.mjs;
@@ -66,8 +67,8 @@ try {
   const when = await page.locator('[data-action="time"]').boundingBox();
   assert.ok(line.y >= when.y + when.height);
   await page.click('[data-action="time"]');
-  assert.equal(await page.locator('.coelum-time-zone').first().innerText().then((s) => s.split('\n')[0]), 'Time');
-  assert.deepEqual(await page.locator('[data-time-zone] option').allTextContents(), ['UTC', 'device', 'selected location']);
+  assert.equal(await page.locator('.coelum-time-options > span').innerText(), 'Time:');
+  assert.deepEqual(await page.locator('[data-time-zone]').allTextContents(), ['UTC', 'device', 'local']);
   assert.equal(await page.locator('[data-set-time="original"]').count(), 0);
   // Two events per row at phone widths; touching a chip does not leave hover paint.
   for (const width of [320, 375, 390, 430]) {
@@ -190,6 +191,7 @@ try {
   assert.equal(await dateInput.evaluate(el => el.readOnly), false);
   assert.deepEqual(await dateInput.boundingBox(), dateBox, 'Switching input mode preserves the field dimensions');
   for (const year of ['-1000', '-0001', '0000', '0001', '0099', '3000']) {
+    if (await dateInput.evaluate(el => el.readOnly)) await page.click('[data-time-date-mode]');
     await dateInput.fill(`${year}-06-01 12:34`);
     await dateInput.dispatchEvent('change');
     const time = Number(await page.locator('.coelum-full').getAttribute('data-time'));
@@ -204,6 +206,7 @@ try {
   }
   const unchanged = await page.locator('.coelum-full').getAttribute('data-time');
   for (const invalid of ['-1001-06-01 12:34', '3001-01-01 12:34', '2026-02-30 12:34']) {
+    if (await dateInput.evaluate(el => el.readOnly)) await page.click('[data-time-date-mode]');
     await dateInput.fill(invalid); await dateInput.dispatchEvent('change');
     assert.equal(await dateInput.evaluate((el) => el.checkValidity()), false);
     assert.equal(await page.locator('.coelum-full').getAttribute('data-time'), unchanged);
@@ -218,13 +221,13 @@ try {
   const second = await open({ 'imks.settings': { location: { lat: 45.4642, lon: 9.19, h: 120, name: 'Milan' } } });
   assert.match(await second.page.locator('[data-action="time"]').getAttribute('aria-label'), /UTC/);
   await second.page.click('[data-action="time"]');
-  assert.equal(await second.page.locator('[data-time-zone]').inputValue(), 'device', 'Device time is the default');
+  assert.equal(await activeTimeMode(second.page), 'device', 'Device time is the default');
   const instant = await second.page.locator('.coelum-full').getAttribute('data-time');
   const barHeight = (await second.page.locator('.coelum-timebar').boundingBox()).height;
-  await second.page.selectOption('[data-time-zone]', 'device');
+  await setTimeMode(second.page, 'device');
   assert.match(await second.page.locator('[data-action="time"]').getAttribute('aria-label'), /Europe\/Rome \(UTC[+−]\d\d:\d\d\)/);
   assert.equal(await second.page.locator('.coelum-full').getAttribute('data-time'), instant, 'Changing timezone preserves the instant');
-  await second.page.selectOption('[data-time-zone]', 'location');
+  await setTimeMode(second.page, 'location');
   assert.match(await second.page.locator('[data-action="time"]').getAttribute('aria-label'), /Europe\/Rome/);
   await second.page.click('[data-action="time"]');
   await second.page.route('https://api.open-meteo.com/**', (route) => route.fulfill({ contentType: 'application/json', body: '{"elevation":[0]}' }));
@@ -235,26 +238,26 @@ try {
   assert.match(await second.page.locator('[data-action="time"]').getAttribute('aria-label'), /Asia\/Tokyo \(UTC\+09:00\)/);
   assert.equal(await second.page.locator('.coelum-full').getAttribute('data-time'), instant, 'Moving the observer preserves the instant');
   await second.page.click('[data-action="time"]');
+  await second.page.click('[data-time-zone="location"]');
   assert.equal(await second.page.locator('[data-place-zone]').inputValue(), 'Asia/Tokyo');
-  await second.page.fill('[data-place-zone]', 'America/New_York');
-  await second.page.locator('[data-place-zone]').dispatchEvent('change');
+  await second.page.click('[data-zone-cancel]');
+  await setLocalTimezone(second.page, 'America/New_York');
   await second.page.click('[data-time-date-mode]');
   for (const [date, offset] of [['2026-01-01 12:00', '−05:00'], ['2026-07-01 12:00', '−04:00']]) {
     await second.page.fill('[data-time-input]', date); await second.page.locator('[data-time-input]').dispatchEvent('change');
     assert.ok((await second.page.locator('[data-action="time"]').getAttribute('aria-label')).includes('UTC' + offset));
     assert.equal((await second.page.locator('.coelum-timebar').boundingBox()).height, barHeight);
   }
-  await second.page.fill('[data-place-zone]', 'UTC+03:00');
-  await second.page.locator('[data-place-zone]').dispatchEvent('change');
+  await setLocalTimezone(second.page, 'UTC+03:00');
   assert.match(await second.page.locator('[data-action="time"]').getAttribute('aria-label'), /UTC\+03:00/);
   await second.page.screenshot({ path: '/private/tmp/coelum-timezone-options.png' });
   await second.page.reload(); await second.page.waitForSelector('.coelum-full');
   assert.match(await second.page.locator('[data-action="time"]').getAttribute('aria-label'), /UTC\+03:00/, 'Manual override survives reload');
   await second.page.click('[data-action="time"]');
-  assert.equal(await second.page.locator('[data-time-zone]').inputValue(), 'location');
-  await second.page.click('[data-reset-place-zone]');
+  assert.equal(await activeTimeMode(second.page), 'location');
+  await resetLocalTimezone(second.page);
   assert.match(await second.page.locator('[data-action="time"]').getAttribute('aria-label'), /Asia\/Tokyo/);
-  await second.page.selectOption('[data-time-zone]', 'utc');
+  await setTimeMode(second.page, 'utc');
   if (await second.page.locator('[data-time-input]').evaluate(el => el.readOnly)) await second.page.click('[data-time-date-mode]');
   await second.page.fill('[data-time-input]', '-0100-06-01 12:34');
   await second.page.locator('[data-time-input]').dispatchEvent('change');
@@ -264,7 +267,7 @@ try {
     await second.context.setOffline(true);
     await second.page.reload(); await second.page.waitForSelector('.coelum-full');
     await second.page.click('[data-action="time"]');
-    await second.page.selectOption('[data-time-zone]', 'location');
+    await setTimeMode(second.page, 'location');
     assert.match(await second.page.locator('[data-action="time"]').getAttribute('aria-label'), /Asia\/Tokyo/, 'The timezone map works offline');
     await second.context.setOffline(false);
   } else console.log('Skipped offline reload check by SKIP_OFFLINE_RELOAD');

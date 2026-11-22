@@ -1,3 +1,4 @@
+import { setTimeMode, setLocalTimezone } from './timezone-controls.mjs';
 // Date panel formatting, mode switching, and second precision:
 // node tests/coelum-date-browser.mjs. PLAYWRIGHT/CHROME as browser.mjs;
 // BROWSER=webkit and BROWSER_EXECUTABLE select another engine.
@@ -39,22 +40,58 @@ try {
     const scrollTo = async (name, value, min = 0) => {
       await wheel(name).evaluate((el, top) => { el.scrollTop = top; el.dispatchEvent(new Event('scroll')); }, (value - min) * 32);
     };
-    await page.selectOption('[data-time-zone]', 'utc');
+    await setTimeMode(page, 'utc');
     assert.equal(await input.inputValue(), '2026-11-22 12:34:56');
     for (const width of [320, 390, 768]) {
       await page.setViewportSize({ width, height: 844 });
-      const before = await input.boundingBox(), button = await toggle.boundingBox();
+      assert.equal(await page.locator('[data-set-time="original"]').count(), 0);
+      assert.doesNotMatch(await page.locator('.coelum-events').innerText(), /Not on this day/);
+      const eventTime = await page.locator('[data-time-event] time').first().innerText();
+      assert.match(eventTime, width === 320 ? /^\d{2}:\d{2}$/ : /^\d{2}:\d{2}:\d{2}$/);
+      const heading = page.locator('.coelum-events-head');
+      assert.equal(await heading.textContent(), 'Events of the day');
+      await page.click('[data-time-step="86400"]');
+      assert.equal(await heading.textContent(), 'Events of 2026-11-23');
+      await page.click('[data-time-step="-86400"]');
+      assert.equal(await heading.textContent(), 'Events of 2026-11-22');
+      const layout = await heading.evaluate(el => {
+        const text = el.getBoundingClientRect(), panel = el.closest('.coelum-timepanel').getBoundingClientRect();
+        const arrows = [...el.parentElement.querySelectorAll('button')].map(button => button.getBoundingClientRect());
+        return { centered: Math.abs(text.x + text.width / 2 - panel.x - panel.width / 2) < 1, fits: el.scrollWidth <= el.clientWidth, compact: arrows.every(box => box.height <= parseFloat(getComputedStyle(el).lineHeight) && box.width <= box.height) };
+      });
+      assert.ok(layout.centered && layout.fits && layout.compact, JSON.stringify({ width, ...layout }));
+      if (locale === 'en-US' && width === 390) await page.screenshot({ path: '/private/tmp/coelum-events-heading.png' });
+      await page.click('[data-set-time="now"]');
+      assert.equal(await heading.textContent(), 'Events of the day');
+      const before = await input.boundingBox(), button = await toggle.boundingBox(), now = await page.locator('[data-set-time="now"]').boundingBox();
+      assert.ok(now.x >= before.x + before.width && Math.abs(now.y + now.height / 2 - before.y - before.height / 2) < 1, 'Now stays beside the input at ' + width);
       assert.ok(button.x > before.x && button.x + button.width <= before.x + before.width);
       assert.equal(button.width, button.height);
       const instant = await page.locator('.coelum-full').getAttribute('data-time');
+      const icon = await toggle.innerHTML();
       await toggle.click();
+      assert.equal(await input.evaluate(el => el === document.activeElement), true);
       assert.equal(await input.evaluate(el => el.readOnly), false);
-      assert.deepEqual(await input.boundingBox(), before);
+      assert.equal(await toggle.innerHTML(), icon);
       await toggle.click();
+      assert.equal(await input.evaluate(el => el.readOnly), false, 'Keyboard button always enters editing');
+      assert.deepEqual(await input.boundingBox(), before);
+      await input.fill('-1000-11-22 12:34:56');
+      assert.ok(await input.evaluate(el => el.scrollWidth <= el.clientWidth), 'Signed date fits beside Now at ' + width);
+      await input.press('Escape');
+      await toggle.click();
+      await input.press('Enter');
       assert.equal(await input.evaluate(el => el.readOnly), true);
+      await input.click();
       assert.equal(await picker.isVisible(), true);
+      assert.equal(await picker.evaluate(el => el.matches('dialog:modal')), true);
+      assert.equal(await picker.evaluate(el => !!el.closest('.coelum-timepanel')), false);
       assert.deepEqual(await input.boundingBox(), before);
       assert.equal(await selected('year'), '2026');
+      assert.equal(await page.locator('[data-wheel-cancel]').getAttribute('aria-label'), 'Cancel');
+      assert.equal(await page.locator('[data-wheel-done]').getAttribute('aria-label'), 'Done');
+      assert.equal(await page.locator('[data-wheel-cancel] svg').count(), 1);
+      assert.equal(await page.locator('[data-wheel-done] svg').count(), 1);
       await page.click('[data-wheel-cancel]');
       assert.equal(await page.locator('.coelum-full').getAttribute('data-time'), instant);
       assert.ok(await input.evaluate(el => el.scrollWidth <= el.clientWidth), 'Full date fits at ' + width);
@@ -102,16 +139,16 @@ try {
     assert.equal(await page.locator('.coelum-timepanel').isVisible(), true);
     await toggle.click();
     await input.fill('2026-03-08 06:30:45'); await input.dispatchEvent('change');
-    await page.selectOption('[data-time-zone]', 'location');
-    await page.fill('[data-place-zone]', 'America/New_York'); await page.locator('[data-place-zone]').dispatchEvent('change');
-    await toggle.click();
+    await setTimeMode(page, 'location');
+    await setLocalTimezone(page, 'America/New_York');
+    await input.click();
     await page.click('[data-wheel-tab="time"]');
     await wheel('hour').press('ArrowDown');
     await page.click('[data-wheel-done]');
     assert.equal(await picker.isVisible(), true, 'DST gap rejected');
     assert.match(await page.locator('.coelum-wheel-error').textContent(), /Daylight-saving/);
     await page.click('[data-wheel-cancel]');
-    await page.selectOption('[data-time-zone]', 'utc');
+    await setTimeMode(page, 'utc');
     await input.click();
     await wheel('year').press('Home');
     assert.equal(await selected('year'), '−1000');
