@@ -24,8 +24,9 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const url = `http://localhost:${server.address().port}/coelum/`;
 let browser;
 try {
-  browser = await browserType.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
+  browser = await browserType.launch(process.env.BROWSER_EXECUTABLE || process.env.CHROME ? { executablePath: process.env.BROWSER_EXECUTABLE || process.env.CHROME } : {});
   const context = await browser.newContext({ timezoneId: 'Europe/Rome', serviceWorkers: 'block', viewport: { width: 390, height: 844 } });
+  if (process.env.NO_WEBGL) await context.addInitScript(() => { const original=HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext=function(type,...args){ return type==='webgl'||type==='webgl2'?null:original.call(this,type,...args); }; });
   await context.clock.setFixedTime(new Date('2026-11-22T12:34:56Z'));
   await context.route('https://celestrak.org/**', route => route.fulfill({ json: [] }));
   await context.addInitScript(() => localStorage.setItem('imks.coelumPlace', JSON.stringify({ name: 'Milan', lat: 45.4642, lon: 9.19, h: 120 })));
@@ -56,22 +57,25 @@ try {
   assert.equal(await page.locator('[data-place-zone]').inputValue(), 'Europe/Rome');
   const svg = page.locator('[data-timezone-map] .map-svg');
   await svg.waitFor();
-  await svg.locator('.map-coast').waitFor();
+  await page.waitForFunction(() => { const svg=document.querySelector('[data-timezone-map] .map-svg'); return svg?.dataset.renderer==='webgl'||svg?.querySelector('.map-coast'); });
   assert.match(await page.locator('.coelum-zone-map-credit').innerText(), /OpenStreetMap contributors.*ODbL/);
-  assert.equal(await svg.locator('.map-coast').count(), 1, 'Reuses vector coastline globe');
-  assert.ok((await svg.locator('.map-timezones').getAttribute('d')).length > 1000);
+  const gpu=await svg.getAttribute('data-renderer')==='webgl';
+  if(gpu){assert.equal(await page.locator('.map-webgl').count(),1);assert.equal(await svg.getAttribute('data-picking'),'gpu');}
+  else{assert.equal(await svg.locator('.map-coast').count(),1);assert.ok((await svg.locator('.map-timezones').getAttribute('d')).length>1000);}
+  if(process.env.NO_WEBGL)assert.equal(gpu,false);
   const pick = async (lat, lon, expectedZone) => {
     // Rotate from the initial observing-location view using the globe's
     // existing drag projection, then pick the point at the globe's centre.
     await svg.scrollIntoViewIfNeeded();
-    const box = await svg.boundingBox(), radius = Math.min(box.width, box.height) / 2 - 8;
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    const box = await svg.boundingBox(), geometry=await svg.evaluate(el=>({width:el.viewBox.baseVal.width,height:el.viewBox.baseVal.height,radius:Number(el.querySelector('.map-sea').getAttribute('r'))})), radius=geometry.radius;
     const x = box.x + box.width / 2, y = box.y + box.height / 2;
-    const dx = -(lon - 9.19) * radius * Math.max(.2, Math.cos(lat * Math.PI / 180)) / 57.3;
-    const dy = (lat - 45.4642) * radius / 57.3;
+    const dx = -(lon - 9.19) * radius * Math.max(.2, Math.cos(lat * Math.PI / 180)) / 57.3 * box.width / geometry.width;
+    const dy = (lat - 45.4642) * radius / 57.3 * box.height / geometry.height;
     await page.mouse.move(x, y); await page.mouse.down();
     await page.mouse.move(x + dx, y + dy, { steps: 10 }); await page.mouse.up();
     await svg.click({ position: { x: box.width / 2, y: box.height / 2 } });
-    await page.waitForFunction(zone => document.querySelector('[data-place-zone]').value === zone, expectedZone);
+    try { await page.waitForFunction(zone => document.querySelector('[data-place-zone]').value === zone, expectedZone); } catch(error) { console.log('Pick failed', {lat,lon,expectedZone,actual:await page.locator('[data-place-zone]').inputValue(),geometry,box}); throw error; }
   };
   await pick(35.68, 139.65, 'Asia/Tokyo');
   assert.equal(await page.locator('[data-place-zone]').inputValue(), 'Asia/Tokyo');
@@ -96,6 +100,10 @@ try {
   assert.equal(await page.locator('[data-place-zone]').inputValue(), 'America/New_York');
   await page.click('[data-zone-reset]');
   await page.waitForFunction(() => { const globe = document.querySelector('[data-timezone-map] svg'); return Number(globe.querySelector('.map-sea').getAttribute('r')) <= globe.viewBox.baseVal.width / 2; });
+  // This marine overlap is smaller than a world-view touch pixel. Zoom in
+  // before targeting it, especially in WebKit which rounds pointer coordinates.
+  for(let i=0;i<4;i++)await page.click('[data-zone-zoom="2"]');
+  await page.waitForFunction(()=>Number(document.querySelector('[data-timezone-map] .map-sea').getAttribute('r'))>2000);
   await pick(42.4791165, 3.369903005, '');
   await page.locator('[data-zone-candidate="Europe/Madrid"]').waitFor();
   assert.equal(await page.locator('[data-zone-done]').isDisabled(), true, 'An overlapping region requires an explicit choice');
@@ -106,7 +114,8 @@ try {
   await page.locator('.coelum-zone-map-content').evaluate(el => el.scrollTop = 0);
   for (let i=0;i<4;i++) await page.click('[data-zone-zoom="2"]');
   await page.waitForFunction(() => Number(document.querySelector('[data-timezone-map] .map-sea').getAttribute('r')) > 2000);
-  assert.ok((await svg.locator('.map-coast').getAttribute('d')).length > 1000, 'Detailed coastline remains rendered at high zoom');
+  if(!gpu)assert.ok((await svg.locator('.map-coast').getAttribute('d')).length>1000,'Detailed coastline remains rendered at high zoom');
+  else assert.equal(await page.locator('.map-webgl').isVisible(),true);
   await page.screenshot({ path: '/private/tmp/coelum-mediterranean-detail.png' });
   for (const viewport of [{width:390,height:844},{width:844,height:390}]) {
     await page.setViewportSize(viewport);
@@ -133,6 +142,14 @@ try {
   await context.setOffline(false);
   await setTimeMode(page, 'device'); assert.match(await page.locator('.coelum-zone-note').textContent(), /Europe\/Rome/);
   await page.screenshot({ path: '/private/tmp/coelum-time-options.png' });
+  if(gpu){
+    await page.click('[data-time-zone="location"]');
+    await page.waitForFunction(()=>document.querySelector('[data-timezone-map] svg')?.dataset.renderer==='webgl');
+    await page.locator('.map-webgl').evaluate(canvas=>canvas.getContext('webgl').getExtension('WEBGL_lose_context').loseContext());
+    await svg.locator('.map-coast').waitFor();
+    assert.equal(await page.locator('.map-webgl').count(),0,'Context loss activates SVG fallback');
+    await page.click('[data-zone-cancel]');
+  }
   // The calculator's embedded explorer also has working controls without app callbacks.
   await page.evaluate(async () => {
     const { mountCoelum } = await import('../js/coelumui.js');

@@ -565,6 +565,8 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-zone-map-wrap { position: relative; overflow: hidden; border: 1px solid var(--c-line); border-radius: 10px; }
 .coelum-timezone-globe .map-views, .coelum-timezone-globe .map-hint, .coelum-timezone-globe .map-local { display: none; }
 .coelum-timezone-globe .map-svg { margin: 0; outline: none; }
+.coelum-timezone-globe { position: relative; }
+.map-webgl { display: block; position: absolute; left: 0; top: 0; width: 100%; pointer-events: none; }
 .map-timezones { fill: none; stroke: #778baa; stroke-width: .65; stroke-opacity: .65; }
 .map-timezone-selected { fill: none; stroke: #9cc5ff; stroke-width: 1.8; }
 .coelum-zone-map-hint { margin: 10px 0 0; color: var(--c-muted); font-size: 12px; line-height: 1.5; }

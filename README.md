@@ -70,6 +70,16 @@ Source overlaps are preserved; tapping one offers an explicit choice between
 the matching zones. Cross/checkmark actions remain visible in the picker footer.
 All globe maps share the finer Natural Earth 1:10m coastlines, with adaptive
 detail up to a 250 m simplification threshold (see `data/coast-SOURCE.md`).
+The timezone globe uses WebGL when available: geographic line buffers stay on
+the GPU, while camera uniforms control rotation and zoom. Display detail and
+visibility culling reduce work without changing the polygons used for selection.
+A spatial index filters candidate polygons on the CPU; GPU stencil tests then
+resolve their rings and holes, with one small pixel readback per completed tap
+and none during rotation. Taps select immediately, without the former 350 ms
+delay. SVG rendering and CPU polygon selection remain compatibility fallbacks.
+`node tests/globe-gpu-browser.mjs` checks GPU picking against the CPU reference,
+including overlaps and small zones; `BROWSER=webkit` selects the Safari engine.
+
 Before the geographic dataset has loaded, automatic location inference uses
 [@photostructure/tz-lookup](https://github.com/photostructure/tz-lookup)
 11.7.0 as a compact approximate fallback (CC0; see `data/tzlookup-LICENSE.txt`).

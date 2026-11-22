@@ -73,18 +73,20 @@ export function decodeTimezoneBoundaries(topology) {
     if (geometry.properties.center) points.set(canonical, geometry.properties.center);
   }
   for (const [zone, ids] of byZone) byZone.set(zone, [...ids].map(id => lines[id]));
-  const lookupAll = (lat, lon) => {
+  const candidates = (lat, lon) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return [];
     const key = Math.min(35, Math.floor((lat + 90) / 5)) * 72 + Math.min(71, Math.floor((lon + 180) / 5));
+    return (buckets.get(key) || []).filter(p => lat >= p.south && lat <= p.north && lon >= p.west && lon <= p.east);
+  };
+  const lookupAll = (lat, lon) => {
     const matches = new Set();
-    for (const p of buckets.get(key) || []) {
-      if (lat < p.south || lat > p.north || lon < p.west || lon > p.east) continue;
+    for (const p of candidates(lat, lon)) {
       if (inRing(lat, lon, p.rings[0]) && !p.rings.slice(1).some(ring => inRing(lat, lon, ring))) matches.add(p.zone);
     }
     return [...matches];
   };
   const lookup = (lat, lon) => lookupAll(lat, lon)[0] || null;
-  return { lines, byZone, points, lookup, lookupAll, source: topology.source, polygonCount: records.length };
+  return { lines, byZone, points, polygons: records, candidates, lookup, lookupAll, source: topology.source, polygonCount: records.length };
 }
 export function loadTimezoneBoundaries() {
   if (cached) return Promise.resolve(cached);

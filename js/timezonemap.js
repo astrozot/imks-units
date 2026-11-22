@@ -1,3 +1,4 @@
+import { createGlobeGL } from './globegl.js';
 import { mountMap } from './eventview.js';
 import { linesPath } from './eclipsemap.js';
 import { canonicalTimezone, timezoneBoundaries, loadTimezoneBoundaries, timezoneAt, timezonesAt } from './timezoneboundaries.js';
@@ -32,9 +33,9 @@ export function mountTimezoneMap(root, { apply, close }) {
     preview.textContent = `${skyTimeZone(time, selected)}${draft === null ? ' · Automatic for the observing location' : ''}`;
     globe?.redraw(); return true;
   };
-  const choose = p => {
+  const choose = (p, pickedZones = null) => {
     point = p; clearOverlap();
-    const zones = timezonesAt(...point);
+    const zones = pickedZones ?? timezonesAt(...point);
     if (!zones.length) { preview.textContent = 'No timezone polygon found at this point.'; return; }
     if (zones.length > 1) {
       input.value = ''; selected = ''; draft = ''; done.disabled = true;
@@ -89,7 +90,7 @@ export function mountTimezoneMap(root, { apply, close }) {
       ready = true; done.disabled = input.disabled = automatic.disabled = false;
       globe = mountMap(mapRoot, { place: point || observer, penN: [], penS: [], band: [], center: [] }, {
         store: { get: (_, fallback) => fallback, set: () => {} }, toast: message => { preview.textContent = message; },
-      }, { globeOnly: true, pickerDetails: false, onPickPlace: choose, overlay, pickHint: 'tap a place to choose its timezone' });
+      }, { globeOnly: true, pickerDetails: false, onPickPlace: choose, overlay, pickHint: 'tap a place to choose its timezone', immediatePick: true, rendererFactory: (svg, onLost) => createGlobeGL(svg, { boundaries: timezoneBoundaries(), selected: () => canonicalTimezone(selected), onLost }) });
       const svg = mapRoot.querySelector('svg'); svg.tabIndex = 0;
       svg.setAttribute('aria-label', 'Timezone globe. Drag to rotate; pinch or scroll to zoom. Tap a place to choose its timezone.');
       svg.focus({ preventScroll: true });

@@ -256,7 +256,7 @@ const SHADES = [0, 0.2, 0.4, 0.6, 0.8];
 // zoom 0) that match at the center of the view
 const zoomOf = (s, lat) => Math.log2((s * 2 * Math.PI * Math.cos(lat * Math.PI / 180)) / 256);
 const scaleOf = (zoom, lat) => (256 * 2 ** zoom) / (2 * Math.PI * Math.cos(lat * Math.PI / 180));
-function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null, onPickPlace = null, overlay = null, globeOnly = false, pickerDetails = true, pickHint = null } = {}) {
+function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null, onPickPlace = null, overlay = null, globeOnly = false, pickerDetails = true, pickHint = null, rendererFactory = null, immediatePick = false } = {}) {
   const originalMap=m;let playbackEphemeris=null;
   const lifecycle = new AbortController();
   const views = [["globe", "Globe"], ...Object.entries(TILES).map(([k, t]) => [k, t.name])];
@@ -349,7 +349,20 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     }
   };
   root.querySelector(".map-select").addEventListener("change", (ev) => show(ev.target.value));
-  const draw = () => { if (svg.style.display !== "none") svg.innerHTML = mapSVG(m, W, H, v, place, sim ? at : null, overlay); };
+  let gpu = rendererFactory?.(svg, () => redraw()) || null;
+  const draw = () => {
+    if (svg.style.display === "none") return;
+    if (gpu) {
+      if (gpu.draw(v, W, H, place)) {
+        let sea = svg.querySelector('.map-sea');
+        if (!sea) { svg.innerHTML = '<circle class="map-sea"/>'; sea = svg.firstElementChild; }
+        sea.setAttribute('cx', W / 2); sea.setAttribute('cy', H / 2); sea.setAttribute('r', v.s);
+        return;
+      }
+      gpu.destroy(); gpu = null;
+    }
+    svg.innerHTML = mapSVG(m, W, H, v, place, sim ? at : null, overlay);
+  };
   function redraw() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); }
   const size = () => {
     const zoom = v ? v.s / base0() : 1;
@@ -430,7 +443,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     if(canSim){from=(c.P1??m.t-3*3600)-600;to=(c.P4??m.t+3*3600)+600;slider.min=from;slider.max=to;}
     place = [Math.round(p[0] * 1e4) / 1e4, Math.round(p[1] * 1e4) / 1e4];
     l = canPick ? localAt(place) : null;
-    onPickPlace?.([...place]);
+    onPickPlace?.([...place], gpu?.pick?.(place[0], place[1]) ?? null);
     showLocal();
     showPrecision();
     root.querySelector(".lunar-chips").innerHTML = chips();
@@ -502,7 +515,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     return { x: ((ev.clientX - b.left) * W) / b.width, y: ((ev.clientY - b.top) * H) / b.height };
   };
   const pts = new Map();
-  let base = null, moved = false, lastTap = 0, tapPick = 0;
+  let base = null, moved = false, lastTap = 0, lastTapPoint = null, tapPick = 0;
   const start = () => { base = { v: { ...v }, pts: new Map([...pts].map(([id, p]) => [id, { ...p }])) }; };
   svg.addEventListener("pointerdown", (ev) => {
     svg.setPointerCapture(ev.pointerId);
@@ -531,12 +544,14 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   });
   const up = (ev) => {
     if (!pts.delete(ev.pointerId)) return;
+    if (svg.hasPointerCapture(ev.pointerId)) svg.releasePointerCapture(ev.pointerId);
     if (ev.type === "pointerup" && !moved && !pts.size) {
       clearTimeout(tapPick);
-      if (ev.timeStamp - lastTap < 350) { v = mapView(m, W, H); chosen = false; redraw(); lastTap = 0; } else {
-        lastTap = ev.timeStamp;
-        const q = local(ev), p = unproject(v, W, H, q.x, q.y);
-        if (p && canPick) tapPick = setTimeout(() => pick(p), 350);
+      const q = local(ev);
+      if (lastTapPoint && ev.timeStamp - lastTap < 350 && Math.hypot(q.x - lastTapPoint.x, q.y - lastTapPoint.y) < 24) { v = mapView(m, W, H); chosen = false; redraw(); lastTap = 0; lastTapPoint = null; } else {
+        lastTap = ev.timeStamp; lastTapPoint = q;
+        const p = unproject(v, W, H, q.x, q.y);
+        if (p && canPick) { if (immediatePick) pick(p); else tapPick = setTimeout(() => pick(p), 350); }
       }
     }
     start();
@@ -559,13 +574,13 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
       if (center && place) v = { ...v, lat0: place[0], lon0: place[1] };
       showLocal(); redraw();
     },
-    zoom: factor => { v = { ...v, s: clampS(v.s * factor) }; chosen = true; redraw(); },
-    reset: () => { v = mapView(m, W, H); chosen = false; redraw(); },
-    destroy: () => { lifecycle.abort(); precision?.destroy(); ++shown; observer.disconnect(); stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
+    zoom: factor => { lastTap = 0; lastTapPoint = null; v = { ...v, s: clampS(v.s * factor) }; chosen = true; redraw(); },
+    reset: () => { clearTimeout(tapPick); lastTap = 0; lastTapPoint = null; v = mapView(m, W, H); chosen = false; redraw(); },
+    destroy: () => { gpu?.destroy(); lifecycle.abort(); precision?.destroy(); ++shown; observer.disconnect(); stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
     share: () => {
       const cap = sim ? [...caption, when.textContent] : caption, name = occ ? "occultation" : "solar-eclipse";
       return osm.hidden
-        ? { root: svg, caption: cap, name }
+        ? { root: gpu?.canvas || svg, caption: cap, name }
         : { root: osm, hide: ".leaflet-control-zoom", text: ".osm-label span, .leaflet-control-attribution", caption: cap, name };
     },
   };
