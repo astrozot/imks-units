@@ -104,8 +104,11 @@ to the object. The layers button opens a single row of icon buttons to its
 left: ground, atmosphere (Sky), Milky Way, constellations, boundaries, the
 ecliptic, grids, deep-sky objects, minor planets, satellites and labels.
 Selected icons mark visible layers; ground cycles through local terrain,
-flat and off. On narrow screens the row scrolls, with the configure gear
-always visible. The gear opens the full Layers settings. Each view keeps
+flat and off. On narrow screens the whole row scrolls, including the configure gear;
+subdued arrows fade over the row’s edges to indicate available scroll
+directions without moving the icons. Sky drags and pinches leave the bar open; tapping Layers again or
+opening another panel or an object card closes it. The gear opens the full
+Layers settings. Each view keeps
 its own layers, with ground shared, and the last view used opens next
 time. Grids get finer as you zoom (30° down to 2′; RA from 2h down to
 20s), labelled along the left edge and low in the view. Star sizes follow

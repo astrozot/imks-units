@@ -34,11 +34,15 @@ try {
   const bar = page.locator('.coelum-layerbar'), rail = page.locator('[data-action="layers"]');
   const configure = page.locator('[data-action="configure-layers"]');
   const ground = page.locator('[data-toggle-layer="ground"]');
+  const leftArrow = page.locator('[data-scroll-layers="-1"]'), rightArrow = page.locator('[data-scroll-layers="1"]');
   const open = () => rail.click();
   await open();
   assert.ok(await bar.isVisible());
   assert.equal(await page.locator('.coelum-toolbar').isVisible(), false);
   assert.equal(await rail.getAttribute('aria-expanded'), 'true');
+  assert.equal(await leftArrow.isVisible(), false);
+  assert.equal(await rightArrow.isVisible(), false);
+  assert.ok(await configure.evaluate(el => el.parentElement.classList.contains('coelum-layer-toggles')));
   assert.equal(await bar.locator('[data-toggle-layer]:visible').count(), 13);
   const geometry = () => page.evaluate(() => {
     const bar = document.querySelector('.coelum-layerbar').getBoundingClientRect();
@@ -99,7 +103,53 @@ try {
     g = await geometry();
     assert.ok(g.left >= 7 && g.right < g.anchorLeft && g.delta < 1 && g.rows === 1, JSON.stringify(g));
     assert.equal(g.scroll, width < 900);
-    assert.ok(await configure.isVisible());
+    if (g.scroll) {
+      const scroller = page.locator('.coelum-layer-toggles');
+      await scroller.evaluate(el => { el.scrollLeft = 0; });
+      await page.waitForFunction(() => !document.querySelector('[data-scroll-layers="1"]').disabled && document.querySelector('[data-scroll-layers="-1"]').disabled);
+      assert.ok(await rightArrow.isVisible());
+      assert.equal(await leftArrow.isVisible(), false);
+      const groundBox = await ground.boundingBox(), rowBox = await bar.boundingBox();
+      assert.ok(Math.abs(groundBox.x - rowBox.x - 6) < 1, 'Ground starts at the left padding with no arrow gap');
+      const gearBefore = await configure.boundingBox(), viewport = await scroller.boundingBox();
+      assert.ok(gearBefore.x >= viewport.x + viewport.width, 'Configure scrolls offscreen with the other buttons');
+      let lastOpacity = 0;
+      for (const distance of [12, 36, 72]) {
+        await scroller.evaluate((el, left) => el.scrollTo({ left, behavior: 'instant' }), distance);
+        await page.waitForTimeout(220);
+        const currentGround = await ground.boundingBox(), currentStrip = await scroller.boundingBox();
+        assert.ok(Math.abs(currentGround.x + distance - groundBox.x) < 1, 'An appearing arrow never pushes the icons');
+        assert.equal(currentStrip.width, viewport.width, 'Arrows never change the scrolling viewport');
+        const opacity = await leftArrow.evaluate(el => Number(getComputedStyle(el).opacity));
+        assert.ok(opacity > lastOpacity, 'The left hint progressively fades in with scrolling');
+        lastOpacity = opacity;
+      }
+      let rightOpacity = 1;
+      for (const distance of [36, 12]) {
+        await scroller.evaluate((el, d) => el.scrollTo({ left: el.scrollWidth - el.clientWidth - d, behavior: 'instant' }), distance);
+        await page.waitForTimeout(220);
+        const opacity = await rightArrow.evaluate(el => Number(getComputedStyle(el).opacity));
+        assert.ok(opacity < rightOpacity && opacity > 0, 'The right hint progressively fades out approaching the end');
+        rightOpacity = opacity;
+      }
+      await scroller.evaluate(el => el.scrollTo({ left: 0, behavior: 'instant' }));
+      await page.waitForTimeout(220);
+      await rightArrow.click();
+      await page.waitForFunction(() => document.querySelector('.coelum-layer-toggles').scrollLeft > 1);
+      await scroller.evaluate(el => { el.scrollTo({ left: (el.scrollWidth - el.clientWidth) / 2, behavior: 'instant' }); });
+      await page.waitForFunction(() => !document.querySelector('[data-scroll-layers="1"]').disabled && !document.querySelector('[data-scroll-layers="-1"]').disabled);
+      assert.ok(await leftArrow.isVisible() && await rightArrow.isVisible());
+      await scroller.evaluate(el => { el.scrollTo({ left: el.scrollWidth, behavior: 'instant' }); });
+      await page.waitForFunction(() => document.querySelector('[data-scroll-layers="1"]').disabled && !document.querySelector('[data-scroll-layers="-1"]').disabled);
+      assert.ok(await leftArrow.isVisible());
+      assert.equal(await rightArrow.isVisible(), false);
+      const gearAfter = await configure.boundingBox(), endBox = await bar.boundingBox();
+      assert.ok(Math.abs(gearAfter.x + gearAfter.width - endBox.x - endBox.width + 6) < 1, 'Configure ends at the right padding with no arrow gap');
+      assert.ok(gearAfter.x < gearBefore.x, 'Configure moves as the row scrolls');
+    } else {
+      assert.equal(await leftArrow.isVisible(), false);
+      assert.equal(await rightArrow.isVisible(), false);
+    }
     await configure.click();
     await page.keyboard.press('Escape');
     await open();
@@ -111,19 +161,38 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(100);
   await page.screenshot({ path: '/tmp/coelum-layerbar-phone.png' });
-  // An outside gesture dismisses without selecting the sky behind it.
-  await page.locator('.coelum-full').click({ position: { x: 100, y: 100 } });
-  assert.equal(await bar.isVisible(), false);
-  await open();
+  // Sky gestures manipulate the view without dismissing the shortcut bar.
+  const cdp = await context.newCDPSession(page);
+  const skyBefore = await page.locator('.coelum-full').getAttribute('data-az');
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 120, y: 250, id: 1 }] });
+  for (let dx = 15; dx <= 90; dx += 15) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 120 + dx, y: 250, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  assert.ok(await bar.isVisible(), 'Swiping the sky keeps the bar open');
+  assert.notEqual(await page.locator('.coelum-full').getAttribute('data-az'), skyBefore, 'The sky actually pans');
+  const scaleBefore = await page.locator('.coelum-full').getAttribute('data-scale');
+  const fingers = d => [{ x: 195 - d, y: 300, id: 1 }, { x: 195 + d, y: 300, id: 2 }];
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: fingers(30) });
+  for (let d = 36; d <= 72; d += 6) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: fingers(d) });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  assert.ok(await bar.isVisible(), 'Pinching the sky keeps the bar open');
+  assert.notEqual(await page.locator('.coelum-full').getAttribute('data-scale'), scaleBefore, 'The sky actually zooms');
   const strip = page.locator('.coelum-layer-toggles');
   await strip.evaluate(el => { el.scrollLeft = 0; });
   const stripBox = await strip.boundingBox();
-  const cdp = await context.newCDPSession(page), y = stripBox.y + stripBox.height / 2;
+  const y = stripBox.y + stripBox.height / 2;
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: stripBox.x + stripBox.width - 20, y }] });
   for (let dx = 30; dx < 180; dx += 15) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: stripBox.x + stripBox.width - 20 - dx, y }] });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await page.waitForFunction(() => document.querySelector('.coelum-layer-toggles').scrollLeft > 0);
-  assert.ok(await configure.isVisible(), 'Configure stays available after swiping');
+  assert.ok(await leftArrow.isVisible(), 'The left arrow appears after swiping');
+  await configure.scrollIntoViewIfNeeded();
+  await configure.click();
+  assert.ok(await page.locator('.coelum-toolbar').isVisible(), 'Configure is reachable by scrolling');
+  await page.keyboard.press('Escape');
+  await open();
+  await page.locator('[data-action="almanac"]').click();
+  assert.equal(await bar.isVisible(), false, 'Opening another panel closes the bar immediately');
+  assert.ok(await page.locator('[data-panel="almanac"]').isVisible());
   assert.deepEqual(errors, []);
   await context.close();
   // The same shortcut also fits an embedded calculator chart.
@@ -154,6 +223,9 @@ try {
     await checkCover();
   }
   await embedded.screenshot({ path: '/tmp/coelum-layerbar-horizontal.png' });
+  await embedded.locator('.coelum-full text').filter({ hasText: /^(Vega|Regulus|Pollux|Capella|Sirius|Aldebaran|Deneb|Altair)$/ }).first().click();
+  assert.equal(await embedded.locator('.coelum-layerbar').isVisible(), false, 'Opening an object card closes the bar');
+  assert.ok(await embedded.locator('.coelum-show-detail').count());
   await embedded.close();
-  console.log('Layer shortcuts passed: toggles, configure sync, ground cycle and cancellation, view changes, keyboard dismissal, desktop/phone alignment, embedded chart.');
+  console.log('Layer shortcuts passed: toggles, configure sync, ground cycle and cancellation, view changes, keyboard dismissal, desktop/phone alignment, scroll arrows and moving configure button, embedded chart.');
 } finally { await browser?.close(); server.close(); }

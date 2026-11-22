@@ -316,8 +316,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <button type="button" class="coelum-btn" data-action="legend" data-modes="chart" aria-expanded="false" aria-controls="${id}-legend" aria-label="Legend" title="Legend">${ICONS.legend}</button>
       </div>
       <div class="coelum-layerbar coelum-hud" id="${id}-layerbar" role="group" aria-label="Sky layers" hidden>
-        <div class="coelum-layer-toggles">${LAYERS.map(([key, label, modes]) => `<button type="button" class="coelum-btn" data-toggle-layer="${key}" data-modes="${modes}" aria-label="${label}" title="${label}" aria-pressed="false">${LAYER_ICONS[key]}</button>`).join('')}</div>
+        <button type="button" class="coelum-btn coelum-layer-scroll" data-scroll-layers="-1" aria-label="Scroll layers left" title="Scroll layers left" hidden>${icon('<path d="m15 18-6-6 6-6"/>')}</button>
+        <div class="coelum-layer-toggles">${LAYERS.map(([key, label, modes]) => `<button type="button" class="coelum-btn" data-toggle-layer="${key}" data-modes="${modes}" aria-label="${label}" title="${label}" aria-pressed="false">${LAYER_ICONS[key]}</button>`).join('')}
         <button type="button" class="coelum-btn" data-action="configure-layers" aria-label="Configure layers" title="Configure layers" aria-expanded="false" aria-controls="${id}-layers">${LAYER_ICONS.configure}</button>
+        </div>
+        <button type="button" class="coelum-btn coelum-layer-scroll" data-scroll-layers="1" aria-label="Scroll layers right" title="Scroll layers right" hidden>${icon('<path d="m9 6 6 6-6 6"/>')}</button>
       </div>
       <div class="coelum-panel coelum-toolbar" id="${id}-layers" role="group" aria-label="Sky layers" hidden>
         <div class="coelum-panel-head"><h3>Layers</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close layers">${ICONS.close}</button></div>
@@ -877,6 +880,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const chosen = name && findObject(frame, name);
     if (chosen && ['minor', 'comet', 'satellite'].includes(chosen.body)) revealed.add(chosen.name);
     detailShown = Boolean(name) && details;
+    if (detailShown && !panels.layerbar.hidden) showPanel(null);
     if (!selected) { detail.innerHTML = '<p>Tap an object or its label to see its characteristics.</p>'; detailHTML = ''; }
     // the moons' view, open, turns to the system of the object chosen
     const o = moons && findObject(frame, name), system = o && (hasMoons(o) ? o.body : o.planet && planetOf(o.name));
@@ -887,11 +891,44 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   // Panels: one at a time; they keep the full-screen controls awake.
   const panels = { layerbar: $('.coelum-layerbar'), terrain: $('.coelum-terrain-panel'), layers: $('.coelum-toolbar'), legend: $('.coelum-legend'), time: $('.coelum-timepanel'), place: $('.coelum-placepanel'), map: $('.coelum-map-panel') };
   const layerButton = $('[data-action="layers"]');
+  const layerStrip = $('.coelum-layer-toggles');
+  const layerScrollLeft = $('[data-scroll-layers="-1"]'), layerScrollRight = $('[data-scroll-layers="1"]');
+  const updateLayerScroll = () => {
+    if (panels.layerbar.hidden) return;
+    const remaining = Math.max(0, layerStrip.scrollWidth - layerStrip.clientWidth);
+    const left = Math.max(0, Math.min(remaining, layerStrip.scrollLeft));
+    for (const [arrow, distance] of [[layerScrollLeft, left], [layerScrollRight, remaining - left]]) {
+      arrow.hidden = arrow.disabled = distance <= 1;
+      arrow.style.opacity = String(Math.min(1, distance / 72));
+    }
+  };
+  layerStrip.addEventListener('scroll', updateLayerScroll, { passive: true });
+  // Overlay arrows remain clickable, while a drag beginning on one scrolls
+  // the strip just like a drag beginning on an icon beneath it.
+  let layerArrowDragged = false;
+  for (const arrow of [layerScrollLeft, layerScrollRight]) {
+    let drag = null;
+    arrow.addEventListener('pointerdown', ev => {
+      if (!ev.isPrimary || ev.button !== 0) return;
+      layerArrowDragged = false;
+      drag = { id: ev.pointerId, x: ev.clientX, left: layerStrip.scrollLeft };
+      arrow.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
+    });
+    arrow.addEventListener('pointermove', ev => {
+      if (drag?.id !== ev.pointerId) return;
+      const distance = drag.x - ev.clientX;
+      if (Math.abs(distance) > 4) layerArrowDragged = true;
+      if (layerArrowDragged) layerStrip.scrollLeft = drag.left + distance;
+    });
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) arrow.addEventListener(type, () => { drag = null; });
+  }
   const positionLayerBar = () => {
     if (panels.layerbar.hidden) return;
     const viewport = $('.coelum-viewport').getBoundingClientRect(), anchor = layerButton.getBoundingClientRect();
     panels.layerbar.style.right = `${viewport.right - anchor.left + 8}px`;
     panels.layerbar.style.maxWidth = `${Math.max(0, anchor.left - viewport.left - 16)}px`;
+    updateLayerScroll();
     panels.layerbar.style.top = `${anchor.top - viewport.top + (anchor.height - panels.layerbar.offsetHeight) / 2}px`;
   };
   let placeMap = null;
@@ -920,7 +957,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     wake();
   };
   panels.map.addEventListener('cancel', (ev) => { ev.preventDefault(); showPanel(null); });
-  const dismissiblePanel = () => [panels.layerbar, panels.layers, panels.events].find((panel) => panel && !panel.hidden);
+  const dismissiblePanel = () => [panels.layers, panels.events].find((panel) => panel && !panel.hidden);
   // Consume the whole outside gesture, including its synthesized click,
   // before it reaches sky picking or another control. Listen on document
   // so Layers and Events also dismiss outside an embedded explorer.
@@ -1081,6 +1118,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         button.setAttribute('aria-busy', String(Boolean(terrainJob)));
       }
     }
+    updateLayerScroll();
     $('[data-horizon]').disabled = !surface;
     $('[data-label-size]').value = String(layers[mode].labelSize);
     $('[data-limit]').value = String(layers.chart.magnitude);
@@ -1854,6 +1892,13 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) for (const hold of controlHolds.values()) hold.cancel(); });
   root.addEventListener('click', async (ev) => {
+    const scrollLayers = ev.target.closest('[data-scroll-layers]');
+    if (scrollLayers && !scrollLayers.disabled) {
+      if (layerArrowDragged && ev.detail > 0) { layerArrowDragged = false; return; }
+      layerArrowDragged = false;
+      layerStrip.scrollBy({ left: Number(scrollLayers.dataset.scrollLayers) * Math.max(40, layerStrip.clientWidth * 0.8), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+      return;
+    }
     const toggle = ev.target.closest('[data-toggle-layer]');
     if (toggle && !toggle.disabled) {
       const key = toggle.dataset.toggleLayer;

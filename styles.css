@@ -1844,4 +1844,12 @@ body.coelum-app { background: #000; }
 .coelum-layerbar [data-toggle-layer="deep"] svg { width: 28px; height: 28px; }
 .coelum-layerbar .coelum-btn[aria-pressed="true"] { background: rgba(140, 184, 255, 0.24); color: #fff; }
 .coelum-layerbar .coelum-btn:disabled { opacity: 0.35; cursor: default; }
-@media (hover: hover) and (pointer: fine) { .coelum-layerbar .coelum-btn:not(:disabled):hover { background: var(--c-hover); } }
+@media (hover: hover) and (pointer: fine) { .coelum-layerbar .coelum-btn:not(.coelum-layer-scroll):not(:disabled):hover { background: var(--c-hover); } }
+
+/* Edge hints cover the scrolling icons without changing the row's geometry. */
+.coelum-layerbar .coelum-layer-scroll { position: absolute; z-index: 1; top: 5px; width: 30px; border-radius: 8px; background: var(--layer-scroll-background); touch-action: none; transition: opacity 180ms ease-out; }
+.coelum-layerbar [data-scroll-layers="-1"] { left: 5px; --layer-scroll-background: linear-gradient(90deg, var(--c-bg) 65%, transparent); }
+.coelum-layerbar [data-scroll-layers="1"] { right: 5px; --layer-scroll-background: linear-gradient(270deg, var(--c-bg) 65%, transparent); }
+.coelum-layerbar .coelum-layer-scroll svg { width: 18px; height: 18px; opacity: 0.65; }
+.coelum-layerbar .coelum-layer-scroll[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .coelum-layerbar .coelum-layer-scroll { transition: none; } }
