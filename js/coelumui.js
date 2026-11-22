@@ -172,7 +172,7 @@ const ICONS = {
 const LAYERS = [
   ['ground', 'Ground', 'chart sky'], ['atmosphere', 'Atmosphere', 'sky'], ['milkyway', 'Milky Way', 'chart sky'],
   ['constellations', 'Constellations', 'chart sky'], ['boundaries', 'Boundaries', 'chart sky'], ['ecliptic', 'Ecliptic', 'chart sky'],
-  ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['galactic', 'Galactic l / b grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['satellites', 'Satellites', 'chart sky'], ['labels', 'Labels', 'chart sky'],
+  ['horizontal', 'Alt / Az grid', 'chart sky'], ['equatorial', 'RA / Dec grid', 'chart sky'], ['galactic', 'Galactic l / b grid', 'chart sky'], ['deep', 'Deep sky', 'chart sky'], ['minor', 'Minor planets', 'chart sky'], ['satellites', 'Satellites', 'chart sky'], ['labels', 'Labels', 'chart sky'], ['peakNames', 'Peaks', 'sky'],
 ];
 // Layer controls use the approved 24-unit drawings at the rail’s 22 px size.
 const gridIcon = (label, tilt) => icon(`<g transform="translate(-0.5 4.5) scale(0.76)" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><g transform="rotate(${tilt} 12 12)"><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5q7 4 14 0M5 17.5q7-4 14 0"/></g></g><text x="25" y="5.5" text-anchor="end" fill="currentColor" stroke="none" font-family="system-ui, sans-serif" font-size="8.5" font-weight="700">${label}</text>`);
@@ -189,6 +189,9 @@ const LAYER_ICONS = {
   satellites: icon('<g transform="rotate(-35 12 12)"><rect x="9" y="8" width="6" height="8" rx="1"/><path d="M3 9h6v6H3ZM15 9h6v6h-6M12 8V4m-2 0h4M12 16v4"/></g>'),
   // Lucide CaseSensitive and Settings (ISC); see data/lucide-LICENSE.txt.
   labels: icon('<path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"/><path d="M22 9v7"/><path d="M3.304 13h6.392"/><circle cx="18.5" cy="12.5" r="3.5"/>'),
+  peakNames: icon('<path d="m2 21 7-10 5 7 3-5 5 8H2Z"/><circle cx="9" cy="11" r="2.7" fill="currentColor" stroke="none"/><text x="12" y="6" text-anchor="middle" fill="currentColor" stroke="none" font-family="system-ui, sans-serif" font-size="7.5" font-weight="600">Mont</text>'),
+  peakPositions: icon('<path d="m2 21 7-10 5 7 3-5 5 8H2Z"/><circle cx="9" cy="11" r="2.7" fill="currentColor" stroke="none"/>'),
+  peaksOff: icon('<path d="m2 21 7-10 5 7 3-5 5 8H2Z"/>'),
   horizontal: gridIcon('AZ', 0),
   equatorial: gridIcon('EQ', -25),
   galactic: gridIcon('GA', -60),
@@ -313,7 +316,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <button type="button" class="coelum-btn coelum-btn-text coelum-mount" data-action="mount" aria-pressed="false" aria-label="Equatorial mount" title="Alt-az: the horizon level (tap for equatorial)">AZ</button>
         <span class="coelum-rail-gap" aria-hidden="true"></span>
         ${extra.map((p) => `<button type="button" class="coelum-btn" data-action="${p.key}" aria-expanded="false" aria-controls="${id}-${p.key}" aria-label="${esc(p.label)}" title="${esc(p.label)}">${p.icon}</button>`).join('')}
-        <button type="button" class="coelum-btn" data-action="layers" aria-expanded="false" aria-controls="${id}-layerbar" aria-label="Layers" title="Layers">${ICONS.layers}</button>
+        <button type="button" class="coelum-btn" data-action="layers" aria-expanded="false" aria-controls="${id}-layerbar" aria-label="Layers" title="Layers · Hold to configure">${ICONS.layers}</button>
         <button type="button" class="coelum-btn" data-action="legend" data-modes="chart" aria-expanded="false" aria-controls="${id}-legend" aria-label="Legend" title="Legend">${ICONS.legend}</button>
       </div>
       <div class="coelum-layerbar coelum-hud" id="${id}-layerbar" role="group" aria-label="Sky layers" hidden>
@@ -328,6 +331,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-switches">${LAYERS.map(([key, label, modes]) => key === 'ground'
           // The horizon's shape sits beside the ground switch it belongs to.
           ? `<div class="coelum-ground" data-modes="${modes}"><label><input type="checkbox" role="switch" data-layer="${key}"><span>${label}</span></label><select data-horizon aria-label="Horizon"><option value="flat">Flat</option><option value="terrain">Local terrain</option></select></div>`
+          : key === 'peakNames' ? `<label class="coelum-peak-display" data-modes="${modes}"><span>Peaks</span><select data-peak-display aria-label="Peak display"><option value="labels">Positions + labels</option><option value="positions">Positions only</option><option value="off">Off</option></select></label>`
           : `<label data-modes="${modes}"><input type="checkbox" role="switch" data-layer="${key}"><span>${label}</span></label>`).join('')}</div>
         <div class="coelum-selects"><label data-modes="chart">Stars to magnitude <select data-limit>${[3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => `<option value="${n}" ${n === 6 ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label>Text size <select data-label-size><option value="14">Normal</option><option value="17">Large</option><option value="20">Larger</option></select></label></div>
         <div class="coelum-downloads" data-phone-options${orientationSupported() ? '' : ' hidden'}><h3>Phone orientation</h3>
@@ -350,7 +354,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       <div class="coelum-panel coelum-terrain-panel" id="${id}-terrain" role="group" aria-label="Terrain appearance" hidden>
         <div class="coelum-panel-head"><h3>Terrain appearance</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close terrain appearance">${ICONS.close}</button></div>
         <div class="coelum-selects"><label>Appearance <select data-terrain-setting="style"><option value="landcover">Land cover colours</option><option value="natural">Muted earth</option><option value="paper">Pale relief</option></select></label></div>
-        <div class="coelum-switches"><label><input type="checkbox" role="switch" data-terrain-setting="waterColor"><span>Blue water</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadows"><span>Terrain shadows</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadowSync"><span>Shadows in sync</span></label><label><input type="checkbox" role="switch" data-terrain-setting="outlines"><span>Ridge outlines</span></label><label><input type="checkbox" role="switch" data-terrain-setting="peakNames"><span>Peak names</span></label></div>
+        <div class="coelum-switches"><label><input type="checkbox" role="switch" data-terrain-setting="waterColor"><span>Blue water</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadows"><span>Terrain shadows</span></label><label><input type="checkbox" role="switch" data-terrain-setting="shadowSync"><span>Shadows in sync</span></label><label><input type="checkbox" role="switch" data-terrain-setting="outlines"><span>Ridge outlines</span></label><label><input type="checkbox" role="switch" data-terrain-setting="peakNames"><span>Peaks</span></label></div>
         <div class="coelum-terrain-exposure"><label>Daylight exposure <output data-terrain-output="exposure"></output><input type="range" min="-2" max="2" step="0.1" data-terrain-setting="exposure"></label><label>Night exposure <output data-terrain-output="nightExposure"></output><input type="range" min="-2" max="2" step="0.1" data-terrain-setting="nightExposure"></label></div>
         <p class="coelum-panel-note">Peak names identify visible summits from OpenStreetMap and GeoNames, placed on the terrain model’s summit nearest to each catalogued point; tap a summit or its name for elevation and distance. Coverage varies. Land cover colours come from ESA WorldCover; muted earth colours by slope only. While time runs, shadows normally catch up a moment later to keep the motion smooth; in sync, they are redrawn with every frame, at a lower frame rate on phones.</p>
         <p class="coelum-panel-note">The centre keeps the recommended brightness, including visible moonlight. Night exposure is used automatically after twilight. These options affect local terrain and are saved on this device.</p>
@@ -982,6 +986,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   }, { capture: true, signal: panelDismissal.signal });
   document.addEventListener('click', (ev) => {
     if (!root.isConnected) return;
+    // The Layers hold opens this panel during the same gesture. Consume its
+    // release click before the outside-click dismissal can close it again.
+    const hold = controlHolds.get(layerButton);
+    if (layerButton.contains(ev.target) && hold?.held) {
+      hold.held = false; ev.preventDefault(); ev.stopImmediatePropagation(); return;
+    }
     const panel = dismissiblePanel();
     if (dismissalClick || (panel && !panel.contains(ev.target))) {
       dismissalClick = false; showPanel(null);
@@ -1097,6 +1107,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     moons.view.set(moonSystem(moons.planet, t, null, observerOrigin(place) === 'topocentric' ? null : place), playing);
     moonsData();
   };
+  const peakDisplay = () => !appearance.peakNames ? 'off' : appearance.peakLabels ? 'labels' : 'positions';
   const syncLayers = () => {
     const surface = observerOrigin(place) === 'topocentric';
     for (const box of root.querySelectorAll('[data-layer]')) {
@@ -1106,8 +1117,18 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     for (const button of root.querySelectorAll('[data-toggle-layer]')) {
       const key = button.dataset.toggleLayer;
       button.disabled = !surface && ['ground', 'atmosphere', 'horizontal'].includes(key);
-      const on = !button.disabled && Boolean(layers[mode][key]);
+      const on = !button.disabled && Boolean(key === 'peakNames' ? appearance.peakNames : layers[mode][key]);
       button.setAttribute('aria-pressed', String(on));
+      if (key === 'peakNames') {
+        const state = peakDisplay(), next = state === 'labels' ? 'positions only' : state === 'positions' ? 'off' : 'positions and labels';
+        const label = `Peaks: ${state === 'labels' ? 'Positions and labels' : state === 'positions' ? 'Positions only' : 'Off'}. Next: ${next}`;
+        if (button.dataset.peakDisplay !== state) {
+          button.innerHTML = LAYER_ICONS[state === 'labels' ? 'peakNames' : state === 'positions' ? 'peakPositions' : 'peaksOff'];
+          button.dataset.peakDisplay = state;
+        }
+        button.classList.toggle('coelum-peaks-muted', !surface || !layers.sky.ground || horizon !== 'terrain');
+        button.title = label; button.setAttribute('aria-label', label);
+      }
       if (key === 'ground') {
         const shape = terrainJob ? 'terrain' : horizon;
         const state = on ? shape === 'terrain' ? 'Local terrain' : 'Flat' : 'Off';
@@ -1121,6 +1142,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       }
     }
     updateLayerScroll();
+    $('select[data-peak-display]').value = peakDisplay();
     $('[data-horizon]').disabled = !surface;
     $('[data-label-size]').value = String(layers[mode].labelSize);
     $('[data-limit]').value = String(layers.chart.magnitude);
@@ -1225,6 +1247,12 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   let terrainJob = null, terrainNamesJob = null, terrainRestoreSerial = 0;
   const cancelTerrainNames = () => { terrainNamesJob?.abort(); terrainNamesJob = null; if (terrainNames?.status === 'loading') terrainNames = null; };
   const cancelTerrain = () => { terrainRestoreSerial++; terrainJob?.abort(); terrainJob = null; cancelTerrainNames(); };
+  const choosePeakDisplay = (state) => {
+    appearance = terrainAppearance({ ...appearance, peakNames: state !== 'off', peakLabels: state === 'labels' });
+    appearanceControls(); applyHorizon(); syncLayers(); draw();
+    if (appearance.peakNames) void loadCurrentTerrainNames(); else cancelTerrainNames();
+    showTerrain();
+  };
   const appearanceControls = () => {
     for (const el of root.querySelectorAll('[data-terrain-setting]')) {
       const key = el.dataset.terrainSetting;
@@ -1236,8 +1264,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   root.addEventListener('input', ev => {
     const key = ev.target.dataset.terrainSetting;
     if (!key) return;
-    appearance = terrainAppearance({ ...appearance, [key]: ev.target.type === 'checkbox' ? ev.target.checked : ev.target.type === 'range' ? Number(ev.target.value) : ev.target.value });
-    appearanceControls(); applyHorizon(); draw();
+    appearance = terrainAppearance({ ...appearance, ...(key === 'peakNames' && ev.target.checked ? { peakLabels: true } : {}), [key]: ev.target.type === 'checkbox' ? ev.target.checked : ev.target.type === 'range' ? Number(ev.target.value) : ev.target.value });
+    appearanceControls(); applyHorizon(); syncLayers(); draw();
     if (key === 'peakNames') { if (appearance.peakNames) void loadCurrentTerrainNames(); else cancelTerrainNames(); showTerrain(); }
   });
   const showTerrain = (text) => {
@@ -1793,6 +1821,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (ev.target.matches('[data-catalog-select]')) { if (ev.target.value) void changeFaintCatalog(ev.target.value); return; }
     if (ev.target.matches('input[data-download]')) { void changeFaintCatalog(ev.target.value); return; }
     const L = layers[mode];
+    if (ev.target.matches('select[data-peak-display]')) { choosePeakDisplay(ev.target.value); return; }
     if (ev.target.matches('[data-moon-size]')) {
       moonSize = ev.target.value === 'actual' ? 'actual' : 'magnitude';
       try { localStorage.setItem('imks-coelum-moon-size', moonSize); } catch { /* private mode */ }
@@ -1834,14 +1863,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resetButton.addEventListener('contextmenu', (ev) => { ev.preventDefault(); });
   // A hold performs one action; the release must not also trigger a tap.
   const controlHolds = new Map();
-  for (const action of ['play', 'back', 'forward', 'reverse', 'in', 'out', 'mount']) {
+  for (const action of ['play', 'back', 'forward', 'reverse', 'in', 'out', 'mount', 'layers']) {
     const button = $(`[data-action="${action}"]`);
     const state = { timer: 0, pointer: null, held: false, tapped: false, start: null, animation: 0 };
     controlHolds.set(button, state);
     const cancel = () => { clearTimeout(state.timer); cancelAnimationFrame(state.animation); state.animation = 0; state.timer = 0; state.pointer = null; };
     state.cancel = cancel;
     const hint = action === 'in' ? 'brighten stars continuously' : action === 'out' ? 'dim stars continuously' : action === 'play' ? 'go to now' : action === 'reverse' ? 'undo the last time jump' : action === 'back' ? 'go one day earlier' : 'go one day later';
-    if (action !== 'mount') button.title += ` · Hold to ${hint}`;
+    if (!['mount', 'layers'].includes(action)) button.title += ` · Hold to ${hint}`;
     button.addEventListener('pointerdown', (ev) => {
       if (!ev.isPrimary || ev.button !== 0) return;
       cancel(); state.held = false; state.tapped = false; state.pointer = ev.pointerId;
@@ -1849,6 +1878,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       state.timer = setTimeout(() => {
         state.held = true; cancel();
         if (!root.isConnected) return;
+        if (action === 'layers') {
+          showPanel('layers');
+          panels.layers.querySelector('[data-action="close-panel"]').focus({ preventScroll: true });
+          return;
+        }
         if (action === 'mount') {
           const next = nextMount(), observer = next === 'altaz';
           layers.chart.ground = layers.sky.ground = layers.sky.atmosphere = observer;
@@ -1910,6 +1944,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
           void chooseHorizon('terrain');
         } else if (terrainJob || horizon === 'terrain') void chooseHorizon('flat');
         else layers.chart.ground = layers.sky.ground = false;
+      } else if (key === 'peakNames') {
+        choosePeakDisplay(peakDisplay() === 'labels' ? 'positions' : peakDisplay() === 'positions' ? 'off' : 'labels');
+        return;
       } else {
         const box = $(`[data-layer="${key}"]`);
         box.checked = !layers[mode][key];
@@ -1948,7 +1985,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (terrainAction === 'refresh') { chooseHorizon('terrain', true); return; }
     if (terrainAction === 'cancel') { cancelTerrain(); syncLayers(); showTerrain(); return; }
     if (terrainAction === 'names') { void loadCurrentTerrainNames(true); return; }
-    if (terrainAction === 'defaults') { appearance = terrainAppearance(TERRAIN_DEFAULTS); appearanceControls(); applyHorizon(); draw(); void loadCurrentTerrainNames(); showTerrain(); return; }
+    if (terrainAction === 'defaults') { appearance = terrainAppearance(TERRAIN_DEFAULTS); appearanceControls(); applyHorizon(); syncLayers(); draw(); void loadCurrentTerrainNames(); showTerrain(); return; }
     if (terrainAction === 'forget') { cancelTerrain(); void forgetTerrain([...place]); forgetHorizon(place); terrainSurface = null; terrainNames = null; setTerrain(null); chooseHorizon('flat'); return; }
     const viewButton = ev.target.closest('[data-view]');
     if (viewButton) { setMode(viewButton.dataset.view); return; }

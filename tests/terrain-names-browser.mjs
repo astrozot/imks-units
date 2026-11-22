@@ -63,7 +63,7 @@ try {
     const view = { az: 0, alt: 10, scale: 1.5, labelHistory: new Map() }, ctx = canvas.getContext('2d');
     const shown = skyScene(frame, 900, 600, layers, view, ctx);
     const refracted = skyScene(frame, 900, 600, { ...layers, atmosphere: true }, view, ctx);
-    const hidden = ['peakNames', 'ground', 'labels'].map(key => {
+    const hidden = ['peakNames', 'ground'].map(key => {
       const opts = key === 'peakNames' ? { ...layers, terrainAppearance: { ...layers.terrainAppearance, peakNames: false } } : { ...layers, [key]: false };
       return skyScene(frame, 900, 600, opts, view, ctx).terrainFeatures.length;
     });
@@ -82,7 +82,7 @@ try {
   assert.equal(result.visible, 1, 'A visible surface point can be below the sky horizon');
   assert.equal(result.labels[0]?.name, 'terrain:geonames:1', 'Labels retain a pickable terrain key');
   assert.deepEqual(result.position, result.refracted, 'Astronomical refraction does not move the terrestrial anchor');
-  assert.deepEqual(result.hidden, [0, 0, 0]);
+  assert.deepEqual(result.hidden, [0, 0]);
   assert.ok(result.bufferLength > 1000, 'Worker calculation does not detach the renderer buffers');
   assert.equal(requests, 2, 'Only the index and nearby tile were downloaded, with no requests during camera movement');
   await page.evaluate(async () => { await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready; });

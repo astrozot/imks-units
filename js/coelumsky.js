@@ -376,7 +376,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   // Terrestrial features are already occlusion-tested against the mesh.
   // Project them directly, bypassing astronomical refraction and sky clipping.
   const terrainFeatures = [];
-  if (surface && opts.terrainAppearance?.peakNames !== false && opts.labels) {
+  if (surface && sun.alt >= -6 && opts.terrainAppearance?.peakNames !== false) {
     // Skyline summits first, then the highest: what a person names first.
     // A first pass takes the best two per screen column, so a distant high
     // range does not take every label from the rest of the panorama.
@@ -396,7 +396,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     p.circle(feature.x, feature.y, chosen ? 3 : 2, { fill: '#ffdf9e', stroke: '#17202b', width: 1 });
     // Bilingual OSM names ("Königspitze - Gran Zebrù"): the first on the
     // label, both in the details.
-    labels.push({ ...feature, name: feature.name.split(/ - | \/ /)[0] || feature.name, size: opts.labelSize, color: '#ffdf9e', r: 3, priority: chosen ? -1 : 3, important: true, up: true, mag: rank });
+    if (opts.terrainAppearance?.peakLabels !== false) labels.push({ ...feature, name: feature.name.split(/ - | \/ /)[0] || feature.name, size: opts.labelSize, color: '#ffdf9e', r: 3, priority: chosen ? -1 : 3, important: true, up: true, mag: rank });
     if (chosen) reticle(p, feature.x, feature.y, 5, '#ffdf9e');
   }
   surfaceFeatures.push(...terrainFeatures);
@@ -407,9 +407,10 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     binaryCenterSymbol(p,q.x,q.y); objects.push({...o,...q,radius:4});
   }
   let hitLabels = [];
-  if (opts.labels || surfaceFeatures.some((f) => f.key === view.selected)) {
+  const visibleLabels = opts.labels ? labels : labels.filter(l => l.key?.startsWith('terrain:') || l.key && l.key === view.selected);
+  if (visibleLabels.length) {
     ctx.shadowColor = '#000c'; ctx.shadowBlur = 3;
-    hitLabels = placeLabels(opts.labels ? labels : labels.filter((l) => l.key === view.selected), {
+    hitLabels = placeLabels(visibleLabels, {
       W, H, size: opts.labelSize, symbols, history: view.labelHistory,
       draw: (l, x, y) => {
         ctx.font = fontFor(l.size || opts.labelSize); ctx.textAlign = 'left';

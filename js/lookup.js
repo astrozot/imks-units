@@ -339,13 +339,42 @@ async function fetchObject(name) {
 async function fetchPlace(name) {
   let found;
   try {
-    found = JSON.parse(await fetchText(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(name)}`));
+    found = JSON.parse(await fetchText(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&extratags=1&q=${encodeURIComponent(name)}`));
   } catch (e) {
     throw unreachable("OpenStreetMap", e);
   }
   if (!found.length) throw new Error(`"${name}" is not known to OpenStreetMap`);
-  const lat = Number(found[0].lat), lon = Number(found[0].lon);
-  return [placeKey(name), { name: found[0].display_name, lat, lon, h: await fetchElevation(lat, lon) }];
+  // A province can outrank its namesake city. Keep the provider's order for
+  // ambiguous names and addresses, but prefer the same-named settlement.
+  const settlements = new Set(['city', 'town', 'village', 'hamlet']);
+  let result = found[0];
+  if (placeKey(name.split(',')[0]) === placeKey(result.name || '')) {
+    const bounds = result.boundingbox?.map(Number);
+    result = found.find(p => placeKey(p.name || '') === placeKey(result.name) && settlements.has(p.addresstype) &&
+      (!bounds || Number(p.lat) >= bounds[0] && Number(p.lat) <= bounds[1] && Number(p.lon) >= bounds[2] && Number(p.lon) <= bounds[3])) || result;
+  }
+  let lat = Number(result.lat), lon = Number(result.lon);
+  // An unlinked municipal boundary has an arbitrary point inside its area,
+  // not the inhabited centre (e.g. Carisolo's point is 7 km up a mountain).
+  // Photon also indexes the separate OSM place node. Restrict the correction
+  // to this boundary and exact name so a namesake elsewhere cannot win.
+  if ((result.category || result.class) === 'boundary' && settlements.has(result.addresstype) && !result.extratags?.linked_place) {
+    try {
+      const data = JSON.parse(await fetchText(`https://photon.komoot.io/api/?q=${encodeURIComponent(name)}&limit=10&osm_tag=place`));
+      const [south, north, west, east] = result.boundingbox.map(Number);
+      const centre = data.features?.find(f => {
+        const p = f.properties, [x, y] = f.geometry?.coordinates || [];
+        return p?.osm_key === 'place' && settlements.has(p.osm_value) && placeKey(p.name || '') === placeKey(result.name || '') &&
+          x >= west && x <= east && y >= south && y <= north;
+      });
+      if (!centre) throw new Error('No settlement centre was found');
+      [lon, lat] = centre.geometry.coordinates;
+    } catch (e) {
+      throw new Error(`Could not resolve the inhabited centre of "${name}" (${e.message}). Try a street address or coordinates`);
+    }
+  }
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Invalid place coordinates');
+  return [placeKey(name), { name: result.display_name, lat, lon, h: await fetchElevation(lat, lon) }];
 }
 
 // the elevation of the terrain (m), from the Copernicus model (90 m)

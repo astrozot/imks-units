@@ -102,13 +102,14 @@ Flamsteed number, HIP, HD and HR numbers), planets, deep-sky objects (also
 by their other names, as "Andromeda Galaxy") and constellations, and flies
 to the object. The layers button opens a single row of icon buttons to its
 left: ground, atmosphere (Sky), Milky Way, constellations, boundaries, the
-ecliptic, grids, deep-sky objects, minor planets, satellites and labels.
+ecliptic, grids, deep-sky objects, minor planets, satellites, labels and peak labels (Sky).
 Selected icons mark visible layers; ground cycles through local terrain,
 flat and off. On narrow screens the whole row scrolls, including the configure gear;
 subdued arrows fade over the row’s edges to indicate available scroll
 directions without moving the icons. Sky drags and pinches leave the bar open; tapping Layers again or
 opening another panel or an object card closes it. The gear opens the full
-Layers settings. Each view keeps
+Layers settings; holding the Layers button opens them directly. On small screens,
+the settings keep two columns with truncated labels and padding at both sides. Each view keeps
 its own layers, with ground shared, and the last view used opens next
 time. Grids get finer as you zoom (30° down to 2′; RA from 2h down to
 20s), labelled along the left edge and low in the view. Star sizes follow
@@ -141,7 +142,13 @@ it increases surface memory and can make shadow-regenerating light updates slowe
 shadows on, ridge outlines off, both exposure controls centred. The centred day and night settings retain the
 reviewed brightness independently, with night exposure applied automatically after twilight. Preferences are saved on the device.
 
-**Peak names** in Terrain appearance labels visible summits in the Sky view.
+**Peaks** in Layers and its mountain icon in the Layers bar cycle through
+positions with labels, positions only, and off, independently of the sky Labels switch.
+The icon shows tiny summit text, a summit dot, or an unselected mountain;
+its lines turn grey when local terrain is not displayed.
+The **Peaks** switch in Terrain appearance also turns summits on or off.
+Markers and names hide when the Sun is below −6° (civil dusk), and return
+at civil dawn if enabled.
 Names come from a static, geographically tiled [catalog](data/terrain-names/README.md)
 merging OpenStreetMap (preferred: denser, surveyed positions; © OpenStreetMap
 contributors, ODbL) with GeoNames (CC BY 4.0) where OSM has nothing nearby.
@@ -157,7 +164,7 @@ elevation (when known), distance, bearing and source. Labels use the terrain
 surface's height and projection, including terrestrial refraction, and stay
 above their summit with a leader when crowded; skyline summits and higher
 ones are labelled first, more as you zoom. The sightline work runs in a
-worker; camera movement reuses its results. Turn off Peak names or Labels to
+worker; camera movement reuses its results. Set Peaks to Off (or turn off Peaks in Terrain appearance) to
 hide them. **Download peak names** updates the catalog without rebuilding
 the terrain; name failures leave the terrain usable. The bounded name cache
 retains up to 48 geographic tiles. Named ranges, valleys and lakes are not
@@ -1094,6 +1101,11 @@ skips without it.
 
 `node tests/places.mjs` checks online search, selection and offline reuse in
 the Places modal, using the same Playwright and Chromium options.
+`node tests/place-lookup.mjs` checks settlement selection over namesake
+administrative areas, including Carisolo's separate village node and Rieti's
+city centre. Unlinked municipal boundaries are resolved through Photon's OSM
+place nodes within the selected boundary; an unresolved centre asks for an
+address or coordinates rather than choosing an arbitrary point in the area.
 
 `node tests/history.mjs` checks history search, pinning, persistence and backup
 compatibility, using the same Playwright and Chromium options.
@@ -1121,6 +1133,7 @@ Terrain integration checks:
 ```sh
 node tests/terrain.mjs
 node tests/terrain-quality.mjs
+PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/chromium node tests/terrain-fallback-browser.mjs
 PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/chromium node tests/terrain-quality-browser.mjs
 PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/chromium node tests/terrain-browser.mjs
 ```
@@ -1130,6 +1143,10 @@ same integration checks in Safari's engine. They cover worker generation,
 explicit height cache keys, cancellation, offline reload, shared Coelum/iMKS
 storage, and the June 21, 2026 20:35 UTC twilight-lighting regression. The
 terrain lab in `tools/terrain-lab` remains available for source comparisons.
+Sparse DEM coverage, including missing offshore tiles around Rieti, uses
+lower source zooms until a complete baseline covers the panorama. Expected
+404s are recorded separately from download errors; missing land is never
+silently replaced with an assumed sea-level height.
 
 
 Terrain shadow and water regression checks:

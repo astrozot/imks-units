@@ -10,17 +10,17 @@ import { terrainDrawGroups } from './terrainlighting.js';
 self.onmessage = async ({ data }) => {
   try {
     const started = performance.now(), { place } = data;
-    const tiles = new Map(), jobs = tilesFor(place, PANORAMA_RINGS, 150000), requested = jobs.length, errors = [];
-    let done = 0, bytes = 0;
+    const tiles = new Map(), jobs = tilesFor(place, PANORAMA_RINGS, 150000), errors = [], unavailable = [];
+    let requested = jobs.length, done = 0, bytes = 0;
     // Tiles kept from earlier builds nearby are not downloaded again.
     const store = terrainTileStore();
     const progress = (text, fraction) => self.postMessage({ type: 'progress', text, fraction });
-    await Promise.all(Array.from({ length: 4 }, async () => {
+    const download = async jobs => Promise.all(Array.from({ length: 4 }, async () => {
       while (jobs.length) {
         const [z, x, y] = jobs.shift();
         try {
           const response = await store.fetch(providers.mapterhorn.url(z, x, y));
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status}`), { unavailable: response.status === 404 });
           const blob = await response.blob(); bytes += blob.size;
           const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
           const size = bitmap.width;
@@ -40,10 +40,20 @@ self.onmessage = async ({ data }) => {
           const scale = Math.max(1/256, (hi - lo) / 65534), offset = Number.isFinite(lo) ? lo : 0;
           for (let i = 0; i < h.length; i++) h[i] = Number.isNaN(values[i]) ? 65535 : Math.round((values[i] - offset) / scale);
           tiles.set(`${z}/${x}/${y}`, { size, h, scale, offset, noData:65535 });
-        } catch (e) { errors.push({ z, x, y, message: e.message }); }
+        } catch (e) { (e.unavailable ? unavailable : errors).push({ z, x, y, message: e.message }); }
         ++done; progress(store.stats.fetched ? `Downloading terrain… ${done}/${requested} tiles · ${(store.stats.bytes / 1e6).toFixed(1)} MB${store.stats.cached ? ` (${store.stats.cached} already saved)` : ''}` : `Reading saved terrain… ${done}/${requested} tiles`, done / requested * .65);
       }
     }));
+    await download(jobs);
+    // Sparse coverage includes absent open-sea tiles at the outermost zoom,
+    // not just missing high-resolution regional data. Load lower whole-area
+    // levels until a complete baseline is available. Never invent zero heights
+    // for a 404: coastal tiles and land retain the provider's own elevations.
+    for (let z = PANORAMA_RINGS.at(-1)[0] - 1; z >= 0 && unavailable.some(t => t.z === z + 1); z--) {
+      const baseline = tilesFor(place, [[z, 150000]], 150000);
+      requested += baseline.length;
+      await download(baseline);
+    }
     if (errors.length > requested / 4) throw new Error('Could not download enough terrain. Check your connection');
     const sample = tileSampler(tiles, false, true), pointGround = sample(place[0], place[1], 14);
     if (pointGround === null) throw new Error('Elevation at this viewpoint is unavailable');
@@ -85,7 +95,7 @@ self.onmessage = async ({ data }) => {
       // Standing in water only if the DEM at the observer lies at that level.
       const centre = result.maps[0], level = centre.levels[(centre.size >> 1) * centre.size + (centre.size >> 1)] + eye;
       waterMetrics.observer = Number.isFinite(level) && Math.abs(pointGround - level) < WATER_TOLERANCE ? (Math.abs(level) < WATER_TOLERANCE ? 'ocean' : 'lake') : null; }
-    const surface = { version: TERRAIN_SURFACE_VERSION, place, eye, pointGround, profile: horizon, meshes, metrics: { source: 'Mapterhorn', geometryRevision:TERRAIN_GEOMETRY_REVISION,eyeHeight:EYE_HEIGHT,gridTexels:meshes.reduce((s,m)=>s+m.grid.heights.length,0), divisions, angularError, denseTriangles, water:waterMetrics, landCover:coverMetrics, bytes, tiles: tiles.size, requested, errors, downloaded: store.stats.bytes, cachedTiles: store.stats.cached, loadMs, buildMs: performance.now() - started - loadMs, triangles: meshes.reduce((s,m)=>s+m.indices.length/3,0), vertices: meshes.reduce((s,m)=>s+m.positions.length/3,0), missingVertices, samplingCoverage: sample.stats, sourceUrl: 'https://mapterhorn.com/attribution/', nearField, radius:150000 } };
+    const surface = { version: TERRAIN_SURFACE_VERSION, place, eye, pointGround, profile: horizon, meshes, metrics: { source: 'Mapterhorn', geometryRevision:TERRAIN_GEOMETRY_REVISION,eyeHeight:EYE_HEIGHT,gridTexels:meshes.reduce((s,m)=>s+m.grid.heights.length,0), divisions, angularError, denseTriangles, water:waterMetrics, landCover:coverMetrics, bytes, tiles: tiles.size, requested, errors, unavailable, downloaded: store.stats.bytes, cachedTiles: store.stats.cached, loadMs, buildMs: performance.now() - started - loadMs, triangles: meshes.reduce((s,m)=>s+m.indices.length/3,0), vertices: meshes.reduce((s,m)=>s+m.positions.length/3,0), missingVertices, samplingCoverage: sample.stats, sourceUrl: 'https://mapterhorn.com/attribution/', nearField, radius:150000 } };
     if (surface.metrics.missingVertices) throw new Error('Terrain surface coverage is incomplete. Try again when online');
     await store.commit();
     self.postMessage({ type:'ready', surface }, [surface.profile.buffer, ...meshes.flatMap(m=>[m.positions.buffer,m.indices.buffer,m.grid.heights.buffer,...(m.water?[m.water.levels.buffer]:[]),...(m.cover?[m.cover.classes.buffer]:[])])]);

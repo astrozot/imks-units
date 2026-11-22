@@ -36,6 +36,17 @@ try {
   const ground = page.locator('[data-toggle-layer="ground"]');
   const leftArrow = page.locator('[data-scroll-layers="-1"]'), rightArrow = page.locator('[data-scroll-layers="1"]');
   const open = () => rail.click();
+  // Holding Layers opens settings directly; release must leave them open.
+  const anchor = await rail.boundingBox();
+  await page.mouse.move(anchor.x + anchor.width / 2, anchor.y + anchor.height / 2);
+  await page.mouse.down(); await page.waitForTimeout(900); await page.mouse.up();
+  assert.ok(await page.locator('.coelum-toolbar').isVisible());
+  assert.equal(await bar.isVisible(), false);
+  await page.keyboard.press('Escape');
+  // Moving away cancels a pending hold.
+  await page.mouse.down(); await page.mouse.move(anchor.x - 30, anchor.y - 30);
+  await page.waitForTimeout(900); await page.mouse.up();
+  assert.equal(await page.locator('.coelum-toolbar').isVisible(), false);
   await open();
   assert.ok(await bar.isVisible());
   assert.equal(await page.locator('.coelum-toolbar').isVisible(), false);
@@ -43,7 +54,7 @@ try {
   assert.equal(await leftArrow.isVisible(), false);
   assert.equal(await rightArrow.isVisible(), false);
   assert.ok(await configure.evaluate(el => el.parentElement.classList.contains('coelum-layer-toggles')));
-  assert.equal(await bar.locator('[data-toggle-layer]:visible').count(), 13);
+  assert.equal(await bar.locator('[data-toggle-layer]:visible').count(), 14);
   const geometry = () => page.evaluate(() => {
     const bar = document.querySelector('.coelum-layerbar').getBoundingClientRect();
     const anchor = document.querySelector('[data-action="layers"]').getBoundingClientRect();
@@ -62,6 +73,24 @@ try {
     assert.ok(await bar.isVisible(), 'Toggling leaves the bar open');
     await button.click();
   }
+  const peaks = page.locator('[data-toggle-layer="peakNames"]'), peakChoice = page.locator('select[data-peak-display]');
+  assert.equal(await peaks.getAttribute('data-peak-display'), 'labels');
+  assert.ok(await peaks.locator('svg text').count(), 'Label icon uses tiny text without a box');
+  const peakIcons = new Set();
+  for (const state of ['positions', 'off', 'labels']) {
+    await peaks.click();
+    assert.equal(await peaks.getAttribute('data-peak-display'), state);
+    assert.equal(await peaks.locator('svg circle').count(), state === 'off' ? 0 : 1, 'Both enabled states show the summit dot');
+    assert.equal(await peaks.locator('svg text').count(), state === 'labels' ? 1 : 0, 'Only the labels state shows summit text');
+    assert.equal(await peakChoice.inputValue(), state);
+    assert.equal(await peaks.getAttribute('aria-pressed'), String(state !== 'off'));
+    peakIcons.add(await peaks.innerHTML());
+    assert.ok(await peaks.evaluate(el => el.classList.contains('coelum-peaks-muted')), 'Peaks are grey without local terrain');
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('imks-coelum-terrain-appearance-v3')));
+    assert.equal(saved.peakNames, state !== 'off');
+    assert.equal(saved.peakLabels, state === 'labels');
+  }
+  assert.equal(peakIcons.size, 3, 'Each peak display state has its own mountain icon');
   // Flat -> off -> terrain; click again while downloading to cancel into flat.
   assert.match(await ground.getAttribute('aria-label'), /Ground: Flat/);
   await ground.click();
@@ -80,6 +109,9 @@ try {
   await configure.click();
   assert.equal(await bar.isVisible(), false);
   assert.ok(await page.locator('.coelum-toolbar').isVisible());
+  await peakChoice.selectOption('positions');
+  assert.equal(await peaks.getAttribute('data-peak-display'), 'positions', 'Settings synchronize the shortcut');
+  await peakChoice.selectOption('labels');
   assert.equal(await page.locator('[data-layer="ground"]').isChecked(), false);
   await page.locator('[data-layer="ground"]').check();
   await page.locator('[data-layer="constellations"]').uncheck();
@@ -163,6 +195,16 @@ try {
       assert.equal(await rightArrow.isVisible(), false);
     }
     await configure.click();
+    const layout = await page.locator('.coelum-toolbar > .coelum-switches').evaluate(el => {
+      const panel = el.closest('.coelum-panel').getBoundingClientRect();
+      return { overflow: el.scrollWidth > el.clientWidth, rows: [...el.children].filter(c => c.getClientRects().length).map(c => {
+        const r = c.getBoundingClientRect(); return { left: r.left - panel.left, right: panel.right - r.right };
+      }), truncated: [...el.querySelectorAll('label > span')].some(s => s.scrollWidth > s.clientWidth) };
+    });
+    assert.equal(layout.overflow, false, JSON.stringify(layout));
+    assert.ok(layout.rows.every(r => r.left >= 14 && r.right >= 14), JSON.stringify(layout));
+    if (width <= 390) assert.ok(layout.truncated, 'Narrow labels truncate within their columns');
+    if (width === 390) await page.locator('.coelum-toolbar').screenshot({ path: '/tmp/coelum-layers-settings-phone.png' });
     await page.keyboard.press('Escape');
     await open();
   }
@@ -173,8 +215,15 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(100);
   await page.screenshot({ path: '/tmp/coelum-layerbar-phone.png' });
-  // Sky gestures manipulate the view without dismissing the shortcut bar.
   const cdp = await context.newCDPSession(page);
+  const touchAnchor = await rail.boundingBox();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: touchAnchor.x + touchAnchor.width / 2, y: touchAnchor.y + touchAnchor.height / 2, id: 1 }] });
+  await page.waitForTimeout(900);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  assert.ok(await page.locator('.coelum-toolbar').isVisible(), 'Touch hold opens settings and leaves them open after release');
+  await page.keyboard.press('Escape');
+  await open();
+  // Sky gestures manipulate the view without dismissing the shortcut bar.
   const skyBefore = await page.locator('.coelum-full').getAttribute('data-az');
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 120, y: 250, id: 1 }] });
   for (let dx = 15; dx <= 90; dx += 15) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 120 + dx, y: 250, id: 1 }] });

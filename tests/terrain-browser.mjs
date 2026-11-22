@@ -40,6 +40,7 @@ try{
  await page.click('[data-action="layers"]');
  const groundButton=page.locator('[data-toggle-layer="ground"]');
  assert.match(await groundButton.getAttribute('aria-label'),/Ground: Local terrain/);
+ assert.equal(await page.locator('[data-toggle-layer="peakNames"]').evaluate(el=>el.classList.contains('coelum-peaks-muted')),false,'Peak lines are bright when local terrain is displayed');
  await groundButton.click();assert.match(await groundButton.getAttribute('aria-label'),/Ground: Flat/);
  await groundButton.click();assert.equal(await groundButton.getAttribute('aria-pressed'),'false');
  await groundButton.click();assert.match(await groundButton.getAttribute('aria-label'),/Ground: Local terrain/);
@@ -119,6 +120,8 @@ try{
  // Playback draws once per display frame, also while shadows update over
  // several frames (their redraw request once doubled every frame).
  await page.goto(origin+'/coelum/');await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true',null,{timeout:30000});
+ // Name restoration redraws when it completes; finish loading before timing playback.
+ await page.waitForFunction(()=>/Peak names: \d+ visible/.test(document.querySelector('.coelum-terrain-note').textContent),null,{timeout:30000});
  const perFrame=await page.evaluate(async()=>{const c=document.querySelector('.coelum-canvas'),steps=[];let prev=+c.dataset.frame;
   document.querySelector('[data-action="play"]').click();
   await new Promise(res=>{let n=0;const f=()=>{const v=+c.dataset.frame;steps.push(v-prev);prev=v;if(++n<120)requestAnimationFrame(f);else res();};requestAnimationFrame(f);});
@@ -127,6 +130,7 @@ try{
  // The Place panel shows the ground elevation and accepts a new one.
  await page.unroute('https://tiles.mapterhorn.com/**');await page.route('https://tiles.mapterhorn.com/**',respond);
  await page.goto(origin+'/coelum/');await page.waitForSelector('.coelum-full');
+ await page.mouse.move(120,250); // Wake controls after terrain restoration.
  await page.click('[data-action="place"]');
  assert.equal(await page.locator('[data-place-elevation]').inputValue(),'90');
  await page.fill('[data-place-elevation]','123.5');await page.press('[data-place-elevation]','Enter');
@@ -138,6 +142,33 @@ try{
  await page.waitForFunction(()=>document.querySelector('.coelum-canvas').dataset.terrainSurface==='true'&&/Saved for offline/.test(document.querySelector('.coelum-terrain-note').textContent),null,{timeout:120000});
  assert.equal(await page.evaluate(async()=>(await (await import('/js/skyterrain.js')).restoreTerrain([45.89617,10.84333,123.5]))?.eye),125.5);
  assert.equal(requests,downloaded,'A rebuild nearby reuses the saved tiles');
+ // Civil twilight gates summit dots and names independently of sky labels.
+ const peakVisibility=await page.evaluate(async()=>{
+  const {releaseTerrainRaster}=await import('/js/terrainraster.js');
+  const {skyScene}=await import('/js/coelumsky.js'),{skyFrame}=await import('/js/coelum.js'),{restoreTerrain}=await import('/js/skyterrain.js');
+  const place=[45.89617,10.84333,90],surface=await restoreTerrain(place),frame=skyFrame(Date.parse('2026-06-21T12:00Z')/1000,place);
+  const c=document.createElement('canvas');c.width=390;c.height=844;const ctx=c.getContext('2d'),names=[];
+  const fill=ctx.fillText.bind(ctx);ctx.fillText=(text,...args)=>{if(text==='Test summit')names.push(text);fill(text,...args);};
+  const feature={key:'terrain:test',name:'Test summit',vector:[0,Math.cos(.2),Math.sin(.2)],elevation:2000,distance:1000};
+  const layers={ground:true,horizon:'terrain',terrainSurface:surface,terrainFeatures:[feature],labels:false,terrainAppearance:{peakNames:true}};
+  const counts=[];
+  for(const alt of [-5.999,-6,-6.001,-20,-6.001,-6,-5.999]){
+   frame.bodies[0].alt=alt;names.length=0;
+   const scene=skyScene(frame,390,844,layers,{az:0,alt:10,scale:1,selected:'terrain:test'},ctx);
+   counts.push({alt,dots:scene.terrainFeatures.length,names:names.length});
+  }
+  layers.terrainAppearance.peakLabels=false;names.length=0;
+  const positions=skyScene(frame,390,844,layers,{az:0,alt:10,scale:1,selected:'terrain:test'},ctx).terrainFeatures.length;
+  const positionNames=names.length;
+  layers.terrainAppearance.peakNames=false;
+  const off=skyScene(frame,390,844,layers,{az:0,alt:10,scale:1},ctx).terrainFeatures.length;
+  releaseTerrainRaster(ctx);
+  return {counts,off,positions,positionNames};
+ });
+ for(const reading of peakVisibility.counts){assert.equal(reading.dots,reading.alt>=-6?1:0,JSON.stringify(reading));assert.equal(reading.names,reading.alt>=-6?1:0,JSON.stringify(reading));}
+ assert.equal(peakVisibility.positions,1,'Positions-only mode keeps summit markers');
+ assert.equal(peakVisibility.positionNames,0,'Positions-only mode hides even selected summit names');
+ assert.equal(peakVisibility.off,0,'Peak labels switch hides summit markers in daylight');
  assert.deepEqual(errors,[]);console.log(JSON.stringify({status:'passed',tiles:downloaded,offline:true,sharedWithIMKS:true,lighting}));
  await context.close();
 }finally{await browser.close();await new Promise(r=>server.close(r));}

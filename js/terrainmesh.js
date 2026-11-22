@@ -2,9 +2,9 @@
 import { EARTH, RAD, destination } from './terrainmodel.js';
 export const PANORAMA_RINGS = [[14, 1000], [14, 4000], [12, 16000], [11, 64000], [10, 150000]];
 // Surfaces built by this code; the UI offers a rebuild for older ones.
-export const TERRAIN_GEOMETRY_REVISION = 8;
+export const TERRAIN_GEOMETRY_REVISION = 9;
 // Stored-surface format, checked by the page against what the worker sends.
-export const TERRAIN_SURFACE_VERSION = 8;
+export const TERRAIN_SURFACE_VERSION = 9;
 // The eye is this far above the place's ground elevation.
 export const EYE_HEIGHT = 2;
 // Dense mesh cells per ring side (powers of two for the RTIN simplifier):
