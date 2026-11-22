@@ -1835,7 +1835,7 @@ body.coelum-app { background: #000; }
 .coelum-perf { position: absolute; z-index: 50; left: 8px; top: 72px; padding: 6px 8px; white-space: pre; font: 11px/1.35 ui-monospace, Menlo, monospace; color: #fff; background: rgba(0,0,0,.6); border-radius: 6px; pointer-events: none; }
 
 /* Layer shortcuts unfold toward the sky, level with the Layers rail button. */
-.coelum-layerbar { position: absolute; z-index: 5; display: flex; align-items: center; gap: 4px; box-sizing: border-box; width: max-content; padding: 5px; border: 1px solid var(--c-line); border-radius: 14px; background: var(--c-bg); color: var(--c-ink); }
+.coelum-layerbar { position: absolute; z-index: 5; overflow: hidden; display: flex; align-items: center; gap: 4px; box-sizing: border-box; width: max-content; padding: 5px; border: 1px solid var(--c-line); border-radius: 14px; background: var(--c-bg); color: var(--c-ink); }
 .coelum-layerbar[hidden] { display: none; }
 .coelum-layer-toggles { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; touch-action: pan-x; }
 .coelum-layerbar .coelum-btn { width: 36px; height: 36px; border-color: transparent; background: transparent; }
@@ -1847,9 +1847,9 @@ body.coelum-app { background: #000; }
 @media (hover: hover) and (pointer: fine) { .coelum-layerbar .coelum-btn:not(.coelum-layer-scroll):not(:disabled):hover { background: var(--c-hover); } }
 
 /* Edge hints cover the scrolling icons without changing the row's geometry. */
-.coelum-layerbar .coelum-layer-scroll { position: absolute; z-index: 1; top: 5px; width: 30px; border-radius: 8px; background: var(--layer-scroll-background); touch-action: none; transition: opacity 180ms ease-out; }
-.coelum-layerbar [data-scroll-layers="-1"] { left: 5px; --layer-scroll-background: linear-gradient(90deg, var(--c-bg) 65%, transparent); }
-.coelum-layerbar [data-scroll-layers="1"] { right: 5px; --layer-scroll-background: linear-gradient(270deg, var(--c-bg) 65%, transparent); }
-.coelum-layerbar .coelum-layer-scroll svg { width: 18px; height: 18px; opacity: 0.65; }
+.coelum-layerbar .coelum-layer-scroll { position: absolute; z-index: 1; top: 0; bottom: 0; width: 26px; height: auto; border: 0; border-radius: 0; box-shadow: none; background: var(--c-bg); transform: none; touch-action: none; transition: opacity 180ms ease-out; }
+.coelum-layerbar [data-scroll-layers="-1"] { left: 0; }
+.coelum-layerbar [data-scroll-layers="1"] { right: 0; }
+.coelum-layerbar .coelum-layer-scroll svg { width: 18px; height: 18px; }
 .coelum-layerbar .coelum-layer-scroll[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) { .coelum-layerbar .coelum-layer-scroll { transition: none; } }

@@ -114,7 +114,7 @@ try {
       const gearBefore = await configure.boundingBox(), viewport = await scroller.boundingBox();
       assert.ok(gearBefore.x >= viewport.x + viewport.width, 'Configure scrolls offscreen with the other buttons');
       let lastOpacity = 0;
-      for (const distance of [12, 36, 72]) {
+      for (const distance of [9, 18, 36]) {
         await scroller.evaluate((el, left) => el.scrollTo({ left, behavior: 'instant' }), distance);
         await page.waitForTimeout(220);
         const currentGround = await ground.boundingBox(), currentStrip = await scroller.boundingBox();
@@ -124,8 +124,20 @@ try {
         assert.ok(opacity > lastOpacity, 'The left hint progressively fades in with scrolling');
         lastOpacity = opacity;
       }
+      assert.equal(lastOpacity, 1, 'The overlay becomes fully opaque after one button width');
+      for (const [arrow, edge] of [[leftArrow, 'left'], [rightArrow, 'right']]) {
+        const bounds = await arrow.boundingBox(), container = await bar.boundingBox();
+        const style = await arrow.evaluate(el => {
+          const s = getComputedStyle(el);
+          return { background: s.backgroundImage, border: s.borderTopWidth, shadow: s.boxShadow, radius: s.borderTopLeftRadius, width: s.width };
+        });
+        assert.deepEqual(style, { background: 'none', border: '0px', shadow: 'none', radius: '0px', width: '26px' }, 'Uniform backgrounds without button outlines');
+        assert.ok(Math.abs(edge === 'left' ? bounds.x - container.x : bounds.x + bounds.width - container.x - container.width) <= 1, 'The overlay reaches the extreme edge');
+        assert.ok(Math.abs(bounds.y - container.y) <= 1 && Math.abs(bounds.height - container.height) <= 2, 'The overlay covers the entire bar height');
+      }
+      if (width === 390) await bar.screenshot({ path: '/tmp/coelum-layerbar-overlay-middle.png' });
       let rightOpacity = 1;
-      for (const distance of [36, 12]) {
+      for (const distance of [24, 9]) {
         await scroller.evaluate((el, d) => el.scrollTo({ left: el.scrollWidth - el.clientWidth - d, behavior: 'instant' }), distance);
         await page.waitForTimeout(220);
         const opacity = await rightArrow.evaluate(el => Number(getComputedStyle(el).opacity));

@@ -897,9 +897,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (panels.layerbar.hidden) return;
     const remaining = Math.max(0, layerStrip.scrollWidth - layerStrip.clientWidth);
     const left = Math.max(0, Math.min(remaining, layerStrip.scrollLeft));
+    const fadeDistance = layerStrip.querySelector('button').offsetWidth;
     for (const [arrow, distance] of [[layerScrollLeft, left], [layerScrollRight, remaining - left]]) {
       arrow.hidden = arrow.disabled = distance <= 1;
-      arrow.style.opacity = String(Math.min(1, distance / 72));
+      arrow.style.opacity = String(Math.min(1, distance / fadeDistance));
     }
   };
   layerStrip.addEventListener('scroll', updateLayerScroll, { passive: true });
