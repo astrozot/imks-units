@@ -2211,7 +2211,7 @@ async function lookUp({ kind, name, refresh }, src) {
     if (state.text.trim() === src) evaluate();
   } catch (e) {
     if (epoch !== workspaceEpoch) return;
-    if (refresh) {
+    if (refresh && kind === 'object') {
       toast(`${e.message}; with the elements kept`);
       if (state.text.trim() === src) evaluate(false);
     } else if (state.text.trim() === src) showError(e.message);

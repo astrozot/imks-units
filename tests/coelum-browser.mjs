@@ -516,7 +516,7 @@ try {
   await page.locator('[data-map="sky"]').click();
   await page.waitForSelector('.coelum-full');
   assert.equal(await page.locator('.coelum-detail h3').textContent(), 'Sun');
-  assert.match(await page.locator('.coelum-status').textContent(), /2026\.08\.12/);
+  assert.match(await page.locator('.coelum-status').textContent(), /2026-08-12/);
   // Chart drags move on the canvas and settle as SVG over the same canvas,
   // which keeps the sky and the Milky Way (no image to decode, no flicker).
   await page.locator('.coelum-full').press('Home');

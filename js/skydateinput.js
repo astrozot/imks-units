@@ -2,7 +2,7 @@
 // remain available explicitly, since HTML date inputs cannot represent year 0/BC.
 import { skyTimeInput, parseSkyInput } from './coelumtime.js';
 export function calendarSkyTime(time, zone) {
-  const text = skyTimeInput(time, zone);
+  const text = skyTimeInput(time, zone, true);
   if (Number(text.split(' ')[0].slice(0, -6)) > 0) return time;
   // Calendar browsing starts at the same month/day in 1 CE. Merely switching
   // input mode never changes the selected sky/almanac day.

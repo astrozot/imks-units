@@ -62,18 +62,22 @@ export function skyClock(time, zone = false, seconds = false) {
   const p = skyTimeParts(time, zone);
   return `${pad(p.hour)}:${pad(p.minute)}${seconds ? `:${pad(p.second)}` : ''}`;
 }
-export function skyTimeInput(time, zone = false) {
+export function skyStatusTime(time, zone = false) {
   const p = skyTimeParts(time, zone);
-  return `${signedYear(p.year).replace('−', '-')}-${pad(p.month)}-${pad(p.day)} ${pad(p.hour)}:${pad(p.minute)}`;
+  return `${signedYear(p.year)}-${pad(p.month)}-${pad(p.day)} ${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`;
+}
+export function skyTimeInput(time, zone = false, seconds = false) {
+  const p = skyTimeParts(time, zone);
+  return `${signedYear(p.year).replace('−', '-')}-${pad(p.month)}-${pad(p.day)} ${pad(p.hour)}:${pad(p.minute)}${seconds ? `:${pad(p.second)}` : ''}`;
 }
 export const localSkyInput = (time) => skyTimeInput(time);
 export function parseSkyInput(value, zone = false) {
   zone = normalize(zone);
-  const m = /^([+\-−]?\d{1,6})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/.exec(value.trim());
+  const m = /^([+\-−]?\d{1,6})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
   if (!m || !validSkyZone(zone)) return NaN;
-  const [year, month, day, hour, minute] = m.slice(1).map((s) => Number(s.replace('−', '-')));
-  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return NaN;
-  const p = { year, month, day, hour, minute, second: 0 }, wall = wallTime(p);
+  const [year, month, day, hour, minute, second] = m.slice(1).map((s) => Number((s || '0').replace('−', '-')));
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) return NaN;
+  const p = { year, month, day, hour, minute, second }, wall = wallTime(p);
   if (!Number.isFinite(wall)) return NaN;
   // Sample both sides of timezone transitions. Skip nonexistent wall times;
   // repeated clock times choose the earlier occurrence deterministically.

@@ -59,7 +59,7 @@ try {
   const { context, page, errors } = await open({ 'imks.settings': { location: { lat: 45.4642, lon: 9.19, h: 120, name: 'Milan' } } });
   const status = () => page.locator('.coelum-status').textContent();
   // The bottom bar stays compact; the date button exposes the full zone.
-  assert.match(await status(), /Nov 8, 2026, 01:00 PM · Milan/);
+  assert.match(await status(), /2026-11-08 13:00:00 · Milan/);
   const timeButton = page.locator('[data-action="time"]');
   const openTime = async () => {
     // An outside click only dismisses Events; close it before opening Time.
@@ -67,7 +67,7 @@ try {
     if (await events.isVisible()) await events.locator('[data-action="close-panel"]').click();
     await timeButton.click();
   };
-  assert.equal(await timeButton.textContent(), 'Nov 8, 2026, 01:00 PM');
+  assert.equal(await timeButton.textContent(), '2026-11-08 13:00:00');
   assert.equal(await timeButton.getAttribute('title'), 'Set the date and time · Nov 8, 2026, 01:00 PM Europe/Rome (UTC+01:00)');
   assert.equal(await timeButton.getAttribute('aria-label'), 'Date and time: Nov 8, 2026, 01:00 PM Europe/Rome (UTC+01:00)');
   await timeButton.click();
@@ -171,7 +171,7 @@ try {
   assert.equal(await page.locator('[data-map="calc"]').count(), 0, 'No Calculate here without the calculator');
   await page.click('[data-map="sky"]');
   await page.waitForFunction(() => document.querySelector('#sheet').hidden);
-  assert.match(await status(), /Aug 2, 2027, 11:08 AM · Milan/);
+  assert.match(await status(), /2027-08-02 11:08:\d{2} · Milan/);
   await page.waitForFunction(() => /^Sun/.test(document.querySelector('.coelum-detail-body').textContent), null, { timeout: 5000 });
   assert.equal(await page.locator('[data-panel="events"]').isVisible(), false, 'The panel closes for the sky');
 
@@ -225,7 +225,7 @@ try {
   assert.match(await page.locator('.map-local').textContent(), /52 Sgr occulted/);
   await page.click('[data-map="sky"]');
   await page.waitForFunction(() => document.querySelector('.coelum-detail-body h3')?.textContent === '52 Sgr', null, { timeout: 5000 });
-  assert.match(await status(), /^Nov 14, 2026, 07:\d\d PM/);
+  assert.match(await status(), /^2026-11-14 19:\d{2}:\d{2}/);
 
   // Planetary moon events belong to the open planet's telescope page.
   assert.equal(await page.locator('[data-action="moon-events"]').isVisible(), false);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import tzlookup from '../js/tzlookup.js';
-import { skyTimeInput, parseSkyInput, skyOffset, skyTimeZone, skyDayBounds, formatSkyTime, validSkyZone } from '../js/coelumtime.js';
+import { skyTimeInput, skyStatusTime, parseSkyInput, skyOffset, skyTimeZone, skyDayBounds, formatSkyTime, validSkyZone } from '../js/coelumtime.js';
 const t = (s) => Date.parse(s) / 1000;
 for (const [lat, lon, zone] of [[45.4642, 9.19, 'Europe/Rome'], [35.6762, 139.6503, 'Asia/Tokyo'], [40.7128, -74.006, 'America/New_York'], [-33.8688, 151.2093, 'Australia/Sydney'], [27.7172, 85.324, 'Asia/Kathmandu']]) assert.equal(tzlookup(lat, lon), zone);
 for (const zone of ['UTC', 'Europe/Rome', 'America/New_York', 'Asia/Tokyo', 'Asia/Kathmandu', 'Australia/Lord_Howe', 'UTC+02:00', '-03:30']) {
@@ -31,3 +31,20 @@ assert.match(formatSkyTime(t('0000-06-01T12:00Z'), 'Asia/Tokyo'), /0000.*Asia\/T
 assert.equal(validSkyZone('Not/AZone'), false);
 assert.equal(validSkyZone('UTC−03:30'), true);
 console.log('Coelum time checks passed: offline zones, BCE, DST gaps/overlaps, short/long days, fractional and fixed offsets');
+
+assert.equal(skyStatusTime(t('2026-11-22T12:34:56Z'), 'UTC'), '2026-11-22 12:34:56');
+assert.equal(skyStatusTime(t('2026-11-22T12:34:56Z'), 'Europe/Rome'), '2026-11-22 13:34:56');
+assert.equal(skyStatusTime(t('2026-11-22T23:34:56Z'), '+02:00'), '2026-11-23 01:34:56');
+assert.equal(skyStatusTime(t('0000-01-02T03:04:05Z'), 'UTC'), '0000-01-02 03:04:05');
+assert.equal(skyStatusTime(t('-001000-01-02T03:04:05Z'), 'UTC'), '−1000-01-02 03:04:05');
+
+// Second precision survives signed years, fixed offsets, and historic zones.
+for (const zone of ['UTC', 'Europe/Rome', 'America/New_York', 'UTC+05:45']) {
+  for (const date of ['-001000-06-01T12:34:56Z', '0000-06-01T12:34:56Z', '2026-06-01T12:34:56Z']) {
+    const time = t(date);
+    assert.equal(parseSkyInput(skyTimeInput(time, zone, true), zone), time, `${zone} ${date}: seconds round trip`);
+  }
+}
+assert.ok(Number.isNaN(parseSkyInput('2026-01-01 12:34:60', 'UTC')));
+assert.ok(Number.isNaN(parseSkyInput('2026-03-08 02:30:45', 'America/New_York')));
+assert.equal(parseSkyInput('2026-11-01 01:30:45', 'America/New_York'), t('2026-11-01T05:30:45Z'));

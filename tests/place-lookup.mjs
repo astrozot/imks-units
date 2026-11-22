@@ -1,6 +1,6 @@
 // Regression fixtures from Nominatim/Photon, checked 2026-11-22. No network.
 import assert from 'node:assert/strict';
-import { fetchPlace } from '../js/lookup.js';
+import { fetchPlace, findPlace, searchPlaces, PLACE_LOOKUP_VERSION } from '../js/lookup.js';
 const province = { name:'Rieti', display_name:'Rieti, Lazio, Italia', lat:'42.4147364', lon:'12.8858881', category:'boundary', addresstype:'county', boundingbox:['42.0889167','42.7409686','12.4372963','13.4099792'] };
 const city = { name:'Rieti', display_name:'Rieti, Lazio, 02100, Italia', lat:'42.4025479', lon:'12.8605297', category:'boundary', addresstype:'city', extratags:{linked_place:'city'} };
 const municipality = { name:'Carisolo', display_name:'Carisolo, Trentino, Italia', lat:'46.2258024', lon:'10.7186366', category:'boundary', addresstype:'city', boundingbox:['46.1585462','46.2412545','10.6782764','10.7739220'] };
@@ -24,6 +24,14 @@ try {
   const [key,carisolo] = await fetchPlace('Carisolo');
   assert.equal(key,'carisolo');
   assert.deepEqual([carisolo.lat,carisolo.lon,carisolo.h],[46.1687756,10.7591591,798]);
+  assert.equal(carisolo.lookupVersion,PLACE_LOOKUP_VERSION);
+  const legacy = {name:municipality.display_name,lat:46.2258024,lon:10.7186366,h:2417};
+  const env = {lookups:{places:{carisolo:legacy}}};
+  assert.throws(()=>findPlace(env,'Carisolo'),e=>e.lookup?.refresh===true);
+  assert.equal(searchPlaces('Carisolo',env.lookups.places)[0].needsRefresh,true);
+  env.lookups.places.carisolo=carisolo;
+  assert.equal(findPlace(env,'Carisolo').h,798);
+  assert.equal(searchPlaces('Carisolo',env.lookups.places)[0].needsRefresh,false);
   assert.equal(calls.at(-1).searchParams.get('longitude'),'10.7591591','Elevation uses the corrected centre');
   reset([municipality],{features:[{...village,properties:{name:'Pinzolo',osm_key:'place',osm_value:'village'}}, {...village,geometry:{coordinates:[11,47]}}]});
   await assert.rejects(fetchPlace('Carisolo'),/Could not resolve the inhabited centre/);

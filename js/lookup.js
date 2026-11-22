@@ -30,6 +30,7 @@ const plain = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 // numbers: "M 31" = "m31", "NGC 0224" = "ngc224", "São Paulo" = "sao paulo"
 const key = (s) => plain(s).replace(/[\s_'’.()-]+/g, "").replace(/(^|[a-z/])0+(?=\d)/g, "$1");
 const placeKey = (s) => plain(s).replace(/\s*,\s*/g, ",").replace(/\s+/g, " ").trim();
+export const PLACE_LOOKUP_VERSION = 1;
 
 // Satellites known by a common name: their NORAD numbers (the elements
 // always come from CelesTrak)
@@ -96,10 +97,10 @@ function searchPlaces(query, extra = {}, limit = 12) {
   const q = placeKey(query);
   if (!q) return [];
   const seen = new Set(), out = [];
-  for (const [k, p] of [...Object.entries(extra), ...placeTable()]) {
+  for (const [k, p, saved] of [...Object.entries(extra).map(([k, p]) => [k, p, true]), ...placeTable()]) {
     if (seen.has(p) || !k.includes(q)) continue;
     seen.add(p);
-    out.push({ ...p, rank: k.startsWith(q) ? 0 : 1 });
+    out.push({ ...p, ...(saved && { lookupQuery: k, needsRefresh: p.lookupVersion !== PLACE_LOOKUP_VERSION }), rank: k.startsWith(q) ? 0 : 1 });
   }
   return out.sort((a, b) => a.rank - b.rank).slice(0, limit);
 }
@@ -151,7 +152,8 @@ function findObject(env, name) {
 function findPlace(env, name) {
   const k = placeKey(name);
   const p = placeTable().get(k) || env.lookups?.places?.[k];
-  if (p) return p;
+  if (p && (!env.lookups?.places?.[k] || placeTable().has(k) || p.lookupVersion === PLACE_LOOKUP_VERSION)) return p;
+  if (p) throw new LookupError('place', name, `Saved coordinates for "${name}" need updating: press = to look them up online`, true);
   throw new LookupError("place", name, `Unknown place "${name}": press = to look it up online (OpenStreetMap)`);
 }
 
@@ -374,7 +376,7 @@ async function fetchPlace(name) {
     }
   }
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Invalid place coordinates');
-  return [placeKey(name), { name: result.display_name, lat, lon, h: await fetchElevation(lat, lon) }];
+  return [placeKey(name), { name: result.display_name, lat, lon, h: await fetchElevation(lat, lon), lookupVersion: PLACE_LOOKUP_VERSION }];
 }
 
 // the elevation of the terrain (m), from the Copernicus model (90 m)

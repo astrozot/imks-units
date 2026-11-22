@@ -45,9 +45,12 @@ location in Settings. The table gives the solar-system bodies' geometric
 altitudes and azimuths, including those below the horizon. Dates from year
 −1000 through 3000 are supported (UTC). These are signed astronomical
 years in the proleptic Gregorian calendar: 0 is 1 BCE, −1 is 2 BCE, and
-−1000 is 1001 BCE. The date panel uses the system calendar and time picker
-for positive years. **B.C. / signed year** enables `YYYY-MM-DD HH:mm` entry
-for year zero and negative years; **Use calendar** returns to native controls.
+−1000 is 1001 BCE. The date panel always displays `YYYY-MM-DD hh:mm:ss`
+with a 24-hour clock. Tap the field to open iOS-style scroll wheels for the
+date and time, including year zero and negative years. Date and Time tabs
+switch between the two sets of wheels; Done applies the selection and Cancel
+keeps the original instant. Its inset keyboard button enables direct entry;
+the calendar icon returns to the wheels without changing the field size.
 Standalone Coelum defaults to device time. The date panel offers device
 time, UTC, and the selected location’s timezone. The date panel and event timestamps identify
 the zone and UTC offset; date entry and events follow the same choice.
@@ -1106,6 +1109,10 @@ administrative areas, including Carisolo's separate village node and Rieti's
 city centre. Unlinked municipal boundaries are resolved through Photon's OSM
 place nodes within the selected boundary; an unresolved centre asks for an
 address or coordinates rather than choosing an arbitrary point in the area.
+`node tests/place-cache-browser.mjs` checks migration of older saved coordinates,
+including the selected location on reopening Coelum, corrected offline reuse,
+and preservation of manually edited elevations. Older online lookups refresh
+once before reuse; current lookups continue to work offline.
 
 `node tests/history.mjs` checks history search, pinning, persistence and backup
 compatibility, using the same Playwright and Chromium options.

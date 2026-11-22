@@ -177,7 +177,6 @@ const root = $("#coelum");
 clockPlace = [...model.place];
 const explorer = mountCoelum(root, model, formatTime, {
   standalone: true,
-  formatStatusTime: (t) => formatSkyTime(t, clockZone(), false),
   timeMode: () => timeMode,
   timeZone: clockZone,
   onTimeZone: (value) => { timeMode = value; store.set('coelumTimeZone', value); },

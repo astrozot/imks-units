@@ -506,8 +506,8 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-status-main { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
 .coelum-status-main > span { flex: none; }
 .coelum-status-main .coelum-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.coelum-status-main [data-action="time"] { flex: 0 1 auto; }
-.coelum-status-main [data-action="place"] { flex: 1 1 auto; text-align: left; }
+.coelum-status-main [data-action="time"] { flex: none; overflow: visible; }
+.coelum-status-main [data-action="place"] { flex: 1 1 0; text-align: left; }
 .coelum-status-main b { display: block; overflow: hidden; text-overflow: ellipsis; }
 .coelum-condition { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .coelum-status b { color: var(--c-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -533,6 +533,34 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-time-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .coelum-time-row input, .coelum-place-form input { min-width: 0; flex: 1 1 180px; padding: 7px 9px; border: 1px solid var(--c-line); border-radius: 8px; background: #1a2541; color: var(--c-ink); font: 16px system-ui, -apple-system, sans-serif; color-scheme: dark; }
 .coelum-time-row .coelum-chip, .coelum-place-form .coelum-chip { margin: 0; }
+.coelum-date-field { position: relative; min-width: 0; flex: 1 1 240px; }
+.coelum-date-field [data-time-input] { box-sizing: border-box; display: block; width: 100%; height: 40px; padding-right: 43px; font-variant-numeric: tabular-nums; }
+.coelum-date-field:focus-within { outline: 2px solid var(--c-accent); outline-offset: 2px; border-radius: 8px; }
+.coelum-date-field .coelum-date-toggle { position: absolute; right: 4px; top: 4px; width: 32px; height: 32px; min-width: 0; padding: 5px; border-radius: 5px; }
+.coelum-date-toggle svg { width: 20px; height: 20px; }
+.coelum-date-field input[readonly] { cursor: pointer; }
+.coelum-date-wheels { margin-top: 12px; padding: 10px 6px; border: 1px solid var(--c-line); border-radius: 12px; background: #101b30; }
+.coelum-date-wheels[hidden], .coelum-wheel-grid[hidden], .coelum-wheel-error[hidden] { display: none; }
+.coelum-wheel-head { display: flex; align-items: center; justify-content: space-between; gap: 5px; margin-bottom: 12px; }
+.coelum-wheel-head .coelum-chip { margin: 0; padding: 5px 8px; }
+.coelum-wheel-tabs { display: flex; padding: 2px; border-radius: 8px; background: #1a2541; }
+.coelum-wheel-tabs button { padding: 5px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--c-muted); font: 600 12px system-ui, sans-serif; cursor: pointer; }
+.coelum-wheel-tabs button[aria-pressed="true"] { background: #344562; color: var(--c-ink); }
+.coelum-wheel-grid { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 4px; }
+.coelum-wheel-label { display: block; text-align: center; margin-bottom: 5px; color: var(--c-muted); font-size: 11px; }
+.coelum-wheel-track { position: relative; min-width: 0; border-radius: 8px; overflow: hidden; }
+.coelum-wheel-track::before { content: ''; position: absolute; pointer-events: none; inset: 64px 0; background: rgba(143, 177, 233, .14); border-block: 1px solid rgba(143, 177, 233, .22); border-radius: 6px; }
+.coelum-wheel-track::after { content: ''; position: absolute; pointer-events: none; inset: 0; background: linear-gradient(#101b30, transparent 40%, transparent 60%, #101b30); }
+.coelum-wheel { position: relative; box-sizing: border-box; height: 160px; overflow-y: auto; overscroll-behavior: contain; scroll-snap-type: y mandatory; scrollbar-width: none; padding-block: 64px; touch-action: pan-y; cursor: grab; user-select: none; -webkit-user-select: none; font-variant-numeric: tabular-nums; }
+.coelum-wheel::-webkit-scrollbar { display: none; }
+.coelum-wheel [role="option"] { height: 32px; line-height: 32px; scroll-snap-align: center; text-align: center; color: var(--c-muted); font: 18px/32px system-ui, sans-serif; }
+.coelum-wheel [aria-selected="true"] { color: var(--c-ink); font-weight: 600; }
+.coelum-wheel:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -2px; border-radius: 8px; }
+.coelum-wheel-dragging { scroll-snap-type: none; cursor: grabbing; }
+.coelum-wheel-note, .coelum-wheel-error { margin: 9px 3px 0; font-size: 11px; line-height: 1.5; color: var(--c-muted); }
+.coelum-wheel-error { color: #ffb9a9; }
+
+@media (max-width: 380px) { .coelum-immersive .coelum-panel.coelum-timepanel { left: 8px; right: 8px; width: auto; } }
 .coelum-events-head { margin-top: 14px !important; }
 .coelum-events { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
 .coelum-events .coelum-chip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 6px; min-width: 0; margin: 0; padding: 6px 8px; text-align: left; }

@@ -183,9 +183,12 @@ try {
   // Signed years can be entered, displayed, and reopened on the local clock.
   await page.click('[data-action="time"]');
   const dateInput = page.locator('[data-time-input]');
-  assert.equal(await dateInput.getAttribute('type'), 'datetime-local');
-  await page.click('[data-time-date-mode]');
   assert.equal(await dateInput.getAttribute('type'), 'text');
+  assert.equal(await dateInput.evaluate(el => el.readOnly), true);
+  const dateBox = await dateInput.boundingBox();
+  await page.click('[data-time-date-mode]');
+  assert.equal(await dateInput.evaluate(el => el.readOnly), false);
+  assert.deepEqual(await dateInput.boundingBox(), dateBox, 'Switching input mode preserves the field dimensions');
   for (const year of ['-1000', '-0001', '0000', '0001', '0099', '3000']) {
     await dateInput.fill(`${year}-06-01 12:34`);
     await dateInput.dispatchEvent('change');
@@ -197,7 +200,7 @@ try {
     assert.equal(await dateInput.isVisible(), false, `Close the time panel in year ${year}`);
     await page.click('[data-action="time"]');
     assert.equal(await dateInput.isVisible(), true, `Reopen the time panel in year ${year}`);
-    assert.equal(await dateInput.inputValue(), `${year}-06-01 12:34`);
+    assert.equal(await dateInput.inputValue(), `${year}-06-01 12:34:00`);
   }
   const unchanged = await page.locator('.coelum-full').getAttribute('data-time');
   for (const invalid of ['-1001-06-01 12:34', '3001-01-01 12:34', '2026-02-30 12:34']) {
@@ -235,8 +238,9 @@ try {
   assert.equal(await second.page.locator('[data-place-zone]').inputValue(), 'Asia/Tokyo');
   await second.page.fill('[data-place-zone]', 'America/New_York');
   await second.page.locator('[data-place-zone]').dispatchEvent('change');
+  await second.page.click('[data-time-date-mode]');
   for (const [date, offset] of [['2026-01-01 12:00', '−05:00'], ['2026-07-01 12:00', '−04:00']]) {
-    await second.page.fill('[data-time-input]', date.replace(' ', 'T')); await second.page.locator('[data-time-input]').dispatchEvent('change');
+    await second.page.fill('[data-time-input]', date); await second.page.locator('[data-time-input]').dispatchEvent('change');
     assert.ok((await second.page.locator('[data-action="time"]').getAttribute('aria-label')).includes('UTC' + offset));
     assert.equal((await second.page.locator('.coelum-timebar').boundingBox()).height, barHeight);
   }
@@ -251,7 +255,7 @@ try {
   await second.page.click('[data-reset-place-zone]');
   assert.match(await second.page.locator('[data-action="time"]').getAttribute('aria-label'), /Asia\/Tokyo/);
   await second.page.selectOption('[data-time-zone]', 'utc');
-  await second.page.click('[data-time-date-mode]');
+  if (await second.page.locator('[data-time-input]').evaluate(el => el.readOnly)) await second.page.click('[data-time-date-mode]');
   await second.page.fill('[data-time-input]', '-0100-06-01 12:34');
   await second.page.locator('[data-time-input]').dispatchEvent('change');
   assert.match(await second.page.locator('[data-action="time"]').getAttribute('aria-label'), /−0100-06-01 .*UTC/);
