@@ -753,10 +753,14 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .osm-label span { font: 10px var(--mono); white-space: nowrap; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff; }
 .osm-map.dark .osm-label span { text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
 .map-svg.map-full { max-width: none; cursor: grab; touch-action: none; }
+.map-globe-view { position: relative; }
+.map-globe-view[hidden], .map-webgl[hidden] { display: none; }
+.map-gpu-overlay { position: relative; }
 .map-bg { fill: #0b0f1a; }
 .map-sea { fill: #13314f; }
 .map-grid { fill: none; stroke: #24496e; stroke-width: 0.5; }
 .map-night { fill: rgba(0, 0, 0, 0.45); }
+.map-countries { fill: none; stroke: #758aa6; stroke-width: .65; stroke-opacity: .85; }
 .map-coast { fill: none; stroke: #b4c6d8; stroke-width: 0.8; stroke-linejoin: round; }
 .map-partial { fill: none; stroke: #e8c070; stroke-width: 1.2; stroke-dasharray: 4 3; }
 .map-partial.faint { stroke-width: 0.8; opacity: 0.55; }

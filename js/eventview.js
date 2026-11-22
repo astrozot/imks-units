@@ -1,3 +1,4 @@
+import { createGlobeGL } from './globegl.js';
 // The drawings of eclipses and occultations, shared by iMKS (app.js) and
 // Coelum (coelumapp.js): a lunar eclipse (the Moon through the Earth's
 // shadow) and the map of a solar eclipse or an occultation, small (a
@@ -281,7 +282,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
       <div class="map-precision"></div>
       ${canSim ? `<div class="seg map-modes" role="tablist">${modes.map(([v, n]) => `<button data-map-mode="${v}" role="tab">${n}</button>`).join("")}</div>` : ""}
       <label class="map-views">Map <select class="map-select" aria-label="Map">${(globeOnly ? views.slice(0, 1) : views).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
-      <svg class="map-svg map-full" role="img" aria-label="Map of the ${what}"></svg><div class="osm-map" hidden></div>
+      <div class="map-globe-view"><svg class="map-svg map-full" role="img" aria-label="Map of the ${what}"></svg></div><div class="osm-map" hidden></div>
       <div class="map-sim" hidden>
       <p class="map-when"></p>
       <div class="lunar-play"><button class="chip" data-map="play" aria-label="Play">▶</button><input type="range" class="map-slider" min="${from}" max="${to}" step="30" value="${m.t}" aria-label="Time"></div>
@@ -289,6 +290,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
       <div class="map-local"></div>
       <p class="sky-hint map-hint">Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back</p>`;
   const svg = root.querySelector(".map-svg"), osm = root.querySelector(".osm-map"), hint = root.querySelector(".map-hint");
+  const globeRoot = root.querySelector(".map-globe-view");
   const slider = root.querySelector(".map-slider"), when = root.querySelector(".map-when"), localBox = root.querySelector(".map-local");
   const precisionRoot = root.querySelector('.map-precision');
   let precision = null;
@@ -328,7 +330,8 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     }
     const globe = view === "globe" || !TILES[view];
     root.querySelector(".map-select").value = globe ? "globe" : view;
-    svg.style.display = globe ? "" : "none";
+    svg.style.display = globe ? "" : "none"; globeRoot.hidden = !globe;
+    if (gpu) gpu.canvas.hidden = !globe;
     osm.hidden = globe;
     osm.classList.toggle("dark", Boolean(TILES[view]?.dark));
     hint.textContent = (globe ? "Drag to turn the Earth, pinch or scroll to zoom, double-tap to go back" : "Online map: drag to move, pinch or scroll to zoom") + (locationPicker ? `; ${pickHint || "tap a place, then choose Use this place"}` : canPick ? `; tap a place for the ${what} there` : "");
@@ -349,11 +352,12 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     }
   };
   root.querySelector(".map-select").addEventListener("change", (ev) => show(ev.target.value));
-  let gpu = rendererFactory?.(svg, () => redraw()) || null;
+  let gpu = rendererFactory ? rendererFactory(svg, () => redraw()) : createGlobeGL(svg, { svgOverlay: true, onLost: () => redraw() });
   const draw = () => {
     if (svg.style.display === "none") return;
     if (gpu) {
-      if (gpu.draw(v, W, H, place)) {
+      if (gpu.draw(v, W, H, place, { map: m, shadow: sim ? at : null })) {
+        if (gpu.overlay) { svg.innerHTML = mapSVG(m, W, H, v, place, sim ? at : null, null, true); return; }
         let sea = svg.querySelector('.map-sea');
         if (!sea) { svg.innerHTML = '<circle class="map-sea"/>'; sea = svg.firstElementChild; }
         sea.setAttribute('cx', W / 2); sea.setAttribute('cy', H / 2); sea.setAttribute('r', v.s);
@@ -568,6 +572,7 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
   // the simulation
   return {
     resize: size,
+    getMap: () => m,
     redraw,
     setPlace: (p, { center = false } = {}) => {
       place = p && [...p];
@@ -579,8 +584,9 @@ function mountMap(root, m, host, { head = "", caption = [], onSelectPlace = null
     destroy: () => { gpu?.destroy(); lifecycle.abort(); precision?.destroy(); ++shown; observer.disconnect(); stop(); clearTimeout(tapPick); cancelAnimationFrame(raf); osmNow?.remove(); },
     share: () => {
       const cap = sim ? [...caption, when.textContent] : caption, name = occ ? "occultation" : "solar-eclipse";
+      if (osm.hidden && gpu) draw(); // Refresh the buffer immediately before snapshot() freezes canvas and labels.
       return osm.hidden
-        ? { root: gpu?.canvas || svg, caption: cap, name }
+        ? { root: gpu ? globeRoot : svg, caption: cap, name }
         : { root: osm, hide: ".leaflet-control-zoom", text: ".osm-label span, .leaflet-control-attribution", caption: cap, name };
     },
   };

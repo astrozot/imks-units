@@ -5,19 +5,20 @@
 // eclipseTrack() in astro.js.
 
 import { COAST_SCALE, COAST_LEVELS } from "./coast.js";
+import { COUNTRY_SCALE, COUNTRY_LEVELS } from "./countries.js";
 
 const RAD = Math.PI / 180;
 const coastLines = new Map();
 // Use the detailed geographic coast at high zoom, with generalized views
 // of the same source when their displacement is smaller than a screen pixel.
-function coast(radius) {
+function geographicLines(levels, scale, radius) {
   const tolerance = 6371000 / Math.max(1, radius) * .65;
-  const level = COAST_LEVELS.find(level => level.tolerance <= tolerance) || COAST_LEVELS.at(-1);
+  const level = levels.find(level => level.tolerance <= tolerance) || levels.at(-1);
   if (!coastLines.has(level)) {
     coastLines.set(level, level.lines.map(line => {
       const points = []; let lon = 0, lat = 0;
       for (let i = 0; i < line.length; i += 2) {
-        lon += line[i]; lat += line[i + 1]; points.push([lat / COAST_SCALE, lon / COAST_SCALE]);
+        lon += line[i]; lat += line[i + 1]; points.push([lat / scale, lon / scale]);
       }
       return points;
     }));
@@ -165,15 +166,15 @@ const hourText = (m, h) => (m.step && m.step < 1 ? hm(h) : `${p2(((Math.round(h)
 // per Earth radius); place: [latitude, longitude] or null; at: the shadow
 // at a moment (shadowMap() in astro.js), drawn with the night then instead
 // of the hours
-function mapSVG(m, W, H, view, place = null, at = null, overlay = null) {
+function mapSVG(m, W, H, view, place = null, at = null, overlay = null, annotationsOnly = false) {
   const P = projector(view, W, H), R = view.s, cx = W / 2, cy = H / 2;
   const f1 = (x) => x.toFixed(1);
-  let svg = `<rect class="map-bg" width="${W}" height="${H}" rx="10"/><circle class="map-sea" cx="${f1(cx)}" cy="${f1(cy)}" r="${f1(R)}"/>`;
+  let svg = annotationsOnly ? `<rect width="${W}" height="${H}" fill="transparent" pointer-events="all"/><circle class="map-sea" style="fill:none" cx="${f1(cx)}" cy="${f1(cy)}" r="${f1(R)}"/>` : `<rect class="map-bg" width="${W}" height="${H}" rx="10"/><circle class="map-sea" cx="${f1(cx)}" cy="${f1(cy)}" r="${f1(R)}"/>`;
   const grid = [];
   for (let lat = -60; lat <= 60; lat += 30) grid.push(Array.from({ length: 73 }, (_, i) => [lat, -180 + 5 * i]));
   for (let lon = -180; lon < 180; lon += 30) grid.push(Array.from({ length: 37 }, (_, i) => [-90 + 5 * i, lon]));
-  svg += `<path class="map-grid" d="${linesPath(grid, P)}"/>`;
-  if (at || m.sun) svg += `<path class="map-night" d="${nightPath(at ? at.sun : m.sun, view, W, H, P)}"/>`;
+  if (!annotationsOnly) svg += `<path class="map-grid" d="${linesPath(grid, P)}"/>`;
+  if (!annotationsOnly && (at || m.sun)) svg += `<path class="map-night" d="${nightPath(at ? at.sun : m.sun, view, W, H, P)}"/>`;
   // the points behind the Earth brought to its edge
   const edgeP = (p) => {
     const [x, y, v] = P(p);
@@ -184,16 +185,16 @@ function mapSVG(m, W, H, view, place = null, at = null, overlay = null) {
   const ring = (l) => (l.some((p) => P(p)[2]) ? `M${distinct(l.map(edgeP)).map(([x, y]) => `${fx(x)} ${fx(y)}`).join("L")}z` : "");
   // the penumbra darker where more of the Sun is covered, one shade over
   // the other
-  if (at) for (const p of at.partial) svg += `<path class="map-shade${p.m ? "" : " edge"}" d="${ring(p.line)}"/>`;
-  if (overlay) svg += overlay(P, view, W, H);
-  svg += `<path class="map-coast" d="${linesPath(coast(R), P, false, [W, H])}"/>`;
+  if (!annotationsOnly && at) for (const p of at.partial) svg += `<path class="map-shade${p.m ? "" : " edge"}" d="${ring(p.line)}"/>`;
+  if (!annotationsOnly && overlay) svg += overlay(P, view, W, H);
+  if (!annotationsOnly) svg += `<path class="map-countries" d="${linesPath(geographicLines(COUNTRY_LEVELS, COUNTRY_SCALE, R), P, false, [W, H])}"/><path class="map-coast" d="${linesPath(geographicLines(COAST_LEVELS, COAST_SCALE, R), P, false, [W, H])}"/>`;
   // the limits of the partial eclipse (older results: the outline of where
   // it is seen)
-  svg += `<path class="map-partial${at ? " faint" : ""}" d="${linesPath(m.outline || [...m.penN, ...m.penS], P, true)}"/>`;
+  if (!annotationsOnly) svg += `<path class="map-partial${at ? " faint" : ""}" d="${linesPath(m.outline || [...m.penN, ...m.penS], P, true)}"/>`;
   // the band of the central phase: smooth closed outlines
   const bands = (m.band || []).filter((b) => Array.isArray(b?.[0]) && b.some((p) => P(p)[2]));
-  if (bands.length) svg += `<path class="map-path${at ? " faint" : ""}" d="${bands.map((b) => closedPath(b.map(edgeP))).join("")}"/>`;
-  svg += `<path class="map-center" d="${linesPath(m.center, P, true)}"/>`;
+  if (!annotationsOnly && bands.length) svg += `<path class="map-path${at ? " faint" : ""}" d="${bands.map((b) => closedPath(b.map(edgeP))).join("")}"/>`;
+  if (!annotationsOnly) svg += `<path class="map-center" d="${linesPath(m.center, P, true)}"/>`;
   const mark = (p, cls, r = 4) => {
     const [x, y, v] = P(p);
     return v ? `<circle class="${cls}" cx="${fx(x)}" cy="${fx(y)}" r="${r}"/>` : "";
@@ -201,10 +202,10 @@ function mapSVG(m, W, H, view, place = null, at = null, overlay = null) {
   if (at) {
     // the umbra (or antumbra), and a ring around it to see it when small
     if (at.umbra) {
-      svg += `<path class="map-umbra ${at.umbra.kind}" d="${ring(at.umbra.line)}"/>`;
+      if (!annotationsOnly) svg += `<path class="map-umbra ${at.umbra.kind}" d="${ring(at.umbra.line)}"/>`;
       if (at.umbra.center) svg += mark(at.umbra.center, `map-umbra-ring ${at.umbra.kind}`, 7);
     }
-    if (place) svg += mark(place, "map-place");
+    if (place && !annotationsOnly) svg += mark(place, "map-place");
     return svg;
   }
   // the hours (UTC) when the partial eclipse begins and ends, labeled at
@@ -217,15 +218,15 @@ function mapSVG(m, W, H, view, place = null, at = null, overlay = null) {
   };
   for (const [kind, cls] of [["begin", "map-begin"], ["end", "map-end"]]) {
     for (const [h, lines] of m[kind] || []) {
-      svg += `<path class="${cls}" d="${linesPath(lines, P, true)}"/>`;
+      if (!annotationsOnly) svg += `<path class="${cls}" d="${linesPath(lines, P, true)}"/>`;
       for (const line of lines) if (line.length > 8) svg += label(line, hourText(m, h), cls);
     }
   }
   // where it begins, is greatest and ends at sunrise or sunset
   if (m.rise) {
-    svg += `<path class="map-horizon faint" d="${linesPath([...m.rise.begin, ...m.rise.end], P, true)}"/>`;
-    svg += `<path class="map-horizon" d="${linesPath(m.rise.max, P, true)}"/>`;
-  } else if (m.horizon) svg += `<path class="map-horizon" d="${linesPath(m.horizon, P)}"/>`;
+    if (!annotationsOnly) svg += `<path class="map-horizon faint" d="${linesPath([...m.rise.begin, ...m.rise.end], P, true)}"/>`;
+    if (!annotationsOnly) svg += `<path class="map-horizon" d="${linesPath(m.rise.max, P, true)}"/>`;
+  } else if (m.horizon && !annotationsOnly) svg += `<path class="map-horizon" d="${linesPath(m.horizon, P)}"/>`;
   // the times on the central line, every half hour (or tick)
   const tick = m.tick || 0.5;
   for (const seg of m.center) {
@@ -239,7 +240,7 @@ function mapSVG(m, W, H, view, place = null, at = null, overlay = null) {
     }
   }
   if (m.greatest) svg += mark(m.greatest, "map-greatest");
-  if (place) svg += mark(place, "map-place");
+  if (place && !annotationsOnly) svg += mark(place, "map-place");
   return svg;
 }
 
