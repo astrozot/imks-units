@@ -120,7 +120,7 @@ function visibilityChart(start, end, rows, sun, zone, terrain) {
         <thead><tr><th scope="col">Horizon</th><th scope="col">Rise / reappear</th><th scope="col">Set / disappear</th></tr></thead>
         <tbody>${crossingRow('Local terrain', row.terrain, 'terrain')}${crossingRow('Theoretical', row.flat, 'theoretical')}</tbody>
       </table>
-      <p class="coelum-panel-note">${row.flat.intervals.length ? 'Bars show time above each horizon, including daylight; brightness and observing conditions also affect visibility.' : 'Below the theoretical horizon throughout this interval.'} Crossing times before noon fall on ${date(end)}.</p>
+      <p class="coelum-panel-note">${row.flat.intervals.length ? '' : 'Below the theoretical horizon throughout this interval. '}Crossing times before noon fall on ${date(end)}.</p>
       <button type="button" class="coelum-chip" data-body="${row.body}" data-almanac-sky-time="${viewTime}">Show ${name} in sky</button></div>
     </template>`;
   }).join('');
@@ -134,15 +134,15 @@ function visibilityChart(start, end, rows, sun, zone, terrain) {
 function layoutCrossingTimes(root) {
   for (const track of root.querySelectorAll('.almanac-track')) {
     const labels = [...track.querySelectorAll('.almanac-crossing-time')].sort((a, b) => a.offsetLeft - b.offsetLeft);
-    const ends = [];
+    const ends = [], lineHeight = Math.max(0, ...labels.map(label => label.offsetHeight)) + 2;
     for (const label of labels) {
       const left = label.offsetLeft;
       let lane = ends.findIndex(end => end + 4 <= left);
       if (lane < 0) lane = ends.length;
       ends[lane] = left + label.offsetWidth;
-      label.style.top = `${26 + lane * 13}px`;
+      label.style.top = `${26 + lane * lineHeight}px`;
     }
-    track.style.height = `${Math.max(42, 28 + ends.length * 13)}px`;
+    track.style.height = `${Math.max(44, 28 + ends.length * lineHeight)}px`;
   }
 }
 
@@ -227,8 +227,8 @@ export function renderAlmanac(root, explorer, zone, validTime = () => true) {
     const riseRows = (body, label) => `<table class="almanac-times"><thead><tr><th scope="col">Event</th><th scope="col" class="almanac-time-terrain">Local terrain</th><th scope="col" class="almanac-time-theoretical">Theoretical</th></tr></thead><tbody>${['rise', 'set'].map(event => `<tr><th scope="row">${label}${event}</th><td class="almanac-time-terrain">${terrain ? times(terrainTimes[body][event]) : '<span title="Download local terrain for these times">Unavailable</span>'}</td><td class="almanac-time-theoretical">${times(d[body][event])}</td></tr>`).join('')}</tbody></table>`;
     root.innerHTML = `<div class="almanac-wrap"><nav class="almanac-nav" aria-label="Almanac date"><button type="button" class="coelum-chip" data-almanac-step="-1" aria-label="Previous day">‹</button><div class="coelum-date-field"><input type="text" readonly data-almanac-date aria-label="Almanac date" aria-controls="${wheelRoot.id}" aria-expanded="false" aria-haspopup="dialog" placeholder="YYYY-MM-DD" value="${esc(skyTimeInput(date, zone).split(' ')[0])}" spellcheck="false" autocomplete="off"><button type="button" class="coelum-btn coelum-date-toggle" data-almanac-date-mode aria-label="Use keyboard" title="Use keyboard"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 15h8"/></svg></button></div><button type="button" class="coelum-chip" data-almanac-step="1" aria-label="Next day">›</button><button type="button" class="coelum-chip" data-almanac-today>Today</button></nav>
       <p class="almanac-place">${esc(explorer.placeLabel)}<span>${esc(skyTimeZone(d.mid, zone))}</span></p>
-      <div class="almanac-cards"><section class="almanac-card almanac-sun"><h4>Sun</h4><p class="almanac-big">${Math.floor(duration / 3600)}h ${String(Math.floor(duration / 60) % 60).padStart(2, '0')}m ${String(duration % 60).padStart(2, '0')}s <small>of daylight · theoretical horizon</small></p>${riseRows('sun', 'Sun')}<dl>${row('Solar noon', d.noon === null ? 'None this day' : clock(d.noon))}</dl><h5>Twilight</h5><table class="almanac-times almanac-twilight"><thead><tr><th scope="col">Twilight</th><th scope="col" class="almanac-dawn">Dawn</th><th scope="col" class="almanac-dusk">Dusk</th></tr></thead><tbody>${[['Civil (−6°)', d.civil], ['Nautical (−12°)', d.nautical], ['Astronomical (−18°)', d.astronomical]].map(([label, p]) => `<tr><th scope="row">${label}</th><td class="almanac-dawn">${times(p.rise)}</td><td class="almanac-dusk">${times(p.set)}</td></tr>`).join('')}</tbody></table>${!d.sun.rise.length && !d.sun.set.length ? `<p class="coelum-panel-note">${d.daylight > 0 ? 'Sun above the horizon all day.' : 'Sun below the horizon all day.'}</p>` : ''}</section>
-      <section class="almanac-card almanac-moon"><div class="almanac-moon-summary"><div><h4>Moon</h4><p class="almanac-big">${(d.phase.fraction * 100).toFixed(1)}% <small>illuminated</small></p><p class="almanac-phase" title="At midday in the selected timezone">${esc(d.phaseName)} · ${d.phase.age.toFixed(1)} days old</p></div><div data-almanac-moon></div></div>${riseRows('moon', 'Moon')}</section></div>
+      <div class="almanac-cards"><section class="almanac-card almanac-sun"><h4>Sun</h4><p class="almanac-big">${Math.floor(duration / 3600)}h ${String(Math.floor(duration / 60) % 60).padStart(2, '0')}m ${String(duration % 60).padStart(2, '0')}s <small>of daylight · theoretical horizon</small></p>${riseRows('sun', 'Sun')}<dl>${row('Solar noon', d.noon === null ? 'None this day' : clock(d.noon))}</dl><table class="almanac-times almanac-twilight"><thead><tr><th scope="col">Twilight</th><th scope="col" class="almanac-dawn">Dawn</th><th scope="col" class="almanac-dusk">Dusk</th></tr></thead><tbody>${[['Civil (−6°)', d.civil], ['Nautical (−12°)', d.nautical], ['Astronomical (−18°)', d.astronomical]].map(([label, p]) => `<tr><th scope="row">${label}</th><td class="almanac-dawn">${times(p.rise)}</td><td class="almanac-dusk">${times(p.set)}</td></tr>`).join('')}</tbody></table>${!d.sun.rise.length && !d.sun.set.length ? `<p class="coelum-panel-note">${d.daylight > 0 ? 'Sun above the horizon all day.' : 'Sun below the horizon all day.'}</p>` : ''}</section>
+      <section class="almanac-card almanac-moon"><div class="almanac-moon-summary"><div><h4>Moon</h4><p class="almanac-big">${(d.phase.fraction * 100).toFixed(1)}% <small>illuminated</small></p><p class="almanac-phase" title="At midday in the selected timezone">${esc(d.phaseName)} · <span class="almanac-moon-age">${d.phase.age.toFixed(1)} days old</span></p></div><div data-almanac-moon></div></div>${riseRows('moon', 'Moon')}</section></div>
       <section class="almanac-card almanac-visibility"><div data-almanac-visibility role="status"><p class="coelum-panel-note">Calculating solar system visibility…</p></div>${!terrain ? `<p class="coelum-panel-note">${terrainLoading ? 'Preparing local terrain…' : 'Local terrain is not downloaded for this location.'} ${!terrainLoading ? '<button type="button" class="coelum-chip" data-almanac-terrain>Download local terrain</button>' : ''}<span data-almanac-terrain-error>${esc(terrainError)}</span></p>` : ''}</section>
       <div class="almanac-cards almanac-secondary">
       <section class="almanac-card"><h4>On this day</h4><div data-almanac-highlights role="status"><p class="coelum-panel-note">Finding today’s highlights…</p></div></section>
@@ -237,7 +237,7 @@ export function renderAlmanac(root, explorer, zone, validTime = () => true) {
         const when = skyTimeInput(Math.round(s.peak / 3600) * 3600, zone).replace(' ', ' · about ');
         return `<p class="almanac-shower"><b>${esc(s.name)}${peakDay ? ' · Peaks today' : ''}</b><span>${s.broad ? 'Broad maximum near' : 'Expected peak'} ${esc(when)}</span><span>Moon ${(moonPhase(s.peak).fraction * 100).toFixed(0)}% illuminated at maximum</span></p>`;
       }).join('') || `<p class="coelum-panel-note">${new Date(d.mid * 1000).getUTCFullYear() < 2000 || new Date(d.mid * 1000).getUTCFullYear() > 2100 ? 'Meteor peak estimates are available for 2000–2100.' : 'No major shower active in this guide.'}</p>`}</section>
-      </div><dialog class="almanac-dialog" data-almanac-dialog aria-label="Planet visibility details"><div class="almanac-dialog-head"><h4 data-almanac-dialog-title></h4><button type="button" class="coelum-btn coelum-btn-small" data-almanac-dialog-close aria-label="Close planet details">×</button></div><div data-almanac-dialog-body></div></dialog></div>`;
+      </div><dialog class="almanac-dialog" data-almanac-dialog aria-label="Planet visibility details"><div class="almanac-dialog-head"><h4 data-almanac-dialog-title tabindex="-1"></h4><button type="button" class="coelum-btn coelum-wheel-action" data-almanac-dialog-close aria-label="Close planet details" title="Close"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div data-almanac-dialog-body></div></dialog></div>`;
     root.append(wheelRoot);
     root.querySelector('[data-almanac-moon]').append(moonCanvas);
     moonCanvas.setAttribute('aria-label', `${d.phaseName}, ${(d.phase.fraction * 100).toFixed(1)}% illuminated; lunar surface at local midday`);
@@ -286,6 +286,7 @@ export function renderAlmanac(root, explorer, zone, validTime = () => true) {
         dialog.querySelector('[data-almanac-dialog-title]').textContent = `${title(body)} · visibility`;
         dialog.querySelector('[data-almanac-dialog-body]').replaceChildren(root.querySelector(`[data-almanac-detail="${body}"]`).content.cloneNode(true));
         dialog.showModal();
+        dialog.querySelector('[data-almanac-dialog-title]').focus({ preventScroll: true });
         return;
       }
       if (ev.target.closest('[data-almanac-dialog-close]')) { dialog.close(); return; }

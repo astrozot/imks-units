@@ -1913,7 +1913,7 @@ body.coelum-app { background: #000; }
   background: #0b1425; overscroll-behavior: contain;
 }
 [data-panel="almanac"] > .coelum-panel-head { max-width: 1120px; margin: 0 auto 12px; }
-.almanac-wrap { max-width: 1120px; margin: auto; }
+.almanac-wrap { max-width: 1120px; margin: auto; font-size: 16px; }
 .almanac-nav { display: flex; align-items: center; gap: 8px; }
 .almanac-nav .coelum-chip { box-sizing: border-box; flex: none; min-width: 40px; min-height: 40px; height: 40px; margin: 0; padding: 0 12px; font-size: 16px; }
 .almanac-nav input { box-sizing: border-box; display: block; min-width: 0; width: 100%; height: 40px; padding: 0 40px 0 8px; border: 1px solid var(--c-line); border-radius: 10px; background: #15223a; color: var(--c-ink); font: inherit; font-variant-numeric: tabular-nums; text-align: center; }
@@ -1921,18 +1921,18 @@ body.coelum-app { background: #000; }
 .almanac-place span { display: block; color: var(--c-muted); font-size: 12px; margin-top: 5px; }
 .almanac-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .almanac-card { padding: 14px; border: 1px solid var(--c-line); border-radius: 12px; background: #111e33; margin-bottom: 12px; }
-.almanac-card h4 { margin: 0 0 8px; font-size: 13px; letter-spacing: .06em; color: var(--c-muted); }
+.almanac-card h4 { margin: 0 0 8px; font-size: 16px; letter-spacing: .06em; color: var(--c-muted); }
 .almanac-sun { border-top-color: #d8ac66; }
 .almanac-moon { border-top-color: #a2bceb; }
 .almanac-big { font-size: 24px; margin: 0 0 8px; font-variant-numeric: tabular-nums; }
 .almanac-big small { display: block; font-size: 13px; color: var(--c-muted); margin-top: 4px; }
-.almanac-phase { font-size: 13px; line-height: 1.5; }
+.almanac-phase { font-size: 16px; line-height: 1.5; }
 .almanac-card dl { margin: 0; font-size: 14px; }
 .almanac-card dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--c-line); }
 .almanac-card dt { color: var(--c-muted); }
 .almanac-card dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
-.almanac-shower { margin: 12px 0; font-size: 14px; }
-.almanac-shower span { display: block; margin-top: 4px; font-size: 12px; color: var(--c-muted); }
+.almanac-shower { margin: 12px 0; font-size: 16px; line-height: 1.5; }
+.almanac-shower span { display: block; margin-top: 4px; font-size: 16px; color: var(--c-muted); }
 .almanac-card a { color: var(--c-accent); }
 @media (max-width: 540px) { .almanac-cards { grid-template-columns: 1fr; gap: 0; } .almanac-card { padding: 15px; } }
 
@@ -1971,19 +1971,19 @@ body.coelum-app { background: #000; }
 @media (prefers-reduced-motion: reduce) { .coelum-layerbar .coelum-layer-scroll { transition: none; } }
 
 /* Compact almanac and keyboard-accessible, paired visibility tracks. */
-.almanac-card h5 { margin: 12px 0 4px; font-size: 12px; color: var(--c-muted); }
-.almanac-card .coelum-panel-note { font-size: 11px; line-height: 1.5; margin: 8px 0 0; }
+.almanac-card h5 { margin: 12px 0 4px; font-size: 15px; color: var(--c-muted); }
+.almanac-card .coelum-panel-note { font-size: 12px; line-height: 1.5; margin: 8px 0 0; }
 .almanac-card dd { overflow-wrap: anywhere; }
-.almanac-card dl { font-size: 12px; }
+.almanac-card dl { font-size: 16px; }
 .almanac-chart-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 5px 16px; }
-.almanac-chart-heading > span, .almanac-legend { font-size: 11px; color: var(--c-muted); }
+.almanac-chart-heading > span, .almanac-legend { font-size: 14px; color: var(--c-muted); }
 .almanac-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 6px 0 12px; }
 .almanac-legend > span::before { content: ''; display: inline-block; width: 24px; margin-right: 7px; vertical-align: middle; background: #d5def0; }
 .almanac-key-flat::before { height: 2px; opacity: .65; }
 .almanac-key-terrain::before { height: 6px; border-radius: 4px; }
 .almanac-axis, .almanac-planet { display: grid; grid-template-columns: 88px minmax(0,1fr); gap: 10px; }
-.almanac-axis { color: var(--c-muted); font-size: 10px; margin-bottom: 6px; }
-.almanac-axis > div { position: relative; height: 18px; }
+.almanac-axis { color: var(--c-muted); font-size: 14px; margin-bottom: 6px; }
+.almanac-axis > div { position: relative; height: 22px; }
 .almanac-axis > div > span { position: absolute; transform: translateX(-50%); font-variant-numeric: tabular-nums; }
 .almanac-axis > div > span:first-child { transform: none; }
 .almanac-axis > div > span:last-child { transform: translateX(-100%); }
@@ -1992,7 +1992,7 @@ body.coelum-app { background: #000; }
 
 .almanac-planet:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
 .almanac-planet:hover { background: #ffffff08; }
-.almanac-planet-name { font-size: 13px; color: var(--planet-color); }
+.almanac-planet-name { font-size: 16px; color: var(--planet-color); }
 .almanac-track { position: relative; height: 38px; display: block; overflow: hidden; }
 .almanac-shade { position: absolute; top: 0; bottom: 0; background: #070c16; }
 .almanac-shade[data-light="day"] { background: #254968; }
@@ -2002,12 +2002,12 @@ body.coelum-app { background: #000; }
 .almanac-bar { position: absolute; background: var(--planet-color); border-radius: 5px; }
 .almanac-bar-flat { top: 18px; height: 2px; opacity: .7; }
 .almanac-bar-terrain { top: 16px; height: 6px; }
-.almanac-crossing-time { position: absolute; top: 26px; width: 5ch; font-size: 10px; line-height: 13px; font-variant-numeric: tabular-nums; color: #cdd8eb; white-space: nowrap; }
+.almanac-crossing-time { position: absolute; top: 26px; width: 5ch; font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; color: #cdd8eb; white-space: nowrap; }
 .almanac-crossing-time[data-crossing="set"] { text-align: right; }
 
 .almanac-planet-details { padding: 10px 0; }
-.almanac-planet-details table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
-.almanac-planet-details caption { text-align: left; color: var(--c-muted); font-size: 11px; margin-bottom: 8px; }
+.almanac-planet-details table { width: 100%; border-collapse: collapse; font-size: 16px; font-variant-numeric: tabular-nums; }
+.almanac-planet-details caption { text-align: left; color: var(--c-muted); font-size: 14px; margin-bottom: 8px; }
 .almanac-planet-details th, .almanac-planet-details td { text-align: left; padding: 5px 8px 5px 0; border-bottom: 1px solid var(--c-line); overflow-wrap: anywhere; }
 .almanac-planet-details th { font-weight: 500; color: var(--c-muted); }
 @media (min-width: 800px) {
@@ -2019,36 +2019,34 @@ body.coelum-app { background: #000; }
 }
 @media (max-width: 540px) {
   .almanac-visibility { padding: 10px; }
-  .almanac-axis, .almanac-planet { grid-template-columns: 60px minmax(0,1fr); gap: 4px; }
-  .almanac-planet-name { font-size: 12px; }
+  .almanac-axis, .almanac-planet { grid-template-columns: 80px minmax(0,1fr); gap: 6px; }
   .almanac-axis > div > span:nth-child(even) { visibility: hidden; }
-  .almanac-planet-details table { font-size: 10px; }
 }
 
 .almanac-time-theoretical { color: #e5ba78; }
 .almanac-time-terrain, .almanac-dawn, .almanac-dusk { color: #e4edf9; }
-.almanac-times { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
-.almanac-times th, .almanac-times td { padding: 6px 0 6px 10px; text-align: right; border-bottom: 1px solid var(--c-line); }
+.almanac-times { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 16px; font-variant-numeric: tabular-nums; }
+.almanac-times th, .almanac-times td { padding: 8px 0 8px 4px; text-align: right; border-bottom: 1px solid var(--c-line); }
 .almanac-times th { font-weight: 400; }
 .almanac-times td { overflow-wrap: anywhere; }
 .almanac-times th:first-child { width: 40%; text-align: left; padding-left: 0; color: var(--c-muted); }
 .almanac-moon-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .almanac-moon-summary > div:first-child { min-width: 0; }
-.almanac-moon-image { display: block; width: 112px; height: 112px; max-width: 100%; }
-[data-almanac-moon] { flex: 0 0 112px; }
+.almanac-moon-image { display: block; width: 80px; height: 80px; max-width: 100%; }
+[data-almanac-moon] { flex: 0 0 80px; }
 .almanac-planet { width: 100%; padding: 0; border: 0; border-top: 1px solid var(--c-line); background: transparent; text-align: left; font: inherit; color: inherit; }
 .almanac-dialog { box-sizing: border-box; width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; margin: auto; padding: 18px; border: 1px solid #394a64; border-radius: 16px; color: #e4edf9; background: #111e33; box-shadow: 0 24px 80px #0009; }
 .almanac-dialog::backdrop { background: #030916b8; }
 .almanac-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .almanac-dialog-head h4 { margin: 0; font-size: 16px; }
+.almanac-dialog-head h4:focus { outline: none; }
 .almanac-dialog .almanac-planet-details { padding-bottom: 0; }
 .almanac-dialog .coelum-panel-note { color: #a6b6ce; font-size: 12px; line-height: 1.5; }
 .almanac-dialog .almanac-time-theoretical th { color: inherit; }
 .almanac-dialog .almanac-time-terrain th { color: inherit; }
 @media (max-width: 540px) {
-  .almanac-moon-image { width: 96px; height: 96px; }
-  [data-almanac-moon] { flex-basis: 96px; }
-  .almanac-times { font-size: 11px; }
+  .almanac-moon-image { width: 64px; height: 64px; }
+  [data-almanac-moon] { flex-basis: 64px; }
 }
 
 .almanac-nav { max-width: 430px; }
@@ -2059,6 +2057,15 @@ body.coelum-app { background: #000; }
 
 @media (max-width: 360px) {
   .almanac-nav { gap: 5px; }
-  .almanac-nav input { padding-left: 5px; font-size: 12px; }
-  .almanac-nav [data-almanac-today] { padding-inline: 8px; font-size: 13px; }
+  .almanac-nav input { padding-left: 5px; font-size: 16px; }
+  .almanac-nav [data-almanac-today] { padding-inline: 8px; font-size: 14px; }
 }
+
+/* Event data stays readable on phones; only explanatory notes use small type. */
+.almanac-times thead { font-size: inherit; }
+.almanac-twilight { margin-top: 12px; }
+.almanac-moon-age { white-space: nowrap; }
+.almanac-wrap .coelum-event { font-size: 16px; line-height: 1.5; }
+.almanac-wrap .coelum-event span { font-size: 16px; }
+.almanac-wrap .coelum-event small { font-size: 12px; }
+.almanac-dialog .coelum-chip { font-size: 16px; }
