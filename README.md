@@ -656,7 +656,12 @@ the kernel’s barycentric origin. The Sun is always hidden in the barycentric v
 ### Coelum, the app
 
 The calendar-and-sun button on the right rail opens the **Daily almanac**,
-a separate view that starts on today in the selected sky timezone. Previous,
+a separate view that starts on the observing night of the app’s selected sky
+time, in the selected sky timezone. Before sunrise it keeps the previous date;
+after sunrise it shows the coming night. The boundary uses the first terrain
+sunrise when a skyline is available, otherwise the theoretical sunrise. Dates
+without a sunrise use local noon. Today returns to the observing night for the
+current device time. Previous,
 Next, Today and the shared Date and Time wheel picker (date only) browse civil
 days without changing the sky. Square day arrows match the date input’s height.
 Opening the page focuses its close button, keeping mobile keyboards closed.

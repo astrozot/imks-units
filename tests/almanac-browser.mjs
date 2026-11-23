@@ -136,6 +136,25 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForSelector('.almanac-planet');
   await page.screenshot({ path: '/private/tmp/coelum-almanac-desktop.png', fullPage: true });
+  // The device remains on Nov 8 while the app browses a different night.
+  await page.keyboard.press('Escape');
+  for (const [skyDate, expected] of [['2026-11-12 03:00:00', '2026-11-11'], ['2026-11-12 10:00:00', '2026-11-12']]) {
+    await page.click('[data-action="time"]');
+    await page.click('[data-time-date-mode]');
+    await page.locator('[data-time-input]').fill(skyDate);
+    await page.locator('[data-time-input]').dispatchEvent('change');
+    await page.locator('.coelum-timepanel [data-action="close-panel"]').click();
+    const skyTime = await page.locator('.coelum-full').getAttribute('data-time');
+    await page.click('[data-action="almanac"]');
+    assert.equal(await page.locator('[data-almanac-date]').inputValue(), expected);
+    await page.click('[data-almanac-step="1"]');
+    assert.equal(await page.locator('.coelum-full').getAttribute('data-time'), skyTime);
+    await page.keyboard.press('Escape');
+    await page.click('[data-action="almanac"]');
+    assert.equal(await page.locator('[data-almanac-date]').inputValue(), expected, 'Each opening starts from the app time');
+    await page.keyboard.press('Escape');
+  }
+  assert.deepEqual(errors, []);
   await context.close();
   const terrainProfile = { '45.4642,9.19,120': { alt: Array(3600).fill(10) } };
   const cached = await open({ 'imks.settings': { location: { lat: 45.4642, lon: 9.19, h: 120, name: 'Milan' } }, 'imks-coelum-terrain-profiles-v3': terrainProfile });

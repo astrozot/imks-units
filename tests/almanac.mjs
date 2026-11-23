@@ -85,3 +85,30 @@ for (const [events, direction] of [[jagged.rise, 1], [jagged.set, -1]]) for (con
   assert.ok(Math.abs(clearance(event)) < 0.001);
 }
 console.log('Visibility: terrain crossings, repeated ridge occultations, polar intervals and DST nights passed');
+
+
+// Initial selection follows the observing night, not the device's clock.
+const { observingAlmanacDate } = await import('../js/almanac.js');
+const { skyTimeInput, parseSkyInput } = await import('../js/coelumtime.js');
+const selectedDay = (time, place = milan, zone = 'Europe/Rome', terrain = null) => skyTimeInput(observingAlmanacDate(time, place, zone, terrain), zone).split(' ')[0];
+assert.equal(selectedDay(d.sun.rise[0] - 1), '2026-11-11');
+assert.equal(selectedDay(d.sun.rise[0] + 1), '2026-11-12');
+assert.equal(selectedDay(t('2026-11-12T22:59:00Z')), '2026-11-12');
+assert.equal(selectedDay(t('2026-11-12T23:01:00Z')), '2026-11-12');
+assert.equal(selectedDay(t('2026-11-13T03:00:00Z')), '2026-11-12');
+assert.equal(selectedDay(t('2027-01-01T03:00:00Z')), '2026-12-31');
+assert.equal(selectedDay(d.sun.rise[0] + 600, milan, 'Europe/Rome', () => 10), '2026-11-11');
+assert.equal(selectedDay(hill.rise[0] + 1, milan, 'Europe/Rome', () => 10), '2026-11-12');
+for (const date of ['2026-03-08', '2026-11-01']) {
+  const zone = 'America/New_York', place = [40.7, -74, 0];
+  const time = parseSkyInput(`${date} 03:30`, zone), day = dailyAlmanac(time, place, zone);
+  assert.equal(selectedDay(time, place, zone), date === '2026-03-08' ? '2026-03-07' : '2026-10-31');
+  assert.equal(selectedDay(day.sun.rise[0] + 1, place, zone), date);
+}
+for (const date of ['2026-06-21', '2026-12-21']) {
+  const zone = 'Arctic/Longyearbyen', place = [78, 15, 0];
+  assert.equal(selectedDay(parseSkyInput(`${date} 11:59`, zone), place, zone), date.replace('21', '20'));
+  assert.equal(selectedDay(parseSkyInput(`${date} 12:01`, zone), place, zone), date);
+}
+assert.equal(selectedDay(parseSkyInput('-0100-06-01 02:00', 'Europe/Rome')), '-0100-05-31');
+console.log('Observing dates: sunrise rollover, terrain delay, midnight, year boundaries, DST, polar dates and B.C. dates passed');

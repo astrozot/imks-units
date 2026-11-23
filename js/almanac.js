@@ -77,6 +77,21 @@ export function visibilityIntervals(body, start, end, place, terrain = null) {
   return { rise, set, intervals };
 }
 
+// Before sunrise, keep the date of the night already in progress. Use the
+// first terrain emergence so later ridge occultations cannot change it back.
+// Polar dates without a sunrise use local noon as a stable night boundary.
+export function observingAlmanacDate(time, place, zone, terrain = null) {
+  const [start, end] = skyDayBounds(time, zone);
+  const noon = t => {
+    const [a, b] = skyDayBounds(t, zone);
+    const parsed = parseSkyInput(`${skyTimeInput(t, zone).split(' ')[0]} 12:00`, zone);
+    return Number.isFinite(parsed) ? parsed : (a + b) / 2;
+  };
+  const sunrise = terrain ? visibilityIntervals('sun', start, end, place, terrain).rise[0]
+    : crossings('sun', start, end, place, true)[0];
+  return noon(time < (sunrise ?? noon(time)) ? start - 1 : time);
+}
+
 const BODIES = ['moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 const COLORS = ['#e4eaf4', '#adb6c5', '#f6dfb3', '#e79d87', '#d2b4ac', '#dfc99a', '#78c5d3', '#809fdf'];
 // A night belongs to the selected civil date: local noon to next local noon.
@@ -173,7 +188,8 @@ export async function dailyHighlights(start, end, job = {}) {
 export const ALMANAC_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 10h18M7 18h10m-8 0a3 3 0 0 1 6 0M12 12v1m-5 1 1 1m9-1-1 1"/></svg>';
 
 export function renderAlmanac(root, explorer, zone, validTime = () => true) {
-  let date = Date.now() / 1000, job, keyboardDate = false, pendingDate = null, terrainLoading = false, terrainError = '';
+  const initialDate = observingAlmanacDate(explorer.time, explorer.place, zone, explorer.terrainHorizon);
+  let date = validTime(initialDate) ? initialDate : explorer.time, job, keyboardDate = false, pendingDate = null, terrainLoading = false, terrainError = '';
   const wheelRoot = document.createElement('dialog');
   wheelRoot.id = `coelum-almanac-date-${++datePickerId}`;
   wheelRoot.className = 'coelum-date-wheels';
@@ -294,7 +310,7 @@ export function renderAlmanac(root, explorer, zone, validTime = () => true) {
       if (step) {
         const next = Number(step) > 0 ? d.end + 1 : d.start - 1;
         if (validTime(next)) { date = next; render(); root.querySelector(`[data-almanac-step="${step}"]`).focus(); }
-      } else if (ev.target.closest('[data-almanac-today]')) { date = Date.now() / 1000; render(); root.querySelector('[data-almanac-today]').focus(); }
+      } else if (ev.target.closest('[data-almanac-today]')) { date = observingAlmanacDate(Date.now() / 1000, explorer.place, zone, explorer.terrainHorizon); render(); root.querySelector('[data-almanac-today]').focus(); }
       if (ev.target.closest('[data-almanac-date-mode]')) {
         keyboardDate = true; input.readOnly = false; input.focus();
       }
