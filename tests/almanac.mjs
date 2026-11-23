@@ -54,3 +54,34 @@ const dec = meteorShowers(t('2026-12-31T12:00Z'), 'UTC').find((s) => s.name === 
 assert.equal(new Date(dec.peak * 1000).getUTCFullYear(), 2027);
 assert.deepEqual(meteorShowers(t('0001-01-01T12:00Z'), 'UTC'), []);
 console.log('Meteor peaks match independent IMO 2026/2027 predictions');
+
+// The chart uses the observing night, including timezone transitions.
+const { visibilityIntervals, almanacNight } = await import('../js/almanac.js');
+for (const [date, hours] of [['2026-03-07T12:00Z', 23], ['2026-10-31T12:00Z', 25]]) {
+  const [start, end] = almanacNight(t(date), 'America/New_York');
+  assert.equal(end - start, hours * 3600);
+  assert.equal(skyClock(start, 'America/New_York'), '12:00');
+  assert.equal(skyClock(end, 'America/New_York'), '12:00');
+}
+const flat = visibilityIntervals('sun', d.start, d.end, milan);
+assert.ok(Math.abs(flat.rise[0] - d.sun.rise[0]) < 0.1);
+assert.ok(Math.abs(flat.set[0] - d.sun.set[0]) < 0.1);
+const hill = visibilityIntervals('sun', d.start, d.end, milan, () => 10);
+assert.ok(hill.rise[0] > flat.rise[0] + 1800, 'A ridge delays sunrise');
+assert.ok(hill.set[0] < flat.set[0] - 1800, 'A ridge advances sunset');
+assert.deepEqual(visibilityIntervals('sun', summer.start, summer.end, [78, 15, 0]).intervals, [[summer.start, summer.end]]);
+assert.deepEqual(visibilityIntervals('sun', winter.start, winter.end, [78, 15, 0]).intervals, []);
+// Independent geometry check at every refined terrain crossing, including
+// multiple disappearances caused by a synthetic serrated skyline.
+const { horizontal } = await import('../js/astro.js');
+const { refraction } = await import('../js/coelum.js');
+const ridge = az => 20 + 12 * Math.sin(az * Math.PI / 15);
+const jagged = visibilityIntervals('sun', d.start, d.end, milan, ridge);
+assert.ok(jagged.rise.length > 1 && jagged.set.length > 1);
+for (const [events, direction] of [[jagged.rise, 1], [jagged.set, -1]]) for (const event of events) {
+  const clearance = time => { const h = horizontal('sun', time, milan); return h.alt + refraction(h.alt, milan[2]) + 0.2666 - ridge(h.az); };
+  assert.ok(clearance(event - 1) * direction < 0);
+  assert.ok(clearance(event + 1) * direction > 0);
+  assert.ok(Math.abs(clearance(event)) < 0.001);
+}
+console.log('Visibility: terrain crossings, repeated ridge occultations, polar intervals and DST nights passed');

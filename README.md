@@ -657,9 +657,11 @@ the kernel’s barycentric origin. The Sun is always hidden in the barycentric v
 
 The calendar-and-sun button on the right rail opens the **Daily almanac**,
 a separate view that starts on today in the selected sky timezone. Previous,
-Next, Today and the system calendar browse civil days without changing the sky.
+Next, Today and the shared Date and Time wheel picker (date only) browse civil
+days without changing the sky. Square day arrows match the date input’s height.
 Opening the page focuses its close button, keeping mobile keyboards closed.
-An optional signed-year field supports B.C. dates.
+The picker supports signed years and B.C. dates; its keyboard button enables
+direct date entry, matching the Date and Time control.
 It summarizes sunrise, sunset, daylight duration, solar noon, three levels of
 twilight, Moon rise/set, lunar age and illumination at noon. Daily highlights
 cover Moon phases, seasons, eclipses, planetary conjunctions, oppositions and
@@ -671,7 +673,20 @@ current day, and shows Moon illumination at maximum. These are nominal regular
 maxima, not dust-trail/outburst forecasts; broad peaks and timing uncertainty
 are identified. The parameters and source link live in `js/meteors.js`.
 The same almanac is available in iMKS's sky explorer and works offline.
-Rise/set assumes an unobstructed horizon; dates with no crossing say so.
+Sun times and twilight share one card, with calculated times shown to the second.
+Sun and Moon rise/set always show separate local-terrain and theoretical
+columns. Theoretical times are amber; terrain
+times show as unavailable until the location’s skyline is downloaded. A download button prepares missing
+terrain. Seconds indicate calculation resolution; weather, buildings, trees and
+terrain detail still limit observational accuracy.
+The Moon and seven planets have a noon-to-noon visibility chart with thin
+lines for the theoretical horizon and thick lines for local terrain, over a
+daylight/twilight/night background. The lines overlap on the same centerline, with terrain rise and set times
+rounded to the nearest minute at the bar endpoints. Select a row to open crossing times
+and a sky view button in a modal, without expanding the chart. The Moon card
+shows a textured lunar disk at local midday, including phase and libration. Repeated disappearances behind ridges are retained; crossings
+shorter than the 30-second sampling may be missed. The night follows local
+civil time, including daylight-saving transitions. Dates with no crossing say so.
 
 `coelum/` is the sky explorer as an app of its own, without the calculator:
 it opens in full screen, now, at the place last chosen there (or the
@@ -1108,9 +1123,11 @@ illumination and feature selection; the high-zoom browser tests cover labels
 and taps on the rendered Moon (`node tests/lunarfeatures-browser.mjs`).
 
 `node tests/almanac.mjs` checks civil-day bounds, polar daylight, lunar
-crossings, known event dates and meteor activity windows.
+crossings, known event dates, meteor activity windows, terrain crossings,
+repeated ridge occultations and daylight-saving night bounds.
 `node tests/almanac-browser.mjs` checks date navigation, sky-time independence,
-responsive layout and opening daily highlights, with the same Playwright options.
+responsive layout, cached terrain, keyboard-accessible planet modals, textured Moon rendering and
+opening daily highlights or planets, with the same Playwright options.
 
 `node tests/coelum-app.mjs` checks the Coelum app: its place at the start,
 full screen, the eclipses from a place and anywhere, their sheets and the

@@ -1928,7 +1928,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
 
   root.addEventListener('keydown', (ev) => {
     if (!panels.almanac.hidden && ev.key === 'Tab') {
-      const controls = [...panels.almanac.querySelectorAll('button:not(:disabled), input, a[href]')];
+      const controls = [...panels.almanac.querySelectorAll('button:not(:disabled), input, a[href]')].filter(control => control.getClientRects().length);
       const first = controls[0], last = controls.at(-1);
       if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
       else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
@@ -2408,6 +2408,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     get time() { return t; },
     get place() { return [...place]; },
     get placeLabel() { return placeLabel; },
+    get terrainHorizon() { return terrain; },
+    loadAlmanacTerrain: () => chooseHorizon('terrain'),
     setTime,
     setPlace: (p) => setPlace(p),
     setSpeed: (v) => setSpeed(v),
