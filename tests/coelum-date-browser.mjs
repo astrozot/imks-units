@@ -32,6 +32,7 @@ try {
     await context.route('https://celestrak.org/**', route => route.fulfill({ json: [] }));
     const page = await context.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.message));
+    const touchSession = browserType.name() === 'chromium' ? await context.newCDPSession(page) : null;
     await page.goto(url); await page.waitForSelector('.coelum-full');
     await page.click('[data-action="time"]');
     const input = page.locator('[data-time-input]'), picker = page.locator('[data-time-wheels]'), toggle = page.locator('[data-time-date-mode]');
@@ -54,6 +55,25 @@ try {
       assert.equal(await heading.textContent(), 'Events of 2026-11-23');
       await page.click('[data-time-step="-86400"]');
       assert.equal(await heading.textContent(), 'Events of 2026-11-22');
+      const swipe = async (dx, dy = 0) => {
+        const box = await page.locator('.coelum-events').boundingBox();
+        const x = box.x + box.width / 2, y = box.y + 16;
+        if (touchSession) {
+          await touchSession.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+          for (let i = 1; i <= 8; i++) await touchSession.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + dx * i / 8, y: y + dy * i / 8 }] });
+          await touchSession.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        } else {
+          await page.mouse.move(x, y); await page.mouse.down();
+          await page.mouse.move(x + dx, y + dy, { steps: 8 }); await page.mouse.up();
+        }
+      };
+      await swipe(-70);
+      assert.equal(await heading.textContent(), 'Events of 2026-11-23');
+      assert.equal(await input.inputValue(), '2026-11-23 12:34:56', 'Swipe does not also select an event');
+      await swipe(70);
+      assert.equal(await input.inputValue(), '2026-11-22 12:34:56');
+      await swipe(5, 45);
+      assert.equal(await input.inputValue(), '2026-11-22 12:34:56', 'Vertical gestures do not change the day');
       const layout = await heading.evaluate(el => {
         const text = el.getBoundingClientRect(), panel = el.closest('.coelum-timepanel').getBoundingClientRect();
         const arrows = [...el.parentElement.querySelectorAll('button')].map(button => button.getBoundingClientRect());

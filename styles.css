@@ -534,7 +534,7 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-time-row input, .coelum-place-form input { min-width: 0; flex: 1 1 180px; padding: 7px 9px; border: 1px solid var(--c-line); border-radius: 8px; background: #1a2541; color: var(--c-ink); font: 16px system-ui, -apple-system, sans-serif; color-scheme: dark; }
 .coelum-time-row .coelum-chip, .coelum-place-form .coelum-chip { margin: 0; }
 .coelum-date-field { position: relative; min-width: 0; flex: 1 1 0; }
-.coelum-timepanel { padding-inline: 10px; }
+.coelum-timepanel, .coelum-placepanel { padding-inline: 10px; }
 .coelum-time-row [data-set-time="now"] { flex: none; padding-inline: 8px; }
 .coelum-date-field [data-time-input] { box-sizing: border-box; display: block; width: 100%; height: 40px; padding-right: 43px; font-variant-numeric: tabular-nums; }
 .coelum-date-field:has([data-time-input]:not([readonly]):focus) { outline: 2px solid var(--c-accent); outline-offset: 2px; border-radius: 8px; }
@@ -602,11 +602,12 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 .coelum-wheel-note, .coelum-wheel-error { margin: 9px 3px 0; font-size: 11px; line-height: 1.5; color: var(--c-muted); }
 .coelum-wheel-error { color: #ffb9a9; }
 
-@media (max-width: 480px) { .coelum-immersive .coelum-panel.coelum-timepanel { left: 8px; right: 8px; width: auto; } }
-.coelum-events-nav { display: grid; grid-template-columns: 18px minmax(0, 1fr) 18px; align-items: center; gap: 6px; margin-top: 14px; line-height: 18px; }
+@media (max-width: 480px) { .coelum-immersive .coelum-panel:is(.coelum-timepanel, .coelum-placepanel) { left: 8px; right: 8px; width: auto; } }
+.coelum-event-days { touch-action: pan-y pinch-zoom; }
+.coelum-events-nav { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; align-items: center; gap: 6px; margin-top: 14px; line-height: 28px; }
 .coelum-events-head { text-align: center; line-height: inherit; }
-.coelum-events-nav .coelum-event-day { width: 18px; height: 18px; border-radius: 5px; }
-.coelum-event-day svg { width: 14px; height: 14px; }
+.coelum-events-nav .coelum-event-day { width: 28px; height: 28px; border-radius: 6px; }
+.coelum-event-day svg { width: 22px; height: 22px; }
 .coelum-events { container-type: inline-size; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
 .coelum-events .coelum-chip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 6px; min-width: 0; margin: 0; padding: 6px 8px; text-align: left; }
 .coelum-events .coelum-chip time { white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -614,7 +615,11 @@ table.vals .ix.lbl { text-align: left; font-size: 13px; color: var(--text); whit
 @container (min-width: 304px) { .coelum-event-seconds { display: inline; } }
 .coelum-events .coelum-chip > span { color: var(--c-muted); font-weight: 500; }
 .coelum-events .coelum-panel-note { grid-column: 1 / -1; }
-.coelum-place-form { display: flex; flex-wrap: wrap; gap: 8px; }
+.coelum-place-form { display: flex; }
+.coelum-place-field { position: relative; min-width: 0; width: 100%; }
+.coelum-place-field input { box-sizing: border-box; display: block; width: 100%; height: 40px; padding-right: 43px; }
+.coelum-place-field .coelum-place-map { position: absolute; right: 4px; top: 4px; width: 32px; height: 32px; padding: 5px; border-radius: 5px; }
+.coelum-place-map svg { width: 20px; height: 20px; }
 .coelum-place-results { display: grid; gap: 2px; margin-top: 8px; }
 .coelum-place { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 10px; border: 0; border-radius: 9px; background: rgba(255, 255, 255, 0.045); color: var(--c-ink); font: 14px system-ui, -apple-system, sans-serif; text-align: left; cursor: pointer; }
 @media (hover: hover) and (pointer: fine) { .coelum-place:hover { background: var(--c-hover); } }

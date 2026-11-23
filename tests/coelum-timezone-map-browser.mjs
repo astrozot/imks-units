@@ -58,7 +58,7 @@ try {
   await page.getByText('Unable to load timezone boundaries. Close and reopen to try again.').waitFor();
   assert.equal(await page.locator('[data-reset-place-zone]').isDisabled(), true);
   await page.click('[data-zone-cancel]');
-  assert.equal(await activeTimeMode(page), 'utc');
+  assert.equal(await activeTimeMode(page), 'location', 'Opening Local selects it even without a globe action');
   await page.unroute('**/data/timezones.topo.json');
   await page.click('[data-time-zone="location"]');
   assert.equal(await dialog.evaluate(el => el.matches('dialog:modal')), true);

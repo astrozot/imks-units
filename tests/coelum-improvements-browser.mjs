@@ -101,6 +101,26 @@ try {
   assert.equal(await page.locator('.coelum-timepanel').isVisible(), false, 'The dismissal click does not activate the control underneath');
   await page.click('[data-action="place"]');
   assert.equal(await page.locator('[data-place="original"]').count(), 0, 'Standalone Coelum has no Original place');
+  assert.equal(await page.locator('.coelum-place-form [type="submit"]').count(), 0);
+  assert.equal(await page.locator('[data-place-elevation-note], .coelum-chips [data-place="map"]').count(), 0);
+  for (const width of [320, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    const panel = await page.locator('.coelum-placepanel').boundingBox();
+    assert.equal(panel.x, 8); assert.equal(panel.width, width - 16, 'Place spans the same phone width as Date and Time');
+    const field = await page.locator('.coelum-place-form input').boundingBox();
+    const globeButton = await page.locator('.coelum-place-field [data-place="map"]').boundingBox();
+    assert.ok(globeButton.x > field.x && globeButton.x + globeButton.width <= field.x + field.width);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('https://nominatim.openstreetmap.org/**', route => route.fulfill({ json: [{ name: 'Test place', display_name: 'Test place, Italy', lat: '45', lon: '9', addresstype: 'city', category: 'place' }] }));
+  await page.route('https://api.open-meteo.com/**', route => route.fulfill({ json: { elevation: [100] } }));
+  await page.fill('.coelum-place-form input', 'Test place');
+  await page.locator('.coelum-place-form input').press('Enter');
+  await page.locator('.coelum-place-results').getByText('Test place, Italy').waitFor();
+  assert.equal(await page.locator('.coelum-place-status').textContent(), 'Tap a place to use it.');
+  await page.fill('.coelum-place-form input', '');
+  await page.screenshot({ path: '/private/tmp/coelum-place-panel.png' });
+
   await page.click('[data-place="map"]');
   await page.waitForSelector('.coelum-map-panel .map-coast, .coelum-map-panel .map-full[data-renderer=webgl]');
   const largeMap = await page.locator('.coelum-map-panel').boundingBox();

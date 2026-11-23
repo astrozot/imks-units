@@ -161,6 +161,7 @@ const ICONS = {
   layers: icon('<path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="m2.5 12.5 9.5 5 9.5-5"/><path d="m2.5 16.5 9.5 5 9.5-5"/>'),
   legend: icon('<circle cx="5" cy="6" r="1.6"/><path d="M10 6h10"/><path d="M3.4 12h3.2"/><path d="M10 12h10"/><rect x="3.4" y="16.4" width="3.2" height="3.2"/><path d="M10 18h10"/>'),
   play: icon('<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>'),
+  globe: icon('<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>'),
   keyboard: icon('<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 15h8"/>'),
   clock: icon('<circle cx="12" cy="12" r="8.5"/><path d="M12 6.5V12l3.5 2"/>'),
   pause: icon('<path d="M8 5v14M16 5v14" stroke-width="3.2"/>'),
@@ -371,19 +372,18 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-panel-head"><h3>Date and time</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close date and time">${ICONS.close}</button></div>
         <div class="coelum-time-row"><div class="coelum-date-field"><input type="text" spellcheck="false" autocomplete="off" data-time-input aria-label="Date and time in the selected timezone" aria-controls="${id}-date-wheels" aria-expanded="false" aria-haspopup="dialog" placeholder="YYYY-MM-DD hh:mm:ss"><button type="button" class="coelum-btn coelum-date-toggle" data-time-date-mode aria-label="Use keyboard" title="Use keyboard">${ICONS.keyboard}</button></div><button type="button" class="coelum-chip" data-set-time="now">Now</button></div>
         <div class="coelum-time-options" role="group" aria-label="Time"><span>Time:</span><div class="coelum-time-choices">${[['utc', 'UTC'], ['device', 'Device'], ['location', 'Local']].map(([value, label]) => `<button type="button" data-time-zone="${value}" aria-pressed="false"${value === 'location' ? ` aria-haspopup="dialog" aria-controls="${id}-timezone"` : ''}>${value === 'location' ? '<span class="coelum-local-label">Local:</span> <span data-local-timezone></span>' : label}</button>`).join('')}</div></div>
-        <div class="coelum-events-nav"><button type="button" class="coelum-btn coelum-event-day" data-time-step="-86400" aria-label="Previous day" title="Previous day">${icon('<path d="m14 6-6 6 6 6"/>')}</button><h3 class="coelum-events-head" aria-live="polite">Events of the day</h3><button type="button" class="coelum-btn coelum-event-day" data-time-step="86400" aria-label="Next day" title="Next day">${icon('<path d="m10 6 6 6-6 6"/>')}</button></div>
-        <div class="coelum-events"></div>
+        <div class="coelum-event-days"><div class="coelum-events-nav"><button type="button" class="coelum-btn coelum-event-day" data-time-step="-86400" aria-label="Previous day" title="Previous day">${icon('<path d="m14 6-6 6 6 6"/>')}</button><h3 class="coelum-events-head" aria-live="polite">Events of the day</h3><button type="button" class="coelum-btn coelum-event-day" data-time-step="86400" aria-label="Next day" title="Next day">${icon('<path d="m10 6 6 6-6 6"/>')}</button></div>
+        <div class="coelum-events"></div></div>
       </div>
       <dialog class="coelum-date-wheels" id="${id}-date-wheels" data-time-wheels aria-label="Choose date and time" hidden></dialog>
       <dialog class="coelum-timezone-dialog" id="${id}-timezone" data-timezone-dialog aria-label="Choose local timezone" hidden></dialog>
       <div class="coelum-panel coelum-placepanel" id="${id}-place" role="group" aria-label="Place" hidden>
         <div class="coelum-panel-head"><h3>Place</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close place">${ICONS.close}</button></div>
-        <form class="coelum-place-form"><input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="City, or latitude, longitude" aria-label="Search places"><button type="submit" class="coelum-chip">Search online</button></form>
+        <form class="coelum-place-form"><div class="coelum-place-field"><input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="City, or latitude, longitude" aria-label="Search places"><button type="button" class="coelum-btn coelum-place-map" data-place="map" aria-label="Choose on map" title="Choose on map" aria-haspopup="dialog" aria-controls="${id}-map">${ICONS.globe}</button></div></form>
         <div class="coelum-place-results" role="list"></div>
         <p class="coelum-panel-note coelum-place-status" role="status" aria-live="polite"></p>
         <label class="coelum-time-zone" data-place-elevation-row><span>Ground elevation (m)</span><span class="coelum-location-zone-controls"><input type="number" inputmode="decimal" step="any" min="-500" max="9000" data-place-elevation aria-label="Ground elevation in metres"><button type="button" class="coelum-chip" data-reset-place-elevation>Automatic</button></span></label>
-        <p class="coelum-panel-note" data-place-elevation-note>The landscape is seen from ${EYE_HEIGHT} m above this elevation. Automatic uses an elevation model (about 90 m resolution).</p>
-        <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button>${options.standalone ? '' : '<button type="button" class="coelum-chip" data-place="original">Original place</button>'}<button type="button" class="coelum-chip" data-place="map">Choose on map</button><button type="button" class="coelum-chip" data-place="geocentric">Earth center</button><button type="button" class="coelum-chip" data-place="barycentric">Solar system barycenter</button></div><p class="coelum-panel-note">Earth center gives geocentric coordinates. The solar system barycenter gives approximate barycentric coordinates, close to heliocentric. These views have no ground or atmosphere.</p>
+        <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button>${options.standalone ? '' : '<button type="button" class="coelum-chip" data-place="original">Original place</button>'}<button type="button" class="coelum-chip" data-place="geocentric">Earth center</button><button type="button" class="coelum-chip" data-place="barycentric">Solar system barycenter</button></div><p class="coelum-panel-note">Earth center gives geocentric coordinates. The solar system barycenter gives barycentric coordinates, close to heliocentric. These views have no ground or atmosphere.</p>
       </div>
       <dialog class="coelum-panel coelum-map-panel" id="${id}-map" aria-label="Choose a place on the map" hidden>
         <div class="coelum-panel-head"><h3>Choose on map</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close map">${ICONS.close}</button></div>
@@ -1400,6 +1400,39 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (playing) pause(); else draw(true);
     if (!panels.time.hidden) showTime();
   };
+  const stepEventDay = seconds => { datedEvents = true; setTime(t + seconds); };
+  const eventDays = $('.coelum-event-days');
+  let eventSwipe = null, suppressEventClick = false;
+  eventDays.addEventListener('pointerdown', ev => {
+    eventSwipe = ev.isPrimary && ev.button === 0 ? { id: ev.pointerId, x: ev.clientX, y: ev.clientY } : null;
+    suppressEventClick = false;
+  });
+  eventDays.addEventListener('pointermove', ev => {
+    if (ev.pointerId !== eventSwipe?.id) return;
+    const dx = Math.abs(ev.clientX - eventSwipe.x), dy = Math.abs(ev.clientY - eventSwipe.y);
+    if (dx > 12 && dx > dy * 1.3) {
+      eventDays.setPointerCapture(ev.pointerId);
+      suppressEventClick = true;
+      ev.preventDefault();
+    }
+  });
+  eventDays.addEventListener('pointerup', ev => {
+    if (ev.pointerId !== eventSwipe?.id) return;
+    const dx = ev.clientX - eventSwipe.x, dy = ev.clientY - eventSwipe.y;
+    eventSwipe = null;
+    if (Math.abs(dx) >= 40 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      suppressEventClick = true;
+      stepEventDay(dx < 0 ? 86400 : -86400);
+    }
+  });
+  eventDays.addEventListener('pointercancel', () => { eventSwipe = null; });
+  eventDays.addEventListener('lostpointercapture', ev => {
+    if (ev.target === eventDays) eventSwipe = null;
+  });
+  // Swiping across an event must not also jump to that event's time.
+  eventDays.addEventListener('click', ev => {
+    if (suppressEventClick) { ev.preventDefault(); ev.stopPropagation(); suppressEventClick = false; }
+  }, { capture: true });
   const zoneDialog = $('[data-timezone-dialog]');
   const localButton = $('[data-time-zone="location"]');
   const closeTimezoneMap = (focus = true) => {
@@ -1422,8 +1455,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   });
   for (const button of root.querySelectorAll('[data-time-zone]')) button.addEventListener('click', () => {
     const mode = button.dataset.timeZone;
-    if (mode !== 'location') { changeTimeMode(mode); return; }
-    closeDateWheels(false);
+    changeTimeMode(mode);
+    if (mode !== 'location') return;
     zoneDialog.hidden = false; zoneDialog.showModal();
     timezoneMap.open({ time: t, ...locationTimeZone(), place });
   });
@@ -1538,7 +1571,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const elevationInput = $('[data-place-elevation]');
   const showElevation = () => {
     const ground = observerOrigin(place) === 'topocentric';
-    $('[data-place-elevation-row]').hidden = $('[data-place-elevation-note]').hidden = !ground;
+    $('[data-place-elevation-row]').hidden = !ground;
     elevationInput.setCustomValidity('');
     if (ground && document.activeElement !== elevationInput) elevationInput.value = Number.isFinite(place[2]) ? String(Math.round(place[2] * 10) / 10) : '';
   };
@@ -2041,7 +2074,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const timeEvent = ev.target.closest('[data-time-event]')?.dataset.timeEvent;
     if (timeEvent) { setTime(Number(timeEvent)); return; }
     const timeStep = ev.target.closest('[data-time-step]')?.dataset.timeStep;
-    if (timeStep) { datedEvents = true; setTime(t + Number(timeStep)); return; }
+    if (timeStep) { stepEventDay(Number(timeStep)); return; }
     const timeChoice = ev.target.closest('[data-set-time]')?.dataset.setTime;
     if (timeChoice === 'now') { datedEvents = false; setTime(Date.now() / 1000); return; }
     const placeIndex = ev.target.closest('[data-place-index]')?.dataset.placeIndex;
