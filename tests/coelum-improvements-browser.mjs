@@ -68,7 +68,9 @@ try {
   assert.ok(line.y >= when.y + when.height);
   await page.click('[data-action="time"]');
   assert.equal(await page.locator('.coelum-time-options > span').innerText(), 'Time:');
-  assert.deepEqual(await page.locator('[data-time-zone]').allTextContents(), ['UTC', 'device', 'local']);
+  assert.deepEqual((await page.locator('[data-time-zone]').allTextContents()).slice(0, 2), ['UTC', 'Device']);
+  assert.match(await page.locator('[data-time-zone="location"]').textContent(), /^Local: /);
+  assert.equal(await page.locator('.coelum-zone-note').count(), 0);
   assert.equal(await page.locator('[data-set-time="original"]').count(), 0);
   // Two events per row at phone widths; touching a chip does not leave hover paint.
   for (const width of [320, 375, 390, 430]) {
@@ -239,7 +241,7 @@ try {
   assert.equal(await second.page.locator('.coelum-full').getAttribute('data-time'), instant, 'Moving the observer preserves the instant');
   await second.page.click('[data-action="time"]');
   await second.page.click('[data-time-zone="location"]');
-  assert.equal(await second.page.locator('[data-place-zone]').inputValue(), 'Asia/Tokyo');
+  assert.match(await second.page.locator('.coelum-zone-map-selected').innerText(), /Asia\/Tokyo/);
   await second.page.click('[data-zone-cancel]');
   await setLocalTimezone(second.page, 'America/New_York');
   await second.page.click('[data-time-date-mode]');

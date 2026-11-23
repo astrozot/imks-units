@@ -71,7 +71,8 @@ try {
   assert.equal(await timeButton.getAttribute('title'), 'Set the date and time · Nov 8, 2026, 01:00 PM Europe/Rome (UTC+01:00)');
   assert.equal(await timeButton.getAttribute('aria-label'), 'Date and time: Nov 8, 2026, 01:00 PM Europe/Rome (UTC+01:00)');
   await timeButton.click();
-  assert.match(await page.locator('.coelum-zone-note').textContent(), /Device time: Europe\/Rome \(UTC\+01:00\)/);
+  assert.equal(await page.locator('.coelum-zone-note').count(), 0);
+  assert.match(await page.locator('[data-time-zone="location"]').textContent(), /^Local: /);
   await page.locator('.coelum-timepanel [data-action="close-panel"]').click();
   assert.equal(await page.locator('.coelum-explorer.coelum-immersive').count(), 1);
   assert.equal(await page.locator('[data-action="fullscreen"]').count(), 0);

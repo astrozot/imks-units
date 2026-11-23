@@ -88,11 +88,13 @@ try {
       assert.equal(await picker.evaluate(el => !!el.closest('.coelum-timepanel')), false);
       assert.deepEqual(await input.boundingBox(), before);
       assert.equal(await selected('year'), '2026');
-      assert.equal(await page.locator('[data-wheel-cancel]').getAttribute('aria-label'), 'Cancel');
-      assert.equal(await page.locator('[data-wheel-done]').getAttribute('aria-label'), 'Done');
-      assert.equal(await page.locator('[data-wheel-cancel] svg').count(), 1);
-      assert.equal(await page.locator('[data-wheel-done] svg').count(), 1);
-      await page.click('[data-wheel-cancel]');
+      assert.equal(await page.locator('[data-wheel-close]').getAttribute('aria-label'), 'Close');
+      assert.equal(await page.locator('[data-wheel-done]').count(), 0);
+      const titleBox = await picker.locator('h3').boundingBox(), closeBox = await page.locator('[data-wheel-close]').boundingBox();
+      assert.ok(closeBox.x > titleBox.x + titleBox.width && Math.abs(closeBox.y + closeBox.height / 2 - titleBox.y - titleBox.height / 2) < 1, 'Close sits beside the title');
+      assert.equal(await wheel('year').evaluate(el => el.clientHeight), 7 * 32);
+      assert.equal(await page.locator('[data-wheel-close] svg').count(), 1);
+      await page.click('[data-wheel-close]');
       assert.equal(await page.locator('.coelum-full').getAttribute('data-time'), instant);
       assert.ok(await input.evaluate(el => el.scrollWidth <= el.clientWidth), 'Full date fits at ' + width);
     }
@@ -106,13 +108,39 @@ try {
       await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       await page.waitForFunction(() => document.querySelector('[data-date-wheel="year"] [aria-selected="true"]').textContent !== '2026');
       await session.detach();
-      await page.click('[data-wheel-cancel]'); await input.click();
+      await page.click('[data-wheel-close]'); await input.click();
     }
+    await page.click('[data-wheel-tab="time"]');
+    const minuteLabel = picker.locator('.coelum-wheel-label', { hasText: 'Minute' });
+    const labelBox = await minuteLabel.boundingBox();
+    await page.mouse.move(labelBox.x + labelBox.width / 2, labelBox.y + labelBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(labelBox.x + labelBox.width / 2, labelBox.y + labelBox.height / 2 - 32, { steps: 8 });
+    await page.mouse.up();
+    assert.equal(await selected('minute'), '35', 'Dragging the heading advances the wheel');
+    assert.match(await input.inputValue(), /12:34:56$/, 'The underlying field waits until close');
+    if (browserType.name() === 'chromium') {
+      const session = await context.newCDPSession(page);
+      const x = labelBox.x + labelBox.width / 2, y = labelBox.y + labelBox.height / 2;
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (let step = 1; step <= 8; step++) await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - step * 4 }] });
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForFunction(() => document.querySelector('[data-date-wheel="minute"] [aria-selected="true"]').textContent === '36');
+      await session.detach();
+    }
+    await scrollTo('minute', 34);
+    await page.click('[data-wheel-tab="date"]');
     const monthBox = await wheel('month').boundingBox();
     await page.mouse.move(monthBox.x + monthBox.width / 2, monthBox.y + 96);
     await page.mouse.down(); await page.mouse.move(monthBox.x + monthBox.width / 2, monthBox.y + 64, { steps: 8 }); await page.mouse.up();
     assert.equal(await selected('month'), '12', 'Mouse drag advances the wheel');
-    await page.click('[data-wheel-cancel]'); await input.click();
+    await page.click('[data-wheel-close]'); await input.click();
+    const underlyingTime = await input.inputValue(), underlyingSkyTime = await page.locator('.coelum-full').getAttribute('data-time');
+    await page.evaluate(() => {
+      window.dateWheelEventMutations = 0;
+      window.dateWheelEventObserver = new MutationObserver(records => { window.dateWheelEventMutations += records.length; });
+      window.dateWheelEventObserver.observe(document.querySelector('.coelum-events'), { childList: true, subtree: true, characterData: true });
+    });
     await scrollTo('year', 0, -1000);
     await scrollTo('month', 2, 1);
     await scrollTo('day', 29, 1);
@@ -126,15 +154,27 @@ try {
     await page.click('[data-wheel-tab="time"]');
     await wheel('second').press('ArrowDown');
     assert.equal(await selected('second'), '57');
-    assert.equal(await input.inputValue(), '2026-11-22 12:34:56', 'Wheel edits remain a draft');
-    await page.click('[data-wheel-done]');
+    assert.equal(await input.inputValue(), underlyingTime, 'Wheel edits defer the underlying field update');
+    assert.equal(await page.locator('.coelum-full').getAttribute('data-time'), underlyingSkyTime, 'Wheel edits defer the sky update');
+    assert.equal(await page.evaluate(() => {
+      const count = window.dateWheelEventMutations + window.dateWheelEventObserver.takeRecords().length;
+      return count;
+    }), 0, 'Daily events are not rebuilt while scrolling');
+    assert.equal(await picker.isVisible(), true, 'Editing keeps the picker open');
+    await page.click('[data-wheel-close]');
     assert.equal(await input.inputValue(), '0000-02-29 12:34:57');
     assert.equal(await picker.isVisible(), false);
+    assert.notEqual(await page.locator('.coelum-full').getAttribute('data-time'), underlyingSkyTime, 'Closing updates the sky');
+    assert.ok(await page.evaluate(() => {
+      const count = window.dateWheelEventMutations + window.dateWheelEventObserver.takeRecords().length;
+      window.dateWheelEventObserver.disconnect();
+      return count > 0;
+    }), 'Closing rebuilds daily events for the selected date');
     await input.click();
     assert.equal(await selected('year'), '0000', 'Reopening preserves signed years');
     await wheel('year').press('ArrowUp');
     await page.keyboard.press('Escape');
-    assert.equal(await input.inputValue(), '0000-02-29 12:34:57');
+    assert.equal(await input.inputValue(), '-0001-02-28 12:34:57', 'Escape retains changes');
     assert.equal(await picker.isVisible(), false);
     assert.equal(await page.locator('.coelum-timepanel').isVisible(), true);
     await toggle.click();
@@ -144,16 +184,17 @@ try {
     await input.click();
     await page.click('[data-wheel-tab="time"]');
     await wheel('hour').press('ArrowDown');
-    await page.click('[data-wheel-done]');
     assert.equal(await picker.isVisible(), true, 'DST gap rejected');
+    assert.equal(await input.inputValue(), '2026-03-08 01:30:45', 'Invalid DST edits leave the applied time unchanged');
     assert.match(await page.locator('.coelum-wheel-error').textContent(), /Daylight-saving/);
-    await page.click('[data-wheel-cancel]');
+    await page.click('[data-wheel-close]');
+    assert.equal(await input.inputValue(), '2026-03-08 01:30:45', 'Closing an invalid selection keeps the last valid time');
     await setTimeMode(page, 'utc');
     await input.click();
     await wheel('year').press('Home');
     assert.equal(await selected('year'), '−1000');
     await page.screenshot({ path: `/private/tmp/coelum-date-wheels-${locale}.png` });
-    await page.click('[data-wheel-done]');
+    await page.click('[data-wheel-close]');
     assert.match(await input.inputValue(), /^-1000-/);
     await toggle.click();
     await input.fill('2026-02-30 12:34:59'); await input.dispatchEvent('change');
@@ -161,7 +202,7 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log('Date wheels passed: fixed field size, signed/leap years, draft/apply/cancel, keyboard, seconds, DST, and locales');
+  console.log('Date wheels passed: fixed field size, signed/leap years, deferred updates/close, keyboard, seconds, DST, and locales');
 } finally {
   await browser?.close(); server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));

@@ -277,11 +277,11 @@ function renderEvents(body, explorer) {
   // the next span of a slow list, from start
   const searchSlow = async (kind, start) => {
     jobs[kind] && (jobs[kind].stop = true);
-    const x = found[kind], job = jobs[kind] = { done: 0, progress: () => { if (found[kind] === x && body.isConnected) fillSlow(kind); } };
-    x.busy = true;
+    const x = found[kind], job = jobs[kind] = { done: 0, progress: () => { if (!job.stop && found[kind] === x && body.isConnected) fillSlow(kind); } };
+    x.busy = true; x.pending = false;
     fillSlow(kind);
     const list = await SLOW[kind].search(start, SLOW[kind].span, at, job);
-    if (!list || found[kind] !== x) return;
+    if (job.stop || !list || found[kind] !== x) return;
     x.list.push(...list);
     x.span += SLOW[kind].span;
     x.busy = false;
@@ -297,7 +297,10 @@ function renderEvents(body, explorer) {
       for (const [kind, [search]] of Object.entries(SEARCHES)) found[kind] = search(from, at, 4);
       for (const [kind] of slow) { found[kind] = { list: [], span: 0, busy: false, shown: 10 }; searchSlow(kind, from); }
     }
-    for (const [kind] of slow) fillSlow(kind);
+    for (const [kind] of slow) {
+      if (found[kind].pending) searchSlow(kind, from + found[kind].span);
+      else fillSlow(kind);
+    }
     for (const kind of Object.keys(SEARCHES)) {
       const box = body.querySelector(`[data-list="${kind}"]`), rows = found[kind].list.map(SEARCHES[kind][1]).join("");
       if (box) box.innerHTML = (rows || `<p class="coelum-panel-note">None seen here in the next decades.</p>`) + (found[kind].list.length ? `<button type="button" class="coelum-chip" data-more="${kind}">More</button>` : "");
@@ -349,9 +352,21 @@ const EVENTS_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden
 // The panel, for mountCoelum's panels; a new catalog of satellites draws
 // the passes again, if the panel is open
 let shown = null;
+function closeEvents() {
+  ++renders; // Also invalidate a fill queued before the panel closed.
+  shown = null;
+  for (const [kind, job] of Object.entries(jobs)) {
+    if (!job) continue;
+    job.stop = true;
+    jobs[kind] = null;
+    // A cancelled span contributes no results. Retry it on reopening,
+    // keeping all previously completed spans and their pagination.
+    if (found?.[kind]) { found[kind].busy = false; found[kind].pending = true; }
+  }
+}
 function eventsPanel(h) {
   host = h;
-  return { key: "events", label: "Events", icon: EVENTS_ICON, render: (body, explorer) => { shown = { body, explorer }; renderEvents(body, explorer); } };
+  return { key: "events", label: "Events", icon: EVENTS_ICON, close: closeEvents, render: (body, explorer) => { shown = { body, explorer }; renderEvents(body, explorer); } };
 }
 onSatellites(() => {
   const panel = shown?.body.closest("[data-panel]");

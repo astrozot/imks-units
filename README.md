@@ -48,15 +48,18 @@ years in the proleptic Gregorian calendar: 0 is 1 BCE, −1 is 2 BCE, and
 −1000 is 1001 BCE. The date panel always displays `YYYY-MM-DD hh:mm:ss`
 with a 24-hour clock. Tap the field to open a separate dialog with iOS-style scroll wheels for the
 date and time, including year zero and negative years. Date and Time tabs
-switch between the two sets of wheels; the checkmark applies the selection
-and the cross cancels. Its inset keyboard button focuses the field for direct entry.
+switch between the two sets of wheels. Valid changes are kept as you edit; the
+cross at the top right closes the dialog and applies the selected time. The
+underlying date panel, daily events, and sky update only when the dialog closes. Each wheel
+shows three rows on either side of the selection, with a curved effect. Swipe
+the values or their column headings to adjust them. Its inset keyboard button focuses the field for direct entry.
 Press Enter or leave the field to finish editing; the icon stays a keyboard.
 Standalone Coelum defaults to device time. The date panel’s Time row offers
 UTC, device, and local. Local opens the existing offline globe with vector coastlines and timezone
 boundaries: tap a place
-to preview its timezone, then confirm with the checkmark. The globe rotates and supports pinch/scroll zoom;
-the timezone field also accepts IANA names and fixed offsets. Automatic uses the
-observing location’s timezone. Cancel leaves the current time mode unchanged. The date panel and event timestamps identify
+to apply its timezone immediately. The globe rotates and supports pinch/scroll zoom.
+Auto uses the observing location’s timezone. The cross at the top right closes the
+window and keeps the selected timezone. The date panel and event timestamps identify
 the zone and UTC offset; date entry and events follow the same choice.
 The compact bottom bar omits the timezone and stays within its original height.
 The globe and map selection use geographic polygons from
@@ -67,7 +70,8 @@ The bundled TopoJSON and its license, provenance, and build instructions are in
 `data/timezones-SOURCE.md` (ODbL; © OpenStreetMap contributors). These are modern
 geographic boundaries, not historical borders for every supported date.
 Source overlaps are preserved; tapping one offers an explicit choice between
-the matching zones. Cross/checkmark actions remain visible in the picker footer.
+the matching zones. The close control and the footer’s selected timezone and Auto button remain visible.
+Long timezone names are truncated with an ellipsis.
 All globe maps share the finer Natural Earth 1:10m coastlines, with adaptive
 detail up to a 250 m simplification threshold (see `data/coast-SOURCE.md`).
 All interactive Earth globes use WebGL when available: geographic line buffers stay on
@@ -92,8 +96,9 @@ same display-detail levels as the coasts; provenance is in `data/countries-SOURC
 Before the geographic dataset has loaded, automatic location inference uses
 [@photostructure/tz-lookup](https://github.com/photostructure/tz-lookup)
 11.7.0 as a compact approximate fallback (CC0; see `data/tzlookup-LICENSE.txt`).
-Override a location with an IANA zone (automatic daylight-saving rules),
-or a fixed offset such as `UTC+02:00`; **Automatic** restores the map result.
+Choose a location’s timezone on the globe (with automatic daylight-saving rules);
+**Auto** restores the observing location’s timezone. Existing saved IANA zones and
+fixed offsets such as `UTC+02:00` are also supported.
 Overrides are saved per location. Browser timezone rules govern historical
 and future dates, so fixed offsets are available for manual adjustments. The range is an application
 limit, shared with the supported interval of the season formulas;

@@ -38,10 +38,19 @@ try {
   await page.goto(url);
   await page.click('[data-action="events"]');
   await page.click('[data-scope="anywhere"]');
+  // Closing Events must cancel its remaining main-thread searches. On a
+  // phone these otherwise compete with every globe gesture, even with GL.
+  await page.evaluate(() => {
+    window.hiddenEventUpdates = 0;
+    const panel = document.querySelector('[data-panel="events"]');
+    new MutationObserver(() => { if (panel.hidden) window.hiddenEventUpdates++; })
+      .observe(panel.querySelector('.coelum-panel-body'), { childList: true, subtree: true });
+  });
   await page.click('.coelum-event[data-event="solar"]');
   const globe = page.locator('.map-full');
   await page.waitForSelector('.map-full .map-coast, .map-full[data-renderer=webgl]');
   const gpu=await globe.getAttribute('data-renderer')==='webgl';
+  assert.ok(gpu, `The first solar globe uses WebGL: ${await globe.getAttribute('data-gpu-fallback')}`);
   // Dismissal of Events must not interfere with subsequent map gestures.
   await page.click('[data-map-mode="sim"]');
   await page.click('[data-map-mode="map"]');
@@ -56,6 +65,7 @@ try {
     assert.ok(Math.abs(g.w-g.width)<1, 'Projection uses the displayed width');
   };
   await fitted();
+  assert.equal(await page.evaluate(() => window.hiddenEventUpdates), 0, 'Closed Events does not keep searching and updating behind the globe');
   const coast = () => gpu ? globe.locator('.map-label').evaluateAll(nodes=>JSON.stringify(nodes.map(el=>[el.textContent,el.getAttribute('x'),el.getAttribute('y')]))) : globe.locator('.map-coast').getAttribute('d');
   const original = await coast(), box = await globe.boundingBox();
   if (process.env.BROWSER !== 'webkit') {
@@ -93,6 +103,14 @@ try {
   await page.setViewportSize({width:390,height:844});
   await fitted();
   if (process.env.ECLIPSE_SCREENSHOT) await page.screenshot({path:process.env.ECLIPSE_SCREENSHOT});
+  await page.click('#sheet button[data-close]');
+  await page.click('[data-action="events"]');
+  for (const kind of ['conjunctions', 'occultations']) {
+    await page.locator(`[data-list="${kind}"] [data-more]`).waitFor();
+    const rows = await page.locator(`[data-list="${kind}"] [data-event]`).allTextContents();
+    assert.ok(rows.length > 0, `${kind}: interrupted search resumes`);
+    assert.equal(new Set(rows).size, rows.length, `${kind}: resumed search has no duplicate results`);
+  }
   assert.deepEqual(errors,[]);
   console.log('Eclipse globe checks passed');
 } finally {
