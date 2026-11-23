@@ -343,7 +343,8 @@ function showPass(x, explorer) {
   explorer.focus(x.s.name);
 }
 
-const EVENTS_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17 5 8.5 0 0 0 0-17z" fill="currentColor"/></svg>';
+// A smaller white Sun behind a black Moon with a thin white outline.
+const EVENTS_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="black" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="14" r="6.6" fill="white" stroke="none"/><circle cx="15" cy="10" r="7"/></svg>';
 
 // The panel, for mountCoelum's panels; a new catalog of satellites draws
 // the passes again, if the panel is open
