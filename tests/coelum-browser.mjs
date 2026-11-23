@@ -934,8 +934,9 @@ try {
     await p2.keyboard.press('Enter');
     await p2.locator('.coelum-preview').last().click();
     await p2.locator('[data-action="events"]').click();
+    await p2.locator('[data-category="occultations"] > summary').click();
     await p2.waitForSelector('[data-event="occultations"]', { timeout: 60000 });
-    assert.match(await p2.locator('[data-panel="events"] .coelum-panel-note').first().textContent(), /Seen from .*its calculation, with its map or drawing/);
+    assert.match(await p2.locator('[data-panel="events"] .coelum-panel-note').first().textContent(), /^Seen from .*, after .*\.$/);
     assert.match(await p2.locator('[data-event="occultations"]').first().innerText(), /^52 Sgr behind the Moon/);
     await p2.locator('[data-event="occultations"]').first().click();
     await p2.waitForFunction(() => /52 Sgr occulted by the Moon/.test(document.querySelector('.entry:last-child')?.textContent || ''), null, { timeout: 30000 });

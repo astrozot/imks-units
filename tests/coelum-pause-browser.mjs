@@ -21,7 +21,7 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 let browser;
 try {
-  browser = await engine.launch();
+  browser = await engine.launch(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {});
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -73,6 +73,42 @@ try {
   assert.equal(await pressed(), 'true');
   assert.equal(await play.getAttribute('aria-label'), 'Pause real-time playback');
   await play.evaluate((el) => el.click()); assert.equal(await pressed(), 'false');
+  const time = page.locator('.coelum-status-main [data-action="time"]');
+  const location = page.locator('.coelum-status-main [data-action="place"]');
+  const hold = async button => {
+    const box = await button.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down(); await page.waitForTimeout(900); await page.mouse.up();
+  };
+  await page.evaluate(() => explorer.setTime(Date.parse('2020-01-01T00:00:00Z') / 1000));
+  await hold(time);
+  assert.equal(await pressed(), 'false', 'Holding the clock keeps paused playback paused');
+  assert.ok(await page.evaluate(() => Math.abs(explorer.time - Date.now() / 1000) < 3));
+  assert.equal(await page.locator('.coelum-timepanel').isVisible(), false, 'A hold does not also open Date and Time');
+  await play.click(); await page.evaluate(() => explorer.setSpeed(600));
+  await hold(time);
+  assert.equal(await pressed(), 'true');
+  assert.equal(await play.getAttribute('aria-label'), 'Pause real-time playback');
+  assert.equal(await page.locator('[data-speed]').textContent(), '1×');
+  assert.equal(await page.locator('.coelum-timepanel').isVisible(), false);
+  await play.click();
+  await time.click(); assert.equal(await page.locator('.coelum-timepanel').isVisible(), true);
+  await page.locator('[aria-label="Close date and time"]').click();
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 40.123, longitude: 12.456 });
+  await page.route('https://api.open-meteo.com/**', route => route.fulfill({ json: { elevation: [125] } }));
+  await hold(location);
+  await page.waitForFunction(() => explorer.place[0] === 40.123);
+  assert.deepEqual(await page.evaluate(() => explorer.place), [40.123, 12.456, 125]);
+  assert.equal(await page.locator('.coelum-placepanel').isVisible(), false, 'A location hold does not also open Place');
+  await location.click(); assert.equal(await page.locator('.coelum-placepanel').isVisible(), true);
+  await page.locator('[aria-label="Close place"]').click();
+  // Cancellation must clear a pending bottom-bar hold.
+  const before = await page.evaluate(() => explorer.time);
+  await time.dispatchEvent('pointerdown', { pointerId: 12, isPrimary: true, button: 0, clientX: 10, clientY: 10 });
+  await time.dispatchEvent('pointercancel', { pointerId: 12 });
+  await page.waitForTimeout(900);
+  assert.equal(await page.evaluate(() => explorer.time), before);
   assert.deepEqual(errors, []);
   console.log(`${engineName}: Pause release, clock stop, synthesized click, touch, keyboard, cancellation and hold checks passed`);
 } finally { await browser?.close(); server.close(); }

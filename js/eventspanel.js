@@ -255,15 +255,20 @@ const SLOW = {
     note: `Of the planets and of the stars to magnitude ${OCC_MAG}; tap one for its map (where it is seen), and to see it in the sky.`,
   },
 };
-function renderEvents(body, explorer) {
+// Order by subject: Sun/Moon cycles, planetary alignments, eclipses and
+// occultations, then artificial satellites. Keep this independent of how
+// each category is computed (SEARCHES versus SLOW).
+const CATEGORY_ORDER = ["seasons", "phases", "conjunctions", "oppositions", "elongations", "solar", "lunar", "occultations", "passes"];
+function renderEvents(body, explorer, expanded = new Set()) {
+  for (const kind of Object.keys(jobs)) stopSearch(kind);
   const place = explorer.place, from = explorer.time, surface = observerOrigin(place) === 'topocentric';
   const scope = surface ? host.store.get("coelumScope", "here") : "anywhere";
   const key = `${scope}|${Math.floor(from / 3600)}|${place.join(",")}|${satelliteStatus().fetched}|${satelliteList().length}`;
   const at = scope === "here" ? place : null, render = ++renders;
-  const slow = Object.entries(SLOW).filter(([, k]) => at || !k.here);
-  body.innerHTML = `<div class="coelum-seg coelum-event-scope" role="group" aria-label="Where">${[["here", "From here"], ["anywhere", "Anywhere"]].map(([s, label]) => `<button type="button" data-scope="${s}" ${!surface && s === "here" ? "disabled" : ""} aria-pressed="${s === scope}">${label}</button>`).join("")}</div>
-    <p class="coelum-panel-note">${scope === "here" ? `Seen from ${esc(explorer.placeLabel)}` : "Anywhere on the Earth"}, after ${esc(host.formatTime(from))}. Tap one to see it in the sky, or an eclipse or occultation for ${host.opens}. Moon phases, conjunctions, oppositions and elongations use Earth-centered times; local visibility may vary.</p>
-    ${[...slow.map(([kind, k]) => [kind, k.head]), ...Object.entries(SEARCHES).map(([kind, [, , head]]) => [kind, head])].map(([kind, head]) => `<h3 class="coelum-events-head">${head}</h3><div class="coelum-event-list" data-list="${kind}"><p class="coelum-panel-note">Searching…</p></div>`).join("")}`;
+  const categories = CATEGORY_ORDER.filter(kind => at || !SLOW[kind]?.here);
+  body.innerHTML = `<div class="coelum-event-actions"><div class="coelum-seg coelum-event-scope" role="group" aria-label="Where">${[["here", "From here"], ["anywhere", "Anywhere"]].map(([s, label]) => `<button type="button" data-scope="${s}" ${!surface && s === "here" ? "disabled" : ""} aria-pressed="${s === scope}">${label}</button>`).join("")}</div><button type="button" class="coelum-chip" data-open-all>Open all</button></div>
+    <p class="coelum-panel-note">${scope === "here" ? `Seen from ${esc(explorer.placeLabel)}` : "Anywhere on the Earth"}, after ${esc(host.formatTime(from))}.</p>
+    ${categories.map(kind => [kind, SLOW[kind]?.head ?? SEARCHES[kind][2]]).map(([kind, head]) => `<details class="coelum-event-category" data-category="${kind}"${expanded.has(kind) ? " open" : ""}><summary>${head}</summary><div class="coelum-event-list" data-list="${kind}"><p class="coelum-panel-note">Searching…</p></div></details>`).join("")}`;
   const fillSlow = (kind) => {
     const box = body.querySelector(`[data-list="${kind}"]`), x = found?.[kind], k = SLOW[kind];
     if (!box || !x) return;
@@ -288,29 +293,47 @@ function renderEvents(body, explorer) {
     if (jobs[kind] === job) jobs[kind] = null;
     if (body.isConnected) fillSlow(kind);
   };
-  // (a later rendering replaces this one's lists)
-  const fill = () => {
-    if (render !== renders) return;
-    if (found?.key !== key) {
-      for (const j of Object.values(jobs)) if (j) j.stop = true;
-      found = { key, at };
-      for (const [kind, [search]] of Object.entries(SEARCHES)) found[kind] = search(from, at, 4);
-      for (const [kind] of slow) { found[kind] = { list: [], span: 0, busy: false, shown: 10 }; searchSlow(kind, from); }
-    }
-    for (const [kind] of slow) {
-      if (found[kind].pending) searchSlow(kind, from + found[kind].span);
+  if (found?.key !== key) found = { key, at };
+  const fill = (kind) => {
+    const section = body.querySelector(`[data-category="${kind}"]`);
+    if (render !== renders || !section?.open || !body.isConnected) return;
+    if (kind in SLOW) {
+      const x = found[kind] ??= { list: [], span: 0, busy: false, shown: 10, pending: true };
+      if (x.pending) searchSlow(kind, from + x.span);
       else fillSlow(kind);
-    }
-    for (const kind of Object.keys(SEARCHES)) {
-      const box = body.querySelector(`[data-list="${kind}"]`), rows = found[kind].list.map(SEARCHES[kind][1]).join("");
-      if (box) box.innerHTML = (rows || `<p class="coelum-panel-note">None seen here in the next decades.</p>`) + (found[kind].list.length ? `<button type="button" class="coelum-chip" data-more="${kind}">More</button>` : "");
+    } else {
+      found[kind] ??= SEARCHES[kind][0](from, at, 4);
+      const box = section.querySelector("[data-list]"), rows = found[kind].list.map(SEARCHES[kind][1]).join("");
+      box.innerHTML = (rows || `<p class="coelum-panel-note">None seen here in the next decades.</p>`) + (found[kind].list.length ? `<button type="button" class="coelum-chip" data-more="${kind}">More</button>` : "");
     }
   };
-  // the search after the panel is drawn
-  if (found?.key === key) fill(); else requestAnimationFrame(() => setTimeout(fill, 0));
+  // Let the expanded section paint before starting its computation. A close
+  // invalidates queued work and cancels an unfinished asynchronous span.
+  const queueFill = (kind) => requestAnimationFrame(() => setTimeout(() => fill(kind), 0));
+  const sections = [...body.querySelectorAll("[data-category]")];
+  const allOpen = () => sections.every(section => section.open);
+  const updateToggleAll = () => {
+    body.querySelector("[data-open-all]").textContent = allOpen() ? "Close all" : "Open all";
+  };
+  updateToggleAll();
+  for (const section of sections) {
+    section.ontoggle = () => {
+      const kind = section.dataset.category;
+      if (render !== renders) return;
+      if (section.open) { expanded.add(kind); queueFill(kind); }
+      else { expanded.delete(kind); stopSearch(kind); }
+      updateToggleAll();
+    };
+  }
   body.onclick = (ev) => {
+    if (ev.target.closest("[data-open-all]")) {
+      const open = !allOpen();
+      for (const section of sections) section.open = open;
+      updateToggleAll();
+      return;
+    }
     const s = ev.target.closest("[data-scope]")?.dataset.scope;
-    if (s) { host.store.set("coelumScope", s); renderEvents(body, explorer); return; }
+    if (s) { host.store.set("coelumScope", s); renderEvents(body, explorer, expanded); return; }
     const more = ev.target.closest("[data-more]")?.dataset.more;
     if (more in SLOW) {
       // ten more of those found, or the next span
@@ -322,7 +345,7 @@ function renderEvents(body, explorer) {
     if (more) {
       const [search] = SEARCHES[more], next = search(found[more].next, found.at, 4);
       found[more] = { list: [...found[more].list, ...next.list], next: next.next };
-      fill();
+      fill(more);
       return;
     }
     const row = ev.target.closest("[data-event]"), kind = row?.dataset.event, x = row && found[kind].list[Number(row.dataset.index)];
@@ -355,22 +378,24 @@ let shown = null;
 function closeEvents() {
   ++renders; // Also invalidate a fill queued before the panel closed.
   shown = null;
-  for (const [kind, job] of Object.entries(jobs)) {
-    if (!job) continue;
-    job.stop = true;
-    jobs[kind] = null;
-    // A cancelled span contributes no results. Retry it on reopening,
-    // keeping all previously completed spans and their pagination.
-    if (found?.[kind]) { found[kind].busy = false; found[kind].pending = true; }
-  }
+  for (const kind of Object.keys(jobs)) stopSearch(kind);
 }
+function stopSearch(kind) {
+  const job = jobs[kind];
+  if (!job) return;
+  job.stop = true;
+  jobs[kind] = null;
+  // Retry the incomplete span, retaining completed results and pagination.
+  if (found?.[kind]) { found[kind].busy = false; found[kind].pending = true; }
+}
+
 function eventsPanel(h) {
   host = h;
   return { key: "events", label: "Events", icon: EVENTS_ICON, close: closeEvents, render: (body, explorer) => { shown = { body, explorer }; renderEvents(body, explorer); } };
 }
 onSatellites(() => {
   const panel = shown?.body.closest("[data-panel]");
-  if (shown?.body.isConnected && panel && !panel.hidden && !jobs.passes) renderEvents(shown.body, shown.explorer);
+  if (shown?.body.isConnected && panel && !panel.hidden && !jobs.passes) renderEvents(shown.body, shown.explorer, new Set([...shown.body.querySelectorAll("[data-category][open]")].map(el => el.dataset.category)));
 });
 
 export { eventsPanel, moonPhases, planetConjunctions, planetOppositions, equinoxesSolstices, planetElongations };

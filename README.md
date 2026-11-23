@@ -645,7 +645,7 @@ calculator knows them by CelesTrak's names (`passes("SL-16 R/B #22285",
 today)` for one of several with a name).
 
 The bottom location selector also offers **Earth center** (geocentric) and
-**Solar system barycenter** (barycentric, close to heliocentric).
+**Sun** (the solar system barycenter; barycentric, close to heliocentric).
 These origins update positions, distances, parallax and aberration, including
 playback. Barycentric stars show astrometric space motion and binary orbits,
 without observer parallax, aberration or solar light deflection. They offer EQ and GA mounts; AZ, ground, atmosphere, horizon grids

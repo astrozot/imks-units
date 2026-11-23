@@ -383,7 +383,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <div class="coelum-place-results" role="list"></div>
         <p class="coelum-panel-note coelum-place-status" role="status" aria-live="polite"></p>
         <label class="coelum-time-zone" data-place-elevation-row><span>Ground elevation (m)</span><span class="coelum-location-zone-controls"><input type="number" inputmode="decimal" step="any" min="-500" max="9000" data-place-elevation aria-label="Ground elevation in metres"><button type="button" class="coelum-chip" data-reset-place-elevation>Automatic</button></span></label>
-        <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button>${options.standalone ? '' : '<button type="button" class="coelum-chip" data-place="original">Original place</button>'}<button type="button" class="coelum-chip" data-place="geocentric">Earth center</button><button type="button" class="coelum-chip" data-place="barycentric">Solar system barycenter</button></div><p class="coelum-panel-note">Earth center gives geocentric coordinates. The solar system barycenter gives barycentric coordinates, close to heliocentric. These views have no ground or atmosphere.</p>
+        <div class="coelum-chips"><button type="button" class="coelum-chip" data-place="here">Current location</button>${options.standalone ? '' : '<button type="button" class="coelum-chip" data-place="original">Original place</button>'}<button type="button" class="coelum-chip" data-place="geocentric">Earth center</button><button type="button" class="coelum-chip" data-place="barycentric">Sun</button></div><p class="coelum-panel-note">Earth center gives geocentric coordinates. Sun uses the solar system barycenter, giving barycentric coordinates, close to heliocentric. These views have no ground or atmosphere.</p>
       </div>
       <dialog class="coelum-panel coelum-map-panel" id="${id}-map" aria-label="Choose a place on the map" hidden>
         <div class="coelum-panel-head"><h3>Choose on map</h3><button type="button" class="coelum-btn coelum-btn-small" data-action="close-panel" aria-label="Close map">${ICONS.close}</button></div>
@@ -403,7 +403,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     </div>
     <div class="coelum-timebar coelum-hud">
       <label class="coelum-moon-sizing" hidden>Moon sizes <select data-moon-size aria-label="Moon sizes"><option value="magnitude">By magnitude</option><option value="actual">Actual size</option></select></label>
-      <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><span class="coelum-status-main"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button><span aria-hidden="true"> · </span><button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"></button></span><span class="coelum-condition"></span></p><span class="coelum-clock-side"><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output><span class="coelum-ruler" title="Angular scale at the center of the view"><i></i><b></b></span></span></div>
+      <div class="coelum-clock"><p class="coelum-status" aria-live="polite"><span class="coelum-status-main"><button type="button" class="coelum-link" data-action="time" aria-expanded="false" aria-controls="${id}-time" title="Set the date and time"><b></b></button><span aria-hidden="true"> · </span><button type="button" class="coelum-link" data-action="place" aria-expanded="false" aria-controls="${id}-place" title="Choose the place"><span class="coelum-place-label"></span></button></span><span class="coelum-condition"></span></p><span class="coelum-clock-side"><output class="coelum-speed" data-speed data-rate="60" aria-live="polite" title="Simulated seconds per real second">60×</output><span class="coelum-ruler" title="Angular scale at the center of the view"><i></i><b></b></span></span></div>
       <div class="coelum-controls" role="toolbar" aria-label="Time">
         <button type="button" class="coelum-btn coelum-btn-text" data-action="back" aria-label="One hour earlier" title="One hour earlier">−1 h</button>
         <button type="button" class="coelum-btn coelum-btn-text" data-action="slower" aria-label="Decrease playback speed (about half)" title="Decrease playback speed (about half)">÷2</button>
@@ -420,14 +420,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars: IAU / HYG. Deep-sky objects: <a href="https://github.com/mattiaverga/OpenNGC" target="_blank" rel="noopener">OpenNGC</a>, Mattia Verga (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>), converted and merged with the built-in selection. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Peak names: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL) and <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>). Local terrain: <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener">Mapterhorn and its underlying elevation sources</a>. Ocean and major-lake outlines: Natural Earth, public domain (generalised 1:10 million scale). Terrain colours from land cover: ESA WorldCover 2021 (© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>), served by Microsoft Planetary Computer. The landscape models exclude buildings and trees; source detail and height datums vary. Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   root.appendChild($('.coelum-map-panel'));
-  const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusCondition = $('.coelum-condition'), detail = $('[data-object-basic]'), viewport = $('.coelum-viewport');
+  const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusPlaceLabel = $('.coelum-place-label'), statusCondition = $('.coelum-condition'), detail = $('[data-object-basic]'), viewport = $('.coelum-viewport');
   const precisePosition=precisePositionControls($('[data-object-precision]'),formatTime,()=>updateUI(true));
   const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results'), searchDropdown = $('.coelum-search-dropdown'), searchKey = $('.coelum-search-key'), searchHint = $('.coelum-search-hint');
   const layers = { chart: { ...DEFAULT_LAYERS }, sky: { ...SKY_LAYERS } };
   const views = { chart: { scale: 1, rotation: [...SKY_IDENTITY] }, sky: null };
   const labelHistory = { chart: new Map(), sky: new Map() }, gridHistory = { chart: new Map(), sky: new Map() };
   let size = 360, height = 360;
-  let place = [...model.place], placeLabel = model.label;
+  let place = [...model.place], placeLabel = observerOrigin(place) === 'barycentric' ? 'Sun' : model.label;
   setMinorBodies(options.minorBodies?.() || []);
   setSatellites(satelliteList());
   let t = model.t, frame = skyFrame(t, place), drawn, playing = false, last = 0, selected = null, unlitLunar = null, detailHTML = '';
@@ -589,9 +589,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const displayedTime = fallbackTimeMode ? formatSkyTime(t, timeZone()) : formatTime(t);
     statusTime.parentElement.title = `Set the date and time · ${displayedTime}`;
     statusTime.parentElement.setAttribute('aria-label', `Date and time: ${displayedTime}`);
-    if (statusPlace.textContent !== placeLabel) statusPlace.textContent = placeLabel;
+    if (statusPlaceLabel.textContent !== placeLabel) statusPlaceLabel.textContent = placeLabel;
     statusPlace.title = `Choose the place · ${placeLabel}`;
-    const conditionText = observerOrigin(place) === 'topocentric' ? `${condition} · Sun ${sun.toFixed(1)}°` : observerOrigin(place) === 'geocentric' ? 'Geocentric' : 'Barycentric (approx.)';
+    const conditionText = observerOrigin(place) === 'topocentric' ? `${condition} · Sun ${sun.toFixed(1)}°` : observerOrigin(place) === 'geocentric' ? 'Geocentric' : 'Barycentric';
     if (statusCondition.textContent !== conditionText) statusCondition.textContent = conditionText;
     if (selected) {
       const o = findObject(frame, selected);
@@ -1554,7 +1554,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (request !== placeRequest || !root.isConnected) return;
     cancelTerrain(); terrainSurface = null; terrainNames = null; releaseTerrainRaster(ctx);
     trajectory.length = 0; trajectoryTime = null;
-    place = [p.lat, p.lon, h, ...(origin === 'topocentric' ? [] : [origin])]; placeLabel = p.name.split(',').slice(0, 2).join(',');
+    place = [p.lat, p.lon, h, ...(origin === 'topocentric' ? [] : [origin])]; placeLabel = origin === 'barycentric' ? 'Sun' : p.name.split(',').slice(0, 2).join(',');
     if (p.repairOriginal) { model.place = [...place]; model.label = placeLabel; }
     setTerrain(observerOrigin(place) === 'topocentric' ? storedTerrainHorizon(place) || storedHorizon(place) : null);
     applyHorizon(); syncLayers(); showTerrain(); terrainForPlace();
@@ -1612,6 +1612,18 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (!navigator.geolocation) { reject(new Error('No location on this device')); return; }
     navigator.geolocation.getCurrentPosition((pos) => resolve(pos.coords), (e) => reject(new Error(e.message || 'Location not available')), { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 });
   });
+
+  const useCurrentLocation = async (notify = false) => {
+    placeStatus.textContent = 'Finding your position…';
+    if (notify) say('Finding your position…');
+    try {
+      const c = await here();
+      await setPlace({ lat: c.latitude, lon: c.longitude, h: null, name: `${c.latitude.toFixed(3)}°, ${c.longitude.toFixed(3)}°` });
+    } catch (e) {
+      placeStatus.textContent = e.message;
+      if (notify) say(e.message);
+    }
+  };
 
   // Phone following belongs to the explorer, shared by both apps. Sensor
   // updates only change attitude; rendering stays on requestAnimationFrame.
@@ -1974,14 +1986,14 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resetButton.addEventListener('contextmenu', (ev) => { ev.preventDefault(); });
   // A hold performs one action; the release must not also trigger a tap.
   const controlHolds = new Map();
-  for (const action of ['play', 'back', 'forward', 'reverse', 'in', 'out', 'mount', 'layers']) {
+  for (const action of ['play', 'back', 'forward', 'reverse', 'in', 'out', 'mount', 'layers', 'time', 'place']) {
     const button = $(`[data-action="${action}"]`);
     const state = { timer: 0, pointer: null, held: false, tapped: false, start: null, animation: 0 };
     controlHolds.set(button, state);
     const cancel = () => { clearTimeout(state.timer); cancelAnimationFrame(state.animation); state.animation = 0; state.timer = 0; state.pointer = null; };
     state.cancel = cancel;
     const hint = action === 'in' ? 'brighten stars continuously' : action === 'out' ? 'dim stars continuously' : action === 'play' ? 'go to now' : action === 'reverse' ? 'undo the last time jump' : action === 'back' ? 'go one day earlier' : 'go one day later';
-    if (!['mount', 'layers'].includes(action)) button.title += ` · Hold to ${hint}`;
+    if (!['mount', 'layers', 'time', 'place'].includes(action)) button.title += ` · Hold to ${hint}`;
     button.addEventListener('pointerdown', (ev) => {
       if (!ev.isPrimary || ev.button !== 0) return;
       cancel(); state.held = false; state.tapped = false; state.pointer = ev.pointerId;
@@ -2001,6 +2013,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
           say(observer ? 'Observer mode: AZ with ground and atmosphere.' : `Astronomer mode: ${next === 'galactic' ? 'GA' : 'EQ'} without ground or atmosphere.`);
           return;
         }
+        if (action === 'place') { void useCurrentLocation(true); return; }
         if (action === 'in' || action === 'out') {
           let previous = performance.now();
           const adjust = (now) => {
@@ -2014,7 +2027,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
           state.animation = requestAnimationFrame(adjust);
           return;
         }
-        if (action === 'play') {
+        if (action === 'play' || action === 'time') {
           jumpTime(Date.now() / 1000);
           if (playing) { setSpeed(1); realTime = true; setPlay(true); }
           say(playing ? 'Real-time playback: following the current time at 1×.' : 'Moved to the current time; playback remains paused.');
@@ -2081,16 +2094,9 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (placeIndex !== undefined) { try { await setPlace(placeMatches[Number(placeIndex)]); } catch (e) { placeStatus.textContent = e.message; } return; }
     const placeChoice = ev.target.closest('[data-place]')?.dataset.place;
     if (placeChoice === 'map') { showPlaceMap(); return; }
-    if (placeChoice === 'geocentric' || placeChoice === 'barycentric') { setPlace({ lat: place[0], lon: place[1], h: 0, origin: placeChoice, name: placeChoice === 'geocentric' ? 'Earth center' : 'Solar system barycenter' }); return; }
+    if (placeChoice === 'geocentric' || placeChoice === 'barycentric') { setPlace({ lat: place[0], lon: place[1], h: 0, origin: placeChoice, name: placeChoice === 'geocentric' ? 'Earth center' : 'Sun' }); return; }
     if (placeChoice === 'original') { setPlace({ lat: model.place[0], lon: model.place[1], h: model.place[2] || 0, name: model.label, origin: model.place[3] }); return; }
-    if (placeChoice === 'here') {
-      placeStatus.textContent = 'Finding your position…';
-      try {
-        const c = await here();
-        await setPlace({ lat: c.latitude, lon: c.longitude, h: null, name: `${c.latitude.toFixed(3)}°, ${c.longitude.toFixed(3)}°` });
-      } catch (e) { placeStatus.textContent = e.message; }
-      return;
-    }
+    if (placeChoice === 'here') { await useCurrentLocation(); return; }
     if (ev.target.closest('[data-satellites="update"]')) { loadSatellites({ force: true }); showSatellites(); return; }
     const terrainAction = ev.target.closest('[data-terrain]')?.dataset.terrain;
     if (terrainAction === 'refresh') { chooseHorizon('terrain', true); return; }
