@@ -921,8 +921,9 @@ export function moonSymbol(p, ctx, o, x, y, r, lightAngle) {
 
 // Keep unresolved systems unobtrusive: show centres once their components
 // separate on screen, plus any explicitly selected/tracked centre.
+export const trackedNames = view => typeof view.tracked === 'string' ? [view.tracked] : [...(view.tracked || [])];
 export function binaryCenterVisible(o, frame, xy, view) {
-  if (o.name === view.selected || o.name === view.tracked) return true;
+  if (o.name === view.selected || trackedNames(view).includes(o.name)) return true;
   const [a,b] = o.components.map(name => frame.stars.find(s=>s.name===name)).map(s=>s && xy(s));
   return a && b && Math.hypot(a.x-b.x,a.y-b.y) >= 18;
 }
@@ -1183,7 +1184,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   if (opts.ground) for (const [name, az, size, color] of [['N', 0, 15, '#eef3fa'], ['NE', 45, 11, '#a9bccf'], ['E', 90, 15, '#eef3fa'], ['SE', 135, 11, '#a9bccf'], ['S', 180, 15, '#eef3fa'], ['SW', 225, 11, '#a9bccf'], ['W', 270, 15, '#eef3fa'], ['NW', 315, 11, '#a9bccf']]) {
     const q = xy({ alt: -6.5, az }); p.text(q.x, q.y + size / 3, name, color, size, 'middle', c.ground, 700);
   }
-  for (const [name,color] of [[view.selected,view.selectionColor || '#ffcf5a'],[view.tracked,'#ff5555']]) {
+  for (const [name,color] of [[view.selected,view.selectionColor || '#ffcf5a'],...trackedNames(view).map(name=>[name,'#ff5555'])]) {
     const chosen = findObject(frame,name);
     if (!chosen || chosen.body === 'sun' && chosen.hidden) continue;
     const o = objects.find(x=>x.name===chosen.name), q = o || xy(chosen);

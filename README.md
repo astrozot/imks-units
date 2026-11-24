@@ -424,15 +424,16 @@ time runs backward.
 
 A normal selection has a yellow circle and four spikes. Holding an object
 for half a second selects it in red with the same marker, before release,
-and keeps its playback trajectory as another object is selected. The yellow
-selection becomes the trajectory's moving reference; changing it rebases the
-existing history. With no separate reference the trail follows the display's
+and keeps its playback trajectory as another object is selected. Hold more
+objects to add their trajectories; hold a red object again to deselect it and
+remove its trail. The yellow selection becomes the trajectories’ moving
+reference; changing it rebases their existing histories. With no separate reference the trail follows the display's
 coordinate frame. Camera locking remains independent of the trajectory reference.
 Binary-system centers of mass appear as small grey crosses when their
 components are resolved, and can be selected or found by searching, for example,
 `Toliman barycenter` or `α Centauri barycenter`. Select that cross and long-press
 a component to show its orbit relative to the center of mass. Empty-sky
-selection clears the selections and trail.
+selection clears all selections and trails.
 
 The chart's built-in stars and downloads through magnitude 11 come from
 [AT-HYG](https://codeberg.org/astronexus/athyg) v4.0 (David Nash): Tycho-2,

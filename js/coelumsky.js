@@ -3,7 +3,7 @@ import { showDeepObject } from './deepcatalog.js';
 // sky's colour with the time of day, stars dimmed by twilight, moonlight and
 // extinction, the Milky Way, the Sun's glare, the textured Moon with its
 // phase, and the ground in front. Always drawn on a canvas.
-import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, binaryCenterVisible, binaryCenterSymbol, deepColor, fontFor } from './coelum.js';
+import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, trackedNames, binaryCenterVisible, binaryCenterSymbol, deepColor, fontFor } from './coelum.js';
 import { skyRaster, skyLight } from './skyraster.js';
 import { terrainRaster } from './terrainraster.js';
 import { terrainForeground } from './terrainmesh.js';
@@ -421,13 +421,13 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     }).filter((l) => names.has(l.name));
     ctx.shadowBlur = 0;
   }
-  for (const [name,color] of [[view.selected,view.selectionColor || '#ffe9a8'],[view.tracked,'#ff5555']]) {
+  for (const [name,color] of [[view.selected,view.selectionColor || '#ffe9a8'],...trackedNames(view).map(name=>[name,'#ff5555'])]) {
     const chosen = findObject(frame,name);
     if (!chosen || chosen.body === 'sun' && chosen.hidden) continue;
     const o = objects.find(x=>x.name===chosen.name), q = o || xy(chosen);
     if (o || q.z > -0.2 && !behind(q,chosen.dist ?? Infinity)) reticle(p,q.x,q.y,o ? o.radius : 3,color);
   }
-  for (const [selectionKey,selectionColor] of [[view.selected,view.selectionColor],[view.tracked,'#ff5555']]) {
+  for (const [selectionKey,selectionColor] of [[view.selected,view.selectionColor],...trackedNames(view).map(name=>[name,'#ff5555'])]) {
   const selectedFeature = lunarFeatures.find((f) => f.key === selectionKey);
   if (selectedFeature) {
     ctx.save(); ctx.shadowColor = '#08162b'; ctx.shadowBlur = 3;

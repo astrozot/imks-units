@@ -500,53 +500,62 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     guideText.textContent = label; guide.setAttribute('aria-label', label);
   };
   // Store each sample in all three coordinate systems at its own time.
-  const trajectory = [];
-  let trajectoryTime = null, trajectoryTarget = null, trajectoryReference = null;
+  const trajectories = new Map();
+  const selectionTrajectory = {samples:[], time:null};
+  let trajectoryReference = null;
+  const clearTrajectoryHistory = () => {
+    for (const trail of [selectionTrajectory, ...trajectories.values()]) {
+      trail.samples.length = 0; trail.time = null;
+    }
+  };
   const drawTrajectory = (rotation, scale) => {
-    svg.querySelector('.coelum-trajectory')?.remove();
-    const name = trajectoryTarget || selected, o = name && findObject(frame,name);
-    const reference = trajectoryTarget && trajectoryReference && findObject(frame,trajectoryReference);
-    const currentReference = reference && trajectoryCoordinates(reference,frame);
-    if (playing && o && t !== trajectoryTime) {
-      const coordinates = trajectoryCoordinates(o,frame), prev = trajectory.at(-1);
-      if (!prev || Math.hypot(...coordinates.altaz.map((n,i)=>n-prev.altaz[i])) > 0.0001) trajectory.push({
-        ...coordinates,time:t,reference:reference && {name:reference.name,coordinates:currentReference}
-      });
-      trajectoryTime = t;
+    svg.querySelectorAll('.coelum-trajectory').forEach(line=>line.remove());
+    const trails = trajectories.size ? trajectories : new Map(selected ? [[selected,selectionTrajectory]] : []);
+    for (const [name, trail] of trails) {
+      const trajectory = trail.samples, o = findObject(frame,name);
+      const reference = trajectories.size && trajectoryReference !== name && trajectoryReference && findObject(frame,trajectoryReference);
+      const currentReference = reference && trajectoryCoordinates(reference,frame);
+      if (playing && o && t !== trail.time) {
+        const coordinates = trajectoryCoordinates(o,frame), prev = trajectory.at(-1);
+        if (!prev || Math.hypot(...coordinates.altaz.map((n,i)=>n-prev.altaz[i])) > 0.0001) trajectory.push({
+          ...coordinates,time:t,reference:reference && {name:reference.name,coordinates:currentReference}
+        });
+        trail.time = t;
+      }
+      if (trajectory.length < 2) continue;
+      const radius = (mode === 'sky' ? skyRadius : chartRadius)(size, height, scale);
+      let path = '', connected = false, prev = null;
+      const trajectoryMount = mountMatrix(reference ? 'galactic' : mount);
+      for (const sample of trajectory) {
+        let v;
+        if (reference) {
+          if (sample.reference?.name !== reference.name) {
+            const position = skyObjectAt(reference,sample.time,place);
+            if (!position) { connected=false; continue; }
+            sample.reference = {name:reference.name,coordinates:trajectoryCoordinates(position,{matrix:position.coordinateMatrix})};
+          }
+          const relative = relativeTrajectoryVector(sample.galactic,sample.reference.coordinates.galactic,currentReference.galactic);
+          v = fromMount(relative,trajectoryMount);
+        } else v = fromMount(sample[mount],trajectoryMount);
+        const direction = mode === 'sky' && atmosphereOn() ? refractVector(v, place[2] || 0) : v;
+        const q = projectVector(direction, rotation, mode === 'sky');
+        const x = size / 2 + q.x * radius, y = height / 2 + q.y * radius;
+        // Break at the projection seam rather than drawing across the sky.
+        if (q.z < -0.95 || !Number.isFinite(x + y)) { connected = false; prev = null; continue; }
+        const join = connected && Math.hypot(x - prev.x, y - prev.y) < Math.max(size, height);
+        path += `${join ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)}`;
+        connected = true; prev = { x, y };
+      }
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      line.setAttribute('class', 'coelum-trajectory');
+      line.setAttribute('d', path);
+      line.setAttribute('fill', 'none'); line.setAttribute('stroke', trajectories.size ? '#ff5555' : '#ffc98f');
+      line.setAttribute('stroke-width', '1.5'); line.setAttribute('opacity', '0.75');
+      line.setAttribute('pointer-events', 'none');
+      line.dataset.samples = String(trajectory.length);
+      line.dataset.target = name; line.dataset.reference = reference?.name || mount;
+      svg.append(line);
     }
-    if (trajectory.length < 2) return;
-    const radius = (mode === 'sky' ? skyRadius : chartRadius)(size, height, scale);
-    let path = '', connected = false, prev = null;
-    const trajectoryMount = mountMatrix(reference ? 'galactic' : mount);
-    for (const sample of trajectory) {
-      let v;
-      if (reference) {
-        if (sample.reference?.name !== reference.name) {
-          const position = skyObjectAt(reference,sample.time,place);
-          if (!position) { connected=false; continue; }
-          sample.reference = {name:reference.name,coordinates:trajectoryCoordinates(position,{matrix:position.coordinateMatrix})};
-        }
-        const relative = relativeTrajectoryVector(sample.galactic,sample.reference.coordinates.galactic,currentReference.galactic);
-        v = fromMount(relative,trajectoryMount);
-      } else v = fromMount(sample[mount],trajectoryMount);
-      const direction = mode === 'sky' && atmosphereOn() ? refractVector(v, place[2] || 0) : v;
-      const q = projectVector(direction, rotation, mode === 'sky');
-      const x = size / 2 + q.x * radius, y = height / 2 + q.y * radius;
-      // Break at the projection seam rather than drawing across the sky.
-      if (q.z < -0.95 || !Number.isFinite(x + y)) { connected = false; prev = null; continue; }
-      const join = connected && Math.hypot(x - prev.x, y - prev.y) < Math.max(size, height);
-      path += `${join ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)}`;
-      connected = true; prev = { x, y };
-    }
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    line.setAttribute('class', 'coelum-trajectory');
-    line.setAttribute('d', path);
-    line.setAttribute('fill', 'none'); line.setAttribute('stroke', trajectoryTarget ? '#ff5555' : '#ffc98f');
-    line.setAttribute('stroke-width', '1.5'); line.setAttribute('opacity', '0.75');
-    line.setAttribute('pointer-events', 'none');
-    line.dataset.samples = String(trajectory.length);
-    line.dataset.target = name; line.dataset.reference = reference?.name || mount;
-    svg.append(line);
   };
   const timeHistory = [];
   const jumpTime = (time, remember = true) => {
@@ -755,7 +764,8 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     svg.setAttribute('viewBox', `0 0 ${size} ${height}`);
     svg.dataset.time = String(t);
     svg.dataset.selected = (longSelection ? trajectoryReference : selected) || '';
-    svg.dataset.tracked = trajectoryTarget || '';
+    svg.dataset.tracked = trajectories.keys().next().value || '';
+    svg.dataset.trackedObjects = JSON.stringify([...trajectories.keys()]);
     svg.dataset.starBoost = String(layers[mode].starBoost || 0);
     const key = `${layers.chart.starBoost || 0},${views.chart.scale},${layers.chart.magnitude}`;
     if (key !== legendKey) {
@@ -771,7 +781,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     applyLock();
     const view = mark(), F = mountMatrix();
     // the camera in the horizon's frame, for drawing
-    const shown = { ...view, selected: longSelection ? trajectoryReference : selected, tracked: trajectoryTarget, revealed, unlitLunar, labelHistory: labelHistory[mode], gridHistory: gridHistory[mode], rotation: orient?.tracker.filtered ? phoneCamera() : mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
+    const shown = { ...view, selected: longSelection ? trajectoryReference : selected, tracked: new Set(trajectories.keys()), revealed, unlitLunar, labelHistory: labelHistory[mode], gridHistory: gridHistory[mode], rotation: orient?.tracker.filtered ? phoneCamera() : mode === 'sky' ? F && horizonCamera(lookAt(view.az, view.alt), F) : horizonCamera(view.rotation, F) };
     if (orient?.tracker.filtered) svg.dataset.rotation = shown.rotation.join(',');
     showRuler(3600 / (mode === 'sky' ? skyRadius(size, height, view.scale) * R / 2 : chartRadius(size, height, view.scale) / 90));
     // One canvas under the SVG. The chart moves on it (playback, drags,
@@ -927,17 +937,24 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (name !== followTarget) clearGuide();
     if (name !== selected || allowUnlit !== undefined) unlitLunar = allowUnlit ? name : null;
     if (longPress && name) {
-      if (name !== trajectoryTarget) { trajectory.length=0; trajectoryTime=null; }
-      if (!longSelection && selected && selected !== name) trajectoryReference=selected;
-      trajectoryTarget=name;
-      if (trajectoryReference === name) trajectoryReference=null;
+      if (trajectories.has(name)) {
+        trajectories.delete(name);
+        name=trajectoryReference;
+        if (!trajectories.size) { trajectoryReference=null; clearTrajectoryHistory(); }
+      } else {
+        if (!longSelection && selected && selected !== name) trajectoryReference=selected;
+        trajectories.set(name,{samples:[],time:null});
+        selectionTrajectory.samples.length=0; selectionTrajectory.time=null;
+        if (trajectoryReference === name) trajectoryReference=null;
+      }
     } else if (!name) {
-      trajectoryTarget=trajectoryReference=null; trajectory.length=0; trajectoryTime=null;
-    } else if (trajectoryTarget) trajectoryReference=name!==trajectoryTarget?name:null;
-    else if (name!==selected) { trajectory.length=0; trajectoryTime=null; }
-    if (trajectoryTarget && trajectoryReference && (longPress || name !== selected)) say(`${trajectoryTarget} trajectory relative to ${trajectoryReference}.`);
+      trajectories.clear(); trajectoryReference=null; clearTrajectoryHistory();
+    } else if (trajectories.size) trajectoryReference=name;
+    else if (name!==selected) clearTrajectoryHistory();
+    const relativeTargets = [...trajectories.keys()].filter(n=>n!==trajectoryReference);
+    if (relativeTargets.length && trajectoryReference && (longPress || name !== selected)) say(`${relativeTargets.join(', ')} ${relativeTargets.length === 1 ? 'trajectory' : 'trajectories'} relative to ${trajectoryReference}.`);
     selected = name;
-    longSelection = Boolean(name) && longPress;
+    longSelection = longPress && trajectories.size > 0;
     const chosen = name && findObject(frame, name);
     if (chosen && ['minor', 'comet', 'satellite'].includes(chosen.body)) revealed.add(chosen.name);
     detailShown = Boolean(name) && details;
@@ -1606,7 +1623,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (!Number.isFinite(h)) { placeStatus.textContent = 'Getting the elevation…'; try { h = await fetchElevation(p.lat, p.lon); } catch { h = 0; } }
     if (request !== placeRequest || !root.isConnected) return;
     cancelTerrain(); terrainSurface = null; terrainNames = null; releaseTerrainRaster(ctx);
-    trajectory.length = 0; trajectoryTime = null;
+    clearTrajectoryHistory();
     catalogOrigin = null;
     place = [p.lat, p.lon, h, ...(origin === 'topocentric' ? [] : [origin])]; placeLabel = origin === 'barycentric' ? 'Sun' : p.name.split(',').slice(0, 2).join(',');
     if (p.repairOriginal) { model.place = [...place]; model.label = placeLabel; }
@@ -2473,7 +2490,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       // Export the current frame as SVG even while the canvas is moving;
       // the realistic view is a picture of its canvas.
       if (mode === 'sky') svg.innerHTML = `<image href="${canvas.toDataURL('image/png')}" width="${size}" height="${height}"/>`;
-      else svg.innerHTML = skyChart(frame, size, height, layers.chart, { ...views.chart, rotation: horizonCamera(views.chart.rotation), selected: longSelection ? trajectoryReference : selected, tracked: trajectoryTarget, revealed }).svg;
+      else svg.innerHTML = skyChart(frame, size, height, layers.chart, { ...views.chart, rotation: horizonCamera(views.chart.rotation), selected: longSelection ? trajectoryReference : selected, tracked: new Set(trajectories.keys()), revealed }).svg;
       updateUI(true);
       return svg;
     },

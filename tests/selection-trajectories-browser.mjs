@@ -42,7 +42,7 @@ try{
    const play=host.querySelector('[data-action="play"]');
    const originalRAF=window.requestAnimationFrame,originalCancel=window.cancelAnimationFrame;
    let id=0;const callbacks=new Map();window.requestAnimationFrame=fn=>{callbacks.set(++id,fn);return id;};window.cancelAnimationFrame=i=>callbacks.delete(i);
-   let primary,bary,third;
+   let primary,bary,third,multiple;
    const read=()=>{const p=svg.querySelector('.coelum-trajectory'),v=[...p.getAttribute('d').matchAll(/[ML](-?[\d.]+),(-?[\d.]+)/g)].map(m=>[+m[1],+m[2]]),x=v.map(p=>p[0]),y=v.map(p=>p[1]);return {samples:+p.dataset.samples,target:p.dataset.target,reference:p.dataset.reference,span:Math.hypot(Math.max(...x)-Math.min(...x),Math.max(...y)-Math.min(...y))};};
    try{
     app.setSpeed(28000000);play.click();let now=performance.now();
@@ -51,11 +51,28 @@ try{
     app.select('α Centauri barycenter');bary=read();
     for(let j=0;j<2;j++){host.querySelector('[data-action="mount"]').click();const switched=read();if(switched.reference!==bary.reference||switched.samples!==bary.samples)throw new Error('Reference changed with the display mount');}
     app.select('Rigil Kentaurus');third=read();
+    app.select('Rigil Kentaurus',{longPress:true});
+    if(read().samples!==third.samples)throw new Error('Adding a target erased an existing history');
+    play.click();
+    for(let k=0;k<5;k++){now+=100;const scheduled=[...callbacks.values()];callbacks.clear();for(const fn of scheduled)fn(now);}
+    play.click();
+    app.select('α Centauri barycenter');
+    multiple=[...svg.querySelectorAll('.coelum-trajectory')].map(p=>({target:p.dataset.target,reference:p.dataset.reference,samples:+p.dataset.samples}));
+    const beforeRemoval=read();
+    app.select('Rigil Kentaurus',{longPress:true});
+    const afterRemoval=read();
+    if(svg.querySelectorAll('.coelum-trajectory').length!==1||beforeRemoval.samples!==afterRemoval.samples)throw new Error('Removing a target altered another history');
    }finally{window.requestAnimationFrame=originalRAF;window.cancelAnimationFrame=originalCancel;}
    // The grey cross itself must be hit-testable, not just searchable.
    app.focus('α Centauri barycenter',{fit:true,field:.02});await wait(800);
    pointer('pointerdown');await wait(30);pointer('pointerup');
    const picked=svg.dataset.selected;
+   // A real second hold adds another target, and holding it again removes it.
+   const hold=async()=>{pointer('pointerdown');await wait(550);pointer('pointerup');};
+   await hold();const added=JSON.parse(svg.dataset.trackedObjects);
+   await hold();const removed=JSON.parse(svg.dataset.trackedObjects);
+   app.select('Toliman',{longPress:true});
+   const lastRemoved=JSON.parse(svg.dataset.trackedObjects),lastTrail=!!svg.querySelector('.coelum-trajectory');
    app.select(null);
    pointer('pointerdown');pointer('pointermove',20);await wait(550);pointer('pointerup',20);
    const dragged=svg.dataset.tracked;
@@ -64,7 +81,7 @@ try{
     app.focus('α Centauri barycenter',{fit:true,field:.025});await wait(800);
     app.select('Rigil Kentaurus');app.select('Toliman',{longPress:true});
    }
-   results.push({mode,before,during,reference,after,redSpikes,earlyPixels,primary,bary,third,picked,dragged,cancelled});
+   results.push({mode,before,during,reference,after,redSpikes,earlyPixels,primary,bary,third,multiple,picked,added,removed,lastRemoved,lastTrail,dragged,cancelled});
   }
   return results;
  });
@@ -76,6 +93,11 @@ try{
   assert.equal(r.bary.samples,r.primary.samples);assert.ok(r.primary.samples>300);
   const ratio=r.bary.span/r.primary.span;assert.ok(Math.abs(ratio-1.0788/(1.0788+.9092))<.005,`${r.mode}: relative orbit scale ratio ${ratio}`);
   assert.ok(Math.abs(r.third.span-r.primary.span)<.05,'Switching the reference back restores the original relative orbit');
+  assert.equal(r.multiple.length,2);
+  assert.deepEqual(r.multiple.map(p=>p.target),['Toliman','Rigil Kentaurus']);
+  for(const p of r.multiple){assert.equal(p.reference,'α Centauri barycenter');assert.ok(p.samples>=5);}
+  assert.deepEqual(r.added,['Toliman','α Centauri barycenter']);
+  assert.deepEqual(r.removed,['Toliman']);assert.deepEqual(r.lastRemoved,[]);assert.equal(r.lastTrail,false);
   assert.equal(r.picked,'α Centauri barycenter');assert.equal(r.dragged,'');assert.equal(r.cancelled,'');
  }
  if(process.env.SELECTION_SCREENSHOT)await page.screenshot({path:process.env.SELECTION_SCREENSHOT});
