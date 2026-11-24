@@ -56,11 +56,11 @@ try{
  assert.match(await basic.textContent(),historical?/DE441/:/DE440/);assert.equal(await page.evaluate(()=>workers),1);
  assert.equal(await page.locator('[data-precise-clear], [data-precise-result]').count(),0,'No extra result or clear-cache controls');
  assert.equal((await button.boundingBox()).width,initialBox.width,'Button size stays fixed');
- const topocentric=await basic.textContent();await page.selectOption('[data-precise-frame]','geocentric');
+ const topocentric=await basic.textContent();await page.locator('[data-precise-origin="geocentric"]').focus();await page.keyboard.press('Space');assert.equal(await page.locator('[data-precise-origin="geocentric"]').getAttribute('aria-pressed'),'true');
  assert.notEqual(await basic.textContent(),topocentric);assert.doesNotMatch(await basic.textContent(),/Altitude \(Alt\)/);
  const count=requests;
- await button.click();assert.match(await button.textContent(),/Approx/);assert.doesNotMatch(await basic.textContent(),/DE440|DE441/);
- const approxGeo=await basic.textContent();await page.selectOption('[data-precise-frame]','topocentric');assert.notEqual(await basic.textContent(),approxGeo);assert.match(await basic.textContent(),/Altitude \(Alt\)/);
+ await button.click();assert.equal(await button.textContent(),'JPL Ephemeris');assert.equal(await button.getAttribute('aria-pressed'),'false');assert.doesNotMatch(await basic.textContent(),/DE440|DE441/);
+ const approxGeo=await basic.textContent();await page.locator('[data-precise-origin="topocentric"]').click();assert.equal(await page.locator('[data-precise-origin="topocentric"]').getAttribute('aria-pressed'),'true');assert.notEqual(await basic.textContent(),approxGeo);assert.match(await basic.textContent(),/Altitude \(Alt\)/);
  if(!safari)await context.setOffline(true);await button.click();assert.equal(await button.getAttribute('aria-pressed'),'true');assert.equal(requests,count,'Switching models does not fetch');assert.equal(await page.evaluate(()=>workers),1);await context.setOffline(false);
  // Seek in both directions and verify that the displayed JPL timestamp and
  // coordinates follow the clock, reusing the same worker offline.
@@ -89,21 +89,23 @@ try{
  assert.match(await basic.textContent(),/Outside the loaded JPL interval/);assert.doesNotMatch(await basic.textContent(),/Position follows chart time/);
  assert.equal(await button.getAttribute('aria-pressed'),'false');assert.equal(await page.evaluate(()=>workers),0);assert.equal(requests,count);
  await context.setOffline(false);await page.evaluate(()=>explorer.setTime(startTime));
- const extraBodies=historical?['Sun','Mercury','Venus','Jupiter']:['Jupiter','Io','Saturn','Titan'];
+ const extraBodies=historical?['Sun','Mercury','Venus','Jupiter']:['Sun','Jupiter','Io','Saturn','Titan'];
  for(const body of extraBodies){
   await page.evaluate(name=>explorer.select(name,{details:true}),body);await button.waitFor({state:'visible'});
   await button.click();await page.waitForFunction(()=>document.querySelector('[data-precise-position]').getAttribute('aria-pressed')==='true');
   assert.match(await basic.textContent(),historical&&body==='Jupiter'?/system barycentre/:/DE440|DE441/);assert.equal(await page.evaluate(()=>workers),1);
  }
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Detail UI fits phone width');
- const toolbar=await page.locator('[data-object-precision]').boundingBox(),selector=await page.locator('[data-precise-frame]').boundingBox(),toggleBox=await button.boundingBox();assert.ok(Math.abs(selector.y-toggleBox.y)<2,'Coordinates and toggle fit one line');assert.ok(toolbar.y<(await basic.boundingBox()).y,'Toolbar is above existing fields');
+ const toolbar=await page.locator('[data-object-precision]').boundingBox(),selector=await page.locator('[data-precise-frame]').boundingBox(),toggleBox=await button.boundingBox();assert.ok(Math.abs(selector.y-toggleBox.y)<2,'Coordinates and toggle fit one line');assert.ok(selector.x+selector.width<=toggleBox.x,'The coordinate switch precedes JPL Ephemeris');assert.equal(selector.height,toggleBox.height,'Coordinate switch and JPL button have matching heights');assert.equal(await page.locator('[data-precise-frame] select').count(),0);assert.ok(toolbar.y<(await basic.boundingBox()).y,'Toolbar is above existing fields');
  const headingBox=await page.locator('[data-object-heading]').boundingBox();assert.ok(headingBox.y+headingBox.height<=toolbar.y+1,'Name stays above the smaller ephemeris controls');
- assert.ok(Number.parseFloat(await button.evaluate(el=>getComputedStyle(el).fontSize))<13);
- assert.ok(Number.parseFloat(await page.locator('[data-precise-frame]').evaluate(el=>getComputedStyle(el).fontSize))<13);
+ assert.ok(Number.parseFloat(await button.evaluate(el=>getComputedStyle(el).fontSize))>=13);
+ assert.equal(await page.locator('[data-precise-origin="topocentric"]').evaluate(el=>getComputedStyle(el).fontSize),await page.locator('[data-view="chart"]').evaluate(el=>getComputedStyle(el).fontSize));
  if(process.env.SCREENSHOT)await page.screenshot({path:process.env.SCREENSHOT,fullPage:true});
  // Long lunar classifications must wrap without squeezing the feature name.
  for(const width of [390,320]){
   await page.setViewportSize({width,height:844});
+  assert.equal(await page.locator('.coelum-detail').evaluate(el=>el.scrollWidth<=el.clientWidth),true,'Detail toolbar fits at '+width);
+  const order=await page.locator('[data-object-precision]').evaluate(el=>{const frame=el.querySelector('[data-precise-frame]').getBoundingClientRect(),button=el.querySelector('[data-precise-position]').getBoundingClientRect();return button.top>=frame.bottom-1||button.left>=frame.right-1;});assert.ok(order,'JPL follows the coordinate switch at '+width);
   const layout=await page.evaluate(async()=>{
    const {lunarFeatureDetails,searchLunarFeatures}=await import('/js/lunarfeatures.js'),heading=document.querySelector('[data-object-heading]'),old=heading.innerHTML,holder=document.createElement('div');
    holder.innerHTML=lunarFeatureDetails(searchLunarFeatures('Montes Jura')[0]);heading.replaceChildren(holder.firstElementChild);

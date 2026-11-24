@@ -969,10 +969,11 @@ and `data/static-ephemeris-webkit-performance.json`; real iPhone memory and
 animation checks remain necessary before public release. The previous
 R2 range transport remains optional; see [`tools/r2`](tools/r2/README.md).
 
-Planet, Sun, Moon and natural-moon detail cards offer a precise-position
-switch at the top, alongside a one-line Local/Geocentric selector that
-works for both models. JPL updates the existing fields; switching to
-Approx. Ephem. restores the compact model without another download or worker.
+Planet, Sun, Moon and natural-moon detail cards offer a Local/Geocentric
+segmented switch, styled like Chart/Sky, followed by the JPL Ephemeris button.
+The coordinate switch works for both models. JPL updates the existing fields;
+turning off its highlight restores the compact model without another download
+or worker. The button keeps its JPL Ephemeris label in both states.
 With JPL selected, positions follow the chart clock during forward or backward
 playback and time changes, using a retained worker and the loaded records.
 A request covers about one day centred on its time (less at kernel boundaries);

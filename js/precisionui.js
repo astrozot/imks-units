@@ -74,7 +74,7 @@ export function mountEphemerisSwitch(root, getJob, apply = () => {}) {
   root.innerHTML='<div class="ephemeris-toolbar"><button type="button" class="chip coelum-chip ephemeris-toggle" data-precision-run aria-pressed="false">JPL Ephemeris</button><span class="ephemeris-status" data-precision-status role="status" aria-live="polite"></span></div>';
   const button=root.querySelector('[data-precision-run]'),status=root.querySelector('[data-precision-status]');
   let pending=null,result=null,selected=false,serial=0,observer=null;
-  const paint=()=>{button.textContent=pending?'Downloading…':selected?'JPL Ephemeris':result?'Approx. Ephem.':'JPL Ephemeris';button.setAttribute('aria-pressed',String(selected));button.setAttribute('aria-busy',String(Boolean(pending)));button.title=pending?'Cancel download and discard its data':button.dataset.error||selected?'Switch to approximate ephemeris':result?'Switch to JPL ephemeris':'Download JPL ephemeris';};
+  const paint=()=>{button.textContent=pending?'Downloading…':'JPL Ephemeris';button.setAttribute('aria-pressed',String(selected));button.setAttribute('aria-busy',String(Boolean(pending)));button.title=pending?'Cancel download and discard its data':button.dataset.error||selected?'Switch to approximate ephemeris':result?'Switch to JPL ephemeris':'Download JPL ephemeris';};
   const stop=()=>{serial++;pending?.cancel();pending=null;if(result?.live){result.live.cancel();result=null;selected=false;status.textContent='';}observer?.disconnect();observer=null;paint();};
   const reset=()=>{stop();result=null;selected=false;status.textContent='';delete button.dataset.error;paint();};
   button.addEventListener('click',async()=>{

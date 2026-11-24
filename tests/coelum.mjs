@@ -72,6 +72,19 @@ assert.equal(transparent.objects.length, 1, 'Ground off reveals below-horizon ob
 assert.ok(!transparent.svg.includes('class="coelum-ground"'));
 const card = objectDetails({ name: 'M31', type: 'galaxy', description: '<Andromeda>', ra: 10.5, dec: 41.2, alt: -10, az: 45, mag: null });
 for (const label of ['M31', 'galaxy', 'Right ascension', 'Declination', 'Altitude', 'Azimuth', 'Visual magnitude', 'Not available', 'below the horizon', '&lt;Andromeda&gt;']) assert.ok(card.includes(label));
+// The Sun is physically a star, but has no catalogue-star propagation data.
+{
+  const frame = skyFrame(Date.parse('2026-11-24T12:00Z') / 1000, [45.46, 9.19, 120]);
+  const sun = findObject(frame, 'Sun');
+  for (const object of [sun, { ...sun, rv: 12 }]) {
+    const html = objectDetails(object, frame);
+    for (const text of ['Radial velocity', 'zero assumed for propagation', 'coelum-spectrum']) assert.ok(!html.includes(text), text);
+    for (const text of ['Right ascension', 'Declination', 'Altitude', 'Azimuth', 'Visual magnitude', 'Apparent diameter', 'Distance']) assert.ok(html.includes(text), text);
+  }
+  const star = objectDetails({ name: 'Catalogue test star', type: 'star', ra: 0, dec: 0, mag: 1, bv: 0.5, rv: -12 });
+  assert.ok(star.includes('Radial velocity') && star.includes('-12.00 km/s (approaching)'));
+  assert.ok(star.includes('coelum-spectrum'));
+}
 const angleDiff = (a, b) => Math.abs((a - b + 540) % 360 - 180);
 const all = { constellations: true, horizontal: true, equatorial: true, deep: true, labels: true, magnitude: 6 };
 {

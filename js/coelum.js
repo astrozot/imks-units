@@ -8,7 +8,7 @@ import { CONSTELLATIONS, BOUNDARIES } from './skydata.js';
 import { CHART_STARS } from './stardata.js';
 import { spaceVector, binaryState, binaryBarycentreState, binaryComponent, isBinaryCatalogStar, KM_S_TO_PC_YR } from './starmotion.js';
 import { DEEP, showDeepObject } from './deepcatalog.js';
-import { observerOrigin, heliocentric, surfaceObserver, solarDeflectionState, apparentFrame, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
+import { observerOrigin, barycentricObserver, heliocentric, surfaceObserver, solarDeflectionState, apparentFrame, centuries, nutation, siderealTime, topocentric, aspect, magnitude, moons, planetOf, MOON_RADIUS, equatorial, horizontal, satellitePosition, earthShadow, moonDisk } from './astro.js';
 import { satelliteLight } from './satellites.js';
 import { EPOCHS, MINOR_PLANETS } from './minorplanets.js';
 import { skyRaster } from './skyraster.js';
@@ -269,8 +269,8 @@ const BOUNDARY_POINTS = BOUNDARIES.map((line) => {
 
 // Shared by all catalog stars, including the tiled drawing path. The Earth
 // state is evaluated once per update, never inside the per-star loop.
-function catalogObserver(t, place, matrix) {
-  if (observerOrigin(place) === 'barycentric') {
+function catalogObserver(t, place, matrix, origin = observerOrigin(place)) {
+  if (origin === 'barycentric') {
     // ICRS catalog vectors already originate at the solar-system barycentre.
     // No observer parallax, aberration or local solar light deflection belongs
     // in this astrometric view (including the tiled faint-star renderer).
@@ -283,6 +283,13 @@ function catalogObserver(t, place, matrix) {
     return [a, b * Math.cos(n.eps * R) - z * Math.sin(n.eps * R), b * Math.sin(n.eps * R) + z * Math.cos(n.eps * R)];
   };
   const f = apparentFrame(T);
+  if (origin === 'heliocentric') {
+    // Astrometric directions from the Sun, offset from the ICRS barycentre.
+    // No annual/diurnal aberration or observer-side solar bending applies.
+    const position = f.fromLegacy(rotate(barycentricObserver(T)[0])).map(x => -x);
+    const zero = [0,0,0], deflection = solarDeflectionState(zero);
+    return { position, beta: zero, positionJ2000: matrix.map(col => dot3(col, position)), betaJ2000: zero, deflection, deflectionJ2000: deflection };
+  }
   const obs = surfaceObserver(t, place), E = f.fromLegacy(rotate(earth)), V = f.fromLegacy(rotate(velocity));
   const position = E.map((x, i) => x + obs.position[i] / 149597870.7), beta = V.map((x, i) => x / 173.1446327 + obs.beta[i]);
   const positionJ2000 = matrix.map((col) => dot3(col, position));
@@ -1373,11 +1380,24 @@ function catalogSolarDeflection(o, frame) {
   const solar = frame.observer.deflection, pe = clamp(dot3(g, solar.direction) / Math.hypot(...g));
   return Math.atan(solar.strength * Math.sqrt(Math.max(0, 1 - pe * pe)) / Math.max(1 + pe, solar.limiter)) / R * 3600;
 }
+// A detail-only origin: reuse the propagated vector without moving the chart.
+export function catalogDetailCoordinates(o, frame, origin) {
+  if (!o.catalogVector || o.type === 'constellation') return { object: o, frame };
+  const place = origin === 'topocentric' ? frame.place.slice(0, 3) : [...frame.place.slice(0, 3), origin];
+  const detailFrame = { ...frame, place, observer: catalogObserver(frame.t, place, frame.matrix, origin) };
+  const v = apparentCatalogVector(o.catalogVector, o.parallax, detailFrame);
+  const object = { ...o, ra: (Math.atan2(v[1], v[0]) / R + 360) % 360, dec: Math.atan2(v[2], Math.hypot(v[0], v[1])) / R, coordinateOrigin: origin };
+  if (origin === 'topocentric') Object.assign(object, frame.hor(object));
+  else { delete object.alt; delete object.az; delete object.apparentAlt; }
+  return { object, frame: detailFrame };
+}
 export function objectDetails(o, frame = null) {
-  if (observerOrigin(frame?.place) !== 'topocentric') { o = { ...o }; delete o.alt; delete o.az; delete o.apparentAlt; }
+  const origin = o.coordinateOrigin || observerOrigin(frame?.place);
+  if (origin !== 'topocentric') { o = { ...o }; delete o.alt; delete o.az; delete o.apparentAlt; }
   const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`;
-  const deflection = catalogSolarDeflection(o, frame);
+  const deflection = ['heliocentric', 'barycentric'].includes(origin) ? null : catalogSolarDeflection(o, frame);
   const binary = binaryComponent(o.binary);
+  const catalogStar = o.type === 'star' && !o.body && !o.planet;
   const detailedCoordinates = o.preciseSource || (!o.body && !o.planet && !o.satellite && FIXED_OBJECT_TYPES.has(o.type));
   const angle=(value,hours=false,signed=false)=>detailedCoordinates ? preciseAngle(value,hours,signed) : sexagesimal(value,hours,signed);
   const g = frame && galacticCoordinates(o, o.coordinateMatrix?{matrix:o.coordinateMatrix}:frame);
@@ -1405,7 +1425,7 @@ export function objectDetails(o, frame = null) {
     ${o.spect ? row('Spectral type', o.spect) : ''}
     ${o.parallax > 0 ? row('Parallax', `${o.parallax.toFixed(o.parallax < 10 ? 3 : 2)} mas`) + row('Distance', distanceText(1000 / o.parallax)) : ''}
     ${Number.isFinite(o.pmra) && (o.pmra || o.pmdec) ? row('Proper motion', motionText(o.pmra, o.pmdec)) : ''}
-    ${o.type === 'star' ? row(binary ? 'System radial velocity' : 'Radial velocity', Number.isFinite(o.rv) ? `${o.rv > 0 ? '+' : ''}${o.rv.toFixed(2)} km/s${o.rv < 0 ? ' (approaching)' : o.rv > 0 ? ' (receding)' : ''}` : 'Unknown; zero assumed for propagation') : ''}
+    ${catalogStar ? row(binary ? 'System radial velocity' : 'Radial velocity', Number.isFinite(o.rv) ? `${o.rv > 0 ? '+' : ''}${o.rv.toFixed(2)} km/s${o.rv < 0 ? ' (approaching)' : o.rv > 0 ? ' (receding)' : ''}` : 'Unknown; zero assumed for propagation') : ''}
     ${binary ? row('Binary orbit', `${binary.system.name} · ${(binary.system.orbit[0] / 365.25).toFixed(2)} years · USNO grade ${binary.system.grade}${binary.system.grade >= 4 ? ' (uncertain)' : ''}`) : ''}
     ${binary?.system.note ? row('Orbit coverage', binary.system.note) : ''}
     ${binary?.system.name === 'ρ Ophiuchi' ? row('Orbit assumptions', 'Equal component masses adopted; absolute component positions are approximate') : ''}
@@ -1413,7 +1433,7 @@ export function objectDetails(o, frame = null) {
     ${(o.body === 'moon' || o.type === 'planet') && Number.isFinite(o.phase) ? row('Illuminated', `${((1 + Math.cos(o.phase * R)) * 50).toFixed(1)} %`) : ''}
     ${o.type === 'planet' && Number.isFinite(o.phase) ? row('Phase angle', `${o.phase.toFixed(1)}°`) : ''}
     ${o.type === 'planet' && Number.isFinite(o.elong) ? row('Solar elongation', `${Math.abs(o.elong).toFixed(1)}° ${o.elong < 0 ? 'west' : 'east'} (${observerOrigin(frame?.place) === 'barycentric' ? 'barycentric' : 'geocentric'})`) : ''}
-    </dl>${Number.isFinite(o.bv) && o.type === 'star' ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">${esc(o.precisionNote || 'Equatorial coordinates of date')} · ${observerOrigin(frame?.place)==='barycentric' ? 'Solar system barycentre' : observerOrigin(frame?.place)==='geocentric' || o.coordinateOrigin==='geocentric' ? 'Earth’s centre' : `${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}`}.</p>`;
+    </dl>${Number.isFinite(o.bv) && catalogStar ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">${esc(o.precisionNote || 'Equatorial coordinates of date')} · ${origin==='heliocentric' ? 'Sun’s centre · astrometric (without aberration or solar light deflection)' : origin==='barycentric' ? 'Solar system barycentre' : origin==='geocentric' ? 'Earth’s centre' : `${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}`}.</p>`;
 }
 
 // A star's colour index as a temperature (Ballesteros 2012), a rough

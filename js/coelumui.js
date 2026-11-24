@@ -1,3 +1,4 @@
+import {detailRiseSet} from './detailriseset.js';
 import {trajectoryCoordinates,relativeTrajectoryVector} from './skytrajectory.js';
 import { loadOpenNGC, downloadOpenNGC, removeOpenNGC, openNGCCount } from './deepcatalog.js';
 // The coelum explorer: two views of the same sky (a map-like chart and a
@@ -17,7 +18,7 @@ import { mountTimezoneMap } from './timezonemap.js';
 import tzlookup from './tzlookup.js';
 import { timezoneAt } from './timezoneboundaries.js';
 import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, satelliteList, satelliteStatus } from './satellites.js';
-import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyObjectAt, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, faintHasRadialVelocities, setMinorBodies, hasMoons, horizontalVector, diskRadius, horizonToGalactic } from './coelum.js';
+import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyObjectAt, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, catalogDetailCoordinates, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, faintHasRadialVelocities, setMinorBodies, hasMoons, horizontalVector, diskRadius, horizonToGalactic } from './coelum.js';
 import { observerOrigin, riseSet, planetOf, siderealTime } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation, PLACE_LOOKUP_VERSION } from './lookup.js';
 import { skyScene, skyPointScale, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
@@ -415,12 +416,54 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <button type="button" class="coelum-btn" data-action="orient" aria-pressed="false" aria-label="Follow the phone's orientation" title="Follow the phone's orientation"${orientationSupported() ? '' : ' hidden'}>${ICONS.orient}</button>
       </div>
     </div>
-    <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><div data-object-heading></div><div data-object-precision hidden></div><div data-object-basic><p>Tap an object or its label to see its characteristics.</p></div></div></section>
+    <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><div data-object-heading></div><div data-object-precision hidden></div><div data-object-origin class="ephemeris-toolbar" hidden><div class="coelum-seg ephemeris-frame" role="group" aria-label="Coordinate origin"><button type="button" data-catalog-origin="topocentric" aria-pressed="true">Local</button><button type="button" data-catalog-origin="geocentric" aria-pressed="false">Geocentric</button><button type="button" data-catalog-origin="heliocentric" aria-pressed="false">Heliocentric</button></div></div><div data-object-basic><p>Tap an object or its label to see its characteristics.</p></div><div data-object-events hidden></div></div></section>
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
     <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars: IAU / HYG. Deep-sky objects: <a href="https://github.com/mattiaverga/OpenNGC" target="_blank" rel="noopener">OpenNGC</a>, Mattia Verga (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>), converted and merged with the built-in selection. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Peak names: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL) and <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>). Local terrain: <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener">Mapterhorn and its underlying elevation sources</a>. Ocean and major-lake outlines: Natural Earth, public domain (generalised 1:10 million scale). Terrain colours from land cover: ESA WorldCover 2021 (© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>), served by Microsoft Planetary Computer. The landscape models exclude buildings and trees; source detail and height datums vary. Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   root.appendChild($('.coelum-map-panel'));
   const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusPlaceLabel = $('.coelum-place-label'), statusCondition = $('.coelum-condition'), detail = $('[data-object-basic]'), viewport = $('.coelum-viewport');
+  let catalogOrigin = null;
+  $('[data-object-origin]').addEventListener('click', event => {
+    const button = event.target.closest('[data-catalog-origin]');
+    if (!button) return;
+    catalogOrigin = button.dataset.catalogOrigin;
+    updateUI(true);
+  });
+  let detailEvents = null;
+  const eventRoot = $('[data-object-events]');
+  const hideDetailEvents = () => {
+    eventRoot.hidden = true;
+    if (detailEvents?.controller) { detailEvents.controller.abort(); detailEvents = null; }
+  };
+  const updateDetailEvents = object => {
+    if (!object || !detailShown || observerOrigin(place) !== 'topocentric' || (object.coordinateOrigin && object.coordinateOrigin !== 'topocentric')) { hideDetailEvents(); return; }
+    eventRoot.hidden = false;
+    const zone = timeZone(), [start, end] = skyDayBounds(t, zone);
+    const key = JSON.stringify([object.name, object.satellite?.epoch, start, end, place, zone]);
+    if (detailEvents?.key === key && detailEvents.terrain === terrain) return;
+    detailEvents?.controller?.abort();
+    const state = {key, terrain, controller: new AbortController()};
+    detailEvents = state;
+    eventRoot.innerHTML = '<p class="coelum-panel-note" role="status">Calculating rise and set times…</p>';
+    detailRiseSet({...object}, start, end, [...place], terrain, {signal: state.controller.signal}).then(result => {
+      if (detailEvents !== state || !root.isConnected) return;
+      state.controller = null;
+      const times = (events, event) => events[event].length ? events[event].map(time => esc(`${skyClock(time, zone)} ${skyTimeZone(time, zone)}`)).join('<br>')
+        : !events.rise.length && !events.set.length ? (events.above ? 'Above horizon all day' : 'Below horizon all day') : 'None this day';
+      eventRoot.innerHTML = `<p class="coelum-panel-note">Rise and set · ${esc(skyTimeInput(start, zone).split(' ')[0])}</p><table class="almanac-times coelum-detail-times"><thead><tr><th scope="col">Event</th><th scope="col">Theoretical</th><th scope="col">Local terrain</th></tr></thead><tbody>${['rise', 'set'].map(event => `<tr><th scope="row">${event === 'rise' ? 'Rise' : 'Set'}</th><td>${times(result.theoretical, event)}</td><td>${result.terrain ? times(result.terrain, event) : 'Unavailable'}</td></tr>`).join('')}</tbody></table><p class="coelum-panel-note">Standard atmospheric refraction; Sun and Moon times use the upper limb.${result.terrain ? ' Terrain times use the local skyline; buildings and trees are excluded.' : ' Download local terrain for skyline-adjusted times.'}</p>${result.terrain ? '' : '<button type="button" class="coelum-chip" data-detail-terrain>Download local terrain</button>'}`;
+    }).catch(error => {
+      if (detailEvents !== state || state.controller?.signal.aborted) return;
+      state.controller = null;
+      eventRoot.innerHTML = `<p class="coelum-panel-note">Rise and set times unavailable: ${esc(error.message)}</p>`;
+    });
+  };
+  eventRoot.addEventListener('click', async event => {
+    const button = event.target.closest('[data-detail-terrain]');
+    if (!button) return;
+    button.disabled = true; button.textContent = 'Preparing local terrain…';
+    await chooseHorizon('terrain');
+    if (button.isConnected) { button.disabled = false; button.textContent = 'Download local terrain'; }
+  });
   const precisePosition=precisePositionControls($('[data-object-precision]'),formatTime,()=>updateUI(true));
   const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results'), searchDropdown = $('.coelum-search-dropdown'), searchKey = $('.coelum-search-key'), searchHint = $('.coelum-search-hint');
   const layers = { chart: { ...DEFAULT_LAYERS }, sky: { ...SKY_LAYERS } };
@@ -596,16 +639,26 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (selected) {
       const o = findObject(frame, selected);
       precisePosition.update({body:o&&!feature?(o.planet?o.name:o.body):null,t,place,visible:detailShown&&!root.classList.contains('coelum-show-options')&&!root.classList.contains('coelum-moons-open')});
-      const displayObject=o&&{...precisePosition.position(o,frame.matrix)};
+      const catalog = Boolean(o?.catalogVector && o.type !== 'constellation' && !feature);
+      const originControls = $('[data-object-origin]');
+      originControls.hidden = !catalog || !detailShown;
+      const origin = catalogOrigin || (observerOrigin(place) === 'barycentric' ? 'heliocentric' : observerOrigin(place));
+      for (const button of originControls.querySelectorAll('[data-catalog-origin]')) {
+        button.hidden = button.dataset.catalogOrigin === 'topocentric' && observerOrigin(place) !== 'topocentric';
+        button.setAttribute('aria-pressed', String(button.dataset.catalogOrigin === origin));
+      }
+      const coordinates = catalog ? catalogDetailCoordinates(o, frame, origin) : null;
+      const displayObject=o&&{...(coordinates?.object || precisePosition.position(o,frame.matrix))};
       if(displayObject&&mode==='sky'&&atmosphereOn()&&Number.isFinite(displayObject.alt))displayObject.apparentAlt=displayObject.alt+refraction(displayObject.alt,place[2]||0);
-      const html = feature ? (feature.key.startsWith('terrain:') ? terrainFeatureDetails(feature) : feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : displayObject && objectDetails(displayObject, frame);
+      updateDetailEvents(feature ? null : displayObject);
+      const html = feature ? (feature.key.startsWith('terrain:') ? terrainFeatureDetails(feature) : feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : displayObject && objectDetails(displayObject, coordinates?.frame || frame);
       // unchanged, the card stays (a tap on its button is not lost)
       if (html && html !== detailHTML) {
         detail.innerHTML = detailHTML = html;
         const heading=detail.querySelector(':scope > .coelum-object-head');
         $('[data-object-heading]').replaceChildren(...(heading?[heading]:[]));
       }
-    }else precisePosition.update(null);
+    }else { precisePosition.update(null); $('[data-object-origin]').hidden = true; hideDetailEvents(); }
   };
   const currentView = () => (mode === 'sky' ? skyView() : views.chart);
   // The view's state, also as attributes (for tests and snapshots).
@@ -1554,6 +1607,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (request !== placeRequest || !root.isConnected) return;
     cancelTerrain(); terrainSurface = null; terrainNames = null; releaseTerrainRaster(ctx);
     trajectory.length = 0; trajectoryTime = null;
+    catalogOrigin = null;
     place = [p.lat, p.lon, h, ...(origin === 'topocentric' ? [] : [origin])]; placeLabel = origin === 'barycentric' ? 'Sun' : p.name.split(',').slice(0, 2).join(',');
     if (p.repairOriginal) { model.place = [...place]; model.label = placeLabel; }
     setTerrain(observerOrigin(place) === 'topocentric' ? storedTerrainHorizon(place) || storedHorizon(place) : null);
@@ -2362,7 +2416,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   resize.observe(svg);
   resize.observe($('.coelum-timebar'));
   const lifetime = new MutationObserver(() => {
-    if (!root.isConnected) { closeTimezoneMap(false); closeDateWheels(false); cancelSkyPress(); cancelTerrain(); terrainSurface = null; terrainNames = null; setTerrain(null); applyHorizon(); releaseTerrainRaster(ctx); precisePosition.destroy(); stopAlmanac?.(); placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
+    if (!root.isConnected) { closeTimezoneMap(false); closeDateWheels(false); cancelSkyPress(); cancelTerrain(); terrainSurface = null; terrainNames = null; setTerrain(null); applyHorizon(); releaseTerrainRaster(ctx); precisePosition.destroy(); hideDetailEvents(); stopAlmanac?.(); placeMap?.destroy(); stopPageZoom(); panelDismissal.abort(); moonEventsList.close(); stopSatellites(); stopOrientation(); cancelAnimationFrame(animation); cancelAnimationFrame(flight); cancelAnimationFrame(pending); clearTimeout(idleTimer); cancelResetHold(); for (const hold of controlHolds.values()) hold.cancel(); resize.disconnect(); lifetime.disconnect(); }
   });
   lifetime.observe(root.closest('.sheet') || document.body, { childList: true, subtree: true });
   // A selected location is stored separately from the lookup cache. Repair it

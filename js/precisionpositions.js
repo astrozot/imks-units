@@ -20,10 +20,18 @@ export function precisePositionControls(root,formatTime,changed=()=>{}){
  root.hidden=true;let current=null,refreshing=false,refreshTimer=0,lastRefresh=-Infinity,note='';
  const cancelRefresh=()=>{clearTimeout(refreshTimer);refreshTimer=0;};
  const toggle=mountEphemerisSwitch(root,()=>{note='';return current&&({...current,kind:'position',livePosition:true,place:[...current.place]});},()=>changed());
- const toolbar=root.querySelector('.ephemeris-toolbar'),label=document.createElement('label');label.className='ephemeris-frame';
- label.innerHTML='<select data-precise-frame aria-label="Coordinate origin"><option value="topocentric">Local</option><option value="geocentric">Geocentric</option></select>';
- toolbar.insertBefore(label,toolbar.querySelector('[data-precision-status]'));
- const frame=label.querySelector('select');frame.addEventListener('change',()=>changed());
+ const toolbar=root.querySelector('.ephemeris-toolbar'),frame=document.createElement('div');
+ frame.className='coelum-seg ephemeris-frame';frame.dataset.preciseFrame='';frame.setAttribute('role','group');frame.setAttribute('aria-label','Coordinate origin');
+ frame.innerHTML='<button type="button" data-precise-origin="topocentric" aria-pressed="true">Local</button><button type="button" data-precise-origin="geocentric" aria-pressed="false">Geocentric</button>';
+ toolbar.prepend(frame);
+ let selectedOrigin='topocentric';
+ frame.addEventListener('click',event=>{
+  const button=event.target.closest('[data-precise-origin]');
+  if(!button||button.dataset.preciseOrigin===selectedOrigin)return;
+  selectedOrigin=button.dataset.preciseOrigin;
+  for(const option of frame.querySelectorAll('button'))option.setAttribute('aria-pressed',String(option===button));
+  changed();
+ });
  root.querySelector('[data-precision-run]').setAttribute('data-precise-position','');
  const refresh=()=>{
   const r=toggle.result;
@@ -53,7 +61,7 @@ export function precisePositionControls(root,formatTime,changed=()=>{}){
    if(!value||!nativeBody(value.body)||!Number.isFinite(value.t)||year<EPHEMERIS_YEARS[0]||year>EPHEMERIS_YEARS[1]){cancelRefresh();if(current)toggle.reset();current=null;note='';root.hidden=true;return;}
    const body=value.body.toLowerCase();
    if(current&&(current.body!==body||current.place.length!==value.place.length||current.place.some((x,i)=>x!==value.place[i]))){cancelRefresh();toggle.reset();note='';}
-   label.hidden=observerOrigin(value.place)!=='topocentric';
+   frame.hidden=observerOrigin(value.place)!=='topocentric';
    current={body,t:value.t,place:[...value.place],visible:value.visible};root.hidden=!value.visible;
    const cached=toggle.cachedResult;
    if(cached?.interval&&!toggle.result&&(value.t<cached.interval.from||value.t>cached.interval.to))toggle.reset();
@@ -62,7 +70,7 @@ export function precisePositionControls(root,formatTime,changed=()=>{}){
   position(o){
    if(!current)return o;
    refresh();
-   const r=toggle.result,origin=observerOrigin(current.place),geo=origin==='geocentric'||(origin==='topocentric'&&frame.value==='geocentric');
+   const r=toggle.result,origin=observerOrigin(current.place),geo=origin==='geocentric'||(origin==='topocentric'&&selectedOrigin==='geocentric');
    const p=r?(geo?r.geocentric:r.position):geo?geocentricPosition(o,current.t,current.place):o;
    const result={...o,...p,coordinateOrigin:origin==='barycentric'?'barycentric':geo?'geocentric':'topocentric',preciseSource:r?.source,coordinateMatrix:r?.coordinateMatrix,precisionNote:r?`${r.source}${r.centreModel==='system barycentre'?' · system barycentre':r.centreModel.startsWith('compact')?' · compact centre correction':''} · ${formatTime(r.t)}${r.rotationErrorSeconds!==null?` · Earth-rotation uncertainty ≈${r.rotationErrorSeconds.toFixed(1)} s`:''}. Position follows chart time within the loaded interval; other properties use standard models. Digits show resolution.`:toggle.error?`JPL ephemeris unavailable: ${toggle.error}. Approximate coordinates of date`:note};
    if(geo){delete result.apparentAlt;delete result.alt;delete result.az;}
