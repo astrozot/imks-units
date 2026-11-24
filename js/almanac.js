@@ -162,7 +162,7 @@ function layoutCrossingTimes(root) {
 }
 
 export async function dailyHighlights(start, end, job = {}) {
-  const list = [], add = (name, t, body, note = '') => { if (t !== null && t >= start && t < end) list.push({ name, t, body, note }); };
+  const list = [], add = (name, t, body, note = '', other = null) => { if (t !== null && t >= start && t < end) list.push({ name, t, body, note, ...(other && { other }) }); };
   PHASES.forEach((name, k) => add(name, nextPhase(start - 1, k * 90), 'moon'));
   const year = new Date(((start + end) / 2) * 1000).getUTCFullYear();
   for (let y = year - 1; y <= year + 1; y++) SEASONS.forEach((name, k) => add(name, season(y, k), 'sun'));
@@ -181,7 +181,7 @@ export async function dailyHighlights(start, end, job = {}) {
   }
   const pairs = await planetConjunctions(start - 1, end - start + 1, null, job);
   if (!pairs || job.stop) return null;
-  for (const e of pairs) add(e.name, e.t, e.body, `${e.sep.toFixed(2)}° apart (geocentric); local visibility varies.`);
+  for (const e of pairs) add(e.name, e.t, e.body, `${e.sep.toFixed(2)}° apart (geocentric); local visibility varies.`, e.other);
   return list.sort((a, b) => a.t - b.t);
 }
 
@@ -324,7 +324,12 @@ export function renderAlmanac(root, explorer, zone, validTime = () => true) {
         });
       }
       const event = ev.target.closest('[data-almanac-time], [data-almanac-sky-time]');
-      if (event) { closeDetails(); explorer.closePanel(); explorer.setTime(Number(event.dataset.almanacTime ?? event.dataset.almanacSkyTime)); explorer.focus(title(event.dataset.body), { fit: true }); }
+      if (event) {
+        closeDetails(); explorer.closePanel();
+        explorer.setTime(Number(event.dataset.almanacTime ?? event.dataset.almanacSkyTime));
+        if (event.dataset.other) explorer.focusPair(title(event.dataset.body), title(event.dataset.other));
+        else explorer.focus(title(event.dataset.body), { fit: true });
+      }
     };
     input.onchange = () => {
       const parsed = parseSkyInput(`${input.value.trim()} 12:00`, zone);
@@ -353,7 +358,7 @@ export function renderAlmanac(root, explorer, zone, validTime = () => true) {
       try {
         const events = await dailyHighlights(d.start, d.end, currentJob);
         if (!events || currentJob.stop || !root.isConnected) return;
-        root.querySelector('[data-almanac-highlights]').innerHTML = events.map((e) => `<button type="button" class="coelum-event" data-almanac-time="${e.t}" data-body="${e.body}"><b>${esc(e.name)}</b><span>${clock(e.t)} · Show in sky</span>${e.note ? `<small>${esc(e.note)}</small>` : ''}</button>`).join('') || '<p class="coelum-panel-note">No events in the categories covered today.</p>';
+        root.querySelector('[data-almanac-highlights]').innerHTML = events.map((e) => `<button type="button" class="coelum-event" data-almanac-time="${e.t}" data-body="${e.body}"${e.other ? ` data-other="${esc(e.other)}"` : ''}><b>${esc(e.name)}</b><span>${clock(e.t)} · Show in sky</span>${e.note ? `<small>${esc(e.note)}</small>` : ''}</button>`).join('') || '<p class="coelum-panel-note">No events in the categories covered today.</p>';
       } catch { if (!currentJob.stop && root.isConnected) root.querySelector('[data-almanac-highlights]').textContent = 'Highlights could not be calculated for this date.'; }
     }, 0);
   };

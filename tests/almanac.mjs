@@ -112,3 +112,14 @@ for (const date of ['2026-06-21', '2026-12-21']) {
 }
 assert.equal(selectedDay(parseSkyInput('-0100-06-01 02:00', 'Europe/Rome')), '-0100-05-31');
 console.log('Observing dates: sunrise rollover, terrain delay, midnight, year boundaries, DST, polar dates and B.C. dates passed');
+
+
+// Preserve both conjunction participants for the same pair framing as Events.
+const conjunctionDay = dailyAlmanac(t('2026-11-24T12:00Z'), milan, 'Europe/Rome');
+const conjunctionHighlights = await dailyHighlights(conjunctionDay.start, conjunctionDay.end);
+const moonUranus = conjunctionHighlights.find(e => e.name === 'Moon–Uranus conjunction');
+assert.ok(moonUranus);
+assert.equal(moonUranus.body, 'moon');
+assert.equal(moonUranus.other, 'uranus');
+assert.equal(conjunctionHighlights.find(e => e.name === 'Full Moon').other, undefined);
+console.log('Almanac conjunction highlights retain both bodies; single-body events remain unchanged');

@@ -154,6 +154,24 @@ try {
     assert.equal(await page.locator('[data-almanac-date]').inputValue(), expected, 'Each opening starts from the app time');
     await page.keyboard.press('Escape');
   }
+  await page.click('[data-action="almanac"]');
+  await page.click('[data-almanac-date-mode]');
+  await page.locator('[data-almanac-date]').fill('2026-11-24');
+  await page.locator('[data-almanac-date]').dispatchEvent('change');
+  await page.waitForSelector('[data-almanac-time][data-other="uranus"]');
+  const highlightBoxes = await page.locator('[data-almanac-highlights] .coelum-event').evaluateAll(events => events.map(e => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; }));
+  assert.ok(highlightBoxes.length >= 2);
+  for (let i = 1; i < highlightBoxes.length; i++) assert.ok(highlightBoxes[i].top - highlightBoxes[i - 1].bottom >= 7, 'Separate highlights have a visible gap');
+  await page.locator('[data-almanac-highlights] .coelum-event').filter({ hasText: 'Full Moon' }).click();
+  assert.equal(await page.locator('.coelum-full').getAttribute('data-selected'), 'Moon', 'Single-object highlights still focus that object');
+  await page.click('[data-action="almanac"]');
+  const pair = page.locator('[data-almanac-time][data-body="moon"][data-other="uranus"]');
+  await pair.waitFor();
+  const conjunctionTime = await pair.getAttribute('data-almanac-time');
+  await pair.click();
+  assert.equal(await page.locator('[data-panel="almanac"]').isVisible(), false);
+  assert.equal(await page.locator('.coelum-full').getAttribute('data-time'), conjunctionTime);
+  assert.equal(await page.locator('.coelum-full').getAttribute('data-selected'), '', 'Conjunctions frame the pair instead of selecting and zooming into the Moon');
   assert.deepEqual(errors, []);
   await context.close();
   const terrainProfile = { '45.4642,9.19,120': { alt: Array(3600).fill(10) } };

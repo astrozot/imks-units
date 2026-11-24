@@ -2069,3 +2069,5 @@ body.coelum-app { background: #000; }
 .almanac-wrap .coelum-event span { font-size: 16px; }
 .almanac-wrap .coelum-event small { font-size: 12px; }
 .almanac-dialog .coelum-chip { font-size: 16px; }
+
+[data-almanac-highlights] { display: grid; gap: 8px; }

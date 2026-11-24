@@ -670,7 +670,8 @@ direct date entry, matching the Date and Time control.
 It summarizes sunrise, sunset, daylight duration, solar noon, three levels of
 twilight, Moon rise/set, lunar age and illumination at noon. Daily highlights
 cover Moon phases, seasons, eclipses, planetary conjunctions, oppositions and
-greatest elongations; tap one to show its time in the sky. Meteor maxima are
+greatest elongations; tap one to show its time in the sky. Conjunctions frame
+both objects together, using the same view as the Events window. Meteor maxima are
 calculated separately for each year (2000–2100) by solving for the Sun's
 geometric longitude in the J2000 ecliptic at the IMO 2027 working-list value.
 The view gives the date/time in the selected timezone, marks peaks on the
