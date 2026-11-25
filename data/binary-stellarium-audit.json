@@ -487,7 +487,7 @@
         "ttJD": 2461041.5,
         "appSeparationArcsec": 2.6681704319074555,
         "stellariumElementsSeparationArcsec": 2.6681784874412426,
-        "relativeVectorOffsetArcsec": 0.000015190916338335838
+        "relativeVectorOffsetArcsec": 1.5190916338335838e-05
       },
       "usnoEphemerisAgreement": {
         "samples": 5,
@@ -956,7 +956,7 @@
         "ttJD": 2461041.5,
         "appSeparationArcsec": 5.492635963531666,
         "stellariumElementsSeparationArcsec": 5.49263412491841,
-        "relativeVectorOffsetArcsec": 0.0000021096227910949747
+        "relativeVectorOffsetArcsec": 2.1096227910949747e-06
       },
       "usnoEphemerisAgreement": {
         "samples": 5,
@@ -1423,11 +1423,14 @@
     "differentAdoptedElements": 6,
     "differentSystem": 1,
     "usnoEphemeridesChecked": 70,
-    "appTotalSystems": 17,
+    "appTotalSystems": 20,
     "additionalReviewedPairs": [
       "Castor",
       "Procyon",
-      "70 Ophiuchi"
+      "70 Ophiuchi",
+      "μ Cassiopeiae",
+      "β Coronae Borealis",
+      "80 Tauri"
     ],
     "extraStellariumSystem": "Castor A–B; present in the data file but outside the requested guide-listed 14",
     "caveat": "Matching relative orbits does not independently validate barycentre astrometry or adopted masses. Rho Oph uses an approximate equal-mass barycentre; beta Mus has separately adopted masses."

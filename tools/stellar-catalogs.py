@@ -16,7 +16,7 @@ import pathlib
 import re
 import sys
 import numpy as np
-from binary_expansion import expand_binary_systems
+from binary_expansion import expand_binary_systems, component_magnitudes, annotate_hip_additions
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SOURCE = pathlib.Path(sys.argv[1])
@@ -120,7 +120,7 @@ for i, (name, token, b) in enumerate(zip(names, pngs, bs)):
         if i == 7: aliases += [('ε² Lyr','ε² Lyr B')[j], ('epsilon2 Lyr','epsilon2 Lyr B')[j]]
         # USNO V magnitudes separate the components; an integrated V would
         # double-count light once both stars are drawn.
-        mag = n(67,71) if j==0 else n(75,79)
+        mag = component_magnitudes(l)[j]
         if mag < -5 or mag > 25: raise ValueError('Invalid binary magnitude')
         tyc = s['tyc'].split('-') if s['tyc'] else None
         comps.append(dict(id=f'{i}:{label}',name=c_name,hip=int(s['hip'] or 0),gaia=s['gaia'],tyc=int(tyc[0])*65536+int(tyc[1])*4+int(tyc[2])-1 if tyc else 0, mag=mag,bv=existing[4] if existing else float(s['ci']) if s['ci'] else None,spect=s['spect'], aliases=list(dict.fromkeys(aliases)), replace=[f'HIP {row[0]}' if row[0] else row[9] or row[10] for row in matches]))
@@ -188,4 +188,5 @@ metadata['attribution'].extend([
     'ESA Gaia DR3: resolved 70 Ophiuchi J2016.0 astrometry, https://gea.esac.esa.int/archive/',
     'Bond et al. 2015: Procyon adopted masses, parallax and systemic velocity, https://arxiv.org/abs/1510.00485',
 ])
+annotate_hip_additions(metadata,reviewed)
 (ROOT/'data/stellar-motion.json').write_text(json.dumps(metadata,indent=2)+'\n')

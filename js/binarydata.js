@@ -1148,7 +1148,7 @@ export const BINARY_SYSTEMS = [
         "hip": 0,
         "gaia": "",
         "tyc": 0,
-        "mag": 0.8,
+        "mag": 10.8,
         "bv": null,
         "spect": "DQZ",
         "aliases": [
@@ -1248,5 +1248,249 @@ export const BINARY_SYSTEMS = [
       "https://gea.esac.esa.int/archive/"
     ],
     "note": "Barycentre derived from the two resolved Gaia DR3 sources at their actual J2016.0 reference epoch, with adopted component masses 0.9/0.7."
+  },
+  {
+    "name": "μ Cassiopeiae",
+    "orbit": [
+      7877.712,
+      0.5885,
+      1.9315733364746446,
+      3.9072336898546656,
+      5.766044249813667,
+      2450530.4384331843,
+      0.9985
+    ],
+    "barycentre": {
+      "epoch": 2448349.0625,
+      "ra": 17.05383776,
+      "dec": 54.92422766,
+      "pmra": 3421.44,
+      "pmdec": -1599.27,
+      "distance": 7.538067239559777,
+      "rv": -97.4
+    },
+    "masses": [
+      0.744,
+      0.1728
+    ],
+    "components": [
+      {
+        "id": "17:A",
+        "name": "μ Cassiopeiae A",
+        "hip": 5336,
+        "gaia": "",
+        "tyc": 240721444,
+        "mag": 5.3,
+        "bv": 0.704,
+        "spect": "G5Vp",
+        "aliases": [
+          "μ Cassiopeiae A",
+          "μ Cas",
+          "30 Cas",
+          "mu Cas",
+          "mu Cassiopeiae",
+          "μ Cassiopeiae",
+          "GJ 53 A",
+          "HD 6582",
+          "HR 321",
+          "HIP 5336",
+          "TYC 3673-1929-1"
+        ],
+        "replace": [
+          "HIP 5336"
+        ]
+      },
+      {
+        "id": "17:B",
+        "name": "μ Cassiopeiae B",
+        "hip": 0,
+        "gaia": "",
+        "tyc": 0,
+        "mag": 10.7,
+        "bv": null,
+        "spect": "M dwarf",
+        "aliases": [
+          "μ Cassiopeiae B",
+          "μ Cas B",
+          "mu Cas B",
+          "GJ 53 B"
+        ],
+        "replace": []
+      }
+    ],
+    "grade": 2,
+    "reference": "BdH2020",
+    "wds": "01083+5455",
+    "massRatioNote": "Bond et al. 2020 dynamical masses, adopted parallax and systemic radial velocity; visual pair Aa–Ab (also called A–B), with no additional inner orbit modelled.",
+    "review": "USNO grade 2 BdH2020 relative orbit. Hipparcos I/239 AstroRef=+, MultFlag=O supplies the barycentric position and proper motion at J1991.25. Bond et al. 2020 dynamical masses, adopted parallax and systemic radial velocity; visual pair Aa–Ab (also called A–B), with no additional inner orbit modelled. Absolute astrometry retains the uncertainty of the original Hipparcos orbital solution.",
+    "note": "Bond et al. 2020 dynamical masses, adopted parallax and systemic radial velocity; visual pair Aa–Ab (also called A–B), with no additional inner orbit modelled.",
+    "sources": [
+      "https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt",
+      "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/239/hip_main&Vmag=%3C6.5&MultFlag=O&-out.all&-out.max=1000",
+      "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/259/tyc2&HIP=5336,75695&-out=TYC1,TYC2,TYC3,HIP&-out.max=10",
+      "https://arxiv.org/abs/2010.06609"
+    ]
+  },
+  {
+    "name": "β Coronae Borealis",
+    "orbit": [
+      3848.54,
+      0.53971,
+      1.94520435793272,
+      2.583802877944925,
+      3.1452578450189814,
+      2444413.3,
+      0.20400800000000002
+    ],
+    "barycentre": {
+      "epoch": 2448349.0625,
+      "ra": 231.95771631,
+      "dec": 29.10549164,
+      "pmra": -181.39,
+      "pmdec": 86.84,
+      "distance": 34.118048447628794,
+      "rv": null
+    },
+    "masses": [
+      1.71,
+      1.33
+    ],
+    "components": [
+      {
+        "id": "18:A",
+        "name": "Nusakan",
+        "hip": 75695,
+        "gaia": "",
+        "tyc": 133175572,
+        "mag": 3.68,
+        "bv": 0.319,
+        "spect": "A8III",
+        "aliases": [
+          "Nusakan",
+          "β Coronae Borealis A",
+          "β CrB A",
+          "Nusakan A",
+          "β Coronae Borealis",
+          "beta CrB",
+          "β CrB",
+          "3 CrB",
+          "HD 137909",
+          "HR 5747",
+          "HIP 75695",
+          "TYC 2032-1605-1"
+        ],
+        "replace": [
+          "HIP 75695"
+        ]
+      },
+      {
+        "id": "18:B",
+        "name": "β Coronae Borealis B",
+        "hip": 0,
+        "gaia": "",
+        "tyc": 0,
+        "mag": 5.2,
+        "bv": null,
+        "spect": "",
+        "aliases": [
+          "β Coronae Borealis B",
+          "β CrB B",
+          "Nusakan B"
+        ],
+        "replace": []
+      }
+    ],
+    "grade": 1,
+    "reference": "Mut2010b",
+    "wds": "15278+2906",
+    "massRatioNote": "Muterspaugh et al. 2010 Table 5 and section IV.2.3 dynamical masses and S99 parallax. Systemic RV is left unknown: the paper fits separate instrumental velocity offsets; the existing catalogue RV is a component measurement.",
+    "review": "USNO grade 1 Mut2010b relative orbit. Hipparcos I/239 AstroRef=+, MultFlag=O supplies the barycentric position and proper motion at J1991.25. Muterspaugh et al. 2010 Table 5 and section IV.2.3 dynamical masses and S99 parallax. Systemic RV is left unknown: the paper fits separate instrumental velocity offsets; the existing catalogue RV is a component measurement. Absolute astrometry retains the uncertainty of the original Hipparcos orbital solution.",
+    "note": "Muterspaugh et al. 2010 Table 5 and section IV.2.3 dynamical masses and S99 parallax. Systemic RV is left unknown: the paper fits separate instrumental velocity offsets; the existing catalogue RV is a component measurement.",
+    "sources": [
+      "https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt",
+      "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/239/hip_main&Vmag=%3C6.5&MultFlag=O&-out.all&-out.max=1000",
+      "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/259/tyc2&HIP=5336,75695&-out=TYC1,TYC2,TYC3,HIP&-out.max=10",
+      "https://arxiv.org/abs/1010.4043"
+    ]
+  },
+  {
+    "name": "80 Tauri",
+    "orbit": [
+      63005.625,
+      0.915,
+      2.0158552860534504,
+      0.1884955592153876,
+      2.7785641691749725,
+      2412061.851709874,
+      0.908
+    ],
+    "barycentre": {
+      "epoch": 2457389.0,
+      "ra": 67.53637418504616,
+      "dec": 15.637899127862106,
+      "distance": 47.65535646206633,
+      "pmra": 106.41,
+      "pmdec": -25.72,
+      "rv": null
+    },
+    "masses": [
+      1.63,
+      1.11
+    ],
+    "components": [
+      {
+        "id": "19:A",
+        "name": "80 Tauri A",
+        "hip": 20995,
+        "gaia": "3312536927686011520",
+        "tyc": 82907740,
+        "mag": 5.7,
+        "bv": 0.324,
+        "spect": "F0V",
+        "aliases": [
+          "80 Tauri A",
+          "80 Tau",
+          "80 Tau A",
+          "80 Tauri",
+          "HD 28485",
+          "HR 1422",
+          "HIP 20995",
+          "Gaia DR3 3312536927686011520",
+          "TYC 1265-1175-1"
+        ],
+        "replace": [
+          "HIP 20995"
+        ]
+      },
+      {
+        "id": "19:B",
+        "name": "80 Tauri B",
+        "hip": 0,
+        "gaia": "3312536923393893120",
+        "tyc": 82907741,
+        "mag": 8.12,
+        "bv": null,
+        "spect": "",
+        "aliases": [
+          "80 Tauri B",
+          "80 Tau B",
+          "Gaia DR3 3312536923393893120",
+          "TYC 1265-1175-2"
+        ],
+        "replace": []
+      }
+    ],
+    "grade": 3,
+    "reference": "Trr2019",
+    "wds": "04301+1538",
+    "massRatioNote": "Torres 2019 dynamical component masses (posterior modes 1.63/1.11 solar masses); adopted parallax and fitted barycentric proper motion from Table 3.",
+    "review": "USNO grade 3 Trr2019 relative orbit. Component identities are the resolved Gaia DR3 and Tycho-2 pair. Barycentre position is mass-weighted from Gaia DR3 at its actual J2016.0 epoch; distance and systemic proper motion follow Torres (2019) Table 3, rather than reusing component proper motion. Adopted masses are rounded posterior modes, not an independent high-precision absolute calibration. Systemic radial velocity remains unknown. The orbit predicts the independent Gaia separation vector within 0.015 arcsec.",
+    "note": "Two-component 80 Tau model. Published component masses have appreciable uncertainty; grade 3 orbit and fixed absolute motion remain approximate. No systemic RV is adopted, so perspective acceleration is omitted.",
+    "sources": [
+      "https://arxiv.org/abs/1908.03215",
+      "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/355/gaiadr3&-c=67.535824%2b15.637839&-c.rs=10&-out=Source,Epoch,RA_ICRS,DE_ICRS,Plx,pmRA,pmDE,Gmag&-out.max=100",
+      "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/259/tyc2&HIP=20995&-out=TYC1,TYC2,TYC3,HIP,BTmag,VTmag&-out.max=10",
+      "https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt"
+    ]
   }
 ];

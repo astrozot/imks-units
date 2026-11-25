@@ -34,13 +34,13 @@ try{
     }
     return {components:frame.stars.filter(s=>s.binary).length,radialVelocities:frame.stars.filter(s=>Number.isFinite(s.rv)).length};
   });
-  assert.equal(checks.components,34);
+  assert.equal(checks.components,40);
   const search=page.locator('.coelum-search input');await search.fill('Sirius B');await search.press('Enter');
   await page.waitForFunction(()=>document.querySelector('.coelum-detail h3')?.textContent==='Sirius B');
   assert.match(await page.locator('.coelum-detail').textContent(),/System radial velocity.*Binary orbit/s);
   for(const width of [320,390,430]){
     await page.setViewportSize({width,height:844});
-    for(const name of ['Castor B','Procyon B','70 Ophiuchi B']){
+    for(const name of ['Castor B','Procyon B','70 Ophiuchi B','μ Cassiopeiae B','β Coronae Borealis B','80 Tauri B']){
       await search.fill(name);await search.press('Enter');
       await page.waitForFunction(name=>document.querySelector('.coelum-detail h3')?.textContent===name,name);
       assert.match(await page.locator('.coelum-detail').textContent(),/Orbit coverage/);

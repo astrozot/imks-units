@@ -1931,6 +1931,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     input.value = m.name; matches = []; active = -1; showResults();
     input.blur(); pause(); setLock(null);
     if (moons) closeMoons();
+    if (m.coordinates) {
+      select(null);
+      goTo(m, { fit: true, apparent: m.coordinates.system === 'AZ' });
+      return;
+    }
     if (orient) {
       // Surface details are much too small for hand-held pointing: guide to
       // their parent disk, without changing the view, zoom or phone calibration.
@@ -2123,6 +2128,16 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) for (const hold of controlHolds.values()) hold.cancel(); });
   root.addEventListener('click', async (ev) => {
+    const coordinateCopy = ev.target.closest('[data-copy-coordinates]');
+    if (coordinateCopy) {
+      try {
+        await navigator.clipboard.writeText(coordinateCopy.dataset.copyCoordinates);
+        say('Coordinates copied');
+      } catch {
+        say('Could not copy coordinates');
+      }
+      return;
+    }
     const scrollLayers = ev.target.closest('[data-scroll-layers]');
     if (scrollLayers && !scrollLayers.disabled) {
       if (layerArrowDragged && ev.detail > 0) { layerArrowDragged = false; return; }

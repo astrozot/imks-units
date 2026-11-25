@@ -1,4 +1,5 @@
 import { BINARY_SYSTEMS } from './binarydata.js';
+import { parseSkyCoordinates } from './skycoordinates.js';
 // Offline whole-sky chart. Positions in this drawing are apparent (without
 // refraction). An azimuthal equidistant camera looks out from inside the
 // celestial sphere; its orientation is rotated by spherical drag gestures.
@@ -1261,7 +1262,28 @@ export function searchAngularField(o) {
   return 25; // a star or unresolved body, with its surrounding sky
 }
 
+// Equatorial search input uses J2000. The inverse horizon matrix includes
+// precession/nutation and the observer, shared with the fixed Galactic grid.
+export function coordinateTarget(frame, query) {
+  const coordinates = parseSkyCoordinates(query);
+  if (!coordinates) return null;
+  const { system, lon, lat } = coordinates;
+  let direction;
+  if (system === 'AZ') direction = horizontalVector(lat, lon);
+  else {
+    const v = vec(lon, lat);
+    const j2000 = system === 'GA' ? [0, 1, 2].map((i) => GALACTIC.reduce((sum, row, j) => sum + row[i] * v[j], 0)) : v;
+    const h = horizonToJ2000(frame);
+    direction = unit3([0, 1, 2].map((i) => j2000.reduce((sum, x, j) => sum + h[j * 3 + i] * x, 0)));
+  }
+  return { name: String(query).trim(), type: 'coordinates', coordinates,
+    az: (Math.atan2(direction[0], direction[1]) / R + 360) % 360,
+    alt: Math.asin(clamp(direction[2])) / R };
+}
+
 export function searchSky(frame, query, limit = 8) {
+  const target = coordinateTarget(frame, query);
+  if (target) return limit > 0 ? [target] : [];
   const q = fold(query).replace(/^(ngc|ic|m) ?0+(?=\d)/, '$1 '), qc = q.replace(/ /g, '');
   if (!qc) return [];
   const surface = (o) => o.type === 'lunar feature' || o.type === 'Mars feature';
@@ -1395,13 +1417,29 @@ export function catalogDetailCoordinates(o, frame, origin) {
 export function objectDetails(o, frame = null) {
   const origin = o.coordinateOrigin || observerOrigin(frame?.place);
   if (origin !== 'topocentric') { o = { ...o }; delete o.alt; delete o.az; delete o.apparentAlt; }
-  const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`;
   const deflection = ['heliocentric', 'barycentric'].includes(origin) ? null : catalogSolarDeflection(o, frame);
   const binary = binaryComponent(o.binary);
   const catalogStar = o.type === 'star' && !o.body && !o.planet;
   const detailedCoordinates = o.preciseSource || (!o.body && !o.planet && !o.satellite && FIXED_OBJECT_TYPES.has(o.type));
   const angle=(value,hours=false,signed=false)=>detailedCoordinates ? preciseAngle(value,hours,signed) : sexagesimal(value,hours,signed);
   const g = frame && galacticCoordinates(o, o.coordinateMatrix?{matrix:o.coordinateMatrix}:frame);
+  // Copy the displayed coordinate values and precision, using ASCII units
+  // and signs so the pair can also be pasted into coordinate search.
+  const pair = (lon, lat, hours = false, prefix = '') =>
+    `${prefix}${angle(hours ? lon / 15 : lon, hours)} ${angle(lat, false, true)}`
+      .replace(/−/g, '-').replace(/°/g, 'd').replace(/′/g, 'm').replace(/″/g, 's');
+  const eq = Number.isFinite(o.ra) && Number.isFinite(o.dec) ? pair(o.ra, o.dec, true) : null;
+  const az = Number.isFinite(o.az) && Number.isFinite(o.alt) ? pair(o.az, o.alt, false, 'AZ ') : null;
+  const ga = g && Number.isFinite(g.lon) && Number.isFinite(g.lat) ? pair(g.lon, g.lat, false, 'GA ') : null;
+  const copies = {
+    'Right ascension (RA)': eq, 'Declination (Dec)': eq,
+    'Galactic longitude (l)': ga, 'Galactic latitude (b)': ga,
+    'Altitude (Alt)': az, 'Azimuth (Az)': az,
+    'Apparent altitude': Number.isFinite(o.az) && Number.isFinite(o.apparentAlt) ? pair(o.az, o.apparentAlt, false, 'AZ ') : null,
+  };
+  const row = (name, value) => `<div><dt>${esc(name)}</dt><dd>${copies[name]
+    ? `<button type="button" class="coelum-coordinate-copy" data-copy-coordinates="${esc(copies[name])}" title="Copy coordinates" aria-label="${esc(`Copy coordinates: ${copies[name]}`)}">${esc(value)}</button>`
+    : esc(value)}</dd></div>`;
   const galacticRows = g ? row('Galactic longitude (l)', angle(g.lon)) + row('Galactic latitude (b)', angle(g.lat, false, true)) : '';
   if (o.satellite) return satelliteDetails(o, row, galacticRows, observerOrigin(frame?.place));
   const notes = [o.double && 'double or multiple', o.variable && 'variable'].filter(Boolean);

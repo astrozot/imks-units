@@ -1,0 +1,88 @@
+{
+  "scope": "Focused literature follow-up and identity corrections. Absence from this file means no dedicated paper review yet, not absence of published evidence.",
+  "pairs": {
+    "wds20591+0418c.png": {
+      "name": "ε Equulei AB",
+      "primaryHipOverride": "103569",
+      "finding": "ORB6 prints HIP 103579, an unrelated HD 200019 star at declination +44.79 degrees. HIP 103569 has HD 199766 and coordinates matching the ORB6 source position at +04.29 degrees. Preserve the printed identifier as provenance and use HIP 103569 for future component work.",
+      "nextStep": "Review the AB subsystem, mass ratio and barycentric motion using the corrected identity.",
+      "sources": ["https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/239/hip_main&HIP=103569,103579&-out.all", "https://www.astro.gsu.edu/wds/int4/notes_20.html"]
+    },
+    "wds04301+1538c.png": {
+      "name": "80 Tauri",
+      "massEvidence": "dynamical",
+      "finding": "Torres (2019) derives component masses of 1.63 and 1.11 solar masses and a barycentric proper motion of +106.41, -25.72 mas/yr. Resolved Gaia positions can supply an absolute anchor at their actual reference epoch. The grade-3 relative orbit remains an adopted model with appreciable parameter uncertainty.",
+      "nextStep": "Build and validate a resolved-component barycentre with the published systemic motion; keep systemic RV unknown unless independently established.",
+      "sources": ["https://arxiv.org/abs/1908.03215"]
+    },
+    "wds21145+1000a.png": {
+      "name": "δ Equulei",
+      "massEvidence": "dynamical",
+      "finding": "PHASES combined visual and double-lined RV solutions determine component masses and distance precisely. Hipparcos AstroRef=* is a photocentre solution, so it must not be used directly as a barycentre or combined with the relative orbit without accounting for photocentre motion.",
+      "nextStep": "Obtain a reviewed absolute barycentric solution or reconstruct the photocentre position and mission-averaged proper motion using the correct bandpass flux ratio.",
+      "sources": ["https://arxiv.org/abs/astro-ph/0507585", "https://arxiv.org/abs/1010.4043"]
+    },
+    "wds15232+3017a.png": {
+      "name": "η Coronae Borealis AB",
+      "massEvidence": "dynamical",
+      "finding": "The PHASES combined solution gives masses 1.243 and 1.100 solar masses and distance 18.50 pc. A distant brown-dwarf companion is outside the AB orbit. An AB-only model needs an explicit scope and an absolute barycentre anchor.",
+      "nextStep": "Review absolute component astrometry and confirm which identifiers belong to A and B before adopting the PHASES mass ratio.",
+      "sources": ["https://arxiv.org/abs/1010.4043"]
+    },
+    "wds09006+4147a.png": {
+      "name": "10 Ursae Majoris (HD 76943)",
+      "finding": "Söderhjelm Table 1 provides an astrometric mass ratio, unlike the photometric estimates in Tables 3–4. The Hipparcos main solution is not explicitly barycentric. PHASES discusses the limited available RV measurements.",
+      "nextStep": "Reconcile the published astrometric mass ratio with the adopted orbit and recover barycentric position and proper motion.",
+      "sources": ["https://cdsarc.cds.unistra.fr/viz-bin/cat/J/A+A/341/121", "https://arxiv.org/abs/1010.4043"]
+    },
+    "wds17349+1234c.png": {
+      "name": "α Ophiuchi (Rasalhague)",
+      "massEvidence": "dynamical",
+      "finding": "Gardner et al. (2021) combine imaging, interferometry and RVs to derive a precision orbit and component masses. This supplies much stronger mass evidence than a brightness-based estimate; it does not by itself identify a usable absolute barycentre solution.",
+      "nextStep": "Retain the paper's adopted distance, mass ratio, node convention and systemic motion together; obtain a compatible absolute position anchor.",
+      "sources": ["https://arxiv.org/abs/2107.02844"]
+    },
+    "wds18070+3034a.png": {
+      "name": "99 Herculis",
+      "massEvidence": "dynamical",
+      "finding": "Kennedy et al. (2012) adopt component masses 0.94 and 0.46 solar masses, using the spectroscopic mass function; they also discuss a previously suspected third component and an unbound wide C star. Hipparcos AstroRef=A is a component position, with orbital motion present in its proper motion.",
+      "nextStep": "Recover a consistent systemic proper motion and barycentric position. Correcting only the component-A position would leave orbital motion counted in the proper motion.",
+      "sources": ["https://arxiv.org/abs/1201.1911"]
+    },
+    "wds00022+2705b.png": {
+      "name": "85 Pegasi",
+      "hierarchyReview": true,
+      "finding": "The secondary has been discussed as a close binary in published stellar-model calibrations. The S99 photometric ratio alone is not a secure subsystem mass ratio. Hipparcos has a stochastic X solution rather than an explicit barycentre.",
+      "nextStep": "Reconcile the A–(Ba+Bb) mass budget and absolute astrometry; distinguish measured dynamical constraints from stellar-model masses and proposed companions.",
+      "sources": ["https://doi.org/10.1051/0004-6361:20020962", "https://cdsarc.cds.unistra.fr/viz-bin/cat/J/A+A/341/121"]
+    },
+    "wds21446+2539a.png": {
+      "name": "κ Pegasi",
+      "hierarchyReview": true,
+      "massEvidence": "dynamical",
+      "finding": "PHASES explicitly models a triple system, including the short-period Ba–Bb pair. The visual A–B orbit requires the total B-subsystem mass, not the mass of its brighter member. Hipparcos is a photocentre solution.",
+      "nextStep": "Use subsystem masses and define whether the model tracks a subsystem barycentre or its photocentre; validate the absolute anchor and motion.",
+      "sources": ["https://arxiv.org/abs/astro-ph/0509406"]
+    },
+    "wds00352-0336c.png": {
+      "name": "13 Ceti",
+      "hierarchyReview": true,
+      "finding": "The visual primary is a short-period spectroscopic binary. S99 flags the system and supplies an astrometric mass ratio for the visual pair; this cannot be interpreted as two single-star masses without specifying the hierarchy.",
+      "nextStep": "Review the modern combined orbit and subsystem masses, then reconstruct the correct absolute reference point.",
+      "sources": ["https://adsabs.harvard.edu/pdf/1963AJ.....68..432B", "https://cdsarc.cds.unistra.fr/viz-bin/cat/J/A+A/341/121"]
+    },
+    "wds14514+1906i.png": {
+      "name": "ξ Bootis",
+      "finding": "Both the angular orbit and the nearby distance are promising, but S99 Table 3's quoted ratio is photometric. Hipparcos AstroRef=A includes the primary's orbital motion. Resolved component astrometry offers a route to a mass-weighted absolute solution.",
+      "nextStep": "Review a measured mass ratio and the two resolved Gaia solutions, including their source identities, actual epochs and astrometric quality.",
+      "sources": ["https://cdsarc.cds.unistra.fr/viz-bin/cat/J/A+A/341/121"]
+    },
+    "wds02039+4220a.png": {
+      "name": "γ Andromedae BC (Almach subsystem)",
+      "hierarchyReview": true,
+      "finding": "The ORB6 designation explicitly describes BC, while HIP 9640 and the existing Almach chart row identify the bright A component. A positional cross-match at the system level cannot assign A's aliases or astrometry to B.",
+      "nextStep": "Identify B and C separately and reconstruct their subsystem barycentre; retain the bright A chart star independently.",
+      "sources": ["https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt", "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/239/hip_main&HIP=9640&-out.all"]
+    }
+  }
+}

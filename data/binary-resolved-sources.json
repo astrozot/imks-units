@@ -1,0 +1,67 @@
+{
+  "sources": {
+    "gaiaDR3": {
+      "url": "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/355/gaiadr3&-c=67.535824%2b15.637839&-c.rs=10&-out=Source,Epoch,RA_ICRS,DE_ICRS,Plx,pmRA,pmDE,Gmag&-out.max=100",
+      "sha256": "9f02e7f7fccf3125ae7c04ba9271c9822f56b68aa6d75e95f19e75dfb3806247"
+    },
+    "tycho2": {
+      "url": "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/259/tyc2&HIP=20995&-out=TYC1,TYC2,TYC3,HIP,BTmag,VTmag&-out.max=10",
+      "sha256": "b371e79e993cce214d50563d0dc81d1e8f3d6ffacc86852891acba0e1b57b00b"
+    }
+  },
+  "systems": {
+    "80 Tauri": {
+      "gaiaDR3": [
+        {
+          "Source": "3312536923393893120",
+          "RA_ICRS": "067.53644292906",
+          "DE_ICRS": "+15.63813853583",
+          "Plx": "21.3377",
+          "pmRA": "102.356",
+          "pmDE": "-31.285",
+          "Gmag": "7.944009"
+        },
+        {
+          "Source": "3312536927686011520",
+          "RA_ICRS": "067.53632737173",
+          "DE_ICRS": "+15.63773609543",
+          "Plx": "21.4201",
+          "pmRA": "108.881",
+          "pmDE": "-21.819",
+          "Gmag": "5.605668"
+        }
+      ],
+      "tycho2": [
+        {
+          "TYC1": "1265",
+          "TYC2": "1175",
+          "TYC3": "1",
+          "HIP": "20995",
+          "BTmag": "6.023",
+          "VTmag": "5.703"
+        },
+        {
+          "TYC1": "1265",
+          "TYC2": "1175",
+          "TYC3": "2",
+          "HIP": "20995",
+          "BTmag": "8.792",
+          "VTmag": "8.116"
+        }
+      ],
+      "refEpoch": 2016.0,
+      "identification": "The brighter G=5.606 entry is A; the G=7.944 entry is B. Tycho resolved IDs share HIP 20995; only A carries the shared HIP alias in the runtime model.",
+      "literature": "https://arxiv.org/abs/1908.03215",
+      "adopted": {
+        "masses": [
+          1.63,
+          1.11
+        ],
+        "parallaxMas": 20.984,
+        "pmra": 106.41,
+        "pmdec": -25.72,
+        "rv": null
+      }
+    }
+  }
+}

@@ -120,6 +120,126 @@
         "expansion-gaia-astrometry.csv"
       ],
       "note": "Barycentre derived from the two resolved Gaia DR3 sources at their actual J2016.0 reference epoch, with adopted component masses 0.9/0.7."
+    },
+    {
+      "name": "μ Cassiopeiae",
+      "idPrefix": "17",
+      "orbitRecord": "01083+5455d",
+      "primaryHip": 5336,
+      "componentNames": [
+        "μ Cassiopeiae A",
+        "μ Cassiopeiae B"
+      ],
+      "extraAliases": [
+        [
+          "μ Cas",
+          "30 Cas",
+          "mu Cas",
+          "mu Cassiopeiae",
+          "μ Cassiopeiae",
+          "GJ 53 A"
+        ],
+        [
+          "μ Cas B",
+          "mu Cas B",
+          "GJ 53 B"
+        ]
+      ],
+      "masses": [
+        0.744,
+        0.1728
+      ],
+      "hipBarycentre": true,
+      "parallaxMas": 132.66,
+      "systemicRV": -97.4,
+      "secondarySpectrum": "M dwarf",
+      "massRatioNote": "Bond et al. 2020 dynamical masses, adopted parallax and systemic radial velocity; visual pair Aa–Ab (also called A–B), with no additional inner orbit modelled.",
+      "review": "USNO grade 2 BdH2020 relative orbit. Hipparcos I/239 AstroRef=+, MultFlag=O supplies the barycentric position and proper motion at J1991.25. Bond et al. 2020 dynamical masses, adopted parallax and systemic radial velocity; visual pair Aa–Ab (also called A–B), with no additional inner orbit modelled. Absolute astrometry retains the uncertainty of the original Hipparcos orbital solution.",
+      "note": "Bond et al. 2020 dynamical masses, adopted parallax and systemic radial velocity; visual pair Aa–Ab (also called A–B), with no additional inner orbit modelled.",
+      "sources": [
+        "https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt",
+        "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/239/hip_main&Vmag=%3C6.5&MultFlag=O&-out.all&-out.max=1000",
+        "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/259/tyc2&HIP=5336,75695&-out=TYC1,TYC2,TYC3,HIP&-out.max=10",
+        "https://arxiv.org/abs/2010.06609"
+      ],
+      "sourceFiles": []
+    },
+    {
+      "name": "β Coronae Borealis",
+      "idPrefix": "18",
+      "orbitRecord": "15278+2906a",
+      "primaryHip": 75695,
+      "componentNames": [
+        "Nusakan",
+        "β Coronae Borealis B"
+      ],
+      "extraAliases": [
+        [
+          "β Coronae Borealis A",
+          "β CrB A",
+          "Nusakan A",
+          "β Coronae Borealis",
+          "beta CrB"
+        ],
+        [
+          "β CrB B",
+          "Nusakan B"
+        ]
+      ],
+      "masses": [
+        1.71,
+        1.33
+      ],
+      "hipBarycentre": true,
+      "parallaxMas": 29.31,
+      "systemicRV": null,
+      "secondarySpectrum": "",
+      "massRatioNote": "Muterspaugh et al. 2010 Table 5 and section IV.2.3 dynamical masses and S99 parallax. Systemic RV is left unknown: the paper fits separate instrumental velocity offsets; the existing catalogue RV is a component measurement.",
+      "review": "USNO grade 1 Mut2010b relative orbit. Hipparcos I/239 AstroRef=+, MultFlag=O supplies the barycentric position and proper motion at J1991.25. Muterspaugh et al. 2010 Table 5 and section IV.2.3 dynamical masses and S99 parallax. Systemic RV is left unknown: the paper fits separate instrumental velocity offsets; the existing catalogue RV is a component measurement. Absolute astrometry retains the uncertainty of the original Hipparcos orbital solution.",
+      "note": "Muterspaugh et al. 2010 Table 5 and section IV.2.3 dynamical masses and S99 parallax. Systemic RV is left unknown: the paper fits separate instrumental velocity offsets; the existing catalogue RV is a component measurement.",
+      "sources": [
+        "https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt",
+        "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/239/hip_main&Vmag=%3C6.5&MultFlag=O&-out.all&-out.max=1000",
+        "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/259/tyc2&HIP=5336,75695&-out=TYC1,TYC2,TYC3,HIP&-out.max=10",
+        "https://arxiv.org/abs/1010.4043"
+      ],
+      "sourceFiles": []
+    },
+    {
+      "name": "80 Tauri",
+      "idPrefix": "19",
+      "orbitRecord": "04301+1538c",
+      "primaryHip": 20995,
+      "componentNames": [
+        "80 Tauri A",
+        "80 Tauri B"
+      ],
+      "extraAliases": [
+        [
+          "80 Tau",
+          "80 Tau A",
+          "80 Tauri"
+        ],
+        [
+          "80 Tau B"
+        ]
+      ],
+      "resolvedBarycentre": true,
+      "masses": [
+        1.63,
+        1.11
+      ],
+      "secondarySpectrum": "",
+      "massRatioNote": "Torres 2019 dynamical component masses (posterior modes 1.63/1.11 solar masses); adopted parallax and fitted barycentric proper motion from Table 3.",
+      "review": "USNO grade 3 Trr2019 relative orbit. Component identities are the resolved Gaia DR3 and Tycho-2 pair. Barycentre position is mass-weighted from Gaia DR3 at its actual J2016.0 epoch; distance and systemic proper motion follow Torres (2019) Table 3, rather than reusing component proper motion. Adopted masses are rounded posterior modes, not an independent high-precision absolute calibration. Systemic radial velocity remains unknown. The orbit predicts the independent Gaia separation vector within 0.015 arcsec.",
+      "note": "Two-component 80 Tau model. Published component masses have appreciable uncertainty; grade 3 orbit and fixed absolute motion remain approximate. No systemic RV is adopted, so perspective acceleration is omitted.",
+      "sources": [
+        "https://arxiv.org/abs/1908.03215",
+        "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/355/gaiadr3&-c=67.535824%2b15.637839&-c.rs=10&-out=Source,Epoch,RA_ICRS,DE_ICRS,Plx,pmRA,pmDE,Gmag&-out.max=100",
+        "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/259/tyc2&HIP=20995&-out=TYC1,TYC2,TYC3,HIP,BTmag,VTmag&-out.max=10",
+        "https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt"
+      ],
+      "sourceFiles": []
     }
   ]
 }

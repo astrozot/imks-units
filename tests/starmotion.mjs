@@ -30,8 +30,9 @@ for (const r of fixture.orbits) {
   const error=Math.hypot(...v.map((x,i)=>x-r.relative[i])); maxOrbit=Math.max(maxOrbit,error);
   assert.ok(error<1e-9, `${r.name}: independent true-anomaly orbit ${error} arcsec`);
 }
-assert.equal(BINARY_SYSTEMS.length,17);
-for(const name of ['Castor','Procyon','70 Ophiuchi'])assert.ok(BINARY_SYSTEMS.some(s=>s.name===name));
+assert.equal(BINARY_SYSTEMS.length,20);
+assert.equal(fixture.orbits.length,BINARY_SYSTEMS.length*6,'Every binary has independent numerical references');
+for(const name of ['Castor','Procyon','70 Ophiuchi','μ Cassiopeiae','β Coronae Borealis','80 Tauri'])assert.ok(BINARY_SYSTEMS.some(s=>s.name===name));
 // Independent catalogue anchors: Hipparcos I/239 distinguishes component A
 // from the centre of mass; Gaia DR3 positions have a J2016 reference epoch.
 {
@@ -44,6 +45,25 @@ for(const name of ['Castor','Procyon','70 Ophiuchi'])assert.ok(BINARY_SYSTEMS.so
   assert.equal(oph.barycentre.epoch,2457389);
   for(const [i,ra,dec]of [[0,271.364453818457,2.495224095912567],[1,271.36591160903725,2.4941987580927343]])
     assert.ok(angle(binaryState(oph.components[i].id,2457389).vector,spaceVector(ra,dec))<.025,'ORB6 components agree with independent Gaia DR3 positions at their actual epoch');
+  const hip=JSON.parse(fs.readFileSync(new URL('../data/binary-hipparcos-sources.json',import.meta.url)));
+  for(const [name,id,masses,parallax,rv] of [
+    ['μ Cassiopeiae','5336',[.7440,.1728],132.66,-97.4],
+    ['β Coronae Borealis','75695',[1.71,1.330],29.31,null],
+  ]){
+    const system=BINARY_SYSTEMS.find(s=>s.name===name),b=system.barycentre,r=hip.records[id];
+    assert.equal(r.AstroRef,'+');assert.equal(r.MultFlag,'O');
+    assert.deepEqual([b.epoch,b.ra,b.dec,b.pmra,b.pmdec],[2448349.0625,+r.RAICRS,+r.DEICRS,+r.pmRA,+r.pmDE]);
+    assert.deepEqual(system.masses,masses);assert.equal(b.distance,1000/parallax);assert.equal(b.rv,rv);
+    const [a,c]=system.components.map(c=>binaryState(c.id,b.epoch).vector),mean=a.map((v,k)=>(v*masses[0]+c[k]*masses[1])/(masses[0]+masses[1]));
+    assert.ok(angle(mean,spaceVector(+r.RAICRS,+r.DEICRS))<1e-7,'Published absolute anchor is the centre of mass');
+  }
+  assert.equal(BINARY_SYSTEMS.find(s=>s.name==='Procyon').components[1].mag,10.8);
+  assert.equal(BINARY_SYSTEMS.find(s=>s.name==='μ Cassiopeiae').components[1].mag,10.7);
+  const tau=BINARY_SYSTEMS.find(s=>s.name==='80 Tauri'),b=tau.barycentre;
+  assert.deepEqual([b.epoch,b.pmra,b.pmdec,b.rv],[2457389,106.41,-25.72,null]);
+  assert.equal(b.distance,1000/20.984);assert.deepEqual(tau.masses,[1.63,1.11]);
+  for(const [i,ra,dec] of [[0,67.53632737173,15.63773609543],[1,67.53644292906,15.63813853583]])
+    assert.ok(angle(binaryState(tau.components[i].id,b.epoch).vector,spaceVector(ra,dec))<.015,'80 Tau absolute components agree with independent Gaia DR3 positions at J2016.0');
 }
 for (const s of BINARY_SYSTEMS) {
   // Check externally published separations and PA. USNO rounds PA to 0.1°
@@ -67,7 +87,7 @@ for (const s of BINARY_SYSTEMS) {
 
 const t=Date.parse('2026-11-19T12:00Z')/1000, place=[45,9,120], frame=skyFrame(t,place), advance=createSkyAnimator(t,place);
 const moving=frame.stars.filter(s=>s.binary);
-assert.equal(moving.length,34);
+assert.equal(moving.length,BINARY_SYSTEMS.length*2);
 assert.equal(new Set(frame.stars.map(s=>s.name)).size,frame.stars.length);
 for(const s of BINARY_SYSTEMS)for(const c of s.components){
   const a=findObject(frame,c.name), b=lookup({},c.name);
@@ -91,7 +111,7 @@ for(const dt of [0,60,86300,-600,86401,-90000,1e8,-1e8,1e10,-1e10]) {
 {
   const epoch=t+1234.56789,prior=binaryMotionStats().orbitEvaluations;
   skyFrame(epoch,place);
-  assert.equal(binaryMotionStats().orbitEvaluations-prior,17);
+  assert.equal(binaryMotionStats().orbitEvaluations-prior,BINARY_SYSTEMS.length);
   const warm=binaryMotionStats().orbitEvaluations;skyFrame(epoch,place);
   assert.equal(binaryMotionStats().orbitEvaluations,warm,'Unchanged timestamp reuses exact binary positions');
   for(let k=0;k<1000;k++)for(const s of BINARY_SYSTEMS){
@@ -99,8 +119,8 @@ for(const dt of [0,60,86300,-600,86401,-90000,1e8,-1e8,1e10,-1e10]) {
     const original=a.vector[0];a.vector[0]=12345;
     assert.equal(binaryState(s.components[0].id,2451545+k*.731).vector[0],original,'Consumers cannot corrupt the shared cache');
   }
-  assert.equal(binaryMotionStats().cachedSystems,17);
-  assert.equal(binaryMotionStats().maximumCachedSystems,17);
+  assert.equal(binaryMotionStats().cachedSystems,BINARY_SYSTEMS.length);
+  assert.equal(binaryMotionStats().maximumCachedSystems,BINARY_SYSTEMS.length);
 }
 // The optional JPL occultation provider must apply the same component orbit,
 // rather than silently reverting to the unmodelled catalogue proper motion.

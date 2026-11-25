@@ -11,6 +11,91 @@ import csv
 
 R=math.pi/180
 
+def component_magnitudes(line):
+    # ORB6 T67,F5.2,A1 and T74,F5.2,A1 (one-based columns).
+    # Starting the secondary at T75 loses the tens digit of faint companions.
+    return [float(line[66:71]), float(line[73:78])]
+
+def screened_candidates(lines, selection):
+    candidates=[]
+    for l in lines:
+        try:
+            grade=int(l[233]);m1,m2=component_magnitudes(l);orbit=orbit_from_record(l)
+            if (grade not in selection['grades'] or
+                m1>selection['primaryVisualMagnitudeMax'] or
+                m2>selection['secondaryVisualMagnitudeMax'] or
+                orbit[6]<selection['relativeSemimajorArcsecMin'] or
+                l[71]=='k' or l[78]=='k'):continue
+            candidates.append(dict(wds=l[19:29],designation=l[30:44].strip(),primaryHip=l[58:64].strip(),grade=grade,primaryMagnitude=m1,secondaryMagnitude=m2,semimajorArcsec=orbit[6],periodYears=orbit[0]/365.25,reference=l[237:246].strip(),record=l[246:].strip(),status='pending-component-and-barycentre-review'))
+        except (ValueError,KeyError,IndexError):continue
+    return candidates
+
+def annotate_candidate_investigation(root,report):
+    path=root/'data/binary-candidate-notes.json'
+    if not path.exists():return
+    notes=json.loads(path.read_text())['pairs']
+    report['candidateInvestigation']='data/binary-candidate-audit.json'
+    for c in report['candidates']:
+        correction=notes.get(c['record'],{}).get('primaryHipOverride')
+        if correction:
+            c.setdefault('cataloguePrimaryHip',c['primaryHip'])
+            c['primaryHip']=correction
+            c['identityReview']=notes[c['record']]['finding']
+
+def resolved_component_system(root,cfg,line,chart):
+    source=json.loads((root/'data/binary-resolved-sources.json').read_text())
+    record=source['systems'][cfg['name']];adopted=record['adopted']
+    stars=sorted(record['gaiaDR3'],key=lambda r:float(r['Gmag']))
+    masses=cfg['masses'];weights=[m/sum(masses) for m in masses]
+    directions=[[math.cos(float(s['DE_ICRS'])*R)*math.cos(float(s['RA_ICRS'])*R),
+                 math.cos(float(s['DE_ICRS'])*R)*math.sin(float(s['RA_ICRS'])*R),
+                 math.sin(float(s['DE_ICRS'])*R)] for s in stars]
+    v=[sum(w*d[k] for w,d in zip(weights,directions)) for k in range(3)]
+    bary=dict(epoch=2451545+(record['refEpoch']-2000)*365.25,
+              ra=math.atan2(v[1],v[0])/R%360,dec=math.atan2(v[2],math.hypot(v[0],v[1]))/R,
+              distance=1000/adopted['parallaxMas'],pmra=adopted['pmra'],pmdec=adopted['pmdec'],rv=adopted['rv'])
+    orbit=orbit_from_record(line)
+    assert masses==adopted['masses']
+    assert abs((orbit[6]*bary['distance'])**3/(orbit[0]/365.25)**2/sum(masses)-1)<.03
+    original=next(r for r in chart if r[0]==cfg['primaryHip']);comps=[]
+    tychos=sorted(record['tycho2'],key=lambda r:float(r['VTmag']))
+    for i,star in enumerate(stars):
+        tyc=tychos[i];t,n,c=[int(tyc[k]) for k in ['TYC1','TYC2','TYC3']]
+        aliases=[cfg['componentNames'][i]]+cfg['extraAliases'][i]
+        if i==0:aliases+=original[10].split('|')+[f"HIP {cfg['primaryHip']}"]
+        aliases += [f"Gaia DR3 {star['Source']}",f'TYC {t}-{n}-{c}']
+        comps.append(dict(id=f"{cfg['idPrefix']}:{'AB'[i]}",name=cfg['componentNames'][i],
+            hip=cfg['primaryHip'] if i==0 else 0,gaia=star['Source'],tyc=t*65536+n*4+c-1,
+            mag=component_magnitudes(line)[i],bv=original[4] if i==0 else None,
+            spect=original[11] if i==0 else cfg['secondarySpectrum'],aliases=list(dict.fromkeys(aliases)),
+            replace=[f"HIP {cfg['primaryHip']}"] if i==0 else []))
+    return dict(name=cfg['name'],orbit=orbit,barycentre=bary,masses=masses,components=comps,
+        grade=int(line[233]),reference=line[237:246].strip(),wds=line[19:29],
+        massRatioNote=cfg['massRatioNote'],review=cfg['review'],note=cfg['note'],sources=cfg['sources'])
+
+def hip_barycentric_system(root,cfg,line,chart):
+    source=json.loads((root/'data/binary-hipparcos-sources.json').read_text())
+    record=source['records'][str(cfg['primaryHip'])]
+    assert record['AstroRef']=='+' and record['MultFlag']=='O'
+    bary=dict(epoch=2448349.0625,ra=float(record['RAICRS']),dec=float(record['DEICRS']),
+              pmra=float(record['pmRA']),pmdec=float(record['pmDE']),
+              distance=1000/cfg['parallaxMas'],rv=cfg['systemicRV'])
+    orbit=orbit_from_record(line);masses=cfg['masses']
+    assert abs((orbit[6]*bary['distance'])**3/(orbit[0]/365.25)**2/sum(masses)-1)<.03
+    original=next(row for row in chart if row[0]==cfg['primaryHip'])
+    tycho=source['tychoRecords'][str(cfg['primaryHip'])]
+    t,n,c=map(int,tycho.split('-'));comps=[]
+    for i,mag in enumerate(component_magnitudes(line)):
+        aliases=[cfg['componentNames'][i]]+cfg['extraAliases'][i]
+        if i==0:aliases+=original[10].split('|')+[f"HIP {cfg['primaryHip']}",f'TYC {tycho}']
+        comps.append(dict(id=f"{cfg['idPrefix']}:{'AB'[i]}",name=cfg['componentNames'][i],
+            hip=cfg['primaryHip'] if i==0 else 0,gaia='',tyc=t*65536+n*4+c-1 if i==0 else 0,
+            mag=mag,bv=original[4] if i==0 else None,spect=original[11] if i==0 else cfg['secondarySpectrum'],
+            aliases=list(dict.fromkeys(aliases)),replace=[f"HIP {cfg['primaryHip']}"] if i==0 else []))
+    return dict(name=cfg['name'],orbit=orbit,barycentre=bary,masses=masses,components=comps,
+        grade=int(line[233]),reference=line[237:246].strip(),wds=line[19:29],
+        massRatioNote=cfg['massRatioNote'],review=cfg['review'],note=cfg['note'],sources=cfg['sources'])
+
 def hip_record(source,name,hip):
     lines=(source/name).read_text().splitlines()
     header=next(l for l in lines if l.startswith('recno\tHIP')).split('\t')
@@ -51,19 +136,20 @@ def expand_binary_systems(root,source,systems,chart,hips,proper,members,source_f
     review=json.loads((root/'data/binary-reviewed-additions.json').read_text())
     lines=(source/'orb6.txt').read_text().splitlines()
     source_rows=[l.split() for l in (source/'binary_orbitparam.dat').read_text().splitlines() if l and not l.startswith('#')]
-    candidates=[]
-    for l in lines:
-        try:
-            grade=int(l[233]);m1=float(l[66:71]);m2=float(l[74:79]);orbit=orbit_from_record(l)
-            if grade not in review['selection']['grades'] or m1>6 or m2>12 or orbit[6]<.2 or l[71]=='k' or l[79]=='k':continue
-            candidates.append(dict(wds=l[19:29],designation=l[30:44].strip(),primaryHip=l[58:64].strip(),grade=grade,primaryMagnitude=m1,secondaryMagnitude=m2,semimajorArcsec=orbit[6],periodYears=orbit[0]/365.25,reference=l[237:246].strip(),record=l[246:].strip(),status='pending-component-and-barycentre-review'))
-        except (ValueError,KeyError,IndexError):continue
+    candidates=screened_candidates(lines,review['selection'])
     references=[]
     for cfg in review['systems']:
         l=next(l for l in lines if f"wds{cfg['orbitRecord']}.png" in l)
         orbit=orbit_from_record(l)
         candidate=next(c for c in candidates if c['record']==f"wds{cfg['orbitRecord']}.png")
         candidate.update(status='accepted-reviewed-batch',name=cfg['name'],review=cfg['review'])
+        if cfg.get('hipBarycentre') or cfg.get('resolvedBarycentre'):
+            builder=resolved_component_system if cfg.get('resolvedBarycentre') else hip_barycentric_system
+            system=builder(root,cfg,l,chart)
+            systems.append(system)
+            ephem=next(e for e in (source/'orb6-ephemerides.txt').read_text().splitlines() if e[:10]==system['wds'] and system['reference'] in e and l[30:44].strip() in e)
+            references.append(dict(name=cfg['name'],elements=l,ephemerides=ephem))
+            continue
         if cfg.get('stellariumPrimaryId'):
             b=next(b for b in source_rows if b[0]==cfg['stellariumPrimaryId'])
             bary=dict(distance=float(b[9]),epoch=float(b[10]),ra=float(b[11])/R,dec=float(b[12])/R,rv=float(b[13]),pmra=float(b[14]),pmdec=float(b[15]))
@@ -108,7 +194,7 @@ def expand_binary_systems(root,source,systems,chart,hips,proper,members,source_f
             if i==0 and gaia and gaia==secondary['gaia']:gaia=''
             aliases+=[f"HIP {s['hip']}" if s['hip'] else '',f"HD {s['hd']}" if s['hd'] else '',f'Gaia DR3 {gaia}' if gaia else '',f"TYC {s['tyc']}" if s['tyc'] else '']
             tyc=list(map(int,s['tyc'].split('-'))) if s['tyc'] else None
-            comps.append(dict(id=f"{cfg['idPrefix']}:{'AB'[i]}",name=cfg['componentNames'][i],hip=int(s['hip'] or 0),gaia=gaia,tyc=tyc[0]*65536+tyc[1]*4+tyc[2]-1 if tyc else 0,mag=float(l[66:71] if i==0 else l[74:79]),bv=existing[4] if existing else float(s['ci']) if s['ci'] else None,spect=s['spect'],aliases=list(dict.fromkeys(a for a in aliases if a)),replace=[f'HIP {row[0]}' if row[0] else row[9] or row[10] for row in matches]))
+            comps.append(dict(id=f"{cfg['idPrefix']}:{'AB'[i]}",name=cfg['componentNames'][i],hip=int(s['hip'] or 0),gaia=gaia,tyc=tyc[0]*65536+tyc[1]*4+tyc[2]-1 if tyc else 0,mag=component_magnitudes(l)[i],bv=existing[4] if existing else float(s['ci']) if s['ci'] else None,spect=s['spect'],aliases=list(dict.fromkeys(a for a in aliases if a)),replace=[f'HIP {row[0]}' if row[0] else row[9] or row[10] for row in matches]))
         system=dict(name=cfg['name'],orbit=orbit,barycentre=bary,masses=masses,components=comps,grade=int(l[233]),reference=l[237:246].strip(),wds=l[19:29],massRatioNote='Bond et al. 2015 dynamical masses' if cfg['name']=='Procyon' else 'Stellarium 26.3 adopted subsystem masses',review=cfg['review'],sources=cfg['sources'])
         if cfg.get('note'):system['note']=cfg['note']
         systems.append(system)
@@ -117,6 +203,77 @@ def expand_binary_systems(root,source,systems,chart,hips,proper,members,source_f
     existing={(s['wds'],s['reference']) for s in systems[:-len(review['systems'])]}
     for c in candidates:
         if (c['wds'],c['reference']) in existing:c['status']='already-modelled'
-    report=dict(selection=review['selection'],orbitRowsAfterScreen=len(candidates),distinctPairDesignations=len({(c['wds'],c['designation']) for c in candidates}),addedSystems=[s['name'] for s in review['systems']],totalModelledSystems=len(systems),candidates=candidates,scope='Initial reviewed batch. Remaining candidates need identity, hierarchy, barycentre and mass-ratio review; an ORB6 quality grade alone is insufficient for absolute component positions.',sourceHashes={name:hashlib.sha256((source/name).read_bytes()).hexdigest() for cfg in review['systems'] for name in cfg['sourceFiles']})
+    report=dict(selection=review['selection'],orbitRowsAfterScreen=len(candidates),distinctPairDesignations=len({(c['wds'],c['designation']) for c in candidates}),addedSystems=[s['name'] for s in review['systems']],totalModelledSystems=len(systems),candidates=candidates,scope='Reviewed additions. Remaining candidates need identity, hierarchy, barycentre and mass-ratio review; an ORB6 quality grade alone is insufficient for absolute component positions.',sourceHashes={name:hashlib.sha256((source/name).read_bytes()).hexdigest() for cfg in review['systems'] for name in cfg['sourceFiles']})
+    report['sourceHashes']['data/binary-hipparcos-sources.json']=hashlib.sha256((root/'data/binary-hipparcos-sources.json').read_bytes()).hexdigest()
+    report['sourceHashes']['data/binary-resolved-sources.json']=hashlib.sha256((root/'data/binary-resolved-sources.json').read_bytes()).hexdigest()
+    annotate_candidate_investigation(root,report)
     (root/'data/binary-selection.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
     return references
+
+def annotate_hip_additions(metadata,review):
+    for cfg in review['systems']:
+        if cfg.get('hipBarycentre') or cfg.get('resolvedBarycentre'):
+            credit=f"{cfg['name']}: {cfg['massRatioNote']} Sources: "+', '.join(cfg['sources'])
+            if credit not in metadata['attribution']:metadata['attribution'].append(credit)
+    limitation='New Hipparcos additions: μ Cas and β CrB retain barycentric J1991.25 catalogue astrometry, with published adopted parallaxes and dynamical masses. β CrB systemic RV is unknown; perspective acceleration is omitted. Fixed orbits and old absolute anchors do not imply modern observational accuracy.'
+    if limitation not in metadata['limitations']:metadata['limitations'].append(limitation)
+    if any(c.get('resolvedBarycentre') for c in review['systems']):
+        limitation='80 Tauri uses resolved Gaia DR3 J2016.0 positions with Torres 2019 dynamical masses, adopted parallax and fitted systemic proper motion. Its systemic RV is unknown; perspective acceleration is omitted. Published mass and grade-3 orbit uncertainties remain.'
+        if limitation not in metadata['limitations']:metadata['limitations'].append(limitation)
+
+def refresh_hip_additions(root,source):
+    """Refresh pinned catalogue additions, without reprocessing Gaia RVs.
+
+    python tools/binary_expansion.py SOURCE_DIRECTORY
+    Requires the original orb6.txt and orb6-ephemerides.txt snapshots. Other
+    binaries, raw chart rows and optional catalogue downloads are preserved.
+    """
+    review=json.loads((root/'data/binary-reviewed-additions.json').read_text())
+    metadata=json.loads((root/'data/stellar-motion.json').read_text())
+    for name in ['orb6.txt','orb6-ephemerides.txt']:
+        assert hashlib.sha256((source/name).read_bytes()).hexdigest()==metadata['sources'][name],f'Unexpected source snapshot: {name}'
+    path=root/'js/binarydata.js';raw=path.read_text();start=raw.index('[\n')
+    systems=json.loads(raw[start:raw.rfind(']')+1])
+    chart_raw=(root/'js/stardata.js').read_text()
+    chart=json.loads(chart_raw[chart_raw.index('[\n'):chart_raw.rfind(']')+1])
+    fixtures=root/'tests/fixtures/binary-orbits.json';refs=json.loads(fixtures.read_text())
+    lines=(source/'orb6.txt').read_text().splitlines()
+    ephemerides=(source/'orb6-ephemerides.txt').read_text().splitlines()
+    for cfg in review['systems']:
+        if not (cfg.get('hipBarycentre') or cfg.get('resolvedBarycentre')):continue
+        line=next(l for l in lines if f"wds{cfg['orbitRecord']}.png" in l)
+        builder=resolved_component_system if cfg.get('resolvedBarycentre') else hip_barycentric_system
+        system=builder(root,cfg,line,chart)
+        ephem=next(e for e in ephemerides if e[:10]==system['wds'] and system['reference'] in e and line[30:44].strip() in e)
+        systems=[s for s in systems if s['name']!=cfg['name']]+[system]
+        refs=[r for r in refs if r['name']!=cfg['name']]+[dict(name=cfg['name'],elements=line,ephemerides=ephem)]
+    # Correct existing components too (notably Procyon B: 10.8, not 0.8).
+    for system in systems:
+        record=next(r for r in refs if r['name']==system['name'])
+        for component,mag in zip(system['components'],component_magnitudes(record['elements'])):
+            component['mag']=mag
+    report=json.loads((root/'data/binary-selection.json').read_text())
+    candidates=screened_candidates(lines,review['selection'])
+    accepted={f"wds{c['orbitRecord']}.png":c for c in review['systems']}
+    existing={(s['wds'],s['reference']) for s in systems}
+    for c in candidates:
+        cfg=accepted.get(c['record'])
+        if cfg:c.update(status='accepted-reviewed-batch',name=cfg['name'],review=cfg['review'])
+        elif (c['wds'],c['reference']) in existing:c['status']='already-modelled'
+    report.update(candidates=candidates,orbitRowsAfterScreen=len(candidates),
+        distinctPairDesignations=len({(c['wds'],c['designation']) for c in candidates}),
+        addedSystems=[c['name'] for c in review['systems']],totalModelledSystems=len(systems),
+        scope='Reviewed additions. Remaining candidates need identity, hierarchy, barycentre and mass-ratio review; an ORB6 quality grade alone is insufficient for absolute component positions.')
+    report['sourceHashes']['data/binary-hipparcos-sources.json']=hashlib.sha256((root/'data/binary-hipparcos-sources.json').read_bytes()).hexdigest()
+    report['sourceHashes']['data/binary-resolved-sources.json']=hashlib.sha256((root/'data/binary-resolved-sources.json').read_bytes()).hexdigest()
+    annotate_candidate_investigation(root,report)
+    metadata['binaryPairs']=len(systems)
+    annotate_hip_additions(metadata,review)
+    path.write_text(raw[:start]+json.dumps(systems,ensure_ascii=False,indent=2)+';\n')
+    for path,value in [(fixtures,refs),(root/'data/binary-selection.json',report),(root/'data/stellar-motion.json',metadata)]:
+        path.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n')
+
+if __name__=='__main__':
+    import pathlib
+    import sys
+    refresh_hip_additions(pathlib.Path(__file__).resolve().parents[1],pathlib.Path(sys.argv[1]))

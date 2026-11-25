@@ -36,7 +36,7 @@
       "sha256": "5ddcc30b2683f818b175794f554184cacb182d1c9774f2ed613c45cd24b66be8"
     }
   },
-  "binaryPairs": 17,
+  "binaryPairs": 20,
   "gaiaMeasuredRadialVelocities": 2161040,
   "attribution": [
     "AT-HYG v4.0: David Nash, CC BY-SA 4.0, https://codeberg.org/astronexus/athyg",
@@ -45,7 +45,10 @@
     "Stellarium v26.3 binary_orbitparam.dat: barycentres and adopted mass ratios, GPL-2.0-or-later. https://github.com/Stellarium/stellarium/blob/v26.3/stars/hip_gaia3/binary_orbitparam.dat",
     "ESA Hipparcos I/239: Castor component-A and Procyon barycentric J1991.25 astrometry, https://vizier.cfa.harvard.edu/ftp/cats/I/239/ReadMe",
     "ESA Gaia DR3: resolved 70 Ophiuchi J2016.0 astrometry, https://gea.esac.esa.int/archive/",
-    "Bond et al. 2015: Procyon adopted masses, parallax and systemic velocity, https://arxiv.org/abs/1510.00485"
+    "Bond et al. 2015: Procyon adopted masses, parallax and systemic velocity, https://arxiv.org/abs/1510.00485",
+    "μ Cassiopeiae: Bond et al. 2020 dynamical masses, adopted parallax and systemic radial velocity; visual pair Aa–Ab (also called A–B), with no additional inner orbit modelled. Sources: https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt, https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/239/hip_main&Vmag=%3C6.5&MultFlag=O&-out.all&-out.max=1000, https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/259/tyc2&HIP=5336,75695&-out=TYC1,TYC2,TYC3,HIP&-out.max=10, https://arxiv.org/abs/2010.06609",
+    "β Coronae Borealis: Muterspaugh et al. 2010 Table 5 and section IV.2.3 dynamical masses and S99 parallax. Systemic RV is left unknown: the paper fits separate instrumental velocity offsets; the existing catalogue RV is a component measurement. Sources: https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt, https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/239/hip_main&Vmag=%3C6.5&MultFlag=O&-out.all&-out.max=1000, https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/259/tyc2&HIP=5336,75695&-out=TYC1,TYC2,TYC3,HIP&-out.max=10, https://arxiv.org/abs/1010.4043",
+    "80 Tauri: Torres 2019 dynamical component masses (posterior modes 1.63/1.11 solar masses); adopted parallax and fitted barycentric proper motion from Table 3. Sources: https://arxiv.org/abs/1908.03215, https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/355/gaiadr3&-c=67.535824%2b15.637839&-c.rs=10&-out=Source,Epoch,RA_ICRS,DE_ICRS,Plx,pmRA,pmDE,Gmag&-out.max=100, https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=I/259/tyc2&HIP=20995&-out=TYC1,TYC2,TYC3,HIP,BTmag,VTmag&-out.max=10, https://crf.usno.navy.mil/data_products/WDS/orb6/orb6orbits.txt"
   ],
   "limitations": [
     "Uniform space motion and fixed Kepler orbits are extrapolations, not all-date accuracy guarantees.",
@@ -53,7 +56,9 @@
     "The Stellarium guide lists rho Oph, but its data row is 70 Oph. We implement the actual rho Oph AB. Its beta Mus row copies Achird orbital elements; USNO elements replace them.",
     "Existing catalogue positions, proper motions and parallaxes are preserved; source radial velocities are adopted at J2000, with no claim of new astrometric calibration.",
     "AT-HYG HYG-source zero radial velocities are conservatively unknown; missing values are never reported as measured zero.",
-    "Stellarium also gives psi Velorum exactly the same periastron JD as Dalim; the app uses the USNO Msn2023 epoch. Full 14-system audit: data/binary-stellarium-audit.json."
+    "Stellarium also gives psi Velorum exactly the same periastron JD as Dalim; the app uses the USNO Msn2023 epoch. Full 14-system audit: data/binary-stellarium-audit.json.",
+    "New Hipparcos additions: μ Cas and β CrB retain barycentric J1991.25 catalogue astrometry, with published adopted parallaxes and dynamical masses. β CrB systemic RV is unknown; perspective acceleration is omitted. Fixed orbits and old absolute anchors do not imply modern observational accuracy.",
+    "80 Tauri uses resolved Gaia DR3 J2016.0 positions with Torres 2019 dynamical masses, adopted parallax and fitted systemic proper motion. Its systemic RV is unknown; perspective acceleration is omitted. Published mass and grade-3 orbit uncertainties remain."
   ],
   "stellariumAudit": "data/binary-stellarium-audit.json",
   "reviewedExpansion": "data/binary-selection.json"

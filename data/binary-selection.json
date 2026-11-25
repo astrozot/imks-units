@@ -15,9 +15,12 @@
   "addedSystems": [
     "Castor",
     "Procyon",
-    "70 Ophiuchi"
+    "70 Ophiuchi",
+    "μ Cassiopeiae",
+    "β Coronae Borealis",
+    "80 Tauri"
   ],
-  "totalModelledSystems": 17,
+  "totalModelledSystems": 20,
   "candidates": [
     {
       "wds": "00022+2705",
@@ -129,12 +132,14 @@
       "primaryHip": "5336",
       "grade": 2,
       "primaryMagnitude": 5.3,
-      "secondaryMagnitude": 0.7,
+      "secondaryMagnitude": 10.7,
       "semimajorArcsec": 0.9985,
       "periodYears": 21.568,
       "reference": "BdH2020",
       "record": "wds01083+5455d.png",
-      "status": "pending-component-and-barycentre-review"
+      "status": "accepted-reviewed-batch",
+      "name": "μ Cassiopeiae",
+      "review": "USNO grade 2 BdH2020 relative orbit. Hipparcos I/239 AstroRef=+, MultFlag=O supplies the barycentric position and proper motion at J1991.25. Bond et al. 2020 dynamical masses, adopted parallax and systemic radial velocity; visual pair Aa–Ab (also called A–B), with no additional inner orbit modelled. Absolute astrometry retains the uncertainty of the original Hipparcos orbital solution."
     },
     {
       "wds": "02020+7054",
@@ -181,7 +186,7 @@
       "primaryHip": "11072",
       "grade": 3,
       "primaryMagnitude": 5.2,
-      "secondaryMagnitude": 0.2,
+      "secondaryMagnitude": 10.2,
       "semimajorArcsec": 0.5344,
       "periodYears": 26.540000000000003,
       "reference": "Fek2018",
@@ -303,7 +308,9 @@
       "periodYears": 172.5,
       "reference": "Trr2019",
       "record": "wds04301+1538c.png",
-      "status": "pending-component-and-barycentre-review"
+      "status": "accepted-reviewed-batch",
+      "name": "80 Tauri",
+      "review": "USNO grade 3 Trr2019 relative orbit. Component identities are the resolved Gaia DR3 and Tycho-2 pair. Barycentre position is mass-weighted from Gaia DR3 at its actual J2016.0 epoch; distance and systemic proper motion follow Torres (2019) Table 3, rather than reusing component proper motion. Adopted masses are rounded posterior modes, not an independent high-precision absolute calibration. Systemic radial velocity remains unknown. The orbit predicts the independent Gaia separation vector within 0.015 arcsec."
     },
     {
       "wds": "04340-5503",
@@ -547,7 +554,7 @@
       "primaryHip": "37279",
       "grade": 3,
       "primaryMagnitude": 0.46,
-      "secondaryMagnitude": 0.8,
+      "secondaryMagnitude": 10.8,
       "semimajorArcsec": 4.3075,
       "periodYears": 40.84,
       "reference": "BdH2015",
@@ -1087,7 +1094,9 @@
       "periodYears": 10.536728268309377,
       "reference": "Mut2010b",
       "record": "wds15278+2906a.png",
-      "status": "pending-component-and-barycentre-review"
+      "status": "accepted-reviewed-batch",
+      "name": "β Coronae Borealis",
+      "review": "USNO grade 1 Mut2010b relative orbit. Hipparcos I/239 AstroRef=+, MultFlag=O supplies the barycentric position and proper motion at J1991.25. Muterspaugh et al. 2010 Table 5 and section IV.2.3 dynamical masses and S99 parallax. Systemic RV is left unknown: the paper fits separate instrumental velocity offsets; the existing catalogue RV is a component measurement. Absolute astrometry retains the uncertainty of the original Hipparcos orbital solution."
     },
     {
       "wds": "15416+1940",
@@ -1160,7 +1169,7 @@
       "primaryHip": "78820",
       "grade": 3,
       "primaryMagnitude": 2.62,
-      "secondaryMagnitude": 0.6,
+      "secondaryMagnitude": 10.6,
       "semimajorArcsec": 0.851,
       "periodYears": 220.0,
       "reference": "Tok2024c",
@@ -1458,7 +1467,7 @@
     {
       "wds": "20591+0418",
       "designation": "STF2737AB",
-      "primaryHip": "103579",
+      "primaryHip": "103569",
       "grade": 2,
       "primaryMagnitude": 5.96,
       "secondaryMagnitude": 6.31,
@@ -1466,7 +1475,9 @@
       "periodYears": 98.0,
       "reference": "CIA2022f",
       "record": "wds20591+0418c.png",
-      "status": "pending-component-and-barycentre-review"
+      "status": "pending-component-and-barycentre-review",
+      "cataloguePrimaryHip": "103579",
+      "identityReview": "ORB6 prints HIP 103579, an unrelated HD 200019 star at declination +44.79 degrees. HIP 103569 has HD 199766 and coordinates matching the ORB6 source position at +04.29 degrees. Preserve the printed identifier as provenance and use HIP 103569 for future component work."
     },
     {
       "wds": "21044-1951",
@@ -1703,12 +1714,15 @@
       "status": "pending-component-and-barycentre-review"
     }
   ],
-  "scope": "Initial reviewed batch. Remaining candidates need identity, hierarchy, barycentre and mass-ratio review; an ORB6 quality grade alone is insufficient for absolute component positions.",
+  "scope": "Reviewed additions. Remaining candidates need identity, hierarchy, barycentre and mass-ratio review; an ORB6 quality grade alone is insufficient for absolute component positions.",
   "sourceHashes": {
     "castor-gaia.csv": "6b31b16d9b0bd41e157a684d71e4f689677fd7d6201d7be31ace4cd5a8650d31",
     "hip-castor.tsv": "b4f724e0394792b56ca4417f8a01392e6ccf047ad1172116d7596cff88d53ede",
     "hip-readme.txt": "7a7d54903d16460a76c240f07c41b019d57becfd27b5dfa2908e828f52f90c27",
     "expansion-gaia-astrometry.csv": "977ac3bc6ce397f86870efd7ed9b24d105cb135963f711ecb58818f7aaca11c5",
-    "hip-procyon.tsv": "f1422cd059ac59c26a78b20d835188067b25cd0838eeeb91319d361a87423853"
-  }
+    "hip-procyon.tsv": "f1422cd059ac59c26a78b20d835188067b25cd0838eeeb91319d361a87423853",
+    "data/binary-hipparcos-sources.json": "5c6ea2cdeb37b346795e5fb13a58e5461f7e159db16b27ed1682d68215839426",
+    "data/binary-resolved-sources.json": "8f9a7c4b7f8ea35d75421c25c68296e66f53b666de931269776a4c0ba66c86a2"
+  },
+  "candidateInvestigation": "data/binary-candidate-audit.json"
 }

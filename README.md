@@ -109,6 +109,21 @@ The Place panel opens a large map dialog with an offline globe and online maps;
 tap a point and confirm with **Use this place**. “Original place” is offered
 only in iMKS. Search results mark objects hidden by their layer or magnitude
 settings with a crossed-eye symbol; tap the symbol for its explanation.
+Search also accepts coordinate pairs: J2000 RA/Dec by default, `GA` for
+Galactic longitude/latitude, or `AZ` for local azimuth/altitude (north = 0°,
+east = 90°). Examples: `01 23 45.67 +23 32 13.23`,
+`01h 23m 45.67s +23° 32' 13.23"`, `01:23.5 -23:32.5`,
+`123.45 -23.32`, `123d 25m -23d 32m`, `GA 12.3453 -23.32132`,
+and `AZ 180 +45`. The second coordinate always requires an explicit `+` or `-`
+sign, including zero. Unmarked sexagesimal RA uses hours; decimal RA uses degrees.
+Explicit `d` or `°` selects degrees, and minutes/seconds accept `m`/`s` or
+prime/double-prime symbols. Declination, Galactic latitude and altitude must
+be within ±90°. Choosing a coordinate result centers the view there.
+Click either value of a coordinate pair in object details to copy the pair:
+equatorial coordinates use explicit `h m s` and `d m s` units, Galactic
+coordinates start with `GA`, and azimuth/altitude starts with `AZ` (azimuth
+first). Copies use the displayed values and precision; clicking apparent
+altitude copies the refracted altitude. The second coordinate always has a sign.
 The daylight/twilight and Sun altitude status always occupies a separate line.
 Browser page zoom is disabled within Coelum, including cards and event sheets;
 zoom gestures still control the sky and maps.
@@ -443,7 +458,7 @@ flags of Hipparcos stars come from the Hipparcos catalogue (ESA, 1997), and
 their positions from its new reduction (van Leeuwen, 2007), as AT-HYG gives
 those of the brightest stars at 1991.25. AT-HYG is licensed CC BY-SA 4.0,
 and so are the files made from it: `js/stardata.js` (the base catalogue;
-5,796 stars after the binary-component overlay, to V 6 and all with a name,
+5,800 stars after the binary-component overlay, to V 6 and all with a name,
 a Bayer letter or a Flamsteed number, plus the modelled binary components) and
 `data/stars-8.bin`, `stars-10.bin` and `stars-11.bin` (the others, in sky
 tiles of 3°, each brightest first, 20 bytes a star plus the HIP and HD
@@ -555,10 +570,11 @@ not a new astrometric calibration or a treatment of variable spectroscopic RV.
 Old offline catalogues still work; Layers offers **Update star motions** to
 replace one explicitly. No catalogue is downloaded automatically.
 
-Seventeen visual binaries have fixed Kepler models, with both components
+Twenty visual binaries have fixed Kepler models, with both components
 built in: α Centauri, Sirius, 61 Cygni, γ Virginis, Alula Australis, Achird,
 ε¹ and ε² Lyrae, β Muscae, Dalim, ψ Velorum, ρ Ophiuchi, ζ Herculis and
-η Ophiuchi, Castor, Procyon and 70 Ophiuchi. Each system propagates its barycentre and adds mass-weighted
+η Ophiuchi, Castor, Procyon, 70 Ophiuchi, μ Cassiopeiae, β Coronae Borealis
+(Nusakan) and 80 Tauri. Each system propagates its barycentre and adds mass-weighted
 orbital displacements; component proper motions are not added again.
 The component V magnitudes are separate rather than duplicated integrated
 light. Common names and catalog IDs remain searchable; append A or B to
@@ -570,17 +586,79 @@ provide reliable millennial extrapolations, inner subsystems, or mutual eclipses
 
 The expansion screen requires ORB6 grades 1–3, primary V ≤ 6, secondary
 V ≤ 12 and relative semimajor axis ≥ 0.2 arcsec. Of 129 screened pairs,
-9 were already modelled and 3 passed this batch's identity, barycentre,
-mass-ratio and hierarchy review; 117 remain candidates, not accepted models.
+9 were already modelled and 6 have passed identity, barycentre,
+mass-ratio and hierarchy review; 114 remain candidates, not accepted models.
 The complete screening report is `data/binary-selection.json` and the
 reviewed additions and source provenance are `data/binary-reviewed-additions.json`.
 Castor represents the outer A–B orbit only; its Hipparcos component-A position
 is corrected to the barycentre. Procyon uses the explicitly barycentric
 Hipparcos solution. 70 Ophiuchi retains Gaia's actual J2016.0 reference epoch.
+μ Cassiopeiae and β Coronae Borealis use explicitly barycentric Hipparcos
+orbital solutions at J1991.25, with published dynamical masses and adopted
+parallaxes from [Bond et al. (2020)](https://arxiv.org/abs/2010.06609) and
+[Muterspaugh et al. (2010)](https://arxiv.org/abs/1010.4043), respectively.
+The selected Hipparcos rows and Tycho identifiers are retained in
+`data/binary-hipparcos-sources.json`. β Coronae Borealis has no adopted
+systemic radial velocity, so its perspective acceleration is omitted.
+The ORB6 secondary magnitude occupies columns 74–78; the corrected parser
+retains the tens digit, including Procyon B at V 10.8 and μ Cas B at V 10.7.
+
+80 Tauri uses the grade-3 Torres (2019) relative orbit, published dynamical
+component masses, parallax and fitted barycentric proper motion. Its absolute
+position is the mass-weighted resolved Gaia DR3 pair at J2016.0; component
+proper motions are not reused as systemic motion. Both Tycho component IDs
+and Gaia IDs are retained. The predicted Gaia-epoch separation vector agrees
+within 0.015 arcsec. Systemic RV is unknown, and the published masses have
+appreciable uncertainties. Sources are in `data/binary-resolved-sources.json`.
+
+The follow-up investigation covers all 115 pairs that were pending before
+80 Tauri was accepted. `data/binary-candidate-audit.json` contains a separate
+record for every pair, including the relative-orbit comparison, catalogue
+identity, Hipparcos reference flag, available mass evidence and remaining
+work. All 575 published separation/position-angle samples agree within
+0.002 arcsec and 0.3 degrees after precessing the position angles to their
+prediction dates. This validates reproduction of published models, not their
+agreement with observations. Seven pairs would exceed the position-angle
+tolerance if equinox-of-date precession were omitted.
+
+None of these 115 Hipparcos entries is explicitly marked as a barycentre;
+that does not rule out recovering a valid barycentre from other data, as
+80 Tauri demonstrates. The other 114 pairs currently comprise 95 needing
+an absolute solution, 17 with additional component/hierarchy scope flags,
+one with missing Hipparcos astrometry (HIP 78727, ξ Sco AB), and one with a
+corrected source identifier (ε Equ AB). These are follow-up categories,
+not rejection decisions; other unreviewed hierarchy issues may remain.
+
+Fifty-five pairs cross-match the Söderhjelm (1999) mass catalogue. Its
+Table 1 astrometric mass ratios are distinguished from the photometric
+estimates in Tables 3–4, and a HIP match is not treated as a match to a
+particular hierarchy level. Twelve pairs have focused literature notes in
+`data/binary-candidate-notes.json`. Especially useful follow-ups are:
+
+| Pair | Available evidence | Remaining work |
+| --- | --- | --- |
+| δ Equ | PHASES dynamical masses and distance | Reconstruct the Hipparcos photocentre position and motion, or obtain a barycentric solution |
+| η CrB AB | PHASES dynamical masses | Establish the absolute AB anchor and keep the wide companion outside this model |
+| 10 UMa | Published astrometric mass ratio | Recover compatible barycentre astrometry |
+| α Oph | Combined visual/RV dynamical solution | Adopt a consistent absolute anchor and systemic motion |
+| 99 Her | Published component masses | Remove orbital motion from both primary position and proper motion |
+| κ Peg | Published triple-system solution | Use subsystem masses and distinguish barycentre from photocentre |
+
+ORB6 prints HIP 103579 for ε Equ AB; that points to an unrelated star about
+40 degrees away. HIP 103569 matches both the source coordinates and HD 199766.
+The selection report now uses HIP 103569 and preserves the printed identifier
+as `cataloguePrimaryHip`. Almach BC also needs care: its orbit is for BC,
+while the bright HIP 9640/Almach chart row is A. It must not be replaced with B.
+Retained catalogue extracts and original download hashes are in
+`data/binary-candidate-sources.json`. Reproduce the investigation with
+`python tools/binary-candidate-audit.py` and check it with
+`python tests/binary-candidate-audit.py` (NumPy, SciPy and ERFA). This is a
+catalogue-level review of every pair with focused paper review for selected
+systems, rather than an exhaustive literature survey.
 
 Fixed orbital geometry is compiled once. Both components share one exact
-orbit solve per system and timestamp, with a bounded cache of 17 systems
-and no accumulated time history or interpolation. The three additional
+orbit solve per system and timestamp, with a bounded cache of 20 systems
+and no accumulated time history or interpolation. The six reviewed additional
 pairs do not enlarge the optional catalogue downloads.
 
 Relative elements and V magnitudes come from the
@@ -601,10 +679,15 @@ To reproduce the enrichment, put `athyg_40.csv.gz`, `gaia-rv.csv` (query
 directory, together with the additional Hipparcos/Gaia source files listed
 in `data/binary-reviewed-additions.json`. Run `python tools/stellar-catalogs.py <directory>` (NumPy), then
 `python tools/space-motion-reference.py` (ERFA and SciPy). Source snapshots
-must match the recorded hashes to reproduce the same output. The Gaia RV
+must match the recorded hashes to reproduce the same output. To refresh only
+the reviewed Hipparcos/Gaia additions and correct retained component photometry,
+run `python tools/binary_expansion.py <directory>` with the pinned `orb6.txt`
+and `orb6-ephemerides.txt`; this leaves optional downloads intact and uses
+the checked-in Hipparcos/Gaia source rows. Run `python tests/binary-expansion.py`
+to check photometric fields, band flags and barycentre rejection rules. The Gaia RV
 extract is checked against an independent count of 2,161,040 source rows.
 `node tests/starmotion.mjs` checks ERFA space motion, independent orbital
-solutions, 85 published USNO ephemerides, barycentre conservation, drawing/
+solutions, 100 published USNO ephemerides, barycentre conservation, drawing/
 calculator agreement, playback, culling and unique components. Numerical
 results are in `data/stellar-motion-validation.json`; agreement with these
 models is not an estimate of observed astrometric accuracy.
@@ -614,7 +697,7 @@ Interleaved before/after desktop Chromium measurements at 4× CPU throttling
 are in `data/stellar-motion-performance.json`: stars-only playback was
 7.7/7.8 ms and default playback 17.7/19.0 ms in that run. These are desktop
 measurements, not a physical-phone performance guarantee.
-The separate 14-to-17-system expansion benchmark is
+The earlier 14-to-17-system expansion benchmark is
 `data/binary-expansion-performance.json`. With the V12 catalogue loaded,
 stars-only playback at 4× CPU throttling was 5.7/5.7 ms before/after;
 default playback was 14.5/14.7 ms. Updating all binary components took
