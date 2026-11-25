@@ -1,4 +1,3 @@
-import { drawConstellationArt } from './constellationart.js';
 import { BINARY_SYSTEMS } from './binarydata.js';
 import { parseSkyCoordinates } from './skycoordinates.js';
 // Offline whole-sky chart. Positions in this drawing are apparent (without
@@ -55,7 +54,7 @@ export function formatPlaybackSpeed(rate) {
 // than evaluating their many short or uncertain orbits at extreme rates.
 const ORBIT_DAYS = { moon: 27.32, mercury: 87.97, venus: 224.7, mars: 686.98, jupiter: 4332.59, saturn: 10759.22, uranus: 30688.5, neptune: 60182 };
 export const playbackBodyVisible = (body, rate) => Math.abs(rate) < (body === 'sun' ? 365.256 : ORBIT_DAYS[body] ?? ORBIT_DAYS.moon) * 86400;
-export const DEFAULT_LAYERS = { ground: true, milkyway: true, constellations: true, artwork: false, artworkOpacity: 0.3, boundaries: false, ecliptic: true, horizontal: false, equatorial: false, galactic: false, deep: false, minor: false, satellites: true, labels: true, magnitude: 6, labelSize: 14 };
+export const DEFAULT_LAYERS = { ground: true, milkyway: true, constellations: true, boundaries: false, ecliptic: true, horizontal: false, equatorial: false, galactic: false, deep: false, minor: false, satellites: true, labels: true, magnitude: 6, labelSize: 14 };
 export const SKY_IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 export const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 export const unit3 = (v) => { const n = Math.hypot(...v); return v.map((x) => x / n); };
@@ -1032,16 +1031,6 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     const mw = skyRaster(back || chartKey, { W, H, radius, camera: { rotation, stereographic: false }, toJ2000: horizonToJ2000(frame), kind: 'chart' });
     if (back) { back.imageSmoothingEnabled = true; back.drawImage(mw.sky, 0, 0, mw.w, mw.h, 0, 0, mw.width, mw.height); }
     else p.raw(`<image class="coelum-milkyway" href="${mw.sky.toDataURL()}" width="${f(mw.width)}" height="${f(mw.height)}" preserveAspectRatio="none"/>`);
-  }
-  if (opts.artwork && typeof document !== 'undefined') {
-    let target = back, layer = null;
-    if (!target) { layer = document.createElement('canvas'); layer.width = W; layer.height = H; target = layer.getContext('2d'); }
-    const h = horizonToJ2000(frame);
-    drawConstellationArt(target, { W, H, radius, opacity: opts.artworkOpacity, onRedraw: opts.onArtworkRedraw,
-      toHorizontal: v => [0,1,2].map(i => v.reduce((sum,x,j) => sum+h[j*3+i]*x,0)),
-      project: v => { const q = projectVector(v,rotation); return { x: cx+q.x*radius, y: cy+q.y*radius, z: q.z }; },
-    });
-    if (layer) p.raw(`<image href="${layer.toDataURL()}" width="${W}" height="${H}"/>`);
   }
   if (opts.ground) {
     if (ctx) {

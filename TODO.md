@@ -10,3 +10,4 @@
 - More detailed atmospheric model: pressure, temperature, light pollution; check Stellarium model
 - Better star motion, including double stars
 - Optional eyepiece and camera framing
+- Low priority, deferred: historical constellation artwork. Keep it out of the app for now; see [Hevelius findings and restart notes](work/hevelius-artwork.md).

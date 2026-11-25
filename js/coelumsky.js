@@ -1,4 +1,3 @@
-import { drawConstellationArt } from './constellationart.js';
 import { showDeepObject } from './deepcatalog.js';
 // The realistic view of coelum: a stereographic camera at the horizon, the
 // sky's colour with the time of day, stars dimmed by twilight, moonlight and
@@ -17,7 +16,7 @@ import { limbRadius, appendLunarLimb } from './lunarlimb.js';
 
 const SOLID = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const FLAT = () => 0;
-export const SKY_LAYERS = { horizon: 'flat', ground: true, atmosphere: true, milkyway: true, constellations: false, artwork: false, artworkOpacity: 0.3, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, galactic: false, deep: false, minor: false, satellites: true, labels: true, labelSize: 14, moonSize: 'magnitude' };
+export const SKY_LAYERS = { horizon: 'flat', ground: true, atmosphere: true, milkyway: true, constellations: false, boundaries: false, ecliptic: false, horizontal: false, equatorial: false, galactic: false, deep: false, minor: false, satellites: true, labels: true, labelSize: 14, moonSize: 'magnitude' };
 // The diagonal of the view spans 140° at scale 1.
 export const skyRadius = (W, H, scale) => Math.hypot(W, H) / 2 / Math.tan(35 * R) * scale;
 // The default direction: toward the Sun near sunrise or sunset, otherwise
@@ -186,15 +185,6 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       ctx.clip(d.cut, 'evenodd');
     }
   };
-  if (opts.artwork) {
-    ctx.save(); clipForeground();
-    const h = horizonToJ2000(frame);
-    drawConstellationArt(ctx, { W, H, radius, opacity: opts.artworkOpacity * fade, onRedraw: opts.onArtworkRedraw, minZ: -0.2,
-      toHorizontal: v => [0,1,2].map(i => v.reduce((sum,x,j) => sum+h[j*3+i]*x,0)),
-      project: v => proj(refract(v)),
-    });
-    ctx.restore();
-  }
   const labels = [], objects = [];
   if (opts.constellations) for (const k of frame.constellations) {
     if (k.curves) for (const l of k.curves) line(l, { stroke: '#6d9be0', width: 0.9, opacity: 0.55 * fade });
