@@ -143,6 +143,7 @@ try {
     assert.ok(await topicDialog.isVisible(), `${key} hold opens its topic`);
     assert.equal(await button.getAttribute('aria-pressed'), previous, 'Holding must not toggle visibility');
     assert.equal(await topicDialog.locator('.coelum-settings-content').count(), 1);
+    assert.equal(await topicDialog.locator('.coelum-layer-visibility:visible').count(), 0, 'Layer visibility belongs in Configuration, not topic dialogs');
     if (key === 'ecliptic') {
       assert.equal(await topicDialog.locator('[data-layer-color]').count(), 7);
       await topicDialog.locator('[data-layer-color][aria-label="Red"]').check();
@@ -159,12 +160,13 @@ try {
   await configure.click();
   await page.locator('[data-settings-section="ecliptic"] > summary').click();
   assert.ok(await page.locator('[data-layer-color="ecliptic"][aria-label="Red"]').isChecked());
+  assert.ok(await page.locator('[data-layer="ecliptic"]').isVisible(), 'Configuration retains layer visibility controls');
   await page.locator('[data-settings-section="labels"] > summary').click();
   assert.equal(await page.locator('[data-label-kind="stars"]').isChecked(), false);
   assert.equal(await page.locator('[data-label-size]').inputValue(), '17');
   await page.keyboard.press('Escape');
   await open();
-  for (const width of [390, 320, 900]) {
+  for (const width of [390, 375, 320, 900]) {
     await page.setViewportSize({ width, height: 844 });
     await page.waitForTimeout(100);
     g = await geometry();
@@ -211,6 +213,32 @@ try {
         assert.ok(opacity < rightOpacity && opacity > 0, 'The right hint progressively fades out approaching the end');
         rightOpacity = opacity;
       }
+      if (width === 375) {
+        // Safari can bounce when an arrow requests a position past either end.
+        // Check the requested destinations as well as where scrolling settles.
+        await scroller.evaluate(el => {
+          el.arrowDestinations = [];
+          const to = el.scrollTo.bind(el), by = el.scrollBy.bind(el);
+          el.scrollTo = options => { el.arrowDestinations.push(options.left); to(options); };
+          el.scrollBy = options => { el.arrowDestinations.push(el.scrollLeft + options.left); by(options); };
+        });
+        await rightArrow.click();
+        await page.waitForFunction(() => document.querySelector('[data-scroll-layers="1"]').disabled);
+        const end = await scroller.evaluate(el => el.scrollWidth - el.clientWidth);
+        assert.deepEqual(await scroller.evaluate(el => el.arrowDestinations), [end], 'The right arrow stops at the last icon');
+        await scroller.evaluate(el => { delete el.scrollTo; delete el.scrollBy; el.scrollTo({ left: 9, behavior: 'instant' }); });
+        await page.waitForFunction(() => !document.querySelector('[data-scroll-layers="-1"]').disabled);
+        await scroller.evaluate(el => {
+          el.arrowDestinations = [];
+          const to = el.scrollTo.bind(el), by = el.scrollBy.bind(el);
+          el.scrollTo = options => { el.arrowDestinations.push(options.left); to(options); };
+          el.scrollBy = options => { el.arrowDestinations.push(el.scrollLeft + options.left); by(options); };
+        });
+        await leftArrow.click();
+        await page.waitForFunction(() => document.querySelector('[data-scroll-layers="-1"]').disabled);
+        assert.deepEqual(await scroller.evaluate(el => el.arrowDestinations), [0], 'The left arrow stops at the first icon');
+        await scroller.evaluate(el => { delete el.scrollTo; delete el.scrollBy; delete el.arrowDestinations; });
+      }
       await scroller.evaluate(el => el.scrollTo({ left: 0, behavior: 'instant' }));
       await page.waitForTimeout(220);
       await rightArrow.click();
@@ -234,6 +262,12 @@ try {
       sections: [...el.querySelectorAll('details')].filter(section => section.getClientRects().length).length }));
     assert.equal(layout.overflow, false, JSON.stringify(layout));
     assert.ok(layout.sections >= 14);
+    const colors = await page.locator('[data-settings-section="ecliptic"] .coelum-colors').evaluate(el => {
+      const rect = el.getBoundingClientRect(), choices = [...el.querySelectorAll('label')].map(label => label.getBoundingClientRect());
+      return { rows: new Set(choices.map(choice => choice.top)).size, fits: choices.every(choice => choice.left >= rect.left && choice.right <= rect.right) };
+    });
+    assert.equal(colors.rows, 1, `All seven colours fit on one row at ${width}px`);
+    assert.ok(colors.fits, `Colour choices stay inside the settings panel at ${width}px`);
     if (width === 390) await page.locator('.coelum-toolbar').screenshot({ path: '/tmp/coelum-layers-settings-phone.png' });
     await page.keyboard.press('Escape');
     await open();
@@ -297,6 +331,19 @@ try {
   assert.ok(await topicDialog.locator('[data-label-kind="solar"]').isChecked(), 'The touch release does not change a setting inside the modal');
   await topicDialog.screenshot({ path: '/tmp/coelum-label-settings-phone.png' });
   await topicDialog.locator('[data-action="close-panel"]').click();
+  await open();
+  const phoneEcliptic = page.locator('[data-toggle-layer="ecliptic"]');
+  await phoneEcliptic.scrollIntoViewIfNeeded();
+  const colorButton = await phoneEcliptic.boundingBox();
+  await page.mouse.move(colorButton.x + colorButton.width / 2, colorButton.y + colorButton.height / 2);
+  await page.mouse.down(); await page.waitForTimeout(900); await page.mouse.up();
+  await page.setViewportSize({ width: 375, height: 667 });
+  const phoneColors = await topicDialog.locator('.coelum-colors label').evaluateAll(labels => labels.map(label => label.getBoundingClientRect().toJSON()));
+  assert.equal(new Set(phoneColors.map(rect => rect.top)).size, 1);
+  assert.ok(phoneColors.every(rect => rect.left >= 0 && rect.right <= 375));
+  await topicDialog.screenshot({ path: '/tmp/coelum-colour-settings-iphone.png' });
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 390, height: 844 });
   // Preferences survive a reload and remain available in the shared accordions.
   await page.reload();
   await rail.click(); await configure.click();

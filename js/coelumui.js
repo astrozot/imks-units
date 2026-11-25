@@ -306,7 +306,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   try { if (localStorage.getItem('imks-coelum-moon-size') === 'actual') moonSize = 'actual'; } catch { /* private mode */ }
   try { if (localStorage.getItem('imks-coelum-mode') === 'sky') mode = 'sky'; } catch { /* private mode */ }
   root.dataset.mode = mode;
-  const layerSwitch = key => `<div class="coelum-switches"><label><input type="checkbox" role="switch" data-layer="${key}"><span>Show ${LAYERS.find(layer => layer[0] === key)[1].toLowerCase()}</span></label></div>`;
+  const layerSwitch = key => `<div class="coelum-switches coelum-layer-visibility"><label><input type="checkbox" role="switch" data-layer="${key}"><span>Show ${LAYERS.find(layer => layer[0] === key)[1].toLowerCase()}</span></label></div>`;
   const colorChoices = (key, label = 'Colour') => `<fieldset class="coelum-colors"><legend>${label}</legend>${LAYER_COLORS.map(([name, color]) => `<label title="${name}" style="--swatch:${color}"><input type="radio" name="${id}-${key}-color" data-layer-color="${key}" value="${color}" aria-label="${name}"><span></span></label>`).join('')}</fieldset>`;
   const settingsSections = [
     ['ground', 'Horizon', 'chart sky', `${layerSwitch('ground')}<div class="coelum-selects"><label>Horizon <select data-horizon aria-label="Horizon"><option value="flat">Flat</option><option value="terrain">Local terrain</option></select></label></div><p class="coelum-panel-note coelum-terrain-note"></p>        <div class="coelum-selects"><label>Appearance <select data-terrain-setting="style"><option value="landcover">Land cover colours</option><option value="natural">Muted earth</option><option value="paper">Pale relief</option></select></label></div>
@@ -330,7 +330,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
           <div class="coelum-switches">${SAT_GROUPS.map(([g, label]) => `<label><input type="checkbox" role="switch" data-satellite-group="${g}"><span>${label}</span></label>`).join('')}</div>
           <p class="coelum-panel-note coelum-satellite-note"></p><button type="button" class="coelum-chip" data-satellites="update">Update now</button></div>`],
     ['labels', 'Labels', 'chart sky', `${layerSwitch('labels')}<div class="coelum-selects"><label>Text size <select data-label-size><option value="14">Normal</option><option value="17">Large</option><option value="20">Larger</option></select></label></div><div class="coelum-switches">${[['constellations', 'Constellation names'], ['stars', 'Star names'], ['solar', 'Solar system bodies'], ['satellites', 'Satellites']].map(([key, label]) => `<label><input type="checkbox" role="switch" data-label-kind="${key}"><span>${label}</span></label>`).join('')}</div>`],
-    ['peakNames', 'Ground labels', 'sky', `<div class="coelum-switches"><label class="coelum-peak-display"><span>Peaks</span><select data-peak-display aria-label="Peak display"><option value="labels">Positions + labels</option><option value="positions">Positions only</option><option value="off">Off</option></select></label></div><p class="coelum-panel-note" data-ground-label-note></p><button type="button" class="coelum-chip" data-terrain="names">Download ground labels</button>${colorChoices('peakPositions', 'Peak positions')}${colorChoices('peakLabels', 'Peak labels')}`],
+    ['peakNames', 'Ground labels', 'sky', `<div class="coelum-switches coelum-layer-visibility"><label class="coelum-peak-display"><span>Peaks</span><select data-peak-display aria-label="Peak display"><option value="labels">Positions + labels</option><option value="positions">Positions only</option><option value="off">Off</option></select></label></div><p class="coelum-panel-note" data-ground-label-note></p><button type="button" class="coelum-chip" data-terrain="names">Download ground labels</button>${colorChoices('peakPositions', 'Peak positions')}${colorChoices('peakLabels', 'Peak labels')}`],
     ['orientation', 'Phone orientation', 'chart sky', `        <div class="coelum-downloads" data-phone-options${orientationSupported() ? '' : ' hidden'}><h3>Phone orientation</h3>
           <p class="coelum-panel-note" data-orient-quality>Turn on following with the phone button. Pan to align the sky; pinch to zoom.</p>
           <div class="coelum-switches"><label><input type="checkbox" role="switch" data-orient-level><span>Keep the horizon level</span></label></div>
@@ -2204,7 +2204,10 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (scrollLayers && !scrollLayers.disabled) {
       if (layerArrowDragged && ev.detail > 0) { layerArrowDragged = false; return; }
       layerArrowDragged = false;
-      layerStrip.scrollBy({ left: Number(scrollLayers.dataset.scrollLayers) * Math.max(40, layerStrip.clientWidth * 0.8), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+      const end = Math.max(0, layerStrip.scrollWidth - layerStrip.clientWidth);
+      const step = Number(scrollLayers.dataset.scrollLayers) * Math.max(40, layerStrip.clientWidth * 0.8);
+      const left = Math.max(0, Math.min(end, layerStrip.scrollLeft + step));
+      layerStrip.scrollTo({ left, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
       return;
     }
     const toggle = ev.target.closest('[data-toggle-layer]');

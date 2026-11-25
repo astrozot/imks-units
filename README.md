@@ -256,8 +256,9 @@ not active layers. Existing downloadable star catalogs remain available.
 
 The layer bar’s wheel opens **Configuration**, also available by holding the
 Layers icon. Settings are grouped into expandable sections. Hold an individual
-layer to open its settings in a small modal, with the same controls as its
-Configuration section. Horizon contains local terrain downloads and appearance;
+layer to open its settings in a small modal. Layer visibility controls stay in
+Configuration; tap the layer icon to change visibility directly. Horizon contains
+local terrain downloads and appearance;
 Milky Way contains the fainter-star and Moon-detail downloads; Deep sky contains
 OpenNGC; Satellites contains catalog groups and updates. Atmosphere is reserved
 for future model settings. Constellations, boundaries and minor planets have no
