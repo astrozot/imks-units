@@ -8,15 +8,17 @@ const pick = (objects, point = p) => nearbySkyObjects(objects, point)[0]?.o.name
 
 // Rendered but imperceptible dots must not capture empty-sky clicks.
 assert.equal(pick([star('at the limit', 100, 7)]), undefined);
-assert.equal(pick([star('low contrast', 100, 6)]), undefined);
-assert.equal(pick([star('subpixel', 100, 3, 7, 0.5)]), undefined);
+assert.equal(pick([star('low contrast', 100, 6.8)]), undefined);
+assert.equal(pick([star('subpixel', 100, 3, 7, 0.4)]), undefined);
+assert.equal(pick([star('twilight', 100, 1, 2, 0.55)]), 'twilight');
 assert.equal(pick([star('visible', 100, 3)]), 'visible');
-assert.equal(pick([star('visible', 110, 3)]), undefined);
+assert.equal(pick([star('visible', 110, 3)]), 'visible');
+assert.equal(pick([star('visible', 114, 3)]), undefined);
 assert.equal(pick([star('visible', 104, 3)]), 'visible');
 // Zooming deepens the limit; extinction/sky brightness can reverse that.
 assert.equal(pick([star('faint', 100, 8, 8)]), undefined);
 assert.equal(pick([star('faint', 100, 8, 11)]), 'faint');
-assert.equal(pick([star('extinguished', 100, 10, 11)]), undefined);
+assert.equal(pick([star('extinguished', 100, 10.8, 11)]), undefined);
 
 // Clicking either member of an unresolved binary chooses the brighter star,
 // independently of catalogue order. Invisible stars never win by proximity.

@@ -35,7 +35,7 @@ try {
     const draw = () => skyScene(frame, 640, 480, layers, view, ctx);
     const limit = draw().light.limit;
     frame.stars = [
-      { name: 'faint', alt: 60, az: 180, mag: limit - 0.5, type: 'star', named: true },
+      { name: 'faint', alt: 60, az: 180, mag: limit - 0.2, type: 'star', named: true },
       { name: 'bright', alt: 60, az: 180.4, mag: limit - 4, type: 'star', named: true },
     ];
     view.selected = 'faint';
@@ -51,6 +51,37 @@ try {
       label: scene.hitLabels.some(l => l.name === 'faint'), zoomed: zoomed.pickable };
   });
   assert.deepEqual(result, { faint: false, bright: true, pick: 'bright', empty: 0, label: false, zoomed: true });
+  // Real catalogue targets, including Saturn in evening twilight. Exercise
+  // the rendered core and an imprecise tap rather than just synthetic radii.
+  const targets = await page.evaluate(async () => {
+    const { skyFrame } = await import('/js/coelum.js');
+    const { skyScene, nearbySkyObjects } = await import('/js/coelumsky.js');
+    const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480;
+    const ctx = canvas.getContext('2d'), results = [];
+    for (const [date, names] of [
+      ['2026-11-20T16:50:00Z', ['Saturn']],
+      ['2026-11-20T00:00:00Z', ['Rigel', 'Betelgeuse', 'Bellatrix', 'Alnilam', 'Alnitak', 'Mintaka']],
+    ]) {
+      const frame = skyFrame(Date.parse(date) / 1000, [42, 12, 0]);
+      for (const name of names) {
+        const o = [...frame.stars, ...frame.bodies].find(o => o.name === name);
+        const scene = skyScene(frame, 640, 480, { milkyway: false },
+          { az: o.az, alt: o.alt, scale: 1 }, ctx);
+        const target = scene.objects.find(o => o.name === name);
+        results.push({ name, pickable: target?.pickable,
+          exact: target && nearbySkyObjects(scene.objects, target)[0]?.o.name,
+          offset: target && nearbySkyObjects([target], { x: target.x + 10, y: target.y })[0]?.o.name,
+          label: scene.hitLabels.some(l => l.name === name) });
+      }
+    }
+    return results;
+  });
+  for (const target of targets) {
+    assert.equal(target.pickable, true, `${target.name} must be selectable`);
+    assert.equal(target.exact, target.name);
+    assert.equal(target.offset, target.name, `${target.name} tolerates a 10px tap offset`);
+    if (target.name === 'Saturn') assert.equal(target.label, true, 'Saturn has a selectable twilight label');
+  }
   assert.deepEqual(errors, []);
   console.log('Rendered sky visibility, labels, zoom and blend picking passed');
 } finally {

@@ -87,12 +87,12 @@ export function skyPointScale(frame, o, layers = {}) {
   return 2 ** Math.max(0, (mag + 1 - light.limit) / 0.8);
 }
 
-// Picking follows the visible core, not the halo or the catalogue depth.
-// Keep faint rendered dots for the image without making empty-looking sky
-// selectable. Resolved disks and explicitly drawn symbols remain targets.
+// Reject only the barely perceptible dots at the limiting magnitude. A
+// visible core can be smaller than a CSS pixel, especially during twilight.
+// Resolved disks and explicitly drawn symbols remain targets.
 export function skyPointHit(mag, limit, radius, resolved = false) {
   return { pickMag: mag, pickRadius: radius, pickResolved: resolved,
-    pickable: radius >= 0.75 && (resolved || limit - mag >= 1.5) };
+    pickable: radius >= 0.5 && (resolved || limit - mag >= 0.5) };
 }
 
 export function nearbySkyObjects(objects, p) {
@@ -100,7 +100,7 @@ export function nearbySkyObjects(objects, p) {
   for (const o of objects) {
     if (o.pickable === false) continue;
     const r = o.pickRadius ?? o.radius, d = Math.hypot(o.x - p.x, o.y - p.y);
-    if (d < r + 4) nearby.push({ o, d });
+    if (d < Math.max(14, r + 4)) nearby.push({ o, d });
   }
   nearby.sort((a, b) => a.d - b.d);
   if (!nearby.length) return nearby;
