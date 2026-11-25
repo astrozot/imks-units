@@ -1960,7 +1960,8 @@ body.coelum-app { background: #000; }
 .coelum-layerbar .coelum-btn[aria-pressed="true"] { background: rgba(140, 184, 255, 0.24); color: #fff; }
 .coelum-layerbar .coelum-btn.coelum-peaks-muted { color: var(--c-muted); }
 .coelum-layerbar :is([data-toggle-layer="ground"], [data-toggle-layer="peakNames"])[aria-busy="true"] svg { animation: coelum-terrain-breathe 1.8s ease-in-out infinite; }
-.coelum-layerbar [data-toggle-layer="ground"][aria-busy="true"] svg { animation-duration: 0.65s; will-change: opacity; }
+.coelum-layerbar [data-toggle-layer="ground"][aria-busy="true"] svg { will-change: opacity; }
+.coelum-layerbar [data-toggle-layer="ground"][aria-busy="true"][data-terrain-phase="render"] svg { animation-duration: 0.65s; }
 @keyframes coelum-terrain-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .coelum-layerbar :is([data-toggle-layer="ground"], [data-toggle-layer="peakNames"])[aria-busy="true"] svg { animation: none; opacity: 0.6; } }
 .coelum-layerbar .coelum-btn:disabled { opacity: 0.35; cursor: default; }

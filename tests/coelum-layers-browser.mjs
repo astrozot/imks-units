@@ -100,10 +100,13 @@ try {
   await ground.click();
   assert.match(await ground.getAttribute('aria-label'), /Ground: Local terrain/);
   assert.equal(await ground.getAttribute('aria-busy'), 'true');
+  assert.equal(await ground.getAttribute('data-terrain-phase'), 'download');
+  assert.equal(await ground.locator('svg').evaluate(el => getComputedStyle(el).animationDuration), '1.8s');
   assert.notEqual(await ground.innerHTML(), flatIcon);
   await ground.click();
   assert.match(await ground.getAttribute('aria-label'), /Ground: Flat/);
   assert.equal(await ground.getAttribute('aria-busy'), 'false');
+  assert.equal(await ground.getAttribute('data-terrain-phase'), '');
   assert.equal(await ground.getAttribute('aria-pressed'), 'true');
   await ground.click();
   await configure.click();

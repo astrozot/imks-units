@@ -31,8 +31,16 @@ try{
  // Land cover: synthetic grassland tiles, never the real service.
  const grass=Buffer.from((await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d');g.fillStyle='rgb(30,30,30)';g.fillRect(0,0,256,256);return c.toDataURL('image/png');})).split(',')[1],'base64');
  let coverRequests=0;await context.route('https://planetarycomputer.microsoft.com/**',r=>{coverRequests++;return r.fulfill({contentType:'image/png',headers:{'access-control-allow-origin':'*'},body:grass});});
+ await page.evaluate(()=>{
+  const button=document.querySelector('[data-toggle-layer="ground"]');
+  window.terrainPhases=[];
+  new MutationObserver(()=>{if(button.getAttribute('aria-busy')==='true')window.terrainPhases.push({phase:button.dataset.terrainPhase,duration:getComputedStyle(button.querySelector('svg')).animationDuration});}).observe(button,{attributes:true,attributeFilter:['data-terrain-phase','aria-busy']});
+ });
  await toggleLayerSettings(page);await page.selectOption('[data-horizon]','terrain');
  await page.waitForFunction(()=>document.querySelector('.coelum-canvas').dataset.terrainSurface==='true',null,{timeout:120000});
+ const phases=await page.evaluate(()=>window.terrainPhases);
+ assert.ok(phases.some(p=>p.phase==='download'&&p.duration==='1.8s'),'Download uses the slow pulse');
+ assert.ok(phases.some(p=>p.phase==='render'&&p.duration==='0.65s'),'The fast pulse is painted before rendering downloaded terrain');
  assert.match(await page.locator('.coelum-terrain-note').textContent(),/Saved for offline/);assert.ok(requests>100&&requests<700);
  const downloaded=requests;
  // The ground shortcut cycles all three states and reuses the loaded surface.

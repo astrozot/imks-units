@@ -1266,6 +1266,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         }
         button.title = `${label} · Hold to configure`; button.setAttribute('aria-label', label);
         button.setAttribute('aria-busy', String(Boolean(terrainJob)));
+        button.dataset.terrainPhase = terrainJob ? terrainPhase : '';
       }
     }
     for (const box of root.querySelectorAll('[data-label-kind]')) box.checked = labelPreferences[box.dataset.labelKind] !== false;
@@ -1373,7 +1374,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
 
   // Local terrain is generated in a cancellable worker and retained offline.
   const terrainNote = $('.coelum-terrain-note');
-  let terrainJob = null, terrainNamesJob = null, terrainRestoreSerial = 0;
+  let terrainJob = null, terrainNamesJob = null, terrainRestoreSerial = 0, terrainPhase = '';
   const cancelTerrainNames = () => { terrainNamesJob?.abort(); terrainNamesJob = null; if (terrainNames?.status === 'loading') terrainNames = null; syncLayers(); };
   const cancelTerrain = () => { terrainRestoreSerial++; terrainJob?.abort(); terrainJob = null; cancelTerrainNames(); };
   const choosePeakDisplay = (state) => {
@@ -1443,7 +1444,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       const needsSurface = !terrainSurface || refresh;
       if (needsSurface) { cancelTerrainNames(); terrainNames = null; }
       const job = new AbortController(), requestedPlace = [...place], key = terrainKey(place);
-      terrainJob = job; syncLayers();
+      terrainJob = job; terrainPhase = needsSurface ? 'download' : 'render'; syncLayers();
       showTerrain('Preparing terrain… <button type="button" class="coelum-chip" data-terrain="cancel">Cancel</button>');
       // Paint the selected, breathing icon before restoring or uploading a
       // cached surface: its first GPU draw can block a slow phone for seconds.
@@ -1455,17 +1456,21 @@ export function mountCoelum(root, model, formatTime, options = {}) {
             if (terrainJob === job && root.isConnected && key === terrainKey(place)) showTerrain(`${esc(text)} <button type="button" class="coelum-chip" data-terrain="cancel">Cancel</button>`);
           } });
           if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
+          terrainPhase = 'render'; syncLayers();
+          // Let the faster pulse paint before the first terrain draw.
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
           terrainSurface = data; setTerrain(data.profile);
         }
       } catch (e) {
         if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
         terrainJob = null; syncLayers(); say(e.message); showTerrain(`${esc(e.message)}.${navigator.onLine === false ? ' Local terrain needs a connection for its first download.' : ''} <button type="button" class="coelum-chip" data-terrain="refresh">Try again</button>`); return;
       }
-      terrainJob = null;
     }
     horizon = value;
     try { localStorage.setItem('imks-coelum-horizon', value); } catch { /* private mode */ }
     applyHorizon(); syncLayers(); showTerrain(); draw();
+    if (value === 'terrain') { terrainJob = null; syncLayers(); }
     if (value === 'terrain') void loadCurrentTerrainNames(refresh);
   };
   // A new place keeps the chosen horizon: local terrain is restored, or built
