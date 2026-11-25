@@ -1064,15 +1064,15 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     if (!opts[kind]) continue;
     for (const g of skyGrid(kind, frame, rotation.slice(6, 9), Math.hypot(W, H) / 2 / radius * 90, radius / 90)) {
       if (kind === 'horizontal' && g.parallel && g.value === 0) continue;
-      line(g.points, { stroke, width: 0.65 });
+      line(g.points, { stroke: opts.layerColors?.[kind] || stroke, width: 0.65 });
       const key = `${kind}:${g.parallel}:${g.label}`;
       const q = gridLabelAt({ parallel: g.parallel, points: g.points.map((o) => ({ ...xy(o), alt: o.alt })) }, W, H, (o) => !opts.ground || o.alt >= 0, view.gridHistory?.get(key));
       if (view.gridHistory) { if (q) view.gridHistory.set(key, q); else view.gridHistory.delete(key); }
-      if (q) p.text(q.x + 3, q.y - 4, g.label, ink, 11);
+      if (q) p.text(q.x + 3, q.y - 4, g.label, opts.layerColors?.[kind] || ink, 11);
     }
   }
   if (opts.boundaries && frame.boundaries) for (const b of frame.boundaries) line(b, { stroke: c.bounds, width: 0.7, dash: [2, 3] });
-  if (opts.ecliptic && frame.ecliptic) line(frame.ecliptic, { stroke: c.ecliptic, width: 1, dash: [6, 4] });
+  if (opts.ecliptic && frame.ecliptic) line(frame.ecliptic, { stroke: opts.layerColors?.ecliptic || c.ecliptic, width: 1, dash: [6, 4] });
   const objects = [], labels = [];
   if (opts.constellations) for (const k of frame.constellations) {
     // Subdivide the great-circle segments before projection (and clipping).
@@ -1088,7 +1088,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
       }
       line(points, { stroke: c.lines, width: 0.8 });
     }
-    { const q = xy(k); if (visible({ ...k, ...q })) labels.push({ ...q, name: k.name.toUpperCase(), color: c.constellation, r: 0, priority: 4, size: Math.max(10, opts.labelSize - 3), center: true }); }
+    { const q = xy(k); if (visible({ ...k, ...q })) labels.push({ labelKind: 'constellations', ...q, name: k.name.toUpperCase(), color: c.constellation, r: 0, priority: 4, size: Math.max(10, opts.labelSize - 3), center: true }); }
   }
   const add = (o, r) => {
     const q = xy(o);
@@ -1109,7 +1109,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     const r = starRadius(o.mag - (opts.starBoost || 0), scale), q = add(o, r);
     if (!q) continue;
     starSymbol(p, o, q.x, q.y, r, starTint(o.bv));
-    if (o.name === view.selected || o.named && o.mag < (scale > 2 ? 4.5 : 2)) labels.push({ ...q, name: o.name, color: c.label, r, priority: 2 });
+    if (o.name === view.selected || o.named && o.mag < (scale > 2 ? 4.5 : 2)) labels.push({ labelKind: 'stars', ...q, name: o.name, color: c.label, r, priority: 2 });
   }
   // Downloaded stars: fainter ones appear as the chart is zoomed in.
   // by tint, so that thousands are filled at once
@@ -1143,7 +1143,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
       objects.at(-1).radius = disk;
     } else bodySymbol(p, o, q.x, q.y, r);
     const size = Math.max(r, disk);
-    labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? o.color : c.planet, r: o.body === 'saturn' ? size + 3 : size, priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
+    labels.push({ labelKind: 'solar', ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? o.color : c.planet, r: o.body === 'saturn' ? size + 3 : size, priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
   }
   // Moons remain in the chart when their planet has left the viewport.
   for (const o of frame.bodies) {
@@ -1154,7 +1154,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
       const mr = Math.max(1, Math.min(2.6, starRadius(m.mag, scale) * 0.8)), mq = add(m, mr);
       if (!mq) continue;
       p.circle(mq.x, mq.y, mr, { fill: o.color });
-      labels.push({ ...mq, name: m.name, color: o.color, r: mr, priority: m.name === view.selected ? 0 : 2, mag: m.mag });
+      labels.push({ labelKind: 'solar', ...mq, name: m.name, color: o.color, r: mr, priority: m.name === view.selected ? 0 : 2, mag: m.mag });
     }
   }
   // Satellites: sunlit, by their magnitude; in the shadow, a ring. The
@@ -1166,7 +1166,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
     if (!q) continue;
     if (o.trail?.length) line([o, ...o.trail], { stroke: o.lit ? c.satellite : c.shadowed, width: 1.2, opacity: 0.7 });
     satelliteSymbol(p, o, q.x, q.y, r);
-    if (o.name === view.selected || o.lit && (o.satellite.group === 'stations' || o.mag < 1)) labels.push({ ...q, name: o.name, color: c.satellite, r: r + 2, priority: o.name === view.selected ? 0 : 2, mag: o.mag });
+    if (o.name === view.selected || o.lit && (o.satellite.group === 'stations' || o.mag < 1)) labels.push({ labelKind: 'satellites', ...q, name: o.name, color: c.satellite, r: r + 2, priority: o.name === view.selected ? 0 : 2, mag: o.mag });
   }
   for (const o of frame.barycenters || []) {
     if (!binaryCenterVisible(o,frame,xy,view)) continue;
@@ -1176,7 +1176,7 @@ export function skyChart(frame, W = 360, H = 360, layers = DEFAULT_LAYERS, view 
   const symbols = objects.filter((o) => o.body), names = new Set(objects.map((o) => o.name));
   let hitLabels = [];
   if (opts.labels) {
-    hitLabels = placeLabels(labels, {
+    hitLabels = placeLabels(labels.filter(label => opts.labelKinds?.[label.labelKind] !== false), {
       W, H, size: opts.labelSize, symbols, history: view.labelHistory,
       draw: (l, x, y) => p.text(x, y, l.name, l.color, l.size || opts.labelSize),
       leader: (l, x, y) => p.path(`M${f(l.x)},${f(l.y)}L${f(x)},${f(y)}`, { stroke: l.color, width: 0.7 }),

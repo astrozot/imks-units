@@ -133,15 +133,15 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (!opts[kind]) continue;
     const fixed = kind === 'horizontal';
     for (const g of skyGrid(kind, frame, rotation.slice(6, 9), 2 * Math.atan(Math.hypot(W, H) / 2 / radius) / R, radius / 2 * R)) {
-      line(g.points, { stroke, width: 0.7, opacity: opacity * fade }, fixed);
+      line(g.points, { stroke: opts.layerColors?.[kind] || stroke, width: 0.7, opacity: opacity * fade }, fixed);
       const key = `${kind}:${g.parallel}:${g.label}`;
       const q = gridLabelAt({ parallel: g.parallel, points: g.points.map((o) => (fixed ? apparent(pointVector(o)) : xy(o))) }, W, H, (o) => o.z > 0 && above(o), view.gridHistory?.get(key));
       if (view.gridHistory) { if (q) view.gridHistory.set(key, q); else view.gridHistory.delete(key); }
-      if (q) gridLabels.push([q, g.label, stroke, opacity * fade]);
+      if (q) gridLabels.push([q, g.label, opts.layerColors?.[kind] || stroke, opacity * fade]);
     }
   }
   if (opts.boundaries && frame.boundaries) for (const b of frame.boundaries) line(b, { stroke: '#c49a7a', width: 0.7, dash: [2, 3], opacity: 0.45 * fade });
-  if (opts.ecliptic && frame.ecliptic) line(frame.ecliptic, { stroke: '#e3b45c', width: 1, dash: [6, 4], opacity: 0.6 * fade });
+  if (opts.ecliptic && frame.ecliptic) line(frame.ecliptic, { stroke: opts.layerColors?.ecliptic || '#e3b45c', width: 1, dash: [6, 4], opacity: 0.6 * fade });
   // The disks of the Sun, the Moon and the planets (pixels; at least the
   // size they are drawn) hide more distant sources, even on their night sides.
   const pxPerRadAt = (q) => radius / 2 / Math.cos(Math.acos(Math.max(-1, Math.min(1, q.z))) / 2) ** 2;
@@ -190,7 +190,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (k.curves) for (const l of k.curves) line(l, { stroke: '#6d9be0', width: 0.9, opacity: 0.55 * fade });
     else for (const l of k.lines) line(l, { stroke: '#6d9be0', width: 0.9, opacity: 0.55 * fade });
     const q = xy(k);
-    if (above(q) && onScreen(q, 0)) labels.push({ ...q, name: k.name, color: `rgba(140,175,230,${0.8 * fade})`, r: 0, priority: 4, size: Math.max(10, opts.labelSize - 2), center: true });
+    if (above(q) && onScreen(q, 0)) labels.push({ labelKind: 'constellations', ...q, name: k.name, color: `rgba(140,175,230,${0.8 * fade})`, r: 0, priority: 4, size: Math.max(10, opts.labelSize - 2), center: true });
   }
   if (opts.deep) for (const o of frame.deep) {
     if (!showDeepObject(o, view.scale, view.selected)) continue;
@@ -228,7 +228,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     const r = point(o, o.mag - starBoost + (opts.atmosphere ? extinction(o.alt) : 0), bvRGB(o.bv), q);
     if (!r) continue;
     objects.push({ ...o, x: q.x, y: q.y, radius: r });
-    if (o.name === view.selected || o.named && o.mag < (view.scale > 1.5 ? 4.5 : 2.5) && o.mag + 0.5 < limit) labels.push({ ...q, name: o.name, color: `rgba(215,225,240,${0.85 * fade + 0.15})`, r, priority: 2 });
+    if (o.name === view.selected || o.named && o.mag < (view.scale > 1.5 ? 4.5 : 2.5) && o.mag + 0.5 < limit) labels.push({ labelKind: 'stars', ...q, name: o.name, color: `rgba(215,225,240,${0.85 * fade + 0.15})`, r, priority: 2 });
   }
   // Downloaded fainter stars, to the same limit.
   eachFaint(frame, limit + starBoost, (i, v, mag, bv) => {
@@ -308,7 +308,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     ctx.restore();
     objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4) });
     // Close-up disks identify themselves; omit both the name and its leader.
-    if (!SOLID.has(o.body) || o.body === 'sun' || r < 40) labels.push({ ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? '#fff1c9' : '#ffc98f', r: Math.max(r, 3), priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
+    if (!SOLID.has(o.body) || o.body === 'sun' || r < 40) labels.push({ labelKind: 'solar', ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? '#fff1c9' : '#ffc98f', r: Math.max(r, 3), priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
   }
   // Test each moon against the viewport, independently of its planet.
   // Recenter the system tracer on the moon, preserving its mapped face,
@@ -336,7 +336,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       ctx.restore();
     } else point(m, mag, BODY_RGB[o.body], q);
     objects.push({ ...m, x: q.x, y: q.y, radius: Math.max(mr, 3) });
-    labels.push({ ...q, name: m.name, color: '#ffd9b0', r: Math.max(mr, 2), priority: m.name === view.selected ? 0 : 2, mag: m.mag });
+    labels.push({ labelKind: 'solar', ...q, name: m.name, color: '#ffd9b0', r: Math.max(mr, 2), priority: m.name === view.selected ? 0 : 2, mag: m.mag });
   }
   // Satellites: sunlit ones as stars of their magnitude, with the trail of
   // the last seconds; in the Earth's shadow, unseen unless selected. The
@@ -353,7 +353,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (!r) { r = 2; p.circle(q.x, q.y, r, { stroke: '#8090a8', width: 1 }); }
     ctx.restore();
     objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4) });
-    if (chosen || o.satellite.group === 'stations' || o.mag < 1) labels.push({ ...q, name: o.name, color: '#cfe9ff', r: Math.max(r, 3), priority: chosen ? 0 : 2, mag: o.mag });
+    if (chosen || o.satellite.group === 'stations' || o.mag < 1) labels.push({ labelKind: 'satellites', ...q, name: o.name, color: '#cfe9ff', r: Math.max(r, 3), priority: chosen ? 0 : 2, mag: o.mag });
   }
   if (bg.ground) ctx.drawImage(bg.ground, 0, bg.groundY, bg.w, bg.h, 0, 0, bg.width, bg.height);
   if (surface) ctx.drawImage(surface.canvas, 0, 0, W, H);
@@ -393,10 +393,10 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   }
   for (const [rank, feature] of terrainFeatures.entries()) {
     const chosen = feature.key === view.selected;
-    p.circle(feature.x, feature.y, chosen ? 3 : 2, { fill: '#ffdf9e', stroke: '#17202b', width: 1 });
+    p.circle(feature.x, feature.y, chosen ? 3 : 2, { fill: opts.layerColors?.peakPositions || '#ffdf9e', stroke: '#17202b', width: 1 });
     // Bilingual OSM names ("Königspitze - Gran Zebrù"): the first on the
     // label, both in the details.
-    if (opts.terrainAppearance?.peakLabels !== false) labels.push({ ...feature, name: feature.name.split(/ - | \/ /)[0] || feature.name, size: opts.labelSize, color: '#ffdf9e', r: 3, priority: chosen ? -1 : 3, important: true, up: true, mag: rank });
+    if (opts.terrainAppearance?.peakLabels !== false) labels.push({ ...feature, name: feature.name.split(/ - | \/ /)[0] || feature.name, size: opts.labelSize, color: opts.layerColors?.peakLabels || '#ffdf9e', r: 3, priority: chosen ? -1 : 3, important: true, up: true, mag: rank });
     if (chosen) reticle(p, feature.x, feature.y, 5, '#ffdf9e');
   }
   surfaceFeatures.push(...terrainFeatures);
@@ -407,7 +407,8 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     binaryCenterSymbol(p,q.x,q.y); objects.push({...o,...q,radius:4});
   }
   let hitLabels = [];
-  const visibleLabels = opts.labels ? labels : labels.filter(l => l.key?.startsWith('terrain:') || l.key && l.key === view.selected);
+  const enabledLabels = labels.filter(label => opts.labelKinds?.[label.labelKind] !== false);
+  const visibleLabels = opts.labels ? enabledLabels : enabledLabels.filter(l => l.key?.startsWith('terrain:') || l.key && l.key === view.selected);
   if (visibleLabels.length) {
     ctx.shadowColor = '#000c'; ctx.shadowBlur = 3;
     hitLabels = placeLabels(visibleLabels, {

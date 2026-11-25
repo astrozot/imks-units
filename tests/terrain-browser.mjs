@@ -51,7 +51,7 @@ try{
  const stored=await page.evaluate(async()=>{const{restoreTerrain}=await import('/js/skyterrain.js');const s=await restoreTerrain([45.89617,10.84333,90]);return {profile:s.profile.length,eye:s.eye,cover:s.meshes.every(m=>m.cover?.classes.every(c=>c===3)),landCover:s.metrics.landCover};});assert.equal(stored.profile,3600);
  assert.ok(coverRequests>20&&stored.cover,`Land cover stored with the terrain: ${JSON.stringify(stored.landCover)}`);
  assert.equal(stored.eye,92,'The eye is 2 m above the place’s ground elevation');
- await page.waitForFunction(()=>/Peak names: \d+ visible/.test(document.querySelector('.coelum-terrain-note').textContent),null,{timeout:60000});
+ await page.waitForFunction(()=>/Peak names: \d+ visible/.test(document.querySelector('[data-ground-label-note]').textContent),null,{timeout:60000});
  const nameCache=await page.evaluate(async()=>{const c=await caches.open('imks-data-terrain-names-v2');return (await c.keys()).length;});
  assert.ok(nameCache>=2,'Nearby name tiles and index are saved independently of the terrain surface');
  await page.evaluate(()=>{
@@ -66,12 +66,12 @@ try{
    return fill.call(this,text,x,y,...rest);
   };
  });
- await page.click('[data-action="terrain"]');assert.equal(await page.locator('[data-terrain-setting="style"]').inputValue(),'landcover');assert.equal(await page.locator('[data-terrain-setting="shadowSync"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="outlines"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="shadows"]').isChecked(),true);assert.equal(await page.locator('[data-terrain-setting="nightExposure"]').inputValue(),'0');
+ assert.equal(await page.locator('[data-terrain-setting="style"]').inputValue(),'landcover');assert.equal(await page.locator('[data-terrain-setting="shadowSync"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="outlines"]').isChecked(),false);assert.equal(await page.locator('[data-terrain-setting="shadows"]').isChecked(),true);assert.equal(await page.locator('[data-terrain-setting="nightExposure"]').inputValue(),'0');
  await page.uncheck('[data-terrain-setting="shadows"]');await page.check('[data-terrain-setting="shadows"]');
- assert.equal(await page.locator('[data-terrain-setting="peakNames"]').isChecked(),true);
- await page.uncheck('[data-terrain-setting="peakNames"]');assert.equal(await page.locator('.coelum-canvas').getAttribute('data-terrain-names'),'0');
- await page.check('[data-terrain-setting="peakNames"]');
- await page.locator('.coelum-terrain-panel [data-action="close-panel"]').click();assert.equal(requests,downloaded);
+ assert.equal((await page.locator('select[data-peak-display]').inputValue()) !== 'off',true);
+ await page.selectOption('select[data-peak-display]', 'off');assert.equal(await page.locator('.coelum-canvas').getAttribute('data-terrain-names'),'0');
+ await page.selectOption('select[data-peak-display]', 'labels');
+ await page.locator('.coelum-toolbar [data-action="close-panel"]').click();assert.equal(requests,downloaded);
  const peakLabel=await page.evaluate(()=>{
   const svg=document.querySelector('.coelum-full'),h=svg.viewBox.baseVal.height;
   const label=window.peakLabels.find(l=>l.x>30&&l.x<svg.viewBox.baseVal.width-80&&l.y>100&&l.y<h-100);
@@ -99,7 +99,7 @@ try{
  await page.unroute('https://tiles.mapterhorn.com/**',respond);const held=[];await page.route('https://tiles.mapterhorn.com/**',r=>held.push(r));
  await toggleLayerSettings(page);await page.click('[data-terrain="refresh"]');await page.click('[data-terrain="cancel"]');for(const r of held)await r.abort().catch(()=>{});
  assert.equal(await page.locator('[data-horizon]').inputValue(),'terrain');assert.match(await page.locator('.coelum-terrain-note').textContent(),/Saved for offline/);
- await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>navigator.serviceWorker.controller);await page.reload();await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true');await context.setOffline(true);await page.reload();await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true',null,{timeout:30000});await page.waitForFunction(()=>/Peak names: \d+ visible/.test(document.querySelector('.coelum-terrain-note').textContent),null,{timeout:30000});assert.equal(requests,downloaded,'Offline reload uses stored geometry');
+ await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>navigator.serviceWorker.controller);await page.reload();await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true');await context.setOffline(true);await page.reload();await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true',null,{timeout:30000});await page.waitForFunction(()=>/Peak names: \d+ visible/.test(document.querySelector('[data-ground-label-note]').textContent),null,{timeout:30000});assert.equal(requests,downloaded,'Offline reload uses stored geometry');
  await context.setOffline(false);await page.goto(origin+'/');await page.waitForSelector('#expr');await page.waitForFunction(()=>document.querySelectorAll('.key').length>0);await page.keyboard.type('coelum(now)');await page.keyboard.press('Enter');await page.waitForSelector('.coelum-preview');await page.click('.coelum-preview');
  await page.waitForFunction(()=>document.querySelector('.coelum-explorer .coelum-canvas')?.dataset.terrainSurface==='true',null,{timeout:30000});assert.equal(requests,downloaded,'iMKS shares Coelum terrain storage');
  // Render a known slope directly: the regression made twilight terrain white.
@@ -121,7 +121,7 @@ try{
  // several frames (their redraw request once doubled every frame).
  await page.goto(origin+'/coelum/');await page.waitForFunction(()=>document.querySelector('.coelum-canvas')?.dataset.terrainSurface==='true',null,{timeout:30000});
  // Name restoration redraws when it completes; finish loading before timing playback.
- await page.waitForFunction(()=>/Peak names: \d+ visible/.test(document.querySelector('.coelum-terrain-note').textContent),null,{timeout:30000});
+ await page.waitForFunction(()=>/Peak names: \d+ visible/.test(document.querySelector('[data-ground-label-note]').textContent),null,{timeout:30000});
  const perFrame=await page.evaluate(async()=>{const c=document.querySelector('.coelum-canvas'),steps=[];let prev=+c.dataset.frame;
   document.querySelector('[data-action="play"]').click();
   await new Promise(res=>{let n=0;const f=()=>{const v=+c.dataset.frame;steps.push(v-prev);prev=v;if(++n<120)requestAnimationFrame(f);else res();};requestAnimationFrame(f);});

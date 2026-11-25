@@ -109,10 +109,13 @@ try {
   await configure.click();
   assert.equal(await bar.isVisible(), false);
   assert.ok(await page.locator('.coelum-toolbar').isVisible());
+  await page.locator('[data-settings-section="peakNames"] > summary').click();
   await peakChoice.selectOption('positions');
   assert.equal(await peaks.getAttribute('data-peak-display'), 'positions', 'Settings synchronize the shortcut');
   await peakChoice.selectOption('labels');
   assert.equal(await page.locator('[data-layer="ground"]').isChecked(), false);
+  await page.locator('[data-settings-section="ground"] > summary').click();
+  await page.locator('[data-settings-section="constellations"] > summary').click();
   await page.locator('[data-layer="ground"]').check();
   await page.locator('[data-layer="constellations"]').uncheck();
   await page.keyboard.press('Escape');
@@ -128,6 +131,38 @@ try {
   await rail.click();
   assert.equal(await bar.isVisible(), false);
   await page.locator('[data-view="sky"]').click();
+  await open();
+  // Topic holds open one modal, retain settings, and consume their release tap.
+  const topicDialog = page.locator('.coelum-topic-dialog');
+  for (const key of ['ground', 'atmosphere', 'milkyway', 'ecliptic', 'horizontal', 'equatorial', 'galactic', 'deep', 'satellites', 'labels', 'peakNames']) {
+    const button = page.locator(`[data-toggle-layer="${key}"]`);
+    const previous = await button.getAttribute('aria-pressed');
+    const box = await button.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down(); await page.waitForTimeout(900); await page.mouse.up();
+    assert.ok(await topicDialog.isVisible(), `${key} hold opens its topic`);
+    assert.equal(await button.getAttribute('aria-pressed'), previous, 'Holding must not toggle visibility');
+    assert.equal(await topicDialog.locator('.coelum-settings-content').count(), 1);
+    if (key === 'ecliptic') {
+      assert.equal(await topicDialog.locator('[data-layer-color]').count(), 7);
+      await topicDialog.locator('[data-layer-color][aria-label="Red"]').check();
+    }
+    if (key === 'labels') {
+      await topicDialog.locator('[data-label-kind="stars"]').uncheck();
+      await topicDialog.locator('[data-label-size]').selectOption('17');
+    }
+    await page.keyboard.press('Escape');
+    assert.equal(await topicDialog.isVisible(), false);
+    assert.equal(await topicDialog.locator('.coelum-settings-content').count(), 0);
+    await open();
+  }
+  await configure.click();
+  await page.locator('[data-settings-section="ecliptic"] > summary').click();
+  assert.ok(await page.locator('[data-layer-color="ecliptic"][aria-label="Red"]').isChecked());
+  await page.locator('[data-settings-section="labels"] > summary').click();
+  assert.equal(await page.locator('[data-label-kind="stars"]').isChecked(), false);
+  assert.equal(await page.locator('[data-label-size]').inputValue(), '17');
+  await page.keyboard.press('Escape');
   await open();
   for (const width of [390, 320, 900]) {
     await page.setViewportSize({ width, height: 844 });
@@ -195,15 +230,10 @@ try {
       assert.equal(await rightArrow.isVisible(), false);
     }
     await configure.click();
-    const layout = await page.locator('.coelum-toolbar > .coelum-switches').evaluate(el => {
-      const panel = el.closest('.coelum-panel').getBoundingClientRect();
-      return { overflow: el.scrollWidth > el.clientWidth, rows: [...el.children].filter(c => c.getClientRects().length).map(c => {
-        const r = c.getBoundingClientRect(); return { left: r.left - panel.left, right: panel.right - r.right };
-      }), truncated: [...el.querySelectorAll('label > span')].some(s => s.scrollWidth > s.clientWidth) };
-    });
+    const layout = await page.locator('.coelum-toolbar').evaluate(el => ({ overflow: el.scrollWidth > el.clientWidth,
+      sections: [...el.querySelectorAll('details')].filter(section => section.getClientRects().length).length }));
     assert.equal(layout.overflow, false, JSON.stringify(layout));
-    assert.ok(layout.rows.every(r => r.left >= 14 && r.right >= 14), JSON.stringify(layout));
-    if (width <= 390) assert.ok(layout.truncated, 'Narrow labels truncate within their columns');
+    assert.ok(layout.sections >= 14);
     if (width === 390) await page.locator('.coelum-toolbar').screenshot({ path: '/tmp/coelum-layers-settings-phone.png' });
     await page.keyboard.press('Escape');
     await open();
@@ -251,6 +281,36 @@ try {
   assert.ok(await page.locator('.coelum-toolbar').isVisible(), 'Configure is reachable by scrolling');
   await page.keyboard.press('Escape');
   await open();
+  // Real touch holds on a scrolling strip open a usable phone-sized modal.
+  const touchLabels = page.locator('[data-toggle-layer="labels"]');
+  await touchLabels.scrollIntoViewIfNeeded();
+  const touchBox = await touchLabels.boundingBox();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: touchBox.x + touchBox.width / 2, y: touchBox.y + touchBox.height / 2 }] });
+  await page.waitForTimeout(900);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  assert.ok(await topicDialog.isVisible());
+  const modalLayout = await topicDialog.evaluate(el => ({ overflow: el.scrollWidth > el.clientWidth, rect: el.getBoundingClientRect().toJSON(),
+    clipped: [...el.querySelectorAll('label > span')].some(span => span.scrollWidth > span.clientWidth) }));
+  assert.equal(modalLayout.overflow, false);
+  assert.equal(modalLayout.clipped, false);
+  assert.ok(modalLayout.rect.x >= 0 && modalLayout.rect.right <= 390);
+  assert.ok(await topicDialog.locator('[data-label-kind="solar"]').isChecked(), 'The touch release does not change a setting inside the modal');
+  await topicDialog.screenshot({ path: '/tmp/coelum-label-settings-phone.png' });
+  await topicDialog.locator('[data-action="close-panel"]').click();
+  // Preferences survive a reload and remain available in the shared accordions.
+  await page.reload();
+  await rail.click(); await configure.click();
+  await page.locator('[data-settings-section="labels"] > summary').click();
+  assert.equal(await page.locator('[data-label-kind="stars"]').isChecked(), false);
+  assert.equal(await page.locator('[data-label-size]').inputValue(), '17');
+  await page.locator('[data-settings-section="ecliptic"] > summary').click();
+  assert.ok(await page.locator('[data-layer-color="ecliptic"][aria-label="Red"]').isChecked());
+  assert.equal(await page.locator('[data-reset-color], [data-terrain="defaults"]').count(), 0);
+  await page.locator('[data-action="reset-configuration"]').click();
+  assert.ok(await page.locator('[data-label-kind="stars"]').isChecked());
+  assert.equal(await page.locator('[data-label-size]').inputValue(), '14');
+  assert.equal(await page.locator('[data-layer-color="ecliptic"]:checked').count(), 0);
+  await page.keyboard.press('Escape'); await open();
   await page.locator('[data-action="almanac"]').click();
   assert.equal(await bar.isVisible(), false, 'Opening another panel closes the bar immediately');
   assert.ok(await page.locator('[data-panel="almanac"]').isVisible());
@@ -258,12 +318,15 @@ try {
   await context.close();
   // The same shortcut also fits an embedded calculator chart.
   const embedded = await browser.newPage({ viewport: { width: 800, height: 900 }, serviceWorkers: 'block' });
+  embedded.on('pageerror', error => errors.push(error.message));
   await embedded.route('https://celestrak.org/**', route => route.fulfill({ contentType: 'application/json', body: '[]' }));
   await embedded.goto(url.replace(/coelum\/$/, ''));
   await embedded.locator('#expr').click();
   await embedded.keyboard.type('coelum(2026.11.06 21:00 Z, "Rome")');
   await embedded.locator('#expr').press('Enter');
   await embedded.locator('.coelum-preview').click();
+  await embedded.locator('.coelum-full').waitFor();
+  await embedded.mouse.move(40, 80);
   await embedded.locator('[data-action="layers"]').click();
   const embeddedBox = await embedded.locator('.coelum-layerbar').boundingBox();
   assert.ok(embeddedBox.x >= 0 && embeddedBox.x + embeddedBox.width <= 800);
@@ -287,6 +350,7 @@ try {
   await embedded.locator('.coelum-full text').filter({ hasText: /^(Vega|Regulus|Pollux|Capella|Sirius|Aldebaran|Deneb|Altair)$/ }).first().click();
   assert.equal(await embedded.locator('.coelum-layerbar').isVisible(), false, 'Opening an object card closes the bar');
   assert.ok(await embedded.locator('.coelum-show-detail').count());
+  assert.deepEqual(errors, []);
   await embedded.close();
-  console.log('Layer shortcuts passed: toggles, configure sync, ground cycle and cancellation, view changes, keyboard dismissal, desktop/phone alignment, scroll arrows and moving configure button, embedded chart.');
+  console.log('Layer configuration passed: topic modals, touch holds, accordion sync, saved preferences, reset all, toggles, terrain cancellation, desktop/phone layout, scrolling and embedded chart.');
 } finally { await browser?.close(); server.close(); }

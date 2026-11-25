@@ -195,15 +195,14 @@ source-skyline agreement, build/upload cost, camera movement and shadow updates.
 It uses desktop Chromium's software renderer, not physical-phone timings or
 surveyed skyline accuracy. The finer mesh improves average source agreement;
 it increases surface memory and can make shadow-regenerating light updates slower.
-**Terrain appearance** in Layers opens separate controls: muted earth by default,
+**Horizon** in Configuration contains terrain appearance controls: land cover colours by default,
 shadows on, ridge outlines off, both exposure controls centred. The centred day and night settings retain the
 reviewed brightness independently, with night exposure applied automatically after twilight. Preferences are saved on the device.
 
-**Peaks** in Layers and its mountain icon in the Layers bar cycle through
+**Peaks** in Configuration → Ground labels and its mountain icon in the Layers bar cycle through
 positions with labels, positions only, and off, independently of the sky Labels switch.
 The icon shows tiny summit text, a summit dot, or an unselected mountain;
 its lines turn grey when local terrain is not displayed.
-The **Peaks** switch in Terrain appearance also turns summits on or off.
 Markers and names hide when the Sun is below −6° (civil dusk), and return
 at civil dawn if enabled.
 Names come from a static, geographically tiled [catalog](data/terrain-names/README.md)
@@ -221,7 +220,7 @@ elevation (when known), distance, bearing and source. Labels use the terrain
 surface's height and projection, including terrestrial refraction, and stay
 above their summit with a leader when crowded; skyline summits and higher
 ones are labelled first, more as you zoom. The sightline work runs in a
-worker; camera movement reuses its results. Set Peaks to Off (or turn off Peaks in Terrain appearance) to
+worker; camera movement reuses its results. Set Peaks to Off (in Configuration → Ground labels) to
 hide them. **Download peak names** updates the catalog without rebuilding
 the terrain; name failures leave the terrain usable. The bounded name cache
 retains up to 48 geographic tiles. Named ranges, valleys and lakes are not
@@ -237,7 +236,7 @@ local model obstructions. Source resolution, mesh detail and vertical datums var
 buildings and trees are excluded. General Natural Earth polygons color oceans and
 major lakes blue, with no regional overrides or assumed lake levels. Their
 1:10 million map scale is generalised; small lakes and close shoreline details
-may be missing. Blue water can be disabled in Terrain appearance. Without WebGL2, the
+may be missing. Blue water can be disabled in Configuration → Horizon. Without WebGL2, the
 saved skyline still works with the original ground renderer. **Fainter stars** can be downloaded from the app's
 own `data/`: to magnitude 8 (40,000 more stars, 1.5 MB), 10 (349,000,
 9.7 MB), 11 (937,000, 22.2 MB) or 12 (2,308,822, 68.1 MB), with available
@@ -246,7 +245,29 @@ parallaxes, proper motions and radial velocities and found by their HIP, HD or T
 Storage (the service worker keeps caches named `imks-data…` across
 updates) and appears as you zoom in, in the chart up to the chosen
 magnitude. The stars are kept in tiles of the sky, and only those in view
-are read. The time bar steps an hour, plays forward or backward (÷2 and ×2
+are read.
+
+The experimental online Gaia/HiPS layer has been withdrawn: its providers
+were not reliable in normal use, and no mobile performance advantage over
+Stellarium Web was established. The provider list, future catalog candidates
+(2MASS and SIMBAD), investigation findings and restart criteria are preserved
+in [catalog research](work/catalog-providers.json). These are research records,
+not active layers. Existing downloadable star catalogs remain available.
+
+The layer bar’s wheel opens **Configuration**, also available by holding the
+Layers icon. Settings are grouped into expandable sections. Hold an individual
+layer to open its settings in a small modal, with the same controls as its
+Configuration section. Horizon contains local terrain downloads and appearance;
+Milky Way contains the fainter-star and Moon-detail downloads; Deep sky contains
+OpenNGC; Satellites contains catalog groups and updates. Atmosphere is reserved
+for future model settings. Constellations, boundaries and minor planets have no
+topic settings yet. Ecliptic and each grid offer seven colours. Labels offers text size and separate constellation, star, solar-system
+and satellite name switches. Ground labels contains peak-name downloads and
+separate position and text colours. Colour and label preferences are saved on
+the device and shared between Chart and Sky. **Reset all** at the end of
+Configuration restores default settings and keeps downloaded data.
+
+The time bar steps an hour, plays forward or backward (÷2 and ×2
 change the speed, ⇄ the direction) and resets. **Full screen** fills the
 display; its controls float over the sky and fade after a few seconds
 without input, coming back on any movement, tap or key; Escape closes an
@@ -313,7 +334,7 @@ cache reuse/invalidation, actual lunar motion, live eclipses, GPU recovery
 and both repeated-frame and changing-light rendering costs. Set
 `LUNAR_CACHE_SCREENSHOT` to save the direct/cached image comparison.
 
-**Layers → Moon detail → Download high resolution** adds an optional
+**Configuration → Milky Way → Moon detail → Download high resolution** adds an optional
 34.2 MB offline download: an 8192 × 4096 colour map and 5760 × 2880 LOLA
 elevations from [NASA's CGI Moon Kit](https://svs.gsfc.nasa.gov/4720/).
 Elevation spacing improves from about 7.6 km to 1.9 km at the equator.
@@ -862,7 +883,7 @@ Phone following uses relative attitude when available, with time-based adaptive
 quaternion filtering. The compass establishes magnetic north; on iOS its initial
 reliable heading is held because Safari does not expose a compass timestamp.
 Panning calibrates alignment without stopping following. For accurate north,
-select a known object, point the phone at it and use **Layers → Phone orientation
+select a known object, point the phone at it and use **Configuration → Phone orientation
 → Align**. This heading correction also accounts for magnetic declination without
 assuming a fixed declination for every observing place. Alignment lasts until
 following is turned off. The horizon-level option is remembered across sessions.
@@ -1099,7 +1120,7 @@ requests; see `data/native-ephemeris-performance.json`. Satellite event
 searches still use their existing compact models; supplying native
 satellite positions does not yet switch those event searches.
 
-OpenNGC is available in **Layers → Deep-sky catalog → Download OpenNGC**
+OpenNGC is available in **Configuration → Deep sky → Download OpenNGC**
 in both apps. The optional 0.85 MB download expands the 232 built-in objects
 to 13,366 distinct objects from NGC, IC and the OpenNGC addendum. Search
 finds every downloaded object; fainter atlas symbols appear progressively

@@ -509,4 +509,25 @@ for (const year of [-1000, -1, 0, 1, 99, 2026, 3000]) {
   assert.equal(parseSkyInput(skyTimeInput(time, true), true), time, 'UTC input roundtrip');
 }
 assert.match(formatSkyTime(Date.now() / 1000), /UTC[+−]\d\d:\d\d/);
+// User colours reach the rendered grid paths, and label categories hide text
+// without removing the underlying objects or their selection targets.
+{
+  const frame = skyFrame(model.coelum.t, model.coelum.place);
+  for (const key of ['ecliptic', 'horizontal', 'equatorial', 'galactic']) {
+    const chart = skyChart(frame, 800, 800, { ...DEFAULT_LAYERS, ground: false, [key]: true, layerColors: { [key]: '#ed8585' } });
+    assert.match(chart.svg, /stroke="#ed8585"/, `${key} uses its chosen colour`);
+  }
+  const options = { ...DEFAULT_LAYERS, ground: false, labels: true, constellations: true };
+  const original = skyChart(frame, 1200, 1200, options);
+  for (const kind of ['stars', 'solar']) {
+    const names = new Set((kind === 'stars' ? frame.stars : frame.bodies).map(object => object.name));
+    assert.ok(original.hitLabels.some(label => names.has(label.name)), `${kind} labels exist before hiding`);
+    const hidden = skyChart(frame, 1200, 1200, { ...options, labelKinds: { [kind]: false } });
+    assert.equal(hidden.hitLabels.some(label => names.has(label.name)), false);
+    assert.equal(hidden.objects.length, original.objects.length, 'Label preferences leave objects visible');
+  }
+  const hidden = skyChart(frame, 1200, 1200, { ...options, labelKinds: { constellations: false } });
+  assert.ok(CONSTELLATIONS.some(([name]) => original.svg.includes(name?.toUpperCase())), 'Constellation labels exist before hiding');
+  assert.notEqual(original.svg, hidden.svg, 'Constellation name visibility changes the rendered text');
+}
 console.log('Coelum geometry, catalogs, brightness and calculator checks passed');
