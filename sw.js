@@ -6,7 +6,7 @@
 // working offline. Caches named imks-data… hold downloads the user asked
 // for (coelum's fainter stars) and survive updates.
 const APP = new URL(self.registration.scope).pathname.endsWith("/coelum/") ? "coelum" : "imks";
-const CACHE = `${APP}-v258`;
+const CACHE = `${APP}-v259`;
 const FILES = ["./", "index.html", "styles.css", "js/data.js", "js/unum.js", "js/units.js", "js/interp.js", "js/defs.js", "js/dates.js", "js/calendars.js", "js/sensors.js", "js/vsop87.js", "js/moons.js", "js/moongeometry.js", "js/moonposition.js", "js/moonseries.js", "js/astro.js", "js/skyview.js", "js/lunarfeatures.js", "js/marsfeatures.js", "js/marsdata.js", "js/lunardata.js", "js/coelum.js", "js/skycoordinates.js", "js/coelumsky.js", "js/coelumui.js", "js/mountswitch.js", "js/coelumtime.js", "js/almanac.js", "js/meteors.js", "js/skydateinput.js", "js/skydatewheel.js", "js/timezonemap.js", "js/globegl.js", "js/timezoneboundaries.js", "data/timezones.topo.json", "data/timezones-LICENSE.txt", "data/timezones-SOURCE.md", "data/coast-SOURCE.md", "js/pagezoom.js", "js/tzlookup.js", "data/tzlookup-LICENSE.txt", "data/lucide-LICENSE.txt", "js/phoneorientation.js", "js/followguide.js", "js/skyraster.js", "js/skyhorizon.js", "js/skydata.js", "js/stardata.js", "js/eclipsemap.js", "js/osmmap.js", "js/snapshot.js", "js/coast.js", "js/countries.js", "data/countries-SOURCE.md", "js/catalog.js", "js/deepcatalog.js", "js/minorplanets.js", "js/sgp4.js", "js/lookup.js", "js/sky.js", "js/app.js", "js/functionhelp.js", "js/diagnostics.js", "js/eventview.js", "js/eventspanel.js", "js/mooneventspanel.js", "js/mooneventstime.js", "js/coelumapp.js", "js/satellites.js", "js/satmags.js", "js/occultations.js", "coelum/", "coelum/index.html", "coelum/manifest.webmanifest", "coelum/icon-180.png", "coelum/icon-192.png", "coelum/icon-512.png", "coelum/icon-maskable-512.png", "img/moon.webp", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "favicon.ico", "favicon-16.png", "favicon-32.png"];
 
 FILES.push('js/terrainlighting.js', 'js/skyterrain.js', 'js/terrainmodel.js', 'js/terrainmesh.js', 'js/terrainlod.js', 'js/terrainworker.js', 'js/terrainrender.js', 'js/terrainraster.js', 'data/water/index.json', 'js/terrainwater.js');
@@ -16,6 +16,7 @@ FILES.push('js/precisionconfig.js', 'js/lunarlimb.js');
 FILES.push('js/spk.js', 'js/precisionr2.js', 'js/precisiondata.js', 'js/precisionstatic.js', 'js/precisionnative.js');
 FILES.push('js/precisioncatalog.js', 'js/precisionpositions.js', 'js/precisionmoons.js', 'js/precisioninterpolate.js', 'js/precision-cio.js');
 FILES.push('js/starmotion.js', 'js/binarydata.js');
+FILES.push('js/constellationart.js', 'img/constellations/hevelius-orion.jpg', 'img/constellations/hevelius-leo.jpg');
 
 FILES.push('js/skytrajectory.js', 'js/detailriseset.js');
 FILES.push('js/terrainlandcover.js', 'js/terraintiles.js', 'js/terrainfeatures.js', 'js/terrainnames.js', 'js/terrainnamesworker.js');

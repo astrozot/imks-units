@@ -54,7 +54,7 @@ try {
   assert.equal(await leftArrow.isVisible(), false);
   assert.equal(await rightArrow.isVisible(), false);
   assert.ok(await configure.evaluate(el => el.parentElement.classList.contains('coelum-layer-toggles')));
-  assert.equal(await bar.locator('[data-toggle-layer]:visible').count(), 14);
+  assert.equal(await bar.locator('[data-toggle-layer]:visible').count(), 15);
   const geometry = () => page.evaluate(() => {
     const bar = document.querySelector('.coelum-layerbar').getBoundingClientRect();
     const anchor = document.querySelector('[data-action="layers"]').getBoundingClientRect();
@@ -64,7 +64,7 @@ try {
   });
   let g = await geometry();
   assert.ok(g.left >= 8 && g.right < g.anchorLeft && g.delta < 1 && g.rows === 1 && !g.scroll, JSON.stringify(g));
-  for (const key of ['milkyway', 'constellations', 'boundaries', 'ecliptic', 'horizontal', 'equatorial', 'galactic', 'deep', 'minor', 'satellites', 'labels', 'atmosphere']) {
+  for (const key of ['milkyway', 'constellations', 'artwork', 'boundaries', 'ecliptic', 'horizontal', 'equatorial', 'galactic', 'deep', 'minor', 'satellites', 'labels', 'atmosphere']) {
     const button = page.locator(`[data-toggle-layer="${key}"]`), checkbox = page.locator(`[data-layer="${key}"]`);
     const before = await checkbox.isChecked();
     await button.click();

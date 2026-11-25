@@ -523,6 +523,18 @@ license is retained in the generated file). To regenerate, download
 `data/constellations.lines.json`, `data/constellations.json`,
 `data/constellations.bounds.json`, `data/mw.json` and `LICENSE` from that
 repository into a directory, then run `node tools/coelum.mjs <directory>`.
+Historical constellation artwork is an independent, initially disabled layer in
+both views, with 15–75% opacity in Layers settings. The preview collection
+contains Orion and Leo from Johannes Hevelius’s *Uranographia* (1690), using
+public-domain scans from Wikimedia Commons. The original plates are preserved;
+the renderer masks the figures, makes the paper transparent and projects a
+star-registered spherical mesh beneath the stars and ground. Original engraved
+star symbols and some chart marks remain; this is historical artwork, not a
+precision star chart. Registration is fixed to the J2000 sky, precesses with
+the view and includes Sky’s refraction, but does not deform with individual
+stars’ proper motions. Sources, registration and reproduction details are in
+[data/constellation-art-SOURCE.md](data/constellation-art-SOURCE.md).
+
 Chart positions include precession, nutation, proper motion, annual stellar
 parallax where known, solar gravitational light deflection, and annual and
 diurnal aberration. The shared frame uses IAU 2006 bias/precession and a
