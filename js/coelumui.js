@@ -21,7 +21,7 @@ import { SAT_GROUPS, chosenGroups, chooseGroups, loadSatellites, onSatellites, s
 import { stepPlaybackSpeed, formatPlaybackSpeed, setSatellites, skyObjectAt, skyFrame, createSkyAnimator, skyChart, unprojectSky, rotateSky, chartRadius, objectDetails, catalogDetailCoordinates, chartLegend, placeLabels, searchSky, searchAngularField, findObject, limitTime, pointVector, unit3, dot3, esc, R, SKY_IDENTITY, DEFAULT_LAYERS, lookAt, projectVector, refractVector, refraction, setFaintStars, faintCount, faintDepth, faintHasRadialVelocities, setMinorBodies, hasMoons, horizontalVector, diskRadius, horizonToGalactic } from './coelum.js';
 import { observerOrigin, riseSet, planetOf, siderealTime } from './astro.js';
 import { searchPlaces, fetchPlace, fetchElevation, PLACE_LOOKUP_VERSION } from './lookup.js';
-import { skyScene, skyPointScale, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
+import { skyScene, skyPointScale, nearbySkyObjects, SKY_LAYERS, defaultSkyView, skyRadius, moonTexture } from './coelumsky.js';
 import { storedHorizon, forgetHorizon, horizonAt } from './skyhorizon.js';
 import { prepareTerrain, restoreTerrain, forgetTerrain, storedTerrainHorizon, terrainAppearance, terrainKey, TERRAIN_DEFAULTS } from './skyterrain.js';
 import { prepareTerrainNames } from './terrainnames.js';
@@ -1438,18 +1438,25 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const chooseHorizon = async (value, refresh = false) => {
     if (value === 'terrain' && observerOrigin(place) !== 'topocentric') { say('Choose a location on Earth to use terrain.'); return; }
     if (value !== 'terrain') { cancelTerrain(); releaseTerrainRaster(ctx); }
-    if (value === 'terrain' && (!terrainSurface || refresh)) {
+    if (value === 'terrain') {
       if (terrainJob) return;
-      cancelTerrainNames(); terrainNames = null;
+      const needsSurface = !terrainSurface || refresh;
+      if (needsSurface) { cancelTerrainNames(); terrainNames = null; }
       const job = new AbortController(), requestedPlace = [...place], key = terrainKey(place);
       terrainJob = job; syncLayers();
       showTerrain('Preparing terrain… <button type="button" class="coelum-chip" data-terrain="cancel">Cancel</button>');
+      // Paint the selected, breathing icon before restoring or uploading a
+      // cached surface: its first GPU draw can block a slow phone for seconds.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
       try {
-        const data = await prepareTerrain(requestedPlace, { signal: job.signal, refresh, progress: text => {
-          if (terrainJob === job && root.isConnected && key === terrainKey(place)) showTerrain(`${esc(text)} <button type="button" class="coelum-chip" data-terrain="cancel">Cancel</button>`);
-        } });
-        if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
-        terrainSurface = data; setTerrain(data.profile);
+        if (needsSurface) {
+          const data = await prepareTerrain(requestedPlace, { signal: job.signal, refresh, progress: text => {
+            if (terrainJob === job && root.isConnected && key === terrainKey(place)) showTerrain(`${esc(text)} <button type="button" class="coelum-chip" data-terrain="cancel">Cancel</button>`);
+          } });
+          if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
+          terrainSurface = data; setTerrain(data.profile);
+        }
       } catch (e) {
         if (terrainJob !== job || !root.isConnected || key !== terrainKey(place)) return;
         terrainJob = null; syncLayers(); say(e.message); showTerrain(`${esc(e.message)}.${navigator.onLine === false ? ' Local terrain needs a connection for its first download.' : ''} <button type="button" class="coelum-chip" data-terrain="refresh">Try again</button>`); return;
@@ -2217,6 +2224,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         if (!layers[mode].ground) {
           layers.chart.ground = layers.sky.ground = true;
           void chooseHorizon('terrain');
+          return; // chooseHorizon draws after the loading icon has been painted.
         } else if (terrainJob || horizon === 'terrain') void chooseHorizon('flat');
         else layers.chart.ground = layers.sky.ground = false;
       } else if (key === 'peakNames') {
@@ -2344,10 +2352,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   };
   const selectAt = (p,held) => {
     // Choose the nearest rendered symbol, using the same projection.
-    const nearby = drawn.objects.map((o) => ({ o, d: Math.hypot(o.x - p.x, o.y - p.y) })).filter(({ o, d }) => d < Math.max(14, o.radius + 4)).sort((a, b) => a.d - b.d);
+    const nearby = mode === 'sky' ? nearbySkyObjects(drawn.objects, p)
+      : drawn.objects.map((o) => ({ o, d: Math.hypot(o.x - p.x, o.y - p.y) })).filter(({ o, d }) => d < Math.max(14, o.radius + 4)).sort((a, b) => a.d - b.d);
     const label = drawn.hitLabels.find(({ box }) => p.x >= box[0] && p.x <= box[2] && p.y >= box[1] && p.y <= box[3]);
     // A symbol right under the finger wins over a label lying on it.
-    const direct = nearby[0] && nearby[0].d <= nearby[0].o.radius + 2 ? nearby[0].o.name : null;
+    const direct = nearby[0] && nearby[0].d <= (nearby[0].o.pickRadius ?? nearby[0].o.radius) + 2 ? nearby[0].o.name : null;
     const lunarDisk = drawn.objects.find((o) => o.body === 'moon');
     const onMoon = lunarDisk && Math.hypot(p.x - lunarDisk.x, p.y - lunarDisk.y) <= lunarDisk.radius;
     const marsDisk = drawn.objects.find((o) => o.body === 'mars');

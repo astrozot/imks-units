@@ -43,7 +43,17 @@ try{
  assert.equal(await page.locator('[data-toggle-layer="peakNames"]').evaluate(el=>el.classList.contains('coelum-peaks-muted')),false,'Peak lines are bright when local terrain is displayed');
  await groundButton.click();assert.match(await groundButton.getAttribute('aria-label'),/Ground: Flat/);
  await groundButton.click();assert.equal(await groundButton.getAttribute('aria-pressed'),'false');
- await groundButton.click();assert.match(await groundButton.getAttribute('aria-label'),/Ground: Local terrain/);
+ // A cached surface must also paint the loading icon before its costly first
+ // draw. Inspect in the click task and again at the next animation frame.
+ const loading=await groundButton.evaluate(async button=>{
+  const state=()=>({busy:button.getAttribute('aria-busy'),shape:button.dataset.groundShape,pressed:button.getAttribute('aria-pressed'),surface:document.querySelector('.coelum-canvas').dataset.terrainSurface,duration:getComputedStyle(button.querySelector('svg')).animationDuration});
+  button.click();const immediate=state();
+  const nextFrame=await new Promise(resolve=>requestAnimationFrame(()=>resolve(state())));
+  return {immediate,nextFrame};
+ });
+ for(const state of [loading.immediate,loading.nextFrame])assert.deepEqual(state,{busy:'true',shape:'terrain',pressed:'true',surface:'false',duration:'0.65s'},'The loading icon is present for a paint before cached terrain draws');
+ await page.waitForFunction(()=>document.querySelector('.coelum-canvas').dataset.terrainSurface==='true'&&document.querySelector('[data-toggle-layer="ground"]').getAttribute('aria-busy')==='false');
+ assert.match(await groundButton.getAttribute('aria-label'),/Ground: Local terrain/);
  assert.equal(await groundButton.getAttribute('aria-pressed'),'true');
  assert.equal(requests,downloaded,'Ground cycling reuses the existing terrain');
  await page.click('[data-action="layers"]'); // dismiss shortcuts

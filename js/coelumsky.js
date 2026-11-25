@@ -87,6 +87,37 @@ export function skyPointScale(frame, o, layers = {}) {
   return 2 ** Math.max(0, (mag + 1 - light.limit) / 0.8);
 }
 
+// Picking follows the visible core, not the halo or the catalogue depth.
+// Keep faint rendered dots for the image without making empty-looking sky
+// selectable. Resolved disks and explicitly drawn symbols remain targets.
+export function skyPointHit(mag, limit, radius, resolved = false) {
+  return { pickMag: mag, pickRadius: radius, pickResolved: resolved,
+    pickable: radius >= 0.75 && (resolved || limit - mag >= 1.5) };
+}
+
+export function nearbySkyObjects(objects, p) {
+  const nearby = [];
+  for (const o of objects) {
+    if (o.pickable === false) continue;
+    const r = o.pickRadius ?? o.radius, d = Math.hypot(o.x - p.x, o.y - p.y);
+    if (d < r + 4) nearby.push({ o, d });
+  }
+  nearby.sort((a, b) => a.d - b.d);
+  if (!nearby.length) return nearby;
+  // Only blend within a few screen pixels. Separately resolved companions
+  // keep their own targets, even inside a larger body's touch tolerance.
+  const anchor = nearby[0].o;
+  const merged = nearby.filter(({ o }) => {
+    const blend = o.pickResolved === false && anchor.pickResolved === false
+      ? Math.max(4, o.pickRadius + anchor.pickRadius) : 4;
+    return Math.hypot(o.x - anchor.x, o.y - anchor.y) <= blend;
+  });
+  const brightness = (o) => o.pickMag ?? o.mag ?? Infinity;
+  merged.sort((a, b) => brightness(a.o) - brightness(b.o) || a.d - b.d);
+  const best = merged[0];
+  return [best, ...nearby.filter(hit => hit !== best)];
+}
+
 // view: az, alt and scale; a rotation (rows: the camera axes in horizontal
 // coordinates), when given, turns the camera (the equatorial mount).
 export function skyScene(frame, W, H, layers, view, ctx) {
@@ -225,17 +256,19 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   for (const o of frame.stars) {
     const q = xy(o);
     if (!onScreen(q, 4) || !above(q) || behind(q)) continue;
-    const r = point(o, o.mag - starBoost + (opts.atmosphere ? extinction(o.alt) : 0), bvRGB(o.bv), q);
+    const mag = o.mag - starBoost + (opts.atmosphere ? extinction(o.alt) : 0);
+    const r = point(o, mag, bvRGB(o.bv), q);
     if (!r) continue;
-    objects.push({ ...o, x: q.x, y: q.y, radius: r });
+    objects.push({ ...o, x: q.x, y: q.y, radius: r, ...skyPointHit(mag, limit, r) });
     if (o.name === view.selected || o.named && o.mag < (view.scale > 1.5 ? 4.5 : 2.5) && o.mag + 0.5 < limit) labels.push({ labelKind: 'stars', ...q, name: o.name, color: `rgba(215,225,240,${0.85 * fade + 0.15})`, r, priority: 2 });
   }
   // Downloaded fainter stars, to the same limit.
   eachFaint(frame, limit + starBoost, (i, v, mag, bv) => {
     const q = apparent(refract(v));
     if (!onScreen(q, 2) || !above(q) || behind(q)) return;
-    const r = point({}, mag - starBoost + (opts.atmosphere ? extinction(Math.asin(Math.max(-1, Math.min(1, v[2]))) / R) : 0), bvRGB(bv), q);
-    if (r) objects.push(new FaintHit(i, q.x, q.y, r));
+    const apparentMag = mag - starBoost + (opts.atmosphere ? extinction(Math.asin(Math.max(-1, Math.min(1, v[2]))) / R) : 0);
+    const r = point({}, apparentMag, bvRGB(bv), q);
+    if (r) objects.push(Object.assign(new FaintHit(i, q.x, q.y, r), skyPointHit(apparentMag, limit, r)));
   }, { v: rotation.slice(6, 9), radius: 2 * Math.atan(Math.hypot(W, H) / 2 / radius) + 0.03 });
   const moonsOf = frame.bodies.filter((o) => !o.hidden && hasMoons(o)), surfaceBodies = [];
   const northAt = (o, q) => {
@@ -260,8 +293,9 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     // At totality the Sun's disk is hidden, but its corona remains visible.
     if (o.body !== 'sun' && behind(q, o.dist, extent)) continue;
     ctx.save(); clipForeground(o.dist, q, Math.max(60, extent * 10));
-    let r;
+    let r, resolved = false;
     if (o.body === 'sun') {
+      resolved = true;
       const reddening = opts.atmosphere ? Math.exp(-Math.max(0, o.alt) / 4) : 0, rgb = [255, Math.round(246 - 90 * reddening), Math.round(228 - 170 * reddening)];
       r = diskOf(o, pxPerRad);
       const s = r * 9;
@@ -281,6 +315,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       { ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill(); }
       ctx.restore();
     } else if (o.body === 'moon') {
+      resolved = true;
       r = diskOf(o, pxPerRad);
       const northPoint = xy(o.north), shadowPoint = o.shadow && xy(o.shadow.center);
       if (r >= 10) surfaceBodies.push('moon');
@@ -296,6 +331,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       if (!r) { ctx.restore(); continue; }
       const disk = diskRadius(o) * R * pxPerRad;
       if (disk >= r) {
+        resolved = disk >= 2;
         if (hasMoons(o) && planetMap(o.body)?.moons) moonSizing = true;
         surfaceBodies.push(o.body);
         const model = planetSurface(frame, o);
@@ -306,7 +342,8 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       } else point(o, mag, BODY_RGB[o.body], q);
     }
     ctx.restore();
-    objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4) });
+    objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4),
+      ...skyPointHit(o.mag + (opts.atmosphere ? extinction(o.alt) : 0), limit, r, resolved) });
     // Close-up disks identify themselves; omit both the name and its leader.
     if (!SOLID.has(o.body) || o.body === 'sun' || r < 40) labels.push({ labelKind: 'solar', ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? '#fff1c9' : '#ffc98f', r: Math.max(r, 3), priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
   }
@@ -335,7 +372,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       if (!textured) drawPlanet(ctx, { body: 'moon', phase: o.phase, opaque: true }, q, mr, xy(o.light), false);
       ctx.restore();
     } else point(m, mag, BODY_RGB[o.body], q);
-    objects.push({ ...m, x: q.x, y: q.y, radius: Math.max(mr, 3) });
+    objects.push({ ...m, x: q.x, y: q.y, radius: Math.max(mr, 3), ...skyPointHit(mag, limit, mr, disk >= 2) });
     labels.push({ labelKind: 'solar', ...q, name: m.name, color: '#ffd9b0', r: Math.max(mr, 2), priority: m.name === view.selected ? 0 : 2, mag: m.mag });
   }
   // Satellites: sunlit ones as stars of their magnitude, with the trail of
@@ -352,7 +389,8 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (o.trail?.length) line([o, ...o.trail], { stroke: o.lit ? '#cfe9ff' : '#8090a8', width: 1, opacity: 0.35 });
     if (!r) { r = 2; p.circle(q.x, q.y, r, { stroke: '#8090a8', width: 1 }); }
     ctx.restore();
-    objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4) });
+    const hit = skyPointHit(o.mag + (opts.atmosphere ? extinction(o.alt) : 0), limit, r);
+    objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4), ...hit, pickable: o.lit && hit.pickable });
     if (chosen || o.satellite.group === 'stations' || o.mag < 1) labels.push({ labelKind: 'satellites', ...q, name: o.name, color: '#cfe9ff', r: Math.max(r, 3), priority: chosen ? 0 : 2, mag: o.mag });
   }
   if (bg.ground) ctx.drawImage(bg.ground, 0, bg.groundY, bg.w, bg.h, 0, 0, bg.width, bg.height);
@@ -400,7 +438,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (chosen) reticle(p, feature.x, feature.y, 5, '#ffdf9e');
   }
   surfaceFeatures.push(...terrainFeatures);
-  const symbols = objects.filter((o) => o.body && !(o.body === 'moon' && lunarFeatures.length || o.body === 'mars' && marsFeatures.length)), names = new Set([...objects.map((o) => o.name), ...surfaceFeatures.map((f) => f.key)]);
+  const symbols = objects.filter((o) => o.body && !(o.body === 'moon' && lunarFeatures.length || o.body === 'mars' && marsFeatures.length)), names = new Set([...objects.filter(o => o.pickable !== false).map((o) => o.name), ...surfaceFeatures.map((f) => f.key)]);
   for (const o of frame.barycenters || []) {
     if (!binaryCenterVisible(o,frame,xy,view)) continue;
     const q = xy(o); if (!onScreen(q,4) || !above(q) || behind(q,Infinity)) continue;

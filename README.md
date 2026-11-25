@@ -1286,6 +1286,11 @@ once before reuse; current lookups continue to work offline.
 `node tests/history.mjs` checks history search, pinning, persistence and backup
 compatibility, using the same Playwright and Chromium options.
 
+`node tests/sky-picking.mjs` checks sky selection visibility and brightness
+priority for unresolved stars and planetary moons. `node tests/sky-picking-browser.mjs`
+checks the rendered visibility rules, label targets and zoom behavior, using
+the same Playwright and Chromium options.
+
 `node tests/sessions.mjs` checks session migration, isolation, drafts, duplication
 and backup restoration, using the same Playwright and Chromium options.
 
