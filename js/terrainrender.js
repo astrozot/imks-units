@@ -45,7 +45,7 @@ float gridHeight(int k,vec2 q){
  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
 }
 float heightAt(int k,vec2 q){return gridHeight(k,q)-curvature(q);}
-// One texel read: for distant occluders, whose penumbra is far wider.
+// One texel read: for the sky-visibility pass, which is jittered and filtered.
 float nearestHeightAt(int k,vec2 q){return rawHeight(k,ivec2(floor((q+ringExtent[k])/texelSize(k))))-curvature(q);}`;
 const screenVertex = `#version 300 es
 out vec2 uv;
@@ -66,8 +66,7 @@ void main(){
  colour=vec4(normal.xy*0.5+0.5,0,1);
 }`;
 // Heightfield horizon toward the light for every texel, marching through the
-// finest ring that contains each sample (or a coarser one once the step has
-// outgrown its texels). Each texel stores its margin below the light: the
+// finest ring that contains each sample. Each texel stores its margin below the light: the
 // light's slope minus the steepest occluder slope toward it (negative in
 // shadow). The margin varies continuously across the grid, so interpolating
 // it puts the shadow edge where it falls inside each cell; interpolated
@@ -117,10 +116,14 @@ void main(){
   vec2 q=q0+dir*t;float m=max(abs(q.x),abs(q.y));
   // Beyond the data, or the ray has climbed above every possible occluder.
   if(m>=limit||z0+t*tanBottom>maxHeight)break;
+  // The finest ring holding the sample, read bilinearly, even when the step
+  // spans several of its texels. Nearest texels of the coarser rings (15–60 m)
+  // made occluders blocks: the horizon slope jumped between neighbouring
+  // receivers, a sawtooth edge tens of metres deep at low Sun. Bilinear reads
+  // of a coarse ring still bend a smooth crest at its texel period.
   int k=0;
-  for(;k<rings-1;k++)if(m<ringExtent[k]&&texelSize(k)*2.0>=step)break;
-  // Bilinear near the receiver (self-shadowing of slopes), nearest beyond.
-  best=max(best,((t<8.0*minStep?heightAt(k,q):nearestHeightAt(k,q))-z0)/t);
+  for(;k<rings-1;k++)if(m<ringExtent[k])break;
+  best=max(best,(heightAt(k,q)-z0)/t);
   // Fully hidden, with two texels to spare in height so that interpolation
   // toward a lit neighbour still places the edge well.
   if(best>=tanTop+2.0*minStep/t)break;

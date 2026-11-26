@@ -61,7 +61,19 @@ try{
   let catchUp=0;for(let pending=true;pending&&catchUp<800;catchUp++)pending=p.draw({...view,sun:{az:0,alt:12},progressive:true}).shadowsPending;
   const caught=p.readShadow(0).values;let stale=0;for(let i=0;i<caught.length;i++)if(caught[i]!==latest[i])stale++;
   p.destroy();
-  r.destroy();return {plane,ends,progressive:{frames,unchanged,different,catchUp,stale}};
+  // A ridge oblique to the grid, 1.7 km from where its shadow ends: the march
+  // reads it from the coarser second ring (31 m texels). Its shadow edge on
+  // level ground must be a straight line, not a sawtooth of occluder texels.
+  const toSun=[Math.sin(150*Math.PI/180),Math.cos(150*Math.PI/180)],along=[-toSun[1],toSun[0]];
+  const oblique=(lat,lon)=>300*Math.exp(-((((lon*toSun[0]+lat*toSun[1])*metres-1500)/150)**2));
+  const pair=[makeRing({place:[0,0,0],sample:oblique,extent:2000,divisions:64,gridSize:512}),makeRing({place:[0,0,0],sample:oblique,extent:8000,inner:2000,divisions:64,gridSize:512})];
+  r.setMeshes(pair);r.draw({W:300,H:200,radius:550,rotation:lookAt(150,-10),sun:{az:150,alt:10},moon:{az:0,alt:-90},flux:0,exposure:1.6,shadows:true});
+  const fine=r.readShadow(0),marginAt=(x,y)=>{const t=(x+fine.extent)/(2*fine.extent)*fine.size-.5,u=(y+fine.extent)/(2*fine.extent)*fine.size-.5,i=Math.floor(t),j=Math.floor(u),a=t-i,b=u-j,M=(i,j)=>fine.margin[j*fine.size+i];return (M(i,j)*(1-a)+M(i+1,j)*a)*(1-b)+(M(i,j+1)*(1-a)+M(i+1,j+1)*a)*b;};
+  const edges=[];
+  for(let s=-600;s<=600;s+=10){let previous=null;for(let d=-700;d<400;d+=1){const m=marginAt(s*along[0]+d*toSun[0],s*along[1]+d*toSun[1]);if(previous!==null&&previous>=0&&m<0){edges.push([s,d-1+previous/(previous-m)]);break;}previous=m;}}
+  const n=edges.length,ms=edges.reduce((a,[s])=>a+s,0)/n,md=edges.reduce((a,[,d])=>a+d,0)/n,slope=edges.reduce((a,[s,d])=>a+(s-ms)*(d-md),0)/edges.reduce((a,[s])=>a+(s-ms)**2,0);
+  const obliqueEdge={count:n,mean:md,expected:1500-300/Math.tan(10*Math.PI/180),maxResidual:Math.max(...edges.map(([s,d])=>Math.abs(d-md-slope*(s-ms)))),texel:2*fine.extent/fine.size};
+  r.destroy();return {plane,ends,obliqueEdge,progressive:{frames,unchanged,different,catchUp,stale}};
  });
  for(const result of results.plane){assert.equal(result.error,0);assert.ok(result.compared>1000);assert.ok(result.dark<result.compared*.001,JSON.stringify(result));}
  for(const e of results.ends){
@@ -70,9 +82,13 @@ try{
   // Penumbrae narrower than a few shadow texels cannot be resolved.
   assert.ok(e.penumbra<e.expectedPenumbra*2+3*e.step&&(e.expectedPenumbra<3*e.step||e.penumbra>e.expectedPenumbra*.5),`Penumbra must follow the solar disc: ${JSON.stringify(e)}`);
  }
+ const o=results.obliqueEdge;
+ assert.ok(o.count>100,`The oblique ridge must cast a shadow edge: ${JSON.stringify(o)}`);
+ assert.ok(Math.abs(o.mean-o.expected)<.03*300/Math.tan(10*Math.PI/180),`The oblique ridge's shadow must end at height/tan(altitude): ${JSON.stringify(o)}`);
+ assert.ok(o.maxResidual<o.texel,`Shadow edges of distant occluders must be straight, not a sawtooth of their grid: ${JSON.stringify(o)}`);
  assert.ok(results.progressive.frames>2,'The update must be spread over frames');
  assert.ok(results.progressive.unchanged,'Partial updates must not be visible');
  assert.equal(results.progressive.different,0,'A finished progressive update equals a full one');
  assert.equal(results.progressive.stale,0,'After the light stops, shadows catch up with it');
- console.log(JSON.stringify({status:'passed',planeCases:results.plane.length,maxFalseDarkChannels:Math.max(...results.plane.map(x=>x.dark)),ridge:results.ends}));
+ console.log(JSON.stringify({status:'passed',planeCases:results.plane.length,maxFalseDarkChannels:Math.max(...results.plane.map(x=>x.dark)),ridge:results.ends,obliqueEdge:results.obliqueEdge}));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
