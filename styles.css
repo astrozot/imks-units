@@ -2105,3 +2105,7 @@ body.coelum-app { background: #000; }
 .coelum-settings-section[hidden] { display: none; }
 
 .coelum-topic-dialog .coelum-layer-visibility { display: none; }
+
+/* Atmospheric station pressure and temperature, including narrow screens. */
+.coelum-selects label:has([data-atmosphere-setting]) { display: grid; gap: 6px; flex: 1 1 180px; min-width: 0; }
+.coelum-selects input[data-atmosphere-setting] { box-sizing: border-box; width: 100%; min-height: 36px; padding: 5px 8px; border: 1px solid var(--c-line); border-radius: 8px; background: #1a2541; color: var(--c-ink); font: inherit; }

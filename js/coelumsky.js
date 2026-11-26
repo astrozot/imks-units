@@ -1,12 +1,13 @@
+import { atmosphericState, atmosphericExtinction, atmosphericTransmission } from './atmosphere.js';
 import { showDeepObject } from './deepcatalog.js';
 // The realistic view of coelum: a stereographic camera at the horizon, the
 // sky's colour with the time of day, stars dimmed by twilight, moonlight and
 // extinction, the Milky Way, the Sun's glare, the textured Moon with its
 // phase, and the ground in front. Always drawn on a canvas.
 import { R, pen, lookAt, planetMoons, hasMoons, diskRadius, saturnRings, skyGrid, gridLabelAt, projectVector, unprojectSky, pointVector, refractVector, eachFaint, FaintHit, placeLabels, horizonToJ2000, findObject, reticle, trackedNames, binaryCenterVisible, binaryCenterSymbol, deepColor, fontFor } from './coelum.js';
-import { skyRaster, skyLight } from './skyraster.js';
+import { skyRaster, skyLight, skyColours } from './skyraster.js';
 import { terrainRaster } from './terrainraster.js';
-import { terrainForeground } from './terrainmesh.js';
+import { terrainForeground, moonFlux as lunarIrradiance } from './terrainmesh.js';
 import { lunarLimb, covered, tracePlanet, planetMap, planetPixelRatio, earthshineBrightness, lunarShadowLight, lunarShadowMean, lunarEclipseColor } from './skyview.js';
 import { observerOrigin, moonDisk, moons, planetDisk, equatorial, earthShadow } from './astro.js';
 import { projectLunarFeatures, LUNAR_COLOR } from './lunarfeatures.js';
@@ -59,11 +60,8 @@ export const moonTexture = typeof Image === 'undefined' ? Promise.resolve(null) 
   img.src = new URL('../img/moon.webp', import.meta.url).href;
 });
 
-// Extinction (mag) at an altitude (degrees), with a plain airmass.
-const extinction = (alt) => { const s = Math.sin(Math.max(alt, 0) * R); return 0.22 * (1 / (s + 0.025 * Math.exp(-11 * s)) - 1); };
-
 // Share the rendering conditions with search's visibility calculation.
-function skyLighting(frame, atmosphere) {
+function skyLighting(frame, atmosphere, settings = null) {
   const sun = frame.bodies[0], moon = frame.bodies.find((o) => o.body === 'moon');
   // Eclipses: the part of the Sun covered by the Moon darkens the sky as
   // the Sun lower in the sky would (at totality, as 8° below the horizon);
@@ -74,7 +72,7 @@ function skyLighting(frame, atmosphere) {
   const sunAlt = eclipsed > 0.5 ? Math.min(sun.alt, 15 + (Math.log10(Math.max(1 - eclipsed, 1e-3)) + 0.5) * 9.2) : sun.alt;
   const illum = moon ? (1 + Math.cos(moon.phase * R)) / 2 * moonDim(moon) : 0;
   const moonAlt = moon?.alt ?? -90;
-  const light = skyLight(sunAlt, { alt: moonAlt, illum }, atmosphere);
+  const light = skyLight(sunAlt, { alt: moonAlt, illum }, atmosphere, settings, frame.place[2] || 0);
   return { sun, moon, eclipsed, total, sunAlt, illum, moonAlt, light };
 }
 
@@ -82,8 +80,9 @@ function skyLighting(frame, atmosphere) {
 // than a barely perceptible dot at the exact limiting magnitude.
 export function skyPointScale(frame, o, layers = {}) {
   if (!Number.isFinite(o.mag) || o.body === 'sun' || o.body === 'moon' || o.size || !o.body && !o.planet && o.type !== 'star') return 1;
-  const opts = { ...SKY_LAYERS, ...layers }, { light } = skyLighting(frame, opts.atmosphere);
-  const mag = o.mag - (!o.body && !o.planet ? opts.starBoost || 0 : 0) + (opts.atmosphere ? extinction(o.alt) : 0);
+  const opts = { ...SKY_LAYERS, ...layers }, { light } = skyLighting(frame, opts.atmosphere, opts.atmosphereSettings);
+  const air = atmosphericState(opts.atmosphereSettings, frame.place[2] || 0);
+  const mag = o.mag - (!o.body && !o.planet ? opts.starBoost || 0 : 0) + (opts.atmosphere ? atmosphericExtinction(o.alt, air) : 0);
   return 2 ** Math.max(0, (mag + 1 - light.limit) / 0.8);
 }
 
@@ -124,23 +123,27 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   const opts = { ...SKY_LAYERS, ...layers }, radius = skyRadius(W, H, view.scale), rotation = view.rotation || lookAt(view.az, view.alt);
   if (observerOrigin(frame.place) !== 'topocentric') opts.ground = false;
   const cx = W / 2, cy = H / 2, p = pen(ctx), f = (x) => x.toFixed(2);
-  const { sun, moon, eclipsed, total, sunAlt, illum, moonAlt, light } = skyLighting(frame, opts.atmosphere);
+  const { sun, moon, eclipsed, total, sunAlt, illum, moonAlt, light } = skyLighting(frame, opts.atmosphere, opts.atmosphereSettings);
   const proj = (v) => { const q = projectVector(v, rotation, true); return { x: cx + q.x * radius, y: cy + q.y * radius, z: q.z }; };
   // With the atmosphere, objects are seen raised by the refraction (for the
   // pressure at the place's height); the horizontal grid is not.
-  const height = frame.place[2] || 0, refract = opts.atmosphere ? (v) => refractVector(v, height) : (v) => v;
+  const air = atmosphericState(opts.atmosphereSettings, frame.place[2] || 0);
+  const height = frame.place[2] || 0, refract = opts.atmosphere ? (v) => refractVector(v, height, opts.atmosphereSettings) : (v) => v;
   const apparent = (v) => { const q = proj(v); q.alt = Math.asin(Math.max(-1, Math.min(1, v[2]))) / R; q.az = (Math.atan2(v[0], v[1]) / R + 360) % 360; return q; };
   const xy = (o) => apparent(refract(pointVector(o)));
   // The horizon: the local terrain (its skyline, while the surface loads), or flat.
   const hill = opts.horizon === 'terrain' && opts.terrain ? opts.terrain : FLAT;
   // Render first so a lost/unavailable WebGL context still gets the complete
   // legacy ground fallback. A successful surface owns its distant silhouette.
-  const surface = opts.ground && opts.horizon === 'terrain' && opts.terrainSurface ? terrainRaster(ctx, opts.terrainSurface, { W, H, radius, rotation, sun, lightingSunAlt: sunAlt, solarFlux: 1 - eclipsed, moon, appearance: opts.terrainAppearance, atmosphere: opts.atmosphere, onRedraw: opts.onTerrainRedraw }) : null;
+  const skySun={alt:sun.alt,vector:pointVector(sun),flux:1-eclipsed};
+  const skyMoon={alt:moonAlt,illum,flux:moon?lunarIrradiance(moon.phase,moon.dist)*moonDim(moon):0,vector:moon?pointVector(moon):[0,0,-1]};
+  const sky=opts.atmosphere?skyColours({sun:skySun,moon:skyMoon,atmosphere:true,atmosphereSettings:opts.atmosphereSettings,eyeElevation:height}):null;
+  const surface = opts.ground && opts.horizon === 'terrain' && opts.terrainSurface ? terrainRaster(ctx, opts.terrainSurface, { W, H, radius, rotation, moving: !!(view.moving || view.animating), sun, lightingSunAlt: sunAlt, solarFlux: 1 - eclipsed, moon, appearance: opts.terrainAppearance, atmosphere: opts.atmosphere, atmosphereSettings: opts.atmosphereSettings, sky, onRedraw: opts.onTerrainRedraw }) : null;
   const bg = skyRaster(ctx, {
     W, H, radius, camera: { rotation, stereographic: true }, samples: view.moving ? 22000 : 45000, toJ2000: horizonToJ2000(frame), kind: 'sky',
-    milkyWay: opts.milkyway, ground: opts.ground, atmosphere: opts.atmosphere, hill: surface ? terrainForeground(opts.terrainSurface) : hill,
+    milkyWay: opts.milkyway, ground: opts.ground, atmosphere: opts.atmosphere, atmosphereSettings: opts.atmosphereSettings, eyeElevation: frame.place[2] || 0, hill: surface ? terrainForeground(opts.terrainSurface) : hill,
     groundColor: opts.horizon === 'terrain' && opts.terrainSurface?.metrics.water?.observer && opts.terrainAppearance?.waterColor !== false ? [0.035,0.11,0.22].map(v => v*light.day+.003*light.twilight+.001) : null,
-    sun: { alt: sunAlt, vector: refract(pointVector(sun)) }, moon: { alt: moonAlt, illum, vector: moon ? refract(pointVector(moon)) : [0, 0, -1] },
+    sun: skySun, moon: skyMoon, colours: sky,
   });
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(bg.sky, 0, 0, bg.w, bg.h, 0, 0, bg.width, bg.height);
@@ -256,7 +259,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   for (const o of frame.stars) {
     const q = xy(o);
     if (!onScreen(q, 4) || !above(q) || behind(q)) continue;
-    const mag = o.mag - starBoost + (opts.atmosphere ? extinction(o.alt) : 0);
+    const mag = o.mag - starBoost + (opts.atmosphere ? atmosphericExtinction(o.alt, air) : 0);
     const r = point(o, mag, bvRGB(o.bv), q);
     if (!r) continue;
     objects.push({ ...o, x: q.x, y: q.y, radius: r, ...skyPointHit(mag, limit, r) });
@@ -266,7 +269,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
   eachFaint(frame, limit + starBoost, (i, v, mag, bv) => {
     const q = apparent(refract(v));
     if (!onScreen(q, 2) || !above(q) || behind(q)) return;
-    const apparentMag = mag - starBoost + (opts.atmosphere ? extinction(Math.asin(Math.max(-1, Math.min(1, v[2]))) / R) : 0);
+    const apparentMag = mag - starBoost + (opts.atmosphere ? atmosphericExtinction(Math.asin(Math.max(-1, Math.min(1, v[2]))) / R, air) : 0);
     const r = point({}, apparentMag, bvRGB(bv), q);
     if (r) objects.push(Object.assign(new FaintHit(i, q.x, q.y, r), skyPointHit(apparentMag, limit, r)));
   }, { v: rotation.slice(6, 9), radius: 2 * Math.atan(Math.hypot(W, H) / 2 / radius) + 0.03 });
@@ -296,7 +299,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     let r, resolved = false;
     if (o.body === 'sun') {
       resolved = true;
-      const reddening = opts.atmosphere ? Math.exp(-Math.max(0, o.alt) / 4) : 0, rgb = [255, Math.round(246 - 90 * reddening), Math.round(228 - 170 * reddening)];
+      const transmission = opts.atmosphere ? atmosphericTransmission(o.alt, air) : [1, 1, 1], rgb = transmission.map((v, k) => Math.round([255, 246, 228][k] * v / Math.max(transmission[0], 1e-8)));
       r = diskOf(o, pxPerRad);
       const s = r * 9;
       // its light, the glare, the corona at totality and the disk, but
@@ -326,7 +329,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
       if (textured) lunarFeatures = projectLunarFeatures(disk, q, r, north, W, H,
         shadowPoint && { ...shadowPoint, umbra: o.shadow.umbra }, view.selected, view.unlitLunar === view.selected).filter(surfaceAboveGround);
     } else {
-      const mag = o.mag + (opts.atmosphere ? extinction(o.alt) : 0);
+      const mag = o.mag + (opts.atmosphere ? atmosphericExtinction(o.alt, air) : 0);
       r = pointRadius(mag);
       if (!r) { ctx.restore(); continue; }
       const disk = diskRadius(o) * R * pxPerRad;
@@ -343,7 +346,7 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     }
     ctx.restore();
     objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4),
-      ...skyPointHit(o.mag + (opts.atmosphere ? extinction(o.alt) : 0), limit, r, resolved) });
+      ...skyPointHit(o.mag + (opts.atmosphere ? atmosphericExtinction(o.alt, air) : 0), limit, r, resolved) });
     // Close-up disks identify themselves; omit both the name and its leader.
     if (!SOLID.has(o.body) || o.body === 'sun' || r < 40) labels.push({ labelKind: 'solar', ...q, name: o.name, color: o.body === 'sun' || o.body === 'moon' ? '#fff1c9' : '#ffc98f', r: Math.max(r, 3), priority: o.name === view.selected ? 0 : minor ? 2 : 1, important: !minor, mag: o.mag });
   }
@@ -354,11 +357,11 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (m.hidden) continue;
     const q = xy(m), pxPerRad = pxPerRadAt(q), disk = m.diameter / 2 * R * pxPerRad;
     if (pxPerRad * R <= 20 || !onScreen(q, Math.max(4, disk)) || !above(q) || behind(q, m.dist, disk)) continue;
-    const mag = m.mag + (opts.atmosphere ? extinction(m.alt) : 0), dot = pointRadius(mag);
+    const mag = m.mag + (opts.atmosphere ? atmosphericExtinction(m.alt, air) : 0), dot = pointRadius(mag);
     if (!dot && m.name !== view.selected) continue;
     // Share the planet's texture threshold, even when it is off screen.
     // Magnitude mode keeps a small moon at least as large as its former dot.
-    const parentDot = pointRadius(o.mag + (opts.atmosphere ? extinction(o.alt) : 0));
+    const parentDot = pointRadius(o.mag + (opts.atmosphere ? atmosphericExtinction(o.alt, air) : 0));
     const parentResolved = parentDot > 0 && diskRadius(o) * R * pxPerRad >= parentDot;
     if (parentResolved && planetMap(o.body)?.moons) moonSizing = true;
     let mr = dot;
@@ -383,13 +386,13 @@ export function skyScene(frame, W, H, layers, view, ctx) {
     if (o.body !== 'satellite' || !opts.satellites && o.name !== view.selected && !view.revealed?.has(o.name)) continue;
     const q = xy(o), chosen = o.name === view.selected;
     if (!onScreen(q, 4) || !above(q) || behind(q, o.dist)) continue;
-    let r = o.lit ? point(o, o.mag + (opts.atmosphere ? extinction(o.alt) : 0), [228, 242, 255], q) : 0;
+    let r = o.lit ? point(o, o.mag + (opts.atmosphere ? atmosphericExtinction(o.alt, air) : 0), [228, 242, 255], q) : 0;
     if (!r && !chosen) continue;
     ctx.save(); clipForeground(o.dist);
     if (o.trail?.length) line([o, ...o.trail], { stroke: o.lit ? '#cfe9ff' : '#8090a8', width: 1, opacity: 0.35 });
     if (!r) { r = 2; p.circle(q.x, q.y, r, { stroke: '#8090a8', width: 1 }); }
     ctx.restore();
-    const hit = skyPointHit(o.mag + (opts.atmosphere ? extinction(o.alt) : 0), limit, r);
+    const hit = skyPointHit(o.mag + (opts.atmosphere ? atmosphericExtinction(o.alt, air) : 0), limit, r);
     objects.push({ ...o, x: q.x, y: q.y, radius: Math.max(r, 4), ...hit, pickable: o.lit && hit.pickable });
     if (chosen || o.satellite.group === 'stations' || o.mag < 1) labels.push({ labelKind: 'satellites', ...q, name: o.name, color: '#cfe9ff', r: Math.max(r, 3), priority: chosen ? 0 : 2, mag: o.mag });
   }
@@ -569,13 +572,7 @@ function traceSurface(ctx, disk, q, r, north, { W, H }, alpha, { center = { x: 0
 // inward, the umbra dark red.
 function drawMoon(ctx, o, q, r, lightPoint, northPoint, light, atmosphere, shadowPoint = null, screen, disk) {
   const k = Math.cos(o.phase * R), angle = Math.atan2(lightPoint.y - q.y, lightPoint.x - q.x), north = Math.atan2(northPoint.y - q.y, northPoint.x - q.x) + Math.PI / 2;
-  const illum = (1 + k) / 2 * moonDim(o), night = 1 - light.day;
-  if (atmosphere) {
-    const s = r * 10;
-    ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.35 * illum * (0.3 + 0.7 * night);
-    ctx.drawImage(glow([200, 210, 230]), q.x - s, q.y - s, 2 * s, 2 * s);
-    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
-  }
+  const night = 1 - light.day;
   if (shadowPoint) {
     const dx = (shadowPoint.x - q.x) / r, dy = (shadowPoint.y - q.y) / r;
     disk = { ...disk, eclipse: { ...o.shadow,

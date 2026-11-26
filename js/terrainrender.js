@@ -1,3 +1,5 @@
+import {createAerialPerspective,AERIAL_GLSL} from './aerialperspective.js';
+import { physicalSky, SCATTERING_GLSL, scatteringUniforms } from './scattering.js';
 import { terrainGpuMesh, terrainDrawGroups, TERRAIN_VERTEX_STRIDE } from './terrainlighting.js';
 import { lightVector } from './terrainmesh.js';
 import { WATER_TOLERANCE } from './terrainwater.js';
@@ -108,6 +110,43 @@ void main(){
  float x=clamp((alt-atan(best))/sourceRadius,-1.0,1.0);
  colour=vec4((3.14159265-acos(x)+x*sqrt(1.0-x*x))/3.14159265);
 }`;
+// Shadow ceiling for the air, in the same job and from the same heights as
+// the surface shadows: above each texel, the height of the light ray that
+// grazes the highest occluder toward the light (the ground where lit), and
+// that occluder's distance (km) for the penumbra. Air below it is shaded.
+// Unlike surface visibility, the march cannot stop at the first full
+// occluder; it stops once no farther terrain can raise the ceiling.
+const ceilingFragment = `#version 300 es
+${RINGS}
+uniform int ring,size;
+uniform vec3 light;
+uniform float maxHeight,innerSkip,stepGrowth;
+out vec4 colour;
+void main(){
+ float E=ringExtent[ring],horizontal=length(light.xy);
+ vec2 q0=gl_FragCoord.xy/float(size)*2.0*E-E;
+ if(max(abs(q0.x),abs(q0.y))<innerSkip||horizontal<1e-5){colour=vec4(-1.0e4,0,0,1);return;}
+ int k0=rings-1;
+ for(int k=0;k<5;k++)if(k<rings&&max(abs(q0.x),abs(q0.y))<ringExtent[k]){k0=k;break;}
+ float z0=heightAt(k0,q0);
+ if(z0<-1.0e5){colour=vec4(-1.0e4,0,0,1);return;}
+ vec2 dir=light.xy/horizontal;
+ float tanAlt=light.z/horizontal,minStep=texelSize(k0),s0=dot(q0,dir),t=0.0,top=z0,at=0.0,limit=ringExtent[rings-1];
+ float step=texelSize(0);
+ while(step<minStep*(1.0-1e-4))step*=2.0;
+ for(int s=0;s<640;s++){
+  if(t*stepGrowth>step*(1.0+1e-4))step*=2.0;
+  t=(floor((s0+t)/step+1e-4)+1.0)*step-s0;
+  if(t<minStep*0.5)t+=step;
+  vec2 q=q0+dir*t;float m=max(abs(q.x),abs(q.y));
+  if(m>=limit||maxHeight-t*tanAlt<=top)break;
+  int k=0;
+  for(;k<rings-1;k++)if(m<ringExtent[k]&&texelSize(k)*2.0>=step)break;
+  float c=heightAt(k,q)-t*tanAlt;
+  if(c>top){top=c;at=t;}
+ }
+ colour=vec4(top,at/1000.0,0,1);
+}`;
 // Sky visibility, once per surface: the horizon in 8 directions (jittered per
 // texel, then smoothed by filtering) out to 20 km; each sees cos² of its
 // horizon elevation, the share of a horizontal surface's sky irradiance.
@@ -142,15 +181,36 @@ void main(){
 const fragment = `#version 300 es
 ${RINGS}
 in vec3 P;
-uniform vec3 light, forward;
+uniform vec3 light, forward, right, up;
+uniform vec2 size;
+uniform float radius;
 uniform highp sampler2D normalMap,nextNormalMap,shadowMap,nextShadowMap,levelMap,skyMap,nextSkyMap;
 uniform float extent,nextExtent,waterTolerance;
 uniform int ringIndex;
 uniform float sunAlt, moonFlux, exposure, nearField, farField, solarFlux;
-uniform bool shadows, paper, moonSource, waterColor, atmosphere;
+uniform bool shadows, paper, moonSource, waterColor, atmosphere, volumeShadows;
+uniform highp sampler2DArray ceilingMap;
+uniform float ceilingTop, ceilingRadius;
 // The app's sky model (skyraster.js), for haze that meets the visible sky.
-uniform vec3 skyZenith, skyHorizon, sunDir;
-uniform float skyGlow, skySunUp, eyeElevation;
+uniform vec3 skyZenith, skyHorizon, skyIrradiance;
+uniform float eyeElevation;
+#define ATM_STEPS 12
+${SCATTERING_GLSL}
+${AERIAL_GLSL}
+// The shadow ceiling of the finest ring containing p: air below it is in
+// terrain shadow, with a penumbra as wide as the light's disc seen from the
+// occluder.
+float aerialVisibility(vec3 p){
+ if(!volumeShadows||p.z>ceilingTop)return 1.0;
+ for(int k=0;k<5;k++){
+  if(k>=rings)break;
+  float E=ringExtent[k];if(max(abs(p.x),abs(p.y))>=E)continue;
+  vec2 c=texture(ceilingMap,vec3((p.xy+E)/(2.0*E),float(k))).rg;
+  float w=max(3.0,c.g*1000.0*ceilingRadius);
+  return smoothstep(-w,w,p.z-c.r);
+ }
+ return 1.0;
+}
 // Land cover (compact WorldCover class indices) and the noise anchor.
 precision highp usampler2D;
 uniform highp usampler2D coverMap,nextCoverMap;
@@ -194,28 +254,9 @@ vec2 groundNoise(vec2 w){
  return total;
 }
 vec3 srgb(vec3 c){return mix(12.92*c,1.055*pow(max(c,vec3(0)),vec3(1.0/2.4))-0.055,step(vec3(0.0031308),c));}
-vec3 skyTone(vec3 x){return min(vec3(1.0),x/(1.0+0.22*x)*1.22);}
-// The sky's display colour in direction v, as the sky raster draws it
-// (without the Sun's disc itself).
-vec3 skyAt(vec3 v){
- float hgt=max(asin(clamp(v.z,-1.0,1.0)),0.0),d=1.0-dot(sunDir,v);
- vec3 c=mix(skyZenith,skyHorizon,exp(-hgt/0.3));
- if(skyGlow>0.002)c+=vec3(1.05,0.45,0.14)*skyGlow*exp(-d/0.4)*exp(-hgt/0.16)+vec3(0.85,0.38,0.3)*skyGlow*0.22*exp(-hgt/0.06)*(1.5-d/2.0);
- if(skySunUp>0.0)c+=vec3(1.0,0.94,0.84)*skySunUp*(0.35*exp(-d/0.02)+0.1*exp(-d/0.15));
- return skyTone(c);
-}
-// Clear air: Rayleigh (scale height 8 km) and aerosol (1.5 km) extinction per
-// metre at sea level, for red, green and blue.
-const vec3 BETA_R=vec3(5.8e-6,13.5e-6,33.1e-6);
-const float BETA_A=3.0e-5,H_R=8000.0,H_A=1500.0;
-// Mean density along a path between heights a and b, relative to sea level.
-float density(float a,float b,float H){float d=(b-a)/H;return exp(-a/H)*(abs(d)<1e-3?1.0-d/2.0:(1.0-exp(-d))/d);}
-// Sunlight reaching height h through airmass (Kasten & Young 1989),
-// relative to a zenith Sun at sea level, so the noon Sun stays neutral.
-vec3 sunlight(float alt,float h){
- float deg=max(alt*57.29578,-0.5),m=1.0/(max(sin(alt),0.0)+0.50572*pow(deg+6.07995,-1.6364));
- return exp(-m*(BETA_R*H_R*exp(-h/H_R)+BETA_A*H_A*exp(-h/H_A))+(BETA_R*H_R+BETA_A*H_A));
-}
+// Direct-light attenuation uses the same spherical optical columns as sky
+// and aerial perspective, including the planet's shadow and ozone.
+vec3 sunlight(float alt,float h){return atmTransmission(h,sin(alt));}
 vec3 unpackNormal(vec2 v){v=v*2.0-1.0;return vec3(v,sqrt(max(0.0,1.0-dot(v,v))));}
 void main(){
  if(length(P.xy)<nearField || length(P.xy)>farField || dot(P,forward)<-0.2*length(P))discard;
@@ -249,12 +290,8 @@ void main(){
  float strength=moonSource?moonFlux:solarFlux;
  // Absolute height of this point (P.z includes the curvature drop).
  float d2=dot(P.xy,P.xy),height=eyeElevation+P.z+0.87*d2/(2.0*EARTH);
- vec3 tint=atmosphere&&!paper?sunlight(asin(clamp(light.z,-1.0,1.0)),height):vec3(1);
- // The Moon's dimming is applied elsewhere: keep only its colour. For the
- // Sun, eyes adapt as the whole scene darkens near sunset: keep the colour,
- // with half the dimming on a log scale, so alpenglow stays vivid.
- float sunLuminance=max(1e-4,dot(tint,vec3(0.2126,0.7152,0.0722)));
- if(moonSource)tint/=max(1e-4,tint.g);else tint/=sqrt(sunLuminance);
+ vec3 radial=normalize(vec3(P.xy,ATM_R+eyeElevation+P.z));
+ vec3 tint=atmosphere&&!paper?sunlight(asin(clamp(dot(radial,light),-1.0,1.0)),height):vec3(1);
  vec3 albedo=vec3(0.79);
  if(!paper){
   vec4 surface=hasCover?coverAt(coverMap,extent,P.xy,n):vec4(slopeAlbedo(n),0.5);
@@ -275,19 +312,24 @@ void main(){
  // Light reflected from sunlit ground onto slopes that see less sky.
  vec3 bounce=paper?vec3(0):sun*max(light.z,0.0)*0.2*0.5*(1.0-skyView)*(1.0-max(n.z,0.0)*0.5);
  vec3 radiance=albedo*(diffuse*skyLight+0.00000008*adaptation+sun*direct+bounce);
+ if(atmosphere&&!paper){
+  // Lambertian reflection of direct irradiance and the integrated sky.
+  // The sky and terrain share exposure before final display conversion.
+  float incident=moonSource?scatteringMoonFlux:scatteringSolarFlux;
+  radiance=albedo*(skyIrradiance*skyView*(0.5+0.5*max(n.z,0.0))+tint*incident*direct)/3.141592653589793*scatteringExposure;
+ }
  // Soft shoulder instead of clipping; unchanged below 0.8.
  vec3 x=radiance*exposure;
- x=mix(x,0.8+0.2*(1.0-exp(-(x-0.8)/0.2)),step(vec3(0.8),x));
+ if(!atmosphere||paper)x=mix(x,0.8+0.2*(1.0-exp(-(x-0.8)/0.2)),step(vec3(0.8),x));
  vec3 c=srgb(x);
  if(paper){
   float fog=(1.0-exp(-length(P.xy)/45000.0))*max(day,twilight*0.4);
   c=mix(c,mix(vec3(0.004,0.006,0.012),vec3(0.97),max(day,twilight*0.45)),fog*0.7);
  }else if(atmosphere){
-  // Aerial perspective: extinction along the line of sight, by colour and
-  // air density, towards the sky's own colour in this direction.
-  float range=length(P);
-  vec3 T=exp(-(BETA_R*density(eyeElevation,height,H_R)+BETA_A*density(eyeElevation,height,H_A))*range);
-  c=c*T+skyAt(P/max(range,1.0))*(1.0-T);
+  // Finite-path radiative transfer. In-scattering is integrated only up
+  // to this mountain, not approximated by mixing toward a distant sky.
+  vec3 T,air=aerialShadowedAt(P,fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453),T);
+  c=atmSRGB(atmLinearDisplay(x*T+air));
  }
  // Dither by under half an 8-bit step, as the sky: haze gradients band too.
  c+=(fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(0.06711056,0.00583715))))-0.5)/255.0;
@@ -327,7 +369,11 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   const gl = canvas.getContext('webgl2', { antialias: false, premultipliedAlpha: false });
   if (!gl) throw new Error('Terrain shading requires WebGL2');
   const scene = program(gl, vertex, fragment), post = program(gl, screenVertex, postFragment);
-  const normalPass = program(gl, screenVertex, normalFragment), shadowPass = program(gl, screenVertex, shadowFragment), skyPass = program(gl, screenVertex, skyFragment);
+  const transport=scatteringUniforms(gl,scene),aerial=createAerialPerspective(gl);
+  const normalPass = program(gl, screenVertex, normalFragment), shadowPass = program(gl, screenVertex, shadowFragment), skyPass = program(gl, screenVertex, skyFragment), ceilingPass = program(gl, screenVertex, ceilingFragment);
+  // Shadow ceilings need half-float render targets; without them the air is unshadowed.
+  const floatTargets = !!gl.getExtension('EXT_color_buffer_float');
+  let ceilings = null, shownRadius = SUN_RADIUS;
   const empty = gl.createVertexArray(), anisotropy = gl.getExtension('EXT_texture_filter_anisotropic');
   let meshes = [], heights = null, maxHeight = 0, framebuffer, image, depth, w = 0, h = 0, destroyed = false;
   const locations=new Map();
@@ -349,6 +395,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   const flatNormal = texture(gl.RG8, gl.RG, gl.UNSIGNED_BYTE, 1, 1, { data: new Uint8Array([128, 128]) });
   const fullLight = texture(gl.R8, gl.RED, gl.UNSIGNED_BYTE, 1, 1, { data: new Uint8Array([255]) });
   const noWater = texture(gl.R32F, gl.RED, gl.FLOAT, 1, 1, { data: new Float32Array([-1e6]) });
+  const noCeiling = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY, noCeiling); gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, 1, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
   const noCover = texture(gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE, 1, 1, { data: new Uint8Array([0]) });
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
@@ -396,7 +443,8 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   function disposeMeshes() {
     for (const m of meshes) { gl.deleteVertexArray(m.vao); m.buffers.forEach((b) => gl.deleteBuffer(b)); if (m.level) gl.deleteTexture(m.level); if (m.cover) gl.deleteTexture(m.cover); for (const name of ['normal', 'shadow', 'shadowBack', 'sky']) if (m[name]) { gl.deleteTexture(m[name]); gl.deleteFramebuffer(m[name + 'Target']); } }
     if (heights) gl.deleteTexture(heights);
-    meshes = []; heights = null;
+    if (ceilings) { gl.deleteTexture(ceilings.front); gl.deleteTexture(ceilings.back); [...ceilings.frontTargets, ...ceilings.backTargets].forEach(f => gl.deleteFramebuffer(f)); }
+    meshes = []; heights = null; ceilings = null;
   }
   // Light-dependent pass: one horizon march per shadow texel, then mipmaps.
   // Work is split into horizontal bands rendered into back textures; a
@@ -407,10 +455,11 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   // comes first. A started update finishes with its own light first.
   let shownKey = '', job = null;
   const pace = { rate: 1, credit: 0, base: 0, probeIn: 3, idle: true, last: 0 };
-  const sync = () => { const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
+  const sync = () => { gl.bindFramebuffer(gl.FRAMEBUFFER, null); const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
   function shadowJob(light, sourceRadius, key) {
     const rings = meshes.filter(m => m.grid), bands = [];
     rings.forEach((m, k) => { const S = m.shadowSize, rows = Math.max(8, Math.ceil(S / 64)); for (let y = 0; y < S; y += rows) bands.push({ m, k, y, rows: Math.min(rows, S - y) }); });
+    if (ceilings) rings.forEach((m, k) => { const S = ceilings.size; for (let y = 0; y < S; y += 16) bands.push({ ceiling: true, k, y, rows: Math.min(16, S - y) }); });
     return { light, sourceRadius, key, rings, bands };
   }
   function runShadowJob(count) {
@@ -421,6 +470,15 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
     gl.enable(gl.SCISSOR_TEST);
     let done = 0;
     for (let n = 0; n < count && job.bands.length; n++) {
+      if (job.bands[0].ceiling) {
+        const { k, y, rows } = job.bands.shift(), S = ceilings.size;
+        gl.useProgram(ceilingPass);
+        gl.uniform3fv(u(ceilingPass, 'light'), job.light); gl.uniform1f(u(ceilingPass, 'maxHeight'), maxHeight); gl.uniform1f(u(ceilingPass, 'stepGrowth'), shadowStep);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, ceilings.backTargets[k]); gl.viewport(0, 0, S, S); gl.scissor(0, y, S, rows);
+        gl.uniform1i(u(ceilingPass, 'ring'), k); gl.uniform1i(u(ceilingPass, 'size'), S);
+        gl.uniform1f(u(ceilingPass, 'innerSkip'), k ? rings[k - 1].grid.extent - 4 * rings[k].grid.extent / S : 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3); gl.useProgram(shadowPass); done += S * rows; continue;
+      }
       const { m, k, y, rows } = job.bands.shift(), S = m.shadowSize;
       gl.bindFramebuffer(gl.FRAMEBUFFER, m.shadowBackTarget); gl.viewport(0, 0, S, S); gl.scissor(0, y, S, rows);
       gl.uniform1i(u(shadowPass, 'ring'), k); gl.uniform1i(u(shadowPass, 'size'), S);
@@ -434,7 +492,8 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
         [m.shadow, m.shadowBack] = [m.shadowBack, m.shadow]; [m.shadowTarget, m.shadowBackTarget] = [m.shadowBackTarget, m.shadowTarget];
         gl.bindTexture(gl.TEXTURE_2D, m.shadow); gl.generateMipmap(gl.TEXTURE_2D);
       }
-      shownKey = job.key; job = null;
+      if (ceilings) { [ceilings.front, ceilings.back] = [ceilings.back, ceilings.front]; [ceilings.frontTargets, ceilings.backTargets] = [ceilings.backTargets, ceilings.frontTargets]; ceilings.ready = true; }
+      shownKey = job.key; shownRadius = job.sourceRadius; job = null;
     }
     return done;
   }
@@ -480,7 +539,18 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
         delete m.source; delete m.waterSource;
       });
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-      for (const p of [normalPass, shadowPass, skyPass, scene]) ringUniforms(p, rings.map(m => m.grid));
+      if (floatTargets) {
+        const S = Math.min(256, Math.max(...rings.map(m => m.shadowSize))), make = () => {
+          const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY, t); gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RG16F, S, S, rings.length);
+          for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D_ARRAY, p, v);
+          const targets = rings.map((_, k) => { const fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, t, 0, k); return fbo; });
+          return [t, targets];
+        };
+        const [front, frontTargets] = make(), [back, backTargets] = make();
+        ceilings = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE ? { size: S, front, back, frontTargets, backTargets, ready: false } : null;
+        if (!ceilings) { [front, back].forEach(t => gl.deleteTexture(t)); [...frontTargets, ...backTargets].forEach(f => gl.deleteFramebuffer(f)); }
+      }
+      for (const p of [normalPass, shadowPass, skyPass, ceilingPass, scene]) ringUniforms(p, rings.map(m => m.grid));
       gl.useProgram(normalPass); gl.bindVertexArray(empty); gl.disable(gl.DEPTH_TEST);
       rings.forEach((m, k) => {
         gl.bindFramebuffer(gl.FRAMEBUFFER, m.normalTarget); gl.viewport(0, 0, m.grid.size, m.grid.size);
@@ -498,9 +568,9 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
     // profile: wait for the GPU after each pass (diagnostics only: it stalls).
-    draw({ W, H, radius, rotation, sun, moon, flux, lightingSunAlt = sun.alt, solarFlux = 1, shadows = true, paper = false, outlines = false, exposure = 1, nearField = 100, farField = 150000, waterColor = true, landCover = true, cull = true, profile = false, progressive = false, atmosphere = true, eyeElevation = 0, sky = null, noiseOrigin = [0, 0] }) {
+    draw({ W, H, radius, rotation, moving = false, sun, moon, flux, lightingSunAlt = sun.alt, solarFlux = 1, shadows = true, paper = false, outlines = false, exposure = 1, nearField = 100, farField = 150000, waterColor = true, landCover = true, cull = true, profile = false, progressive = false, atmosphere = true, atmosphereSettings = null, eyeElevation = 0, sky = null, noiseOrigin = [0, 0] }) {
       if (destroyed || gl.isContextLost()) return;
-      const start = performance.now(), scale = Math.min(1.5, devicePixelRatio || 1), width = Math.max(1,Math.round(W * scale)), height = Math.max(1,Math.round(H * scale));
+      const start = performance.now(), scale = moving ? Math.min(1, Math.sqrt(900000 / (W * H))) : Math.min(1.5, devicePixelRatio || 1), width = Math.max(1,Math.round(W * scale)), height = Math.max(1,Math.round(H * scale));
       if (width !== w || height !== h) {
         w = canvas.width = width; h = canvas.height = height;
         disposeFrame();
@@ -542,22 +612,31 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
         if (profile) { sync(); shadowGpuMs = performance.now() - t0; }
         shadowMs = performance.now() - t0;
       }
+      const physical=atmosphere?(sky?.physical||physicalSky(atmosphereSettings,eyeElevation,{alt:sun.alt,vector:lightVector(sun.az,sun.alt),flux:solarFlux},moon?{alt:moon.alt,vector:lightVector(moon.az,moon.alt),illum:(1+Math.cos((moon.phase??180)*Math.PI/180))/2}:null)):null;
+      const aerialStart=performance.now();
+      if(physical&&!paper)aerial.render(physical,{W,H,radius,rotation,farField});
+      if(profile)sync();const aerialMs=performance.now()-aerialStart;
       const sceneStart = performance.now();
       gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer); gl.viewport(0,0,w,h); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
       const r=rotation.slice(0,3), up=rotation.slice(3,6), forward=rotation.slice(6,9);
       gl.useProgram(scene); gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.disable(gl.CULL_FACE);
       for (const [name, v] of Object.entries({ right: r, up, forward, light })) gl.uniform3fv(u(scene, name), v);
       gl.uniform2f(u(scene,'size'),W,H); gl.uniform1f(u(scene,'radius'),radius);
-      gl.uniform1f(u(scene, 'sunAlt'), lightingSunAlt); gl.uniform1f(u(scene, 'solarFlux'), sun.alt < -2 ? 0 : solarFlux); gl.uniform1f(u(scene, 'moonFlux'), source.alt < -2 ? 0 : flux); gl.uniform1f(u(scene, 'exposure'), exposure); gl.uniform1f(u(scene, 'nearField'), nearField);
+      gl.uniform1f(u(scene, 'sunAlt'), lightingSunAlt); gl.uniform1f(u(scene, 'solarFlux'), solarFlux); gl.uniform1f(u(scene, 'moonFlux'), flux); gl.uniform1f(u(scene, 'exposure'), exposure); gl.uniform1f(u(scene, 'nearField'), nearField);
       gl.uniform1f(u(scene,'farField'),farField);
-      for (const [name, value] of Object.entries({ shadows, paper, moonSource, waterColor })) gl.uniform1i(u(scene, name), value);
+      const volumeShadows = !!(shadows && atmosphere && !paper && ceilings?.ready);
+      for (const [name, value] of Object.entries({ shadows, paper, moonSource, waterColor, volumeShadows })) gl.uniform1i(u(scene, name), value);
+      gl.activeTexture(gl.TEXTURE13); gl.bindTexture(gl.TEXTURE_2D_ARRAY, ceilings?.front ?? noCeiling); gl.uniform1i(u(scene, 'ceilingMap'), 13);
+      gl.uniform1f(u(scene, 'ceilingTop'), maxHeight); gl.uniform1f(u(scene, 'ceilingRadius'), shownRadius);
       ['normalMap','nextNormalMap','shadowMap','nextShadowMap','heights','levelMap','skyMap','nextSkyMap','coverMap','nextCoverMap','noiseMap'].forEach((name,i)=>gl.uniform1i(u(scene,name),i));
       gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, noise);
       gl.uniform2fv(u(scene,'noiseOrigin'),noiseOrigin);
-      // Without the app's sky colours (tests, other hosts), a plain day sky.
-      const skyColour = sky || { zenith: [0.13, 0.32, 0.72], horizon: [0.6, 0.73, 0.88], glow: 0, sunUp: 1 };
-      gl.uniform3fv(u(scene, 'skyZenith'), skyColour.zenith); gl.uniform3fv(u(scene, 'skyHorizon'), skyColour.horizon); gl.uniform3fv(u(scene, 'sunDir'), lightVector(sun.az, sun.alt));
-      gl.uniform1f(u(scene, 'skyGlow'), skyColour.glow); gl.uniform1f(u(scene, 'skySunUp'), skyColour.sunUp); gl.uniform1f(u(scene, 'eyeElevation'), eyeElevation); gl.uniform1i(u(scene, 'atmosphere'), atmosphere);gl.uniform1f(u(scene,'waterTolerance'),WATER_TOLERANCE);
+
+      if(physical){transport.set(physical,11);if(!paper)aerial.bind(scene);}
+      const skyColour=sky||{zenith:[0.13,0.32,0.72],horizon:[0.6,0.73,0.88]};
+      gl.uniform3fv(u(scene,'skyIrradiance'),physical?.irradiance||[0,0,0]);
+      gl.uniform3fv(u(scene,'skyZenith'),skyColour.zenith);gl.uniform3fv(u(scene,'skyHorizon'),skyColour.horizon);
+      gl.uniform1f(u(scene,'eyeElevation'),eyeElevation);gl.uniform1i(u(scene,'atmosphere'),atmosphere);gl.uniform1f(u(scene,'waterTolerance'),WATER_TOLERANCE);
       gl.activeTexture(gl.TEXTURE4);gl.bindTexture(gl.TEXTURE_2D_ARRAY,heights);
       useCover=landCover;
       const drawnTriangles=drawMeshes(cull?forward:null,2*Math.atan(Math.hypot(W,H)/(2*radius))); gl.disable(gl.DEPTH_TEST);
@@ -569,7 +648,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       if (progressive) { pace.last = start; pace.idle = !shadowTexels; }
       return { canvas, submitMs: performance.now() - start, shadowMs, shadowGpuMs, shadowTexels, // Also pending when the finished shadows are for an older light (the light
       // moved while they were computed): they must catch up once paused.
-      shadowsPending: !!job || (shadows && !!heights && shownKey !== key), shadowBands: Math.round(pace.rate * 10) / 10, sceneGpuMs: profile ? performance.now() - sceneStart : 0, width: w, height: h, antialias, drawnTriangles, glError: profile ? gl.getError() : 0 };
+      shadowsPending: !!job || (shadows && !!heights && shownKey !== key), shadowBands: Math.round(pace.rate * 10) / 10, aerialBuilds:aerial.builds, aerialMs, volumeShadows, sceneGpuMs: profile ? performance.now() - sceneStart : 0, width: w, height: h, antialias, drawnTriangles, glError: profile ? gl.getError() : 0 };
     },
     // Diagnostics: the current visibility texture of grid ring k (row-major,
     // texel centres as for the height grid, 0 = fully shadowed, 255 = lit).
@@ -579,6 +658,15 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       for (let i = 0; i < values.length; i++) values[i] = rgba[i * 4];
       return { size: n, extent: m.grid.extent, values };
     },
-    destroy() { destroyed = true; disposeMeshes(); [scene, post, normalPass, shadowPass, skyPass].forEach((p) => gl.deleteProgram(p)); gl.deleteVertexArray(empty); gl.deleteTexture(flatNormal); gl.deleteTexture(fullLight); gl.deleteTexture(noWater); gl.deleteTexture(noCover); gl.deleteTexture(noise); disposeFrame(); },
+    // Diagnostics: the shown shadow ceilings of ring k (metres above the eye,
+    // texel centres; null without half-float targets or before the first job).
+    readCeiling(k) {
+      if (!ceilings?.ready) return null;
+      const n = ceilings.size, rgba = new Float32Array(n * n * 4), values = new Float32Array(n * n), distance = new Float32Array(n * n);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, ceilings.frontTargets[k]); gl.readPixels(0, 0, n, n, gl.RGBA, gl.FLOAT, rgba); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      for (let i = 0; i < values.length; i++) { values[i] = rgba[i * 4]; distance[i] = rgba[i * 4 + 1] * 1000; }
+      return { size: n, extent: meshes.filter(m => m.grid)[k].grid.extent, values, distance };
+    },
+    destroy() { aerial.dispose();transport.dispose(); destroyed = true; disposeMeshes(); [scene, post, normalPass, shadowPass, skyPass, ceilingPass].forEach((p) => gl.deleteProgram(p)); gl.deleteTexture(noCeiling); gl.deleteVertexArray(empty); gl.deleteTexture(flatNormal); gl.deleteTexture(fullLight); gl.deleteTexture(noWater); gl.deleteTexture(noCover); gl.deleteTexture(noise); disposeFrame(); },
   };
 }

@@ -1,3 +1,4 @@
+import { ATMOSPHERE_DEFAULTS, atmosphereSettings } from './atmosphere.js';
 import {detailRiseSet} from './detailriseset.js';
 import {trajectoryCoordinates,relativeTrajectoryVector} from './skytrajectory.js';
 import { loadOpenNGC, downloadOpenNGC, removeOpenNGC, openNGCCount } from './deepcatalog.js';
@@ -315,7 +316,11 @@ export function mountCoelum(root, model, formatTime, options = {}) {
         <p class="coelum-panel-note">Peak names identify visible summits from OpenStreetMap and GeoNames, placed on the terrain model’s summit nearest to each catalogued point; tap a summit or its name for elevation and distance. Coverage varies. Land cover colours come from ESA WorldCover; muted earth colours by slope only. While time runs, shadows normally catch up a moment later to keep the motion smooth; in sync, they are redrawn with every frame, at a lower frame rate on phones.</p>
         <p class="coelum-panel-note">The centre keeps the recommended brightness, including visible moonlight. Night exposure is used automatically after twilight. These options affect local terrain and are saved on this device.</p>
 `],
-    ['atmosphere', 'Atmosphere', 'sky', `${layerSwitch('atmosphere')}<p class="coelum-panel-note">Stars fade with twilight, moonlight and toward the horizon. Positions include refraction. Atmospheric model settings will be added here.</p>`],
+    ['atmosphere', 'Atmosphere', 'sky', `${layerSwitch('atmosphere')}<p class="coelum-panel-note">Stars fade with twilight, moonlight and toward the horizon. Positions include refraction. Pressure and temperature set refraction. Humidity swells aerosols, softening distant mountains and broadening the Moon’s glow. Sky and mountain haze use physical Rayleigh and aerosol scattering, with ozone absorption and an approximate second scattering order. Clouds are not simulated.</p><div class="coelum-selects">
+        <label>Pressure (hPa) <input type="number" min="0" max="1100" step="1" placeholder="Auto from elevation" data-atmosphere-setting="pressure"></label>
+        <label>Temperature (°C) <input type="number" min="-80" max="60" step="1" data-atmosphere-setting="temperature"></label></div>
+        <div class="coelum-terrain-exposure">${[['humidity', 'Relative humidity', 0, 100, 1], ['aerosol', 'Aerosol haze', 0, 5, 0.1], ['lightPollution', 'Light pollution', 0, 9, 1]].map(([key, label, min, max, step]) => `<label>${label} <input type="range" min="${min}" max="${max}" step="${step}" data-atmosphere-setting="${key}"><output data-atmosphere-output="${key}"></output></label>`).join('')}</div>
+        <p class="coelum-panel-note">Leave pressure empty to follow elevation. Aerosol haze: 0 pristine, 1 clear, 5 hazy. Light pollution: 0 dark sky, 9 inner city. Applies to Sky; rise and set calculations use standard refraction.</p>`],
     ['milkyway', 'Milky Way', 'chart sky', `${layerSwitch('milkyway')}<div class="coelum-selects"><label data-modes="chart">Stars to magnitude <select data-limit>${[3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => `<option value="${n}" ${n === 6 ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div><div class="coelum-downloads coelum-star-downloads"><h3>Fainter stars</h3><p class="coelum-panel-note coelum-faint-note"></p>
           <div class="coelum-catalog-choices" role="radiogroup" aria-label="Downloaded star catalog">${Object.keys(STAR_FILES).map((k) => `<label><span><input type="radio" name="${id}-catalog" value="${k}" data-download="${k}"> ${k}</span><small data-catalog-space="${k}"></small></label>`).join('')}</div><label class="coelum-catalog-select">Magnitude limit <select data-catalog-select><option value="" disabled>Choose a catalog</option>${Object.keys(STAR_FILES).map((k) => `<option value="${k}">${k}</option>`).join('')}</select></label><button type="button" class="coelum-chip" data-download="refresh" hidden>Update star motions</button> <button type="button" class="coelum-chip" data-download="remove">Remove</button></div><div class="coelum-downloads"><h3>Moon detail</h3><p class="coelum-panel-note" data-moon-detail-note>${MOON_DETAIL_NOTE}</p><button type="button" class="coelum-chip" data-moon-detail="download">Download high resolution</button> <button type="button" class="coelum-chip" data-moon-detail="remove" hidden>Remove download</button></div>`],
     ['constellations', 'Constellations', 'chart sky', `${layerSwitch('constellations')}`],
@@ -428,7 +433,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     </div>
     <section class="coelum-detail" aria-label="Selected object" aria-live="polite"><button type="button" class="coelum-btn coelum-btn-small coelum-panel-close" data-action="deselect" aria-label="Clear selection">${ICONS.close}</button><div class="coelum-detail-body"><div data-object-heading></div><div data-object-precision hidden></div><div data-object-origin class="ephemeris-toolbar" hidden><div class="coelum-seg ephemeris-frame" role="group" aria-label="Coordinate origin"><button type="button" data-catalog-origin="topocentric" aria-pressed="true">Local</button><button type="button" data-catalog-origin="geocentric" aria-pressed="false">Geocentric</button><button type="button" data-catalog-origin="heliocentric" aria-pressed="false">Heliocentric</button></div></div><div data-object-basic><p>Tap an object or its label to see its characteristics.</p></div><div data-object-events hidden></div></div></section>
     <p class="sky-hint">Drag to look around · pinch or scroll to zoom · double-tap to reset the view. <span data-modes="chart">Symbol sizes are exaggerated; deep-sky symbols mark catalog positions, not naked-eye visibility.</span><span data-modes="sky">Stars, planets and the Milky Way appear as the sky darkens; with the atmosphere, positions include refraction.</span> <span data-modes="chart">Geometric positions, without refraction.</span></p>
-    <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars: IAU / HYG. Deep-sky objects: <a href="https://github.com/mattiaverga/OpenNGC" target="_blank" rel="noopener">OpenNGC</a>, Mattia Verga (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>), converted and merged with the built-in selection. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Peak names: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL) and <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>). Local terrain: <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener">Mapterhorn and its underlying elevation sources</a>. Ocean and major-lake outlines: Natural Earth, public domain (generalised 1:10 million scale). Terrain colours from land cover: ESA WorldCover 2021 (© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>), served by Microsoft Planetary Computer. The landscape models exclude buildings and trees; source detail and height datums vary. Star positions include precession, nutation and proper motion. Clouds and light pollution are not modeled.</p></details>`;
+    <details class="coelum-credit"><summary>Chart data</summary><p>Stars: <a href="https://codeberg.org/astronexus/athyg" target="_blank" rel="noopener">AT-HYG</a> v4.0 (David Nash, CC BY-SA 4.0), from Tycho-2, Hipparcos, the Yale Bright Star and Gliese catalogs, Gaia DR3 distances and proper motions, and the IAU star names; V, B−V, double and variable stars from the Hipparcos catalogue (ESA, 1997). The magnitude-12 download adds stars from <a href="https://www.cosmos.esa.int/web/gaia/dr3" target="_blank" rel="noopener">ESA Gaia DR3</a> (ESA/Gaia/DPAC), with visual magnitudes and colours estimated from Gaia photometry. Constellation figures, boundaries and Milky Way outlines: Olaf Frohn (BSD-3-Clause). Named stars: IAU / HYG. Deep-sky objects: <a href="https://github.com/mattiaverga/OpenNGC" target="_blank" rel="noopener">OpenNGC</a>, Mattia Verga (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>), converted and merged with the built-in selection. The Moon: NASA LRO. Planets: Solar System Scope (CC BY 4.0, from NASA’s missions); Saturn, its rings and the Galilean moons created by <a href="https://bjj.mmedia.is/data/planetary_maps.html" target="_blank" rel="noopener">Björn Jónsson</a> (NASA Voyager, Galileo and Cassini images). Peak names: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL) and <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>). Local terrain: <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener">Mapterhorn and its underlying elevation sources</a>. Ocean and major-lake outlines: Natural Earth, public domain (generalised 1:10 million scale). Terrain colours from land cover: ESA WorldCover 2021 (© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>), served by Microsoft Planetary Computer. The landscape models exclude buildings and trees; source detail and height datums vary. Star positions include precession, nutation and proper motion. Atmospheric settings control refraction, humid haze and light pollution; clouds are not modeled.</p></details>`;
   const $ = (s) => root.querySelector(s);
   root.appendChild($('.coelum-map-panel'));
   const svg = $('.coelum-full'), statusTime = $('[data-action="time"] b'), statusPlace = $('[data-action="place"]'), statusPlaceLabel = $('.coelum-place-label'), statusCondition = $('.coelum-condition'), detail = $('[data-object-basic]'), viewport = $('.coelum-viewport');
@@ -477,6 +482,29 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const precisePosition=precisePositionControls($('[data-object-precision]'),formatTime,()=>updateUI(true));
   const canvas = $('.coelum-canvas'), ctx = canvas.getContext('2d'), input = $('.coelum-search input'), results = $('.coelum-results'), searchDropdown = $('.coelum-search-dropdown'), searchKey = $('.coelum-search-key'), searchHint = $('.coelum-search-hint');
   const layers = { chart: { ...DEFAULT_LAYERS }, sky: { ...SKY_LAYERS } };
+  let airPreferences = atmosphereSettings();
+  try { airPreferences = atmosphereSettings(JSON.parse(localStorage.getItem('imks-coelum-atmosphere') || '{}')); } catch { /* private mode */ }
+  layers.sky.atmosphereSettings = airPreferences;
+  const airControls = () => {
+    for (const el of root.querySelectorAll('[data-atmosphere-setting]')) el.value = airPreferences[el.dataset.atmosphereSetting] ?? '';
+    for (const el of root.querySelectorAll('[data-atmosphere-output]')) {
+      const key = el.dataset.atmosphereOutput;
+      el.value = `${airPreferences[key]}${key === 'humidity' ? '%' : key === 'aerosol' ? '×' : ''}`;
+    }
+  };
+  const saveAir = () => {
+    layers.sky.atmosphereSettings = airPreferences;
+    try { localStorage.setItem('imks-coelum-atmosphere', JSON.stringify(airPreferences)); } catch { /* private mode */ }
+    airControls();
+  };
+  airControls();
+  root.addEventListener('input', ev => {
+    const key = ev.target.dataset.atmosphereSetting;
+    if (!key || !ev.target.validity.valid) return;
+    if (ev.target.value === '' && key !== 'pressure') return;
+    airPreferences = atmosphereSettings({ ...airPreferences, [key]: ev.target.value === '' ? null : Number(ev.target.value) });
+    saveAir(); updateUI(true); draw();
+  });
   let labelPreferences = {}, layerColors = {};
   try {
     const saved = JSON.parse(localStorage.getItem('imks-coelum-layer-settings') || '{}');
@@ -507,7 +535,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     const o = orient?.tracker.filtered && followTarget && findObject(frame, followTarget);
     guide.toggleAttribute('hidden', !o);
     if (!o) return;
-    const direction = mode === 'sky' && atmosphereOn() ? refractVector(pointVector(o), place[2] || 0) : pointVector(o);
+    const direction = mode === 'sky' && atmosphereOn() ? refractVector(pointVector(o), place[2] || 0, airPreferences) : pointVector(o);
     const g = followGuide(direction, rotation, size, height, mode === 'sky' ? skyRadius(size, height, scale) : chartRadius(size, height, scale), mode === 'sky');
     guide.setAttribute('viewBox', `0 0 ${size} ${height}`);
     guideMarker.setAttribute('transform', `translate(${g.x} ${g.y})`);
@@ -560,7 +588,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
           const relative = relativeTrajectoryVector(sample.galactic,sample.reference.coordinates.galactic,currentReference.galactic);
           v = fromMount(relative,trajectoryMount);
         } else v = fromMount(sample[mount],trajectoryMount);
-        const direction = mode === 'sky' && atmosphereOn() ? refractVector(v, place[2] || 0) : v;
+        const direction = mode === 'sky' && atmosphereOn() ? refractVector(v, place[2] || 0, airPreferences) : v;
         const q = projectVector(direction, rotation, mode === 'sky');
         const x = size / 2 + q.x * radius, y = height / 2 + q.y * radius;
         // Break at the projection seam rather than drawing across the sky.
@@ -681,7 +709,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       }
       const coordinates = catalog ? catalogDetailCoordinates(o, frame, origin) : null;
       const displayObject=o&&{...(coordinates?.object || precisePosition.position(o,frame.matrix))};
-      if(displayObject&&mode==='sky'&&atmosphereOn()&&Number.isFinite(displayObject.alt))displayObject.apparentAlt=displayObject.alt+refraction(displayObject.alt,place[2]||0);
+      if(displayObject&&mode==='sky'&&atmosphereOn()&&Number.isFinite(displayObject.alt))displayObject.apparentAlt=displayObject.alt+refraction(displayObject.alt,place[2]||0,airPreferences);
       updateDetailEvents(feature ? null : displayObject);
       const html = feature ? (feature.key.startsWith('terrain:') ? terrainFeatureDetails(feature) : feature.key.startsWith('mars:') ? marsFeatureDetails(feature) : lunarFeatureDetails(feature)) : displayObject && objectDetails(displayObject, coordinates?.frame || frame);
       // unchanged, the card stays (a tap on its button is not lost)
@@ -711,7 +739,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const applyLock = () => {
     const o = lock && findObject(frame, lock.name);
     if (!o) return;
-    const v = currentView(), m = toMount(mode === 'sky' && atmosphereOn() ? refractVector(pointVector(o), place[2] || 0) : pointVector(o));
+    const v = currentView(), m = toMount(mode === 'sky' && atmosphereOn() ? refractVector(pointVector(o), place[2] || 0, airPreferences) : pointVector(o));
     const renew = !lock.spot || lock.spot.mode !== mode;
     if (mode === 'sky') {
       if (renew) { const q = projectVector(m, lookAt(v.az, v.alt), true); lock.spot = { mode, x: q.x, y: q.y }; return; }
@@ -814,7 +842,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (onCanvas) {
-      drawn = mode === 'sky' ? skyScene(frame, size, height, { ...layers.sky, ground: observerOrigin(place) === 'topocentric' && layers.sky.ground, horizontal: observerOrigin(place) === 'topocentric' && layers.sky.horizontal, atmosphere: atmosphereOn(), moonSize }, { ...shown, moving: interacting }, ctx) : skyChart(frame, size, height, { ...layers.chart, ground: observerOrigin(place) === 'topocentric' && layers.chart.ground, horizontal: observerOrigin(place) === 'topocentric' && layers.chart.horizontal }, shown, ctx);
+      drawn = mode === 'sky' ? skyScene(frame, size, height, { ...layers.sky, ground: observerOrigin(place) === 'topocentric' && layers.sky.ground, horizontal: observerOrigin(place) === 'topocentric' && layers.sky.horizontal, atmosphere: atmosphereOn(), moonSize }, { ...shown, moving: interacting, animating: playing }, ctx) : skyChart(frame, size, height, { ...layers.chart, ground: observerOrigin(place) === 'topocentric' && layers.chart.ground, horizontal: observerOrigin(place) === 'topocentric' && layers.chart.horizontal }, shown, ctx);
       canvas.dataset.frame = String(++frameNumber);
       if (svg.childElementCount) svg.innerHTML = '';
     } else {
@@ -932,7 +960,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     };
     if (mode === 'sky') {
       const v = skyView(), from = { ...v }; v.auto = false;
-      const a = toMount(atmosphereOn() && !apparent ? refractVector(pointVector(o), place[2] || 0) : pointVector(o)), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
+      const a = toMount(atmosphereOn() && !apparent ? refractVector(pointVector(o), place[2] || 0, airPreferences) : pointVector(o)), oAz = Math.atan2(a[0], a[1]) / R, oAlt = Math.asin(Math.max(-1, Math.min(1, a[2]))) / R;
       const daz = ((oAz - v.az + 540) % 360) - 180, alt = Math.max(-89.9, Math.min(89.9, oAlt)), scale = fit ? searchScale() : Math.min(SKY_MAX, Math.max(v.scale, o.planet ? 80 / (o.separation * skyRadius(size, height, 1) / 2 * R) : 2.5));
       step = (e) => Object.assign(v, { az: (from.az + daz * e + 360) % 360, alt: from.alt + (alt - from.alt) * e, scale: from.scale + (scale - from.scale) * e });
     } else {
@@ -1854,7 +1882,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
   const alignPhone = () => {
     const o = selected && findObject(frame,selected);
     if (!orient || !o) return;
-    const direction = mode === 'sky' && atmosphereOn() ? refractVector(pointVector(o),place[2] || 0) : pointVector(o);
+    const direction = mode === 'sky' && atmosphereOn() ? refractVector(pointVector(o),place[2] || 0,airPreferences) : pointVector(o);
     if (!orient.tracker.align(direction)) { say('Choose an object farther from the zenith, and point the phone at it.'); return; }
     applyPhone(); syncOrientationUI(); say(`Heading aligned with ${selected}.`);
   };
@@ -2288,6 +2316,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       Object.assign(layers.chart, DEFAULT_LAYERS, { starBoost: 0 });
       Object.assign(layers.sky, SKY_LAYERS, { starBoost: 0 });
       appearance = terrainAppearance(TERRAIN_DEFAULTS); appearanceControls();
+      airPreferences = atmosphereSettings(ATMOSPHERE_DEFAULTS); saveAir();
       phoneLevel = false; $('[data-orient-level]').checked = false;
       try { localStorage.setItem('imks-phone-level', 'false'); } catch { /* private mode */ }
       if (orient) applyPhone();
@@ -2572,7 +2601,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       const objects = [first, second].map((name) => findObject(frame, name));
       if (objects.some((o) => !o)) return false;
       const apparent = mode === 'sky' && atmosphereOn();
-      const vectors = objects.map((o) => apparent ? refractVector(pointVector(o), place[2] || 0) : pointVector(o));
+      const vectors = objects.map((o) => apparent ? refractVector(pointVector(o), place[2] || 0, airPreferences) : pointVector(o));
       const vector = unit3(vectors[0].map((x, i) => x + vectors[1][i]));
       const separation = Math.acos(Math.max(-1, Math.min(1, dot3(...vectors)))) / R;
       const field = Math.max(1, separation * 1.6 + Math.max(...objects.map((o) => diskRadius(o) || 0)) * 4);

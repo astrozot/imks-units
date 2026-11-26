@@ -151,7 +151,7 @@ orbits or event geometry authoritative.
 | Earth rotation and civil time | Modelled ΔT, future UT1 and unknown future leap seconds limit event timing/geography. Native calculations report rotation uncertainty where IERS data are unavailable. |
 | Lunar terrain | Solar-eclipse and lunar-occultation contacts use a smooth mean limb. Terrain-dependent grazing contacts and Baily's beads require a validated DEM, orientation and line-of-sight limb model. Sky's terrain silhouette illustrates lunar edge effects using the loaded elevation map and topocentric orientation; it does not change contact calculations or provide validated bead timings. Surface lighting remains bump mapped. |
 | Planetary-moon events | Compact orbit errors, adopted radii, atmospheric limbs and grazing geometry affect timing. Mutual moon events, rings covering moons and local-observer parallax are outside the current geocentric event model. |
-| Atmospheric refraction | Standard-atmosphere approximation; real weather and near-horizon conditions can dominate the astrometric improvements. |
+| Atmospheric refraction | Sky uses configurable local pressure and temperature (pressure follows elevation by default); rise/set times retain standard refraction. Real vertical weather profiles near the horizon can dominate astrometric improvements. |
 | Local landscape | Local terrain uses Mapterhorn surfaces and a shared 0.1° skyline traced from the rendered triangles out to a circular 150 km cutoff, with fixed refraction k=0.13. New surfaces sample at 62.5 m in the 4–16 km ring and 250 m in the 16–64 km ring; the outer ring remains 500 m. Adaptive triangulation targets 0.005° elevation deviation at sampled grid vertices and preserves normal and water boundaries; this is a simplification criterion, not a bound on absolute skyline error or native DEM accuracy. Supplied eye elevations are not raised to the DEM; the nearest 100 m is omitted and receives a neutral fill up to the mesh's near boundary. Source resolution, quarter-metre decoded height quantisation, rendered mesh spacing, datum seams and finite shadow maps limit the result. Sun/Moon illumination is an approximate clear-sky visual model; no PeakFinder parity or terrain-dependent event-timing accuracy is claimed. |
 | Artificial satellites | SGP4/TLE age and orbit quality dominate; brightness and attitude are approximate. Stellar correction accuracy does not describe satellite accuracy. |
 | Photometry and appearance | Gaia-derived visual magnitudes/colours, approximate stellar temperatures, cloud patterns and rendered textures are not precision observational predictions. |
@@ -227,3 +227,81 @@ moon-event checks need their staged ephemeris data. Reference regeneration
 uses development dependencies, including pyerfa, Skyfield or jplephem/SciPy as
 specified by the individual tools. Do not infer a scientific accuracy result
 from a skipped check or from a test whose required data were unavailable.
+
+The visual atmosphere (`js/scattering.js`) integrates the radiative-transfer
+equation along straight rays through a spherical Earth (6371 km radius) and a
+100 km atmosphere. Rayleigh scattering uses 8 km density scale height and
+RGB coefficients [5.802, 13.558, 33.1] × 10⁻⁶ m⁻¹; aerosol extinction uses
+1.5 km scale height, 3 × 10⁻⁵ m⁻¹ at the reference setting, single-scattering
+albedo 0.9, and a normalized Henyey–Greenstein phase function. Ozone absorption
+uses a triangular 10–40 km profile peaking at 25 km. Optical columns are
+precomputed numerically with 96 quadratic intervals; Earth occultation and a
+finite source limb give the illuminated/shadowed atmosphere at twilight.
+These are standard transport equations ([Bruneton's documentation](https://ebruneton.github.io/precomputed_atmospheric_scattering/atmosphere/functions.glsl.html));
+this is an independent implementation, not a port of the complete solver.
+
+Directional single scattering uses 32 intervals in the sky and
+12 for terrain paths.
+WebGL caches transport in a camera-space sky texture and a 32 × 24 × 20
+finite-path volume, avoiding integration in every terrain fragment. A second scattering order uses a precomputed angular
+mean of first-order radiance (32 directions, 20 path intervals, 48 × 20 grid
+in source elevation and height), with an isotropic second collision. Thus
+multiple scattering is approximate and truncated after order two; this does
+not match ShowMySky's spectral, higher-order treatment. Ground-reflected light
+is omitted from the scattering field. RGB transport approximates spectral
+transport; it has no spectral-to-CIE integration. Source and view extinction
+are both included. Solar eclipses scale source irradiance by disk coverage;
+the model does not propagate the Moon’s shadow through the atmosphere. Sunlight is normalized to unit incident irradiance; lunar
+irradiance uses the Krisciunas–Schaefer phase law, distance and eclipse dimming.
+
+Relative humidity enhances aerosol scattering with a bounded hygroscopic growth
+law, normalized at 40% RH and capped at 95%. Its exponent (0.65) represents
+mixed aerosols rather than site measurements; composition can change it
+substantially ([Zieger et al., 2013](https://acp.copernicus.org/articles/13/10609/2013/)).
+Humidity also changes aerosol anisotropy from g=0.76 toward 0.86. It does not
+simulate cloud droplets, fog formation or ice-crystal rings.
+
+Terrain uses finite-path in-scattering and transmission from the same transport
+model, combined with reflected direct and hemispherical sky irradiance in linear
+RGB before display conversion. Terrain geometry still uses its existing
+approximate refractive curvature; radiative-transfer rays do not bend. Loaded
+local terrain casts shadows through the atmosphere. One GPU shadow job per
+light direction (quantized to 0.05°, progressive over frames) marches the
+full-resolution ring height grids toward the light. It writes the surface
+visibility (up to 1024² per ring) and, from the same heights, a 256² per ring
+shadow ceiling: the height of the light ray grazing the highest occluder above
+each texel, plus that occluder's distance. Air below the ceiling is shaded,
+with a penumbra as wide as the source disc seen from the occluder. Air above or
+beyond a ridge stays lit. Only single scattering is removed. Each terrain pixel
+removes it along its own ray at 10 stratified, jittered points, distributed
+like the in-scattered light (by the path's transmission). So the
+camera-space volume, which stays unshadowed and smooth, never mixes rays on
+either side of a silhouette. Air beyond the 150 km terrain cutoff, and air in
+the sky dome itself, is unshadowed: the sky's paths through local shadow
+volumes are short beside its total path. Missing terrain is unoccluded. The
+second-order isotropic source field is computed without local terrain, so
+indirect light is approximate within mountain shadows. Volumetric
+terrain shadows apply when Ground and Local terrain are enabled with a loaded
+surface and half-float render targets are available. A saved skyline alone
+lacks the distances and heights needed for them.
+The diffuse surface irradiance uses a hemisphere quadrature at observer height
+and an isotropic approximation for slope orientation. Exposure/tone mapping,
+natural night-sky floor, artificial skyglow and stellar limiting magnitude remain
+empirical display approximations. Light pollution is a relative 0–9 control,
+not a Bortle or SQM calibration. Refraction and the stellar extinction fast path
+retain their existing analytical approximations.
+
+`tests/scattering.mjs` checks phase-function normalization, analytic vertical
+optical depth, Earth shadow, segment composition, the optically thin limit,
+positive second-order radiance, view-quadrature convergence, sunset reddening
+and humid lunar scattering. Selected 32-interval cases differ by less than 1%
+from 256-interval integrations with the same optical/source tables. This checks
+numerical convergence, not atmospheric accuracy against measured skies.
+`tests/scattering-browser.mjs` compares CPU/GPU display values against numerical
+reference rays through daylight, sunset, twilight and lunar humidity cases.
+
+`tests/atmosphere-terrain-shadow-browser.mjs` compares the GPU shadow ceiling
+behind a synthetic ridge with an exact fine march on the same grid, and checks
+that shaded air in front of the ridge darkens its haze and never brightens it.
+`tests/atmosphere-performance-browser.mjs` checks that camera movement does not
+recompute shadows, and synchronized full-frame timings.

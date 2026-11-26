@@ -1,3 +1,6 @@
+import {createSkyTransport,SKY_LOOKUP_GLSL} from './skytransport.js';
+import { physicalSky, skyRadiance, displayRadiance, SCATTERING_GLSL, scatteringUniforms, integrateScattering } from './scattering.js';
+import { atmosphericState } from './atmosphere.js';
 // Low-resolution backgrounds of the sky charts, filled pixel by pixel and
 // scaled up smoothly: the Milky Way (the isophotes of skydata.js, drawn once
 // into a J2000 texture) and, for the realistic view, the colour of the sky
@@ -97,29 +100,29 @@ function milkyWayAt(tex, x, y, z) {
 }
 
 // The sky's look for the Sun's altitude (degrees) and the Moon.
-export function skyLight(sunAlt, moon = null, atmosphere = true) {
+export function skyLight(sunAlt, moon = null, atmosphere = true, settings = null, height = 0) {
   const day = smooth(-4, 10, sunAlt), twilight = smooth(-18, -3, sunAlt);
   const moonLight = moon && moon.alt > 0 ? moon.illum * smooth(0, 10, moon.alt) : 0;
   // Faintest star: 6.4 in a dark sky, about 2.7 at nautical twilight, 1 at
   // the end of civil twilight; brighter planets only by day; less moonlit.
   const L = smooth(-18, -6, sunAlt) * 0.3 + smooth(-6, 5, sunAlt) * 0.7;
-  const limit = atmosphere ? 6.4 - 9.5 * Math.sqrt(L) - 1.4 * moonLight * (1 - day) : 6.6;
+  const air = atmosphericState(settings, height);
+  const pollutionPenalty = 3.8 * Math.sqrt(air.pollution);
+  const limit = atmosphere ? 6.4 - 9.5 * Math.sqrt(L) - 1.4 * moonLight * (1 - day) - pollutionPenalty * (1 - twilight) : 6.6;
   return { day: atmosphere ? day : 0, twilight: atmosphere ? twilight : 0, moonLight: atmosphere ? moonLight : 0, limit };
 }
 
-// The colours (linear-ish, 0…1) of the zenith, the horizon and the ground,
-// and the strength of the twilight glow, the Sun's glare and the Milky Way.
-export function skyColours({ sun, moon, atmosphere, groundColor }) {
-  const light = skyLight(sun.alt, moon, atmosphere), { day, twilight } = light;
-  return {
-    light,
-    zenith: mix(mix([0.006, 0.01, 0.026], [0.05, 0.085, 0.2], twilight), [0.13, 0.32, 0.72], day),
-    horizon: mix(mix([0.032, 0.042, 0.075], [0.24, 0.25, 0.36], twilight), [0.6, 0.73, 0.88], day),
-    glow: atmosphere ? Math.exp(-(((sun.alt + 1) / 6) ** 2)) : 0,
-    sunUp: atmosphere ? smooth(-2, 1, sun.alt) : 0,
-    mwLight: (1 - smooth(-18, -11, sun.alt) * (atmosphere ? 1 : 0)) * (1 - 0.75 * light.moonLight),
-    groundRGB: groundColor || mix(mix([0.008, 0.01, 0.012], [0.05, 0.055, 0.06], twilight), [0.16, 0.18, 0.12], day),
-  };
+// Representative physical sky colours for terrain ambient light. The sky
+// itself integrates each view ray; no horizon/zenith colour gradient is used.
+export function skyColours({ sun, moon, atmosphere, groundColor, atmosphereSettings, eyeElevation = 0 }) {
+  const light=skyLight(sun.alt,moon,atmosphere,atmosphereSettings,eyeElevation);
+  if(!atmosphere)return {light,physical:null,zenith:[0,0,0],horizon:[0,0,0],mwLight:1,groundRGB:groundColor||[0.008,0.01,0.012]};
+  const physical=physicalSky(atmosphereSettings,eyeElevation,sun,moon);
+  const zenith=displayRadiance(skyRadiance(physical,[0,0,1]),physical.exposure);
+  const horizon=displayRadiance(skyRadiance(physical,[1,0,0]),physical.exposure);
+  return {light,physical,zenith,horizon,
+    mwLight:(1-smooth(-18,-11,sun.alt)*(atmosphere?1:0))*(1-0.75*light.moonLight)*(atmosphere?1-0.98*Math.sqrt(physical.pollution):1),
+    groundRGB:groundColor||mix(mix([0.008,0.01,0.012],[0.05,0.055,0.06],light.twilight),[0.16,0.18,0.12],light.day)};
 }
 
 // The same backgrounds as a WebGL2 fragment shader, at up to two samples
@@ -132,10 +135,11 @@ void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Positio
 const FRAGMENT = `#version 300 es
 precision highp float;
 uniform vec2 size;
-uniform float radius, f, rows, glow, sunUp, mwLight, moonLight, day;
+uniform float radius, f, rows, mwLight;
 uniform bool sky, stereo, milkyWay, atmosphere, ground;
 uniform mat3 rot, toJ2000;
-uniform vec3 zenith, horizon, groundRGB, S, M;
+uniform vec3 groundRGB;
+${SKY_LOOKUP_GLSL}
 uniform sampler2D milky, hill;
 out vec4 colour;
 const float PI = 3.141592653589793, R = PI / 180.0;
@@ -164,25 +168,14 @@ void main() {
   }
   vec3 c = vec3(0.0);
   if (atmosphere) {
-    float hgt = max(alt, 0.0), d = 1.0 - dot(S, v);
-    c = mix(zenith, horizon, exp(-hgt / 0.3));
-    if (glow > 0.002) {
-      float warm = glow * exp(-d / 0.4) * exp(-hgt / 0.16), band = glow * 0.22 * exp(-hgt / 0.06) * (1.5 - d / 2.0);
-      c += vec3(1.05, 0.45, 0.14) * warm + vec3(0.85, 0.38, 0.3) * band;
-    }
-    if (sunUp > 0.0) c += vec3(1.0, 0.94, 0.84) * sunUp * (0.9 * exp(-d / 0.0015) + 0.35 * exp(-d / 0.02) + 0.1 * exp(-d / 0.15));
-    if (moonLight > 0.0) {
-      float md = 1.0 - dot(M, v);
-      c += vec3(0.5, 0.56, 0.68) * moonLight * (1.0 - day) * (0.5 * exp(-md / 0.0012) + 0.07 * exp(-md / 0.03) + 0.025);
-    }
-    if (alt < 0.0) c *= 0.35 + 0.65 * exp(alt / 0.08);
+    c = physicalSkyAt(vec2(gl_FragCoord.x*f/size.x,1.0-y*f/size.y));
   }
   if (mw > 0.0) c += vec3(0.82, 0.86, 1.0) * mw * mwLight * (atmosphere ? clamp(alt / 0.2, 0.0, 1.0) : 1.0) * 0.3;
   // Dither by under half an 8-bit step: dark, slowly varying twilight blues
   // otherwise show as banded contours.
   // In the sky's own pixel coordinates: identical with or without the ground rows.
   float noise = fract(52.9829189 * fract(dot(vec2(gl_FragCoord.x, y), vec2(0.06711056, 0.00583715))));
-  colour = vec4(tone(c) + (noise - 0.5) / 255.0, 1.0);
+  colour = vec4(c + (noise - 0.5) / 255.0, 1.0);
 }`;
 let gpu = null;
 function gpuContext() {
@@ -208,35 +201,42 @@ function setup(g, gl) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, w, h, 0, gl.RED, gl.FLOAT, data);
-    gl.uniform1i(gl.getUniformLocation(program, name), unit);
+    gl.uniform1i(gl.getUniformLocation(program, name), unit);return t;
   };
-  texture(0, 'milky', TW, TH, milkyWayTexture());
-  texture(1, 'hill', 1440, 1, HILL);
+  const milkyTexture=texture(0, 'milky', TW, TH, milkyWayTexture());
+  const hillTexture=texture(1, 'hill', 1440, 1, HILL);
   const u = {};
   for (let i = 0, n = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS); i < n; i++) { const name = gl.getActiveUniform(program, i).name; u[name] = gl.getUniformLocation(program, name); }
-  Object.assign(g, { gl, u, hill: hillAt });
+  g.transport?.dispose();
+  Object.assign(g, { gl, u, program, milkyTexture, hillTexture, hill: hillAt, transport:createSkyTransport(gl) });
   return true;
 }
-function gpuRaster(g, { W, H, radius, camera, toJ2000, kind, milkyWay, ground, atmosphere, sun, moon, groundColor, hill }) {
-  const { gl, u, canvas } = g, sky = kind === 'sky', k = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+function gpuRaster(g, { W, H, radius, camera, toJ2000, kind, milkyWay, ground, atmosphere, sun, moon, groundColor, hill, atmosphereSettings, eyeElevation, samples=45000, colours=null }) {
+  const { gl, u, canvas } = g, sky = kind === 'sky', k = sky && atmosphere ? Math.min(1,Math.sqrt(samples/(W*H))) : Math.min(2, Math.max(1, window.devicePixelRatio || 1));
   const w = Math.ceil(W * k), h = Math.ceil(H * k), rows = sky && ground ? 2 * h : h;
   if (canvas.width !== w || canvas.height !== rows) { canvas.width = w; canvas.height = rows; }
   gl.viewport(0, 0, w, rows);
   if (sky && ground && hill !== g.hill) {
     // The horizon's altitudes every quarter degree, as for HILL.
     const profile = hill === hillAt ? HILL : Float32Array.from({ length: 1440 }, (_, i) => hill(i / 4));
-    gl.activeTexture(gl.TEXTURE1);
+    gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,g.hillTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, 1440, 1, 0, gl.RED, gl.FLOAT, profile);
     g.hill = hill;
   }
+  let colourState=null;
+  if(sky){colourState=colours||skyColours({sun,moon,atmosphere,groundColor,atmosphereSettings,eyeElevation});if(atmosphere)g.transport.render(colourState.physical,{W,H,radius,camera});}
+  gl.useProgram(g.program);gl.viewport(0,0,w,rows);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,g.milkyTexture);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,g.hillTexture);
   gl.uniform2f(u.size, W, H); gl.uniform1f(u.radius, radius); gl.uniform1f(u.f, 1 / k); gl.uniform1f(u.rows, rows);
   gl.uniform1i(u.sky, sky); gl.uniform1i(u.stereo, camera.stereographic); gl.uniform1i(u.milkyWay, milkyWay); gl.uniform1i(u.ground, sky && ground); gl.uniform1i(u.atmosphere, atmosphere);
   gl.uniformMatrix3fv(u.rot, false, camera.rotation); gl.uniformMatrix3fv(u.toJ2000, false, toJ2000);
   if (sky) {
-    const c = skyColours({ sun, moon, atmosphere, groundColor });
-    gl.uniform3fv(u.zenith, c.zenith); gl.uniform3fv(u.horizon, c.horizon); gl.uniform3fv(u.groundRGB, c.groundRGB);
-    gl.uniform3fv(u.S, sun.vector); gl.uniform3fv(u.M, moon.vector);
-    gl.uniform1f(u.glow, c.glow); gl.uniform1f(u.sunUp, c.sunUp); gl.uniform1f(u.mwLight, c.mwLight); gl.uniform1f(u.moonLight, c.light.moonLight); gl.uniform1f(u.day, c.light.day);
+    const c = colourState;
+    if(groundColor)c.groundRGB=groundColor;
+    gl.uniform3fv(u.groundRGB,c.groundRGB);gl.uniform1f(u.mwLight,c.mwLight);
+    if(atmosphere)g.transport.bind(g.program);
+    rasterOptions.transportBuilds=g.transport.builds;
   }
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   return { sky: canvas, ground: sky && ground ? canvas : null, w, h, groundY: h, width: w / k, height: h / k };
@@ -255,10 +255,11 @@ const canvases = new WeakMap();
 // until the next call.
 export function skyRaster(key, opts) {
   const g = rasterOptions.gl && typeof window !== 'undefined' ? gpuContext() : null;
+  rasterOptions.lastBackend=g?'gpu':'cpu';
   if (g) return gpuRaster(g, { milkyWay: true, ground: false, atmosphere: true, sun: null, moon: null, groundColor: null, hill: hillAt, ...opts });
   return cpuRaster(key, opts);
 }
-function cpuRaster(key, { W, H, radius, camera, samples = 45000, toJ2000, kind, milkyWay = true, ground = false, atmosphere = true, sun = null, moon = null, groundColor = null, hill = hillAt }) {
+function cpuRaster(key, { W, H, radius, camera, samples = 45000, toJ2000, kind, milkyWay = true, ground = false, atmosphere = true, sun = null, moon = null, groundColor = null, hill = hillAt, atmosphereSettings = null, eyeElevation = 0, colours: suppliedColours=null }) {
   const f = Math.max(2, Math.sqrt(W * H / samples)), w = Math.ceil(W / f), h = Math.ceil(H / f);
   let c = canvases.get(key);
   if (!c) { c = { sky: document.createElement('canvas'), ground: document.createElement('canvas') }; canvases.set(key, c); }
@@ -266,9 +267,10 @@ function cpuRaster(key, { W, H, radius, camera, samples = 45000, toJ2000, kind, 
   const g = c.sky.getContext('2d'), image = g.createImageData(w, h), px = image.data;
   const groundImage = kind === 'sky' && ground ? c.ground.getContext('2d').createImageData(w, h) : null, gp = groundImage?.data;
   const tex = milkyWay ? milkyWayTexture() : null, A = toJ2000;
-  const colours = kind === 'sky' ? skyColours({ sun, moon, atmosphere, groundColor }) : null, light = colours?.light;
-  const S = sun?.vector, M = moon?.vector;
-  const { zenith, horizon, glow, sunUp, mwLight, groundRGB } = colours || {};
+  const colours = kind === 'sky' ? suppliedColours || skyColours({ sun, moon, atmosphere, groundColor, atmosphereSettings, eyeElevation }) : null, light = colours?.light;
+  if(groundColor&&colours)colours.groundRGB=groundColor;
+  const { mwLight, groundRGB, physical } = colours || {};
+  const cpuSky=physical && atmosphere ? cpuSkyTable(physical) : null;
   const tone = (x) => { const y = x / (1 + 0.22 * x) * 1.22 * 255; return y > 255 ? 255 : y; };
   const rot = camera.rotation, stereo = camera.stereographic, v = [0, 0, 0];
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
@@ -292,27 +294,47 @@ function cpuRaster(key, { W, H, radius, camera, samples = 45000, toJ2000, kind, 
     }
     let r, gr, b;
     if (atmosphere) {
-      const hgt = alt > 0 ? alt : 0, grad = Math.exp(-hgt / 0.3);
-      r = zenith[0] + (horizon[0] - zenith[0]) * grad; gr = zenith[1] + (horizon[1] - zenith[1]) * grad; b = zenith[2] + (horizon[2] - zenith[2]) * grad;
-      const d = 1 - (S[0] * v[0] + S[1] * v[1] + S[2] * v[2]);
-      if (glow > 0.002) {
-        const warm = glow * Math.exp(-d / 0.4) * Math.exp(-hgt / 0.16), band = glow * 0.22 * Math.exp(-hgt / 0.06) * (1.5 - d / 2);
-        r += 1.05 * warm + 0.85 * band; gr += 0.45 * warm + 0.38 * band; b += 0.14 * warm + 0.3 * band;
-      }
-      if (sunUp > 0) { const e = sunUp * (0.9 * Math.exp(-d / 0.0015) + 0.35 * Math.exp(-d / 0.02) + 0.1 * Math.exp(-d / 0.15)); r += e; gr += 0.94 * e; b += 0.84 * e; }
-      if (light.moonLight > 0) {
-        const md = 1 - (M[0] * v[0] + M[1] * v[1] + M[2] * v[2]), e = light.moonLight * (1 - light.day) * (0.5 * Math.exp(-md / 0.0012) + 0.07 * Math.exp(-md / 0.03) + 0.025);
-        r += 0.5 * e; gr += 0.56 * e; b += 0.68 * e;
-      }
-      if (alt < 0) { const k = 0.35 + 0.65 * Math.exp(alt / 0.08); r *= k; gr *= k; b *= k; }
+      const rgb=sampleCpuSky(cpuSky,physical,v);r=rgb[0];gr=rgb[1];b=rgb[2];
     } else r = gr = b = 0;
     if (mw) {
       const m = mw * mwLight * (atmosphere ? clamp01(alt / 0.2) : 1) * 0.3;
       r += 0.82 * m; gr += 0.86 * m; b += m;
     }
-    px[o] = tone(r); px[o + 1] = tone(gr); px[o + 2] = tone(b); px[o + 3] = 255;
+    px[o] = 255*r; px[o + 1] = 255*gr; px[o + 2] = 255*b; px[o + 3] = 255;
   }
   g.putImageData(image, 0, 0);
   if (groundImage) c.ground.getContext('2d').putImageData(groundImage, 0, 0);
   return { sky: c.sky, ground: groundImage ? c.ground : null, w, h, groundY: 0, width: w * f, height: h * f };
+}
+
+// Camera-independent CPU fallback. The physical integrator is evaluated on
+// a spherical grid and cached while panning. Refine near the light azimuth
+// and horizon, where the radiance changes fastest.
+const cpuTables=new Map(),CW=80,CH=65;
+function cpuSkyTable(sky){
+  const key=[sky.medium.key,sky.height,sky.sun[2],sky.moon[2],sky.moonFlux,sky.solarFlux,sky.pollution].join(':');
+  if(cpuTables.has(key))return cpuTables.get(key);
+  const tables=[];
+  for(const [source,flux] of [[sky.sun,sky.solarFlux],[sky.moon,sky.moonFlux]]){
+    const data=new Float32Array(CW*CH*3),S=[0,Math.sqrt(Math.max(0,1-source[2]*source[2])),source[2]];
+    if(flux>0)for(let j=0;j<CH;j++)for(let i=0;i<CW;i++){
+      const q=2*j/(CH-1)-1,alt=Math.sign(q)*q*q*Math.PI/2,az=(i/(CW-1))**2*Math.PI,c=Math.cos(alt);
+      const L=integrateScattering(sky.medium,sky.height,[c*Math.sin(az),c*Math.cos(az),Math.sin(alt)],S).radiance;
+      for(let k=0;k<3;k++)data[3*(j*CW+i)+k]=L[k]*flux;
+    }
+    tables.push(data);
+  }
+  cpuTables.set(key,tables);if(cpuTables.size>3)cpuTables.delete(cpuTables.keys().next().value);return tables;
+}
+function sampleCpuSky(tables,sky,v){
+  const alt=Math.asin(Math.max(-1,Math.min(1,v[2]))),q=Math.sign(alt)*Math.sqrt(Math.abs(alt)/(Math.PI/2)),y=(q+1)*0.5*(CH-1),j=Math.min(CH-2,Math.floor(y)),b=y-j,rgb=[0,0,0];
+  for(let n=0;n<2;n++){
+    if(n===1&&!sky.moonFlux)continue;
+    const S=n?sky.moon:sky.sun,h=Math.hypot(S[0],S[1])*Math.hypot(v[0],v[1]),az=h>1e-9?Math.acos(Math.max(-1,Math.min(1,(S[0]*v[0]+S[1]*v[1])/h))):0;
+    const x=Math.sqrt(az/Math.PI)*(CW-1),i=Math.min(CW-2,Math.floor(x)),a=x-i,data=tables[n];
+    for(let k=0;k<3;k++)rgb[k]+=(data[3*(j*CW+i)+k]*(1-a)+data[3*(j*CW+i+1)+k]*a)*(1-b)+(data[3*((j+1)*CW+i)+k]*(1-a)+data[3*((j+1)*CW+i+1)+k]*a)*b;
+  }
+  const night=[1e-7,1.8e-7,2.4e-7],pollution=[3e-6,2.3e-6,1.6e-6];
+  for(let k=0;k<3;k++)rgb[k]+=night[k]+sky.pollution*pollution[k]*(1+3*Math.exp(-Math.max(v[2],0)/0.15));
+  return displayRadiance(rgb,sky.exposure);
 }

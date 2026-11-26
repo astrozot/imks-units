@@ -142,8 +142,8 @@ zoom gestures still control the sky and maps.
   twilight, night), the Sun has its glare, the Moon its texture, phase and
   glow, stars fade with twilight, moonlight and extinction near the horizon,
   the Milky Way appears in a dark sky, and a landscape hides what is below
-  it. With the atmosphere on, positions include refraction (the standard
-  atmosphere at the place's height; about 34′ at the horizon), and the
+  it. With the atmosphere on, positions include refraction (configured pressure and temperature; by default pressure follows
+  the place's height, giving about 34′ at the sea-level horizon), and the
   details card gives the apparent altitude. Dragging keeps the grabbed
   point under the finger with the horizon level, also across the zenith;
   it opens toward the Sun around sunrise and sunset, otherwise toward the
@@ -260,8 +260,30 @@ layer to open its settings in a small modal. Layer visibility controls stay in
 Configuration; tap the layer icon to change visibility directly. Horizon contains
 local terrain downloads and appearance;
 Milky Way contains the fainter-star and Moon-detail downloads; Deep sky contains
-OpenNGC; Satellites contains catalog groups and updates. Atmosphere is reserved
-for future model settings. Constellations, boundaries and minor planets have no
+OpenNGC; Satellites contains catalog groups and updates. Atmosphere controls local pressure in hPa (empty follows elevation), temperature
+in °C, relative humidity, aerosol haze (0–5; 1 clear) and light pollution
+(0 dark sky–9 inner city). Humidity increases aerosol scattering: distant
+mountains lose contrast toward the sky’s own colours, sunset light is
+attenuated, and the Moon’s diffuse halo grows brighter and broader, strongest
+at full Moon. Aerosol density decreases with height; molecular scattering
+follows pressure and temperature. Light pollution brightens the night sky and
+reduces star and Milky Way visibility. Settings persist on the device and
+Reset all restores their defaults. Sky colours and mountain haze come from radiative transfer through a spherical
+atmosphere: Rayleigh and aerosol scattering, ozone absorption, Earth shadow,
+and directional sunlight/moonlight attenuation. With a loaded local terrain
+surface and Ground enabled, mountains shadow the air as well as the ground;
+scattering points above or beyond a ridge can still receive sunlight.
+Surface and air reuse one GPU shadow job per light direction.
+WebGL caches sky and finite-path transport; terrain resolution is reduced during
+Play and dragging, then restored when paused.
+A saved skyline alone cannot supply volumetric terrain shadows.
+An approximate second scattering
+order contributes to twilight. Terrain combines finite-path in-scattering with
+transmitted surface light in linear RGB. The model uses three colour bands;
+its second scattering order is isotropic and higher orders are omitted.
+Relative humidity alone cannot predict visibility without aerosol composition,
+and clouds, fog formation and ice-crystal halo rings are not simulated.
+Rise and set calculations continue to use standard refraction. Constellations, boundaries and minor planets have no
 topic settings yet. Ecliptic and each grid offer seven colours. Labels offers text size and separate constellation, star, solar-system
 and satellite name switches. Ground labels contains peak-name downloads and
 separate position and text colours. Colour and label preferences are saved on
@@ -275,14 +297,14 @@ without input, coming back on any movement, tap or key; Escape closes an
 open panel, then full screen. Eclipse, occultation and lunar eclipse sheets
 computed for a place have a **Show in the sky** button that opens the sky
 there at the event, centered on the Sun, the Moon or the occulted body.
-The chart's positions are geometric (no refraction); clouds and light
-pollution are not modeled. Both views draw on one canvas under the SVG,
+The chart's positions are geometric (no refraction); clouds are not modeled. Both views draw on one canvas under the SVG,
 at most once per display frame while dragging or pinching; the chart's
 drags and flights are drawn there and settle as SVG over its sky and
 Milky Way, which stay on the canvas. The sky's colours, the Milky Way and
-the ground are drawn by a WebGL2 shader at up to two samples per pixel;
-without WebGL2 (or on a software renderer) the same model runs in
-JavaScript at lower resolution. Tapping the date opens a date and time
+the ground are drawn by WebGL2. Physical sky transport uses about 45,000
+view rays (22,000 while moving), smoothly upscaled; the chart background
+uses up to two samples per pixel. Without WebGL2 the physical sky uses a
+cached directional lookup computed by the same integrator in JavaScript. Tapping the date opens a date and time
 panel with the day's sunrise, sunset, twilights, moonrise and moonset;
 tapping the place opens a place panel (cities, coordinates, a search
 online, the device's position). A Minor planets layer adds the built-in
@@ -1344,3 +1366,15 @@ still casts a real shadow. Receiver plane normals,
 per-tap depth correction, subpixel-rasterisation bias and cascade blending keep
 this independent of camera zoom. The centred exposure controls retain the previous
 approved brightness (day 2^0.7 and night 4 as internal exposure multipliers).
+
+Atmospheric rendering checks: `node tests/atmosphere.mjs` and
+`PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/chromium node tests/atmosphere-browser.mjs`.
+The browser checks compare dry/humid lunar halos in CPU and GPU rendering,
+phase dependence, dawn/dusk/day terrain, atmosphere-off behavior and saved controls.
+`node tests/scattering.mjs` checks physical and numerical transport invariants.
+`PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/chromium node tests/scattering-browser.mjs`
+compares GPU and CPU skies to reference transport integrations. Set
+`SCATTERING_PREVIEW=/tmp/sky.png` to export a daylight/sunset/twilight/moonlight gallery.
+
+Volumetric mountain-shadow check:
+`PLAYWRIGHT=/path/to/playwright-core CHROME=/path/to/chromium node tests/atmosphere-terrain-shadow-browser.mjs`.

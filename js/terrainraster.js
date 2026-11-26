@@ -1,3 +1,4 @@
+import { atmosphericState, atmosphericExtinction } from './atmosphere.js';
 // Transparent mountain overlay, composited at the sky's existing ground pass.
 // The unchanged sky raster remains the fallback when WebGL is unavailable.
 import { createTerrainRenderer } from './terrainrender.js';
@@ -5,11 +6,12 @@ import { moonFlux } from './terrainmesh.js';
 import { terrainExposure } from './terrainlighting.js';
 import { terrainAppearance } from './skyterrain.js';
 import { skyColours } from './skyraster.js';
+import { lightVector } from './terrainmesh.js';
 const renderers=new WeakMap();
 // Diagnostics (?perf): GPU-synchronised timings of the latest terrain frame.
 export const terrainStats={profile:false,last:null};
 export function releaseTerrainRaster(ctx){const entry=renderers.get(ctx);entry?.renderer?.destroy();renderers.delete(ctx);}
-export function terrainRaster(ctx,surface,{W,H,radius,rotation,sun,moon,lightingSunAlt=sun.alt,solarFlux=1,appearance=null,atmosphere=true,onRedraw=null}){
+export function terrainRaster(ctx,surface,{W,H,radius,rotation,moving=false,sun,moon,lightingSunAlt=sun.alt,solarFlux=1,appearance=null,atmosphere=true,atmosphereSettings=null,sky=null,onRedraw=null}){
   if(!surface)return null;
   let entry=renderers.get(ctx);
   if(!entry){
@@ -23,16 +25,17 @@ export function terrainRaster(ctx,surface,{W,H,radius,rotation,sun,moon,lighting
   try{
     if(entry.surface!==surface){entry.renderer.setMeshes(surface.meshes);entry.surface=surface;}
     const preferences=appearance||terrainAppearance(),night=sun.alt < -6;
-    const sine=Math.max(0,Math.sin((moon?.alt??-90)*Math.PI/180)),airmass=1/(sine+.025*Math.exp(-11*sine));
-    const flux=moon?moonFlux(moon.phase??180,moon.dist)*10**(-.4*.22*Math.max(0,airmass-1)):0;
-    const result=entry.renderer.draw({W,H,radius,rotation,sun,lightingSunAlt,solarFlux,moon:moon||{az:0,alt:-90},flux,paper:preferences.style==='paper',waterColor:preferences.waterColor,landCover:preferences.style==='landcover',shadows:preferences.shadows,outlines:preferences.outlines,exposure:terrainExposure(preferences[night?'nightExposure':'exposure'],night),nearField:surface.metrics?.nearField??100,profile:terrainStats.profile,
+
+    const air=atmosphericState(atmosphereSettings,surface.eye||0);
+    const flux=moon?moonFlux(moon.phase??180,moon.dist)*10**(-.4*(atmosphere?atmosphericExtinction(moon.alt,air):0)):0;
+    const result=entry.renderer.draw({W,H,radius,rotation,moving,sun,lightingSunAlt,solarFlux,moon:moon||{az:0,alt:-90},flux,paper:preferences.style==='paper',waterColor:preferences.waterColor,landCover:preferences.style==='landcover',shadows:preferences.shadows,outlines:preferences.outlines,exposure:terrainExposure(preferences[night?'nightExposure':'exposure'],night),nearField:surface.metrics?.nearField??100,profile:terrainStats.profile,
       // Shadows catch up over a few frames (smooth playback), or are redrawn
       // whole whenever the light moves (in sync, slower).
-      progressive:!preferences.shadowSync,atmosphere,eyeElevation:surface.eye,
+      progressive:!preferences.shadowSync,atmosphere,atmosphereSettings,eyeElevation:surface.eye,
       // Ground-anchored noise: the place in metres, folded to keep precision.
       noiseOrigin:surface.place?[(surface.place[1]*111320*Math.cos(surface.place[0]*Math.PI/180))%100000,(surface.place[0]*110574)%100000]:[0,0],
       // The sky's own colours, so haze and sky light match the visible sky.
-      sky:skyColours({sun:{alt:lightingSunAlt},moon:moon?{alt:moon.alt,illum:(1+Math.cos((moon.phase??180)*Math.PI/180))/2}:null,atmosphere})});
+      sky:sky||skyColours({sun:{alt:sun.alt,vector:lightVector(sun.az,sun.alt),flux:solarFlux},moon:moon?{alt:moon.alt,vector:lightVector(moon.az,moon.alt),illum:(1+Math.cos((moon.phase??180)*Math.PI/180))/2}:null,atmosphere,atmosphereSettings,eyeElevation:surface.eye||0})});
     terrainStats.last=result;
     // Unfinished shadow bands need one more frame, unless the app draws anyway
     // (playback, gestures). Check after all of the next frame's callbacks have

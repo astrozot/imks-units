@@ -1,3 +1,4 @@
+import { atmosphericRefractionScale } from './atmosphere.js';
 import { BINARY_SYSTEMS } from './binarydata.js';
 import { parseSkyCoordinates } from './skycoordinates.js';
 // Offline whole-sky chart. Positions in this drawing are apparent (without
@@ -472,16 +473,17 @@ export function projectVector(point, rotation, stereographic = false) {
 export const pointVector = (p) => p.vector || horizontalVector(p.alt, p.az);
 
 // Refraction (degrees) to add to a true altitude (Saemundsson), for the
-// pressure of the standard atmosphere at a height (m); below −3° it fades
+// configured local pressure and temperature (by default pressure follows
+// height in metres); below −3° it fades
 // out, so the sky below the horizon stays continuous.
-export function refraction(alt, height = 0) {
-  const k = Math.max(0, 1 - 2.25577e-5 * height) ** 5.25588, h = Math.max(alt, -3);
+export function refraction(alt, height = 0, settings = null) {
+  const k = atmosphericRefractionScale(settings, height), h = Math.max(alt, -3);
   const r = 1.02 / Math.tan((h + 10.3 / (h + 5.11)) * R) / 60 * k;
   return alt >= -3 ? r : r * Math.max(0, (alt + 10) / 7);
 }
 // A horizontal vector raised by the refraction (the apparent direction).
-export function refractVector(v, height = 0) {
-  const alt = Math.asin(clamp(v[2])) / R, apparent = Math.min(90, alt + refraction(alt, height));
+export function refractVector(v, height = 0, settings = null) {
+  const alt = Math.asin(clamp(v[2])) / R, apparent = Math.min(90, alt + refraction(alt, height, settings));
   const c = Math.cos(alt * R), k = c > 1e-9 ? Math.cos(apparent * R) / c : 1;
   return [v[0] * k, v[1] * k, Math.sin(apparent * R)];
 }
@@ -1472,7 +1474,7 @@ export function objectDetails(o, frame = null) {
     ${(o.body === 'moon' || o.type === 'planet') && Number.isFinite(o.phase) ? row('Illuminated', `${((1 + Math.cos(o.phase * R)) * 50).toFixed(1)} %`) : ''}
     ${o.type === 'planet' && Number.isFinite(o.phase) ? row('Phase angle', `${o.phase.toFixed(1)}°`) : ''}
     ${o.type === 'planet' && Number.isFinite(o.elong) ? row('Solar elongation', `${Math.abs(o.elong).toFixed(1)}° ${o.elong < 0 ? 'west' : 'east'} (${observerOrigin(frame?.place) === 'barycentric' ? 'barycentric' : 'geocentric'})`) : ''}
-    </dl>${Number.isFinite(o.bv) && catalogStar ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">${esc(o.precisionNote || 'Equatorial coordinates of date')} · ${origin==='heliocentric' ? 'Sun’s centre · astrometric (without aberration or solar light deflection)' : origin==='barycentric' ? 'Solar system barycentre' : origin==='geocentric' ? 'Earth’s centre' : `${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (standard atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}`}.</p>`;
+    </dl>${Number.isFinite(o.bv) && catalogStar ? spectrum(o.bv, !o.spect) : ''}${system ? `<button type="button" class="coelum-chip coelum-moons-button" data-action="moons" data-planet="${system}">${hasMoons(o) || o.planet ? `Moons of ${esc(o.planet || o.name)}` : `Close-up of ${esc(o.name)}`}</button>` : ''}<p class="coelum-coordinate-note">${esc(o.precisionNote || 'Equatorial coordinates of date')} · ${origin==='heliocentric' ? 'Sun’s centre · astrometric (without aberration or solar light deflection)' : origin==='barycentric' ? 'Solar system barycentre' : origin==='geocentric' ? 'Earth’s centre' : `${Number.isFinite(o.apparentAlt) ? 'apparent altitude with refraction (configured atmosphere)' : 'altitude without refraction'} · azimuth from north through east${o.alt < 0 ? ' · below the horizon' : ''}`}.</p>`;
 }
 
 // A star's colour index as a temperature (Ballesteros 2012), a rough
