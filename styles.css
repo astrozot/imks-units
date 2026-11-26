@@ -1925,6 +1925,8 @@ body.coelum-app { background: #000; }
 .almanac-sun { border-top-color: #d8ac66; }
 .almanac-moon { border-top-color: #a2bceb; }
 .almanac-big { font-size: 24px; margin: 0 0 8px; font-variant-numeric: tabular-nums; }
+.almanac-daylight { font-size: clamp(16px, 4.5vw, 24px); }
+.almanac-daylight > span { white-space: nowrap; }
 .almanac-big small { display: block; font-size: 13px; color: var(--c-muted); margin-top: 4px; }
 .almanac-phase { font-size: 16px; line-height: 1.5; }
 .almanac-card dl { margin: 0; font-size: 14px; }
@@ -2033,6 +2035,7 @@ body.coelum-app { background: #000; }
 .almanac-times { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 16px; font-variant-numeric: tabular-nums; }
 .almanac-times th, .almanac-times td { padding: 8px 0 8px 4px; text-align: right; border-bottom: 1px solid var(--c-line); }
 .almanac-times th { font-weight: 400; }
+.almanac-times .almanac-solar-noon { text-align: center; }
 .almanac-times td { overflow-wrap: anywhere; }
 .almanac-times th:first-child { width: 40%; text-align: left; padding-left: 0; color: var(--c-muted); }
 .almanac-moon-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }

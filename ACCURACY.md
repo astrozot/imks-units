@@ -278,7 +278,9 @@ RGB before display conversion. Terrain geometry still uses its existing
 approximate refractive curvature; radiative-transfer rays do not bend. Loaded
 local terrain casts shadows through the atmosphere. One GPU shadow job per
 light direction (quantized to 0.05°, progressive over frames) marches the
-full-resolution ring height grids toward the light. For the surface it stores
+full-resolution ring height grids toward the light, reading every sample
+bilinearly from the finest ring that holds it (nearest texels of coarser rings
+gave sawtooth shadow edges at low Sun). For the surface it stores
 (up to 1024² per ring, 16-bit) the margin between the light's slope and the
 steepest occluder slope toward it, which varies continuously over the grid; each
 pixel interpolates the margin and computes the uncovered fraction of the
