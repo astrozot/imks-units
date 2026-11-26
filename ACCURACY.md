@@ -278,8 +278,12 @@ RGB before display conversion. Terrain geometry still uses its existing
 approximate refractive curvature; radiative-transfer rays do not bend. Loaded
 local terrain casts shadows through the atmosphere. One GPU shadow job per
 light direction (quantized to 0.05°, progressive over frames) marches the
-full-resolution ring height grids toward the light. It writes the surface
-visibility (up to 1024² per ring) and, from the same heights, a 256² per ring
+full-resolution ring height grids toward the light. For the surface it stores
+(up to 1024² per ring, 16-bit) the margin between the light's slope and the
+steepest occluder slope toward it, which varies continuously over the grid; each
+pixel interpolates the margin and computes the uncovered fraction of the
+source's disc itself, so shadow edges fall inside grid cells rather than
+following texel squares. From the same heights it writes a 256² per ring
 shadow ceiling: the height of the light ray grazing the highest occluder above
 each texel, plus that occluder's distance. Air below the ceiling is shaded,
 with a penumbra as wide as the source disc seen from the occluder. Air above or

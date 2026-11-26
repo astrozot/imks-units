@@ -67,10 +67,25 @@ void main(){
 }`;
 // Heightfield horizon toward the light for every texel, marching through the
 // finest ring that contains each sample (or a coarser one once the step has
-// outgrown its texels). Visibility is the uncovered fraction of the source's
-// disc above that horizon: a physical penumbra, not a filter width.
+// outgrown its texels). Each texel stores its margin below the light: the
+// light's slope minus the steepest occluder slope toward it (negative in
+// shadow). The margin varies continuously across the grid, so interpolating
+// it puts the shadow edge where it falls inside each cell; interpolated
+// visibility (nearly 0 or 1 per texel) showed every texel as a rounded
+// square. Visibility, the uncovered fraction of the light's disc, is then
+// computed per pixel (shadowVisibility): a physical penumbra.
+const SHADOW_CODEC = `
+const float SHADOW_SLOPE=2.0;
+vec4 shadowEncode(float margin){float n=floor(clamp(margin/(2.0*SHADOW_SLOPE)+0.5,0.0,1.0)*65535.0+0.5),hi=floor(n/256.0);return vec4(hi,n-hi*256.0,0,255)/255.0;}
+// The two bytes recombine linearly, so filtered texels decode exactly. spread
+// is half the light disc's extent in slope.
+float shadowVisibility(vec4 c,float spread){
+ float margin=((c.r*65280.0+c.g*255.0)/65535.0-0.5)*2.0*SHADOW_SLOPE,x=clamp(margin/spread,-1.0,1.0);
+ return (3.14159265-acos(x)+x*sqrt(1.0-x*x))/3.14159265;
+}`;
 const shadowFragment = `#version 300 es
 ${RINGS}
+${SHADOW_CODEC}
 uniform int ring,size;
 uniform vec3 light;
 uniform float sourceRadius,maxHeight,innerSkip,stepGrowth;
@@ -78,13 +93,14 @@ out vec4 colour;
 void main(){
  float E=ringExtent[ring],horizontal=length(light.xy),alt=atan(light.z,horizontal);
  vec2 q0=gl_FragCoord.xy/float(size)*2.0*E-E;
- if(max(abs(q0.x),abs(q0.y))<innerSkip||horizontal<1e-5){colour=vec4(1);return;}
+ vec4 lit=shadowEncode(SHADOW_SLOPE);
+ if(max(abs(q0.x),abs(q0.y))<innerSkip||horizontal<1e-5){colour=lit;return;}
  int k0=rings-1;
  for(int k=0;k<5;k++)if(k<rings&&max(abs(q0.x),abs(q0.y))<ringExtent[k]){k0=k;break;}
  float z0=heightAt(k0,q0);
- if(z0<-1.0e5){colour=vec4(1);return;}
+ if(z0<-1.0e5){colour=lit;return;}
  vec2 dir=light.xy/horizontal;
- float tanTop=tan(alt+sourceRadius),tanBottom=tan(alt-sourceRadius);
+ float tanAlt=light.z/horizontal,tanTop=tan(alt+sourceRadius),tanBottom=tan(alt-sourceRadius);
  // Samples sit on a world-aligned lattice along the light direction, with
  // power-of-two spacing growing with distance. Neighbouring receivers on the
  // same light line then test identical occluder points: a sharp crest is never
@@ -105,10 +121,11 @@ void main(){
   for(;k<rings-1;k++)if(m<ringExtent[k]&&texelSize(k)*2.0>=step)break;
   // Bilinear near the receiver (self-shadowing of slopes), nearest beyond.
   best=max(best,((t<8.0*minStep?heightAt(k,q):nearestHeightAt(k,q))-z0)/t);
-  if(best>=tanTop)break;
+  // Fully hidden, with two texels to spare in height so that interpolation
+  // toward a lit neighbour still places the edge well.
+  if(best>=tanTop+2.0*minStep/t)break;
  }
- float x=clamp((alt-atan(best))/sourceRadius,-1.0,1.0);
- colour=vec4((3.14159265-acos(x)+x*sqrt(1.0-x*x))/3.14159265);
+ colour=shadowEncode(tanAlt-best);
 }`;
 // Shadow ceiling for the air, in the same job and from the same heights as
 // the surface shadows: above each texel, the height of the light ray that
@@ -190,6 +207,8 @@ uniform int ringIndex;
 uniform float sunAlt, moonFlux, exposure, nearField, farField, solarFlux;
 uniform bool shadows, paper, moonSource, waterColor, atmosphere, volumeShadows;
 uniform highp sampler2DArray ceilingMap;
+${SHADOW_CODEC}
+uniform float shadowSpread;
 uniform float ceilingTop, ceilingRadius, ceilingSlope;
 // The app's sky model (skyraster.js), for haze that meets the visible sky.
 uniform vec3 skyZenith, skyHorizon, skyIrradiance;
@@ -272,7 +291,7 @@ void main(){
  vec2 uv=(P.xy+extent)/(2.0*extent),nextUV=(P.xy+nextExtent)/(2.0*nextExtent);
  float edge=nextExtent>extent?smoothstep(0.8,1.0,max(abs(P.x),abs(P.y))/extent):0.0;
  vec3 n=normalize(mix(unpackNormal(texture(normalMap,uv).rg),unpackNormal(texture(nextNormalMap,nextUV).rg),edge));
- float visible=shadows?mix(texture(shadowMap,uv).r,texture(nextShadowMap,nextUV).r,edge):1.0;
+ float visible=shadows?mix(shadowVisibility(texture(shadowMap,uv),shadowSpread),edge>0.0?shadowVisibility(texture(nextShadowMap,nextUV),shadowSpread):0.0,edge):1.0;
  float skyView=mix(texture(skyMap,uv).r,texture(nextSkyMap,nextUV).r,edge);
  // Water is where the DEM lies at the local lake (or sea) level: the shoreline
  // is that DEM contour, never the coarse source outline. Level surfaces shade
@@ -368,6 +387,8 @@ function program(gl, vs, fs) {
 }
 // Angular radii of the light sources' discs, for the penumbra.
 const SUN_RADIUS = 0.2666 * Math.PI / 180, MOON_RADIUS = 0.259 * Math.PI / 180;
+// Half the light disc's extent in slope (tan), seen along the light's azimuth.
+const shadowSpread = (light, r) => { const alt = Math.atan2(light[2], Math.hypot(light[0], light[1])); return (Math.tan(Math.min(alt + r, 1.5)) - Math.tan(Math.max(alt - r, -1.5))) / 2; };
 export const terrainShadowSize = gridSize => Math.min(1024, gridSize);
 export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0.0125 } = {}) {
   const gl = canvas.getContext('webgl2', { antialias: false, premultipliedAlpha: false });
@@ -377,7 +398,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   const normalPass = program(gl, screenVertex, normalFragment), shadowPass = program(gl, screenVertex, shadowFragment), skyPass = program(gl, screenVertex, skyFragment), ceilingPass = program(gl, screenVertex, ceilingFragment);
   // Shadow ceilings need half-float render targets; without them the air is unshadowed.
   const floatTargets = !!gl.getExtension('EXT_color_buffer_float');
-  let ceilings = null, shownRadius = SUN_RADIUS;
+  let ceilings = null, shownRadius = SUN_RADIUS, shownSpread = SUN_RADIUS;
   const empty = gl.createVertexArray(), anisotropy = gl.getExtension('EXT_texture_filter_anisotropic');
   let meshes = [], heights = null, maxHeight = 0, framebuffer, image, depth, w = 0, h = 0, destroyed = false;
   const locations=new Map();
@@ -398,6 +419,8 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
   // Meshes without height grids (synthetic tests) shade as level, unshadowed.
   const flatNormal = texture(gl.RG8, gl.RG, gl.UNSIGNED_BYTE, 1, 1, { data: new Uint8Array([128, 128]) });
   const fullLight = texture(gl.R8, gl.RED, gl.UNSIGNED_BYTE, 1, 1, { data: new Uint8Array([255]) });
+  // Encoded shadow texel for full light (SHADOW_CODEC: the largest margin).
+  const litShadow = texture(gl.RG8, gl.RG, gl.UNSIGNED_BYTE, 1, 1, { data: new Uint8Array([255, 255]) });
   const noWater = texture(gl.R32F, gl.RED, gl.FLOAT, 1, 1, { data: new Float32Array([-1e6]) });
   const noCeiling = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY, noCeiling); gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, 1, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -429,7 +452,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
     let triangles=0;
     meshes.forEach((m,i)=>{
       const next=m.grid&&meshes[i+1]?.grid?meshes[i+1]:m;
-      [[m.normal,m.grid?m.normal:flatNormal],[next.normal,next.grid?next.normal:flatNormal],[m.shadow,m.grid?m.shadow:fullLight],[next.shadow,next.grid?next.shadow:fullLight]].forEach(([,tex],unit)=>{gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,tex);});
+      [[m.normal,m.grid?m.normal:flatNormal],[next.normal,next.grid?next.normal:flatNormal],[m.shadow,m.grid?m.shadow:litShadow],[next.shadow,next.grid?next.shadow:litShadow]].forEach(([,tex],unit)=>{gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,tex);});
       gl.activeTexture(gl.TEXTURE6);gl.bindTexture(gl.TEXTURE_2D,m.sky??fullLight);gl.activeTexture(gl.TEXTURE7);gl.bindTexture(gl.TEXTURE_2D,next.sky??fullLight);
       gl.activeTexture(gl.TEXTURE8);gl.bindTexture(gl.TEXTURE_2D,m.cover??noCover);gl.activeTexture(gl.TEXTURE9);gl.bindTexture(gl.TEXTURE_2D,next.cover??noCover);
       gl.uniform1i(u(scene,'hasCover'),useCover&&!!m.cover);gl.uniform1i(u(scene,'nextHasCover'),useCover&&!!next.cover);
@@ -497,7 +520,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
         gl.bindTexture(gl.TEXTURE_2D, m.shadow); gl.generateMipmap(gl.TEXTURE_2D);
       }
       if (ceilings) { [ceilings.front, ceilings.back] = [ceilings.back, ceilings.front]; [ceilings.frontTargets, ceilings.backTargets] = [ceilings.backTargets, ceilings.frontTargets]; ceilings.ready = true; }
-      shownKey = job.key; shownRadius = job.sourceRadius; job = null;
+      shownKey = job.key; shownRadius = job.sourceRadius; shownSpread = shadowSpread(job.light, job.sourceRadius); job = null;
     }
     return done;
   }
@@ -531,8 +554,10 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
         maxHeight = Math.max(maxHeight, top * scale + offset);
         m.normal = texture(gl.RG8, gl.RG, gl.UNSIGNED_BYTE, size, size, { mipmaps: true, filter: gl.LINEAR }); m.normalTarget = target(m.normal);
         m.shadowSize = terrainShadowSize(size);
-        m.shadow = texture(gl.R8, gl.RED, gl.UNSIGNED_BYTE, m.shadowSize, m.shadowSize, { mipmaps: true, filter: gl.LINEAR }); m.shadowTarget = target(m.shadow);
-        m.shadowBack = texture(gl.R8, gl.RED, gl.UNSIGNED_BYTE, m.shadowSize, m.shadowSize, { mipmaps: true, filter: gl.LINEAR }); m.shadowBackTarget = target(m.shadowBack);
+        // A 16-bit margin in a byte pair (SHADOW_CODEC): linear in each
+        // channel, so filtering and mipmaps work on every device.
+        m.shadow = texture(gl.RG8, gl.RG, gl.UNSIGNED_BYTE, m.shadowSize, m.shadowSize, { mipmaps: true, filter: gl.LINEAR }); m.shadowTarget = target(m.shadow);
+        m.shadowBack = texture(gl.RG8, gl.RG, gl.UNSIGNED_BYTE, m.shadowSize, m.shadowSize, { mipmaps: true, filter: gl.LINEAR }); m.shadowBackTarget = target(m.shadowBack);
         if (m.coverSource) { gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); m.cover = texture(gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE, m.coverSource.size, m.coverSource.size, { data: m.coverSource.classes }); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2); }
         delete m.coverSource;
         m.skySize = Math.max(64, m.shadowSize >> 1);
@@ -631,7 +656,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       const volumeShadows = !!(shadows && atmosphere && !paper && ceilings?.ready);
       for (const [name, value] of Object.entries({ shadows, paper, moonSource, waterColor, volumeShadows })) gl.uniform1i(u(scene, name), value);
       gl.activeTexture(gl.TEXTURE13); gl.bindTexture(gl.TEXTURE_2D_ARRAY, ceilings?.front ?? noCeiling); gl.uniform1i(u(scene, 'ceilingMap'), 13);
-      gl.uniform1f(u(scene, 'ceilingTop'), maxHeight); gl.uniform1f(u(scene, 'ceilingRadius'), shownRadius); gl.uniform1f(u(scene, 'ceilingSlope'), Math.min(1, Math.abs(Math.tan(source.alt * Math.PI / 180))));
+      gl.uniform1f(u(scene, 'shadowSpread'), shownSpread); gl.uniform1f(u(scene, 'ceilingTop'), maxHeight); gl.uniform1f(u(scene, 'ceilingRadius'), shownRadius); gl.uniform1f(u(scene, 'ceilingSlope'), Math.min(1, Math.abs(Math.tan(source.alt * Math.PI / 180))));
       ['normalMap','nextNormalMap','shadowMap','nextShadowMap','heights','levelMap','skyMap','nextSkyMap','coverMap','nextCoverMap','noiseMap'].forEach((name,i)=>gl.uniform1i(u(scene,name),i));
       gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, noise);
       gl.uniform2fv(u(scene,'noiseOrigin'),noiseOrigin);
@@ -656,11 +681,16 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
     },
     // Diagnostics: the current visibility texture of grid ring k (row-major,
     // texel centres as for the height grid, 0 = fully shadowed, 255 = lit).
+    // margin (light slope minus horizon slope) is the stored value.
     readShadow(k) {
-      const m = meshes.filter(m => m.grid)[k], n = m.shadowSize, rgba = new Uint8Array(n * n * 4), values = new Uint8Array(n * n);
+      const m = meshes.filter(m => m.grid)[k], n = m.shadowSize, rgba = new Uint8Array(n * n * 4), values = new Uint8Array(n * n), margin = new Float32Array(n * n);
       gl.bindFramebuffer(gl.FRAMEBUFFER, m.shadowTarget); gl.readPixels(0, 0, n, n, gl.RGBA, gl.UNSIGNED_BYTE, rgba); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      for (let i = 0; i < values.length; i++) values[i] = rgba[i * 4];
-      return { size: n, extent: m.grid.extent, values };
+      for (let i = 0; i < values.length; i++) {
+        margin[i] = ((rgba[i * 4] * 256 + rgba[i * 4 + 1]) / 65535 - 0.5) * 4;
+        const x = Math.max(-1, Math.min(1, margin[i] / shownSpread));
+        values[i] = Math.round(255 * (Math.PI - Math.acos(x) + x * Math.sqrt(1 - x * x)) / Math.PI);
+      }
+      return { size: n, extent: m.grid.extent, values, margin };
     },
     // Diagnostics: the shown shadow ceilings of ring k (metres above the eye,
     // texel centres; null without half-float targets or before the first job).
@@ -671,6 +701,6 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       for (let i = 0; i < values.length; i++) { values[i] = rgba[i * 4]; distance[i] = rgba[i * 4 + 1] * 1000; }
       return { size: n, extent: meshes.filter(m => m.grid)[k].grid.extent, values, distance };
     },
-    destroy() { aerial.dispose();transport.dispose(); destroyed = true; disposeMeshes(); [scene, post, normalPass, shadowPass, skyPass, ceilingPass].forEach((p) => gl.deleteProgram(p)); gl.deleteTexture(noCeiling); gl.deleteVertexArray(empty); gl.deleteTexture(flatNormal); gl.deleteTexture(fullLight); gl.deleteTexture(noWater); gl.deleteTexture(noCover); gl.deleteTexture(noise); disposeFrame(); },
+    destroy() { aerial.dispose();transport.dispose(); destroyed = true; disposeMeshes(); [scene, post, normalPass, shadowPass, skyPass, ceilingPass].forEach((p) => gl.deleteProgram(p)); gl.deleteTexture(noCeiling); gl.deleteVertexArray(empty); gl.deleteTexture(flatNormal); gl.deleteTexture(fullLight); gl.deleteTexture(litShadow); gl.deleteTexture(noWater); gl.deleteTexture(noCover); gl.deleteTexture(noise); disposeFrame(); },
   };
 }
