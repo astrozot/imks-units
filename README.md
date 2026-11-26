@@ -483,7 +483,7 @@ keep it in place. The bottom bar shows a ruler under the
 speed, a round angle at the center of the view, and the play button points backward when
 time runs backward.
 
-A normal selection has a yellow circle and four spikes. Holding an object
+A normal selection has a yellow circle and four spikes, without a playback trail. Holding an object
 for half a second selects it in red with the same marker, before release,
 and keeps its playback trajectory as another object is selected. Hold more
 objects to add their trajectories; hold a red object again to deselect it and

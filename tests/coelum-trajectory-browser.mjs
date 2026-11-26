@@ -36,6 +36,15 @@ try {
    const t=Date.parse('2026-11-24T21:00:00Z')/1000;
    const explorer=mountCoelum(host,{t,place:[41.892,12.511,20],label:'Rome'},String,{standalone:true});
    explorer.focus('Moon');await wait(800);
+   const play=host.querySelector('[data-action="play"]');
+   const playSteps=async()=>{
+    play.click();await wait(60);
+    for(let i=1;i<=3;i++){explorer.setTime(t+i*3600);play.click();await wait(40);}
+    play.click();await wait(40);
+   };
+   await playSteps();
+   const ordinaryTrail=!!host.querySelector('.coelum-trajectory');
+   explorer.setTime(t);explorer.focus('Moon');await wait(800);
    const svg=host.querySelector('.coelum-full'),box=svg.getBoundingClientRect();
    const pointer=type=>svg.dispatchEvent(new PointerEvent(type,{pointerId:11,isPrimary:true,pointerType:'touch',clientX:box.x+box.width/2,clientY:box.y+box.height/2,bubbles:true}));
    pointer('pointerdown');await wait(550);pointer('pointerup');
@@ -43,7 +52,6 @@ try {
    const redSelection=mode==='chart' && !!svg.querySelector('path[stroke="#ff5555"]');
    explorer.select('Moon');
    if(locked)host.querySelector('[data-action="lock"]').click();
-   const play=host.querySelector('[data-action="play"]');
    play.click();await wait(60);
    for(let i=1;i<=3;i++){explorer.setTime(t+i*3600);play.click();await wait(40);}
    const samples=Number(svg.querySelector('.coelum-trajectory')?.dataset.samples||0);
@@ -51,16 +59,23 @@ try {
    const trail=svg.querySelector('.coelum-trajectory');
    const paused=!!trail;
    const span=trail?.getBBox().width+trail?.getBBox().height;
+   const redTrail=trail?.getAttribute('stroke')==='#ff5555';
+   explorer.select('Moon',{longPress:true});
+   await playSteps();
+   const untrackedTrail=!!svg.querySelector('.coelum-trajectory');
    explorer.select(null);
-   results.push({mount,mode,locked,heldDetail,redSelection,samples,span,paused,cleared:!svg.querySelector('.coelum-trajectory')});
+   results.push({mount,mode,locked,ordinaryTrail,heldDetail,redSelection,samples,span,paused,redTrail,untrackedTrail,cleared:!svg.querySelector('.coelum-trajectory')});
   }
   return results;
  });
  for(const r of results){
+  assert.equal(r.ordinaryTrail,false,JSON.stringify(r));
   assert.equal(r.heldDetail,false,JSON.stringify(r));
   if(r.mode==='chart')assert.equal(r.redSelection,true,JSON.stringify(r));
   assert.ok(r.samples>=3,JSON.stringify(r));
   assert.equal(r.paused,true,JSON.stringify(r));
+  assert.equal(r.redTrail,true,JSON.stringify(r));
+  assert.equal(r.untrackedTrail,false,JSON.stringify(r));
   assert.equal(r.cleared,true,JSON.stringify(r));
  }
  for(const r of results.filter(r=>r.mount!=='altaz')) {

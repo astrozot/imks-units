@@ -550,21 +550,20 @@ export function mountCoelum(root, model, formatTime, options = {}) {
     guideText.setAttribute('x', size / 2); guideText.setAttribute('y', height - bottom);
     guideText.textContent = label; guide.setAttribute('aria-label', label);
   };
-  // Store each sample in all three coordinate systems at its own time.
+  // Store playback trails only for long-press selections, in all three
+  // coordinate systems at each sample's own time.
   const trajectories = new Map();
-  const selectionTrajectory = {samples:[], time:null};
   let trajectoryReference = null;
   const clearTrajectoryHistory = () => {
-    for (const trail of [selectionTrajectory, ...trajectories.values()]) {
+    for (const trail of trajectories.values()) {
       trail.samples.length = 0; trail.time = null;
     }
   };
   const drawTrajectory = (rotation, scale) => {
     svg.querySelectorAll('.coelum-trajectory').forEach(line=>line.remove());
-    const trails = trajectories.size ? trajectories : new Map(selected ? [[selected,selectionTrajectory]] : []);
-    for (const [name, trail] of trails) {
+    for (const [name, trail] of trajectories) {
       const trajectory = trail.samples, o = findObject(frame,name);
-      const reference = trajectories.size && trajectoryReference !== name && trajectoryReference && findObject(frame,trajectoryReference);
+      const reference = trajectoryReference !== name && trajectoryReference && findObject(frame,trajectoryReference);
       const currentReference = reference && trajectoryCoordinates(reference,frame);
       if (playing && o && t !== trail.time) {
         const coordinates = trajectoryCoordinates(o,frame), prev = trajectory.at(-1);
@@ -600,7 +599,7 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       line.setAttribute('class', 'coelum-trajectory');
       line.setAttribute('d', path);
-      line.setAttribute('fill', 'none'); line.setAttribute('stroke', trajectories.size ? '#ff5555' : '#ffc98f');
+      line.setAttribute('fill', 'none'); line.setAttribute('stroke', '#ff5555');
       line.setAttribute('stroke-width', '1.5'); line.setAttribute('opacity', '0.75');
       line.setAttribute('pointer-events', 'none');
       line.dataset.samples = String(trajectory.length);
@@ -995,7 +994,6 @@ export function mountCoelum(root, model, formatTime, options = {}) {
       } else {
         if (!longSelection && selected && selected !== name) trajectoryReference=selected;
         trajectories.set(name,{samples:[],time:null});
-        selectionTrajectory.samples.length=0; selectionTrajectory.time=null;
         if (trajectoryReference === name) trajectoryReference=null;
       }
     } else if (!name) {
