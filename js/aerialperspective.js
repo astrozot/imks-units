@@ -28,11 +28,13 @@ void main(){
  radiance=vec4(L/(1.0+L),1);transmission=vec4(T,1);single=vec4(S/(1.0+S),1);
 }`;
 // The includer defines aerialVisibility(p): the visible fraction of the
-// shadowing light's disc at p (camera-centred metres), 1 without shadows.
+// shadowing light's disc at p (camera-centred metres), 1 without shadows;
+// spread (metres along the ray) is the stretch the sample stands for, over
+// which its visibility is averaged.
 export const AERIAL_GLSL=`
 uniform sampler2D aerialRadiance,aerialTransmission,aerialSingle;
 uniform float aerialFar;
-float aerialVisibility(vec3 p);
+float aerialVisibility(vec3 p,float spread);
 vec3 aerialSlice(sampler2D map,vec2 uv,float slice){return texture(map,vec2((slice*32.0+0.5+clamp(uv.x,0.0,1.0)*31.0)/640.0,(0.5+clamp(uv.y,0.0,1.0)*23.0)/24.0)).rgb;}
 vec3 aerialDecode(vec3 c){return c/max(vec3(1e-5),1.0-c);}
 vec2 aerialUV(vec3 P){float d=length(P),w=max(d+dot(P,forward),0.001);return vec2(0.5-radius*dot(P,right)/(w*size.x),0.5+radius*dot(P,up)/(w*size.y));}
@@ -47,8 +49,8 @@ vec3 aerialAt(vec3 P,out vec3 T){
 // is in terrain shadow; skylight on the air (multiple scattering) is not.
 // Samples on this pixel's own ray are distributed like the in-scattered
 // light, which falls off as the transmission back to the eye: uniform in
-// u=(1-exp(-b s))/(1-exp(-b d)), stratified and jittered (fine grain, no
-// depth contours). Shadow fractions never mix rays across a silhouette.
+// u=(1-exp(-b s))/(1-exp(-b d)), stratified and jittered, each sample
+// filtered over its own stretch of the ray (no grain, no depth contours). Shadow fractions never mix rays across a silhouette.
 #define AERIAL_SHADOW_SAMPLES 10
 vec3 aerialShadowedAt(vec3 P,float jitter,out vec3 T){
  vec3 L=aerialAt(P,T);
@@ -57,7 +59,8 @@ vec3 aerialShadowedAt(vec3 P,float jitter,out vec3 T){
  float b=-log(clamp(T.g,1e-4,1.0))/d,span=1.0-exp(-b*d),shaded=0.0;
  for(int i=0;i<AERIAL_SHADOW_SAMPLES;i++){
   float u=(float(i)+jitter)/float(AERIAL_SHADOW_SAMPLES),s=b*d>1e-3?-log(1.0-u*span)/b:u*d;
-  shaded+=1.0-aerialVisibility(P*(s/d));
+  float spread=(b*d>1e-3?span/(b*(1.0-u*span)):d)/float(AERIAL_SHADOW_SAMPLES);
+  shaded+=1.0-aerialVisibility(P*(s/d),spread);
  }
  return max(L-S*shaded/float(AERIAL_SHADOW_SAMPLES),vec3(0));
 }

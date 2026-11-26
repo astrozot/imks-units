@@ -190,7 +190,7 @@ uniform int ringIndex;
 uniform float sunAlt, moonFlux, exposure, nearField, farField, solarFlux;
 uniform bool shadows, paper, moonSource, waterColor, atmosphere, volumeShadows;
 uniform highp sampler2DArray ceilingMap;
-uniform float ceilingTop, ceilingRadius;
+uniform float ceilingTop, ceilingRadius, ceilingSlope;
 // The app's sky model (skyraster.js), for haze that meets the visible sky.
 uniform vec3 skyZenith, skyHorizon, skyIrradiance;
 uniform float eyeElevation;
@@ -200,13 +200,17 @@ ${AERIAL_GLSL}
 // The shadow ceiling of the finest ring containing p: air below it is in
 // terrain shadow, with a penumbra as wide as the light's disc seen from the
 // occluder.
-float aerialVisibility(vec3 p){
- if(!volumeShadows||p.z>ceilingTop)return 1.0;
+float aerialVisibility(vec3 p,float spread){
+ if(!volumeShadows||p.z>ceilingTop+spread)return 1.0;
  for(int k=0;k<5;k++){
   if(k>=rings)break;
   float E=ringExtent[k];if(max(abs(p.x),abs(p.y))>=E)continue;
   vec2 c=texture(ceilingMap,vec3((p.xy+E)/(2.0*E),float(k))).rg;
-  float w=max(3.0,c.g*1000.0*ceilingRadius);
+  // No occluder toward the light: the ceiling is the lit ground itself.
+  if(c.g*1000.0<1.0)return 1.0;
+  // Penumbra, or the height change between ray and ceiling (which descends
+  // along the light) over the sample's stretch, whichever is wider.
+  float w=max(max(3.0,c.g*1000.0*ceilingRadius),0.5*spread*(abs(p.z)/max(length(p),1.0)+ceilingSlope));
   return smoothstep(-w,w,p.z-c.r);
  }
  return 1.0;
@@ -328,7 +332,7 @@ void main(){
  }else if(atmosphere){
   // Finite-path radiative transfer. In-scattering is integrated only up
   // to this mountain, not approximated by mixing toward a distant sky.
-  vec3 T,air=aerialShadowedAt(P,fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453),T);
+  vec3 T,air=aerialShadowedAt(P,fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(0.06711056,0.00583715)))),T);
   c=atmSRGB(atmLinearDisplay(x*T+air));
  }
  // Dither by under half an 8-bit step, as the sky: haze gradients band too.
@@ -627,7 +631,7 @@ export function createTerrainRenderer(canvas, { antialias = true, shadowStep = 0
       const volumeShadows = !!(shadows && atmosphere && !paper && ceilings?.ready);
       for (const [name, value] of Object.entries({ shadows, paper, moonSource, waterColor, volumeShadows })) gl.uniform1i(u(scene, name), value);
       gl.activeTexture(gl.TEXTURE13); gl.bindTexture(gl.TEXTURE_2D_ARRAY, ceilings?.front ?? noCeiling); gl.uniform1i(u(scene, 'ceilingMap'), 13);
-      gl.uniform1f(u(scene, 'ceilingTop'), maxHeight); gl.uniform1f(u(scene, 'ceilingRadius'), shownRadius);
+      gl.uniform1f(u(scene, 'ceilingTop'), maxHeight); gl.uniform1f(u(scene, 'ceilingRadius'), shownRadius); gl.uniform1f(u(scene, 'ceilingSlope'), Math.min(1, Math.abs(Math.tan(source.alt * Math.PI / 180))));
       ['normalMap','nextNormalMap','shadowMap','nextShadowMap','heights','levelMap','skyMap','nextSkyMap','coverMap','nextCoverMap','noiseMap'].forEach((name,i)=>gl.uniform1i(u(scene,name),i));
       gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, noise);
       gl.uniform2fv(u(scene,'noiseOrigin'),noiseOrigin);

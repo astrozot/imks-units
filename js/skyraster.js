@@ -168,7 +168,7 @@ void main() {
   }
   vec3 c = vec3(0.0);
   if (atmosphere) {
-    c = physicalSkyAt(vec2(gl_FragCoord.x*f/size.x,1.0-y*f/size.y));
+    c = physicalSkyAt(v);
   }
   if (mw > 0.0) c += vec3(0.82, 0.86, 1.0) * mw * mwLight * (atmosphere ? clamp(alt / 0.2, 0.0, 1.0) : 1.0) * 0.3;
   // Dither by under half an 8-bit step: dark, slowly varying twilight blues
@@ -224,7 +224,7 @@ function gpuRaster(g, { W, H, radius, camera, toJ2000, kind, milkyWay, ground, a
     g.hill = hill;
   }
   let colourState=null;
-  if(sky){colourState=colours||skyColours({sun,moon,atmosphere,groundColor,atmosphereSettings,eyeElevation});if(atmosphere)g.transport.render(colourState.physical,{W,H,radius,camera});}
+  if(sky){colourState=colours||skyColours({sun,moon,atmosphere,groundColor,atmosphereSettings,eyeElevation});if(atmosphere)g.transport.render(colourState.physical);}
   gl.useProgram(g.program);gl.viewport(0,0,w,rows);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,g.milkyTexture);
   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,g.hillTexture);

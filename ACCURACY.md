@@ -242,13 +242,24 @@ this is an independent implementation, not a port of the complete solver.
 
 Directional single scattering uses 32 intervals in the sky and
 12 for terrain paths.
-WebGL caches transport in a camera-space sky texture and a 32 × 24 × 20
-finite-path volume, avoiding integration in every terrain fragment. A second scattering order uses a precomputed angular
-mean of first-order radiance (32 directions, 20 path intervals, 48 × 20 grid
-in source elevation and height), with an isotropic second collision. Thus
-multiple scattering is approximate and truncated after order two; this does
-not match ShowMySky's spectral, higher-order treatment. Ground-reflected light
-is omitted from the scattering field. RGB transport approximates spectral
+WebGL caches the sky in world space: without terrain shadows the sky is
+symmetric about each light's vertical plane, so one 96 × 192 table per light
+(azimuth difference to the light, quadratically finer toward it; elevation,
+finer toward the horizon) covers every view. It is integrated again only when
+the Sun, Moon, exposure or weather change, never when panning or zooming;
+narrow features such as the aureole are limited by its resolution. Terrain
+paths use a camera-space 32 × 24 × 20 finite-path volume, avoiding integration
+in every terrain fragment.
+Scattering of all higher orders follows Hillaire (2020, "A Scalable and
+Production Ready Sky and Atmosphere Rendering Technique", §5.5): a 48 × 20
+table over source elevation and height stores the angular mean of order-one
+radiance (32 directions, 20 path intervals). It includes light reflected by a
+Lambertian ground of albedo 0.3. That mean is divided by 1 − f, where f is the
+fraction of isotropic radiance scattered back to the point, so all orders
+are summed as a geometric series. Higher orders are treated as isotropic,
+while order one keeps the full phase functions. This does not match
+ShowMySky's spectral treatment. The ground is a uniform sphere of fixed
+albedo, not the local terrain or snow cover. RGB transport approximates spectral
 transport; it has no spectral-to-CIE integration. Source and view extinction
 are both included. Solar eclipses scale source irradiance by disk coverage;
 the model does not propagate the Moon’s shadow through the atmosphere. Sunlight is normalized to unit incident irradiance; lunar
@@ -273,8 +284,9 @@ shadow ceiling: the height of the light ray grazing the highest occluder above
 each texel, plus that occluder's distance. Air below the ceiling is shaded,
 with a penumbra as wide as the source disc seen from the occluder. Air above or
 beyond a ridge stays lit. Only single scattering is removed. Each terrain pixel
-removes it along its own ray at 10 stratified, jittered points, distributed
-like the in-scattered light (by the path's transmission). So the
+removes it along its own ray at 10 stratified points, distributed
+like the in-scattered light (by the path's transmission), each averaged over
+its own stretch of the ray. Air above lit ground (no occluder) is never shaded. So the
 camera-space volume, which stays unshadowed and smooth, never mixes rays on
 either side of a silhouette. Air beyond the 150 km terrain cutoff, and air in
 the sky dome itself, is unshadowed: the sky's paths through local shadow

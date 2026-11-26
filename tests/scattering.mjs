@@ -59,4 +59,16 @@ for(const alt of [-30,-12,-6,0,45,90])for(const height of [0,3000]){
  const sky=physicalSky({},height,{alt});
  for(const v of [source(-5),source(0),source(45),source(90)])assert.ok(skyRadiance(sky,v).every(v=>Number.isFinite(v)&&v>=0));
 }
-console.log('Scattering: phase normalization, analytic optical depth, planet shadow, segment composition, thin limit, second order, convergence, sunset and humid lunar aureole passed',JSON.stringify(cases));
+// All scattering orders: the isotropic source exceeds the angular mean of
+// order one (its first term, reproduced here with the same quadrature). Red
+// gains most: ground-reflected light dominates its weak order-one sky. Haze
+// makes the source larger and whiter.
+{
+ const meanOrderOne=(m,mus)=>{const S=[Math.sqrt(1-mus*mus),0,mus],L=[0,0,0];for(let d=0;d<32;d++){const mu=1-2*(d+0.5)/32,az=d*2.399963229728653,c=Math.sqrt(1-mu*mu),r=integrateScattering(m,0,[c*Math.cos(az),c*Math.sin(az),mu],S,{steps:20,multiple:false}).radiance;for(let k=0;k<3;k++)L[k]+=r[k]/32;}return L;};
+ const i=Math.round((Math.sqrt(0.5)+1)/2*47),q=2*i/47-1,mus=Math.sign(q)*q*q;
+ const source=settings=>{const m=prepareScattering(scatteringMedium(settings,0));return {all:[0,1,2].map(k=>m.multiple[4*i+k]),first:meanOrderOne(m,mus)};};
+ const clear=source({}),hazy=source({aerosol:4,humidity:80}),sum=v=>v[0]+v[1]+v[2];
+ for(let k=0;k<3;k++){const gain=clear.all[k]/clear.first[k];assert.ok(gain>1.02&&gain<6,`all-orders gain ${clear.all} ${clear.first}`);}
+ assert.ok(sum(hazy.all)>sum(clear.all)&&hazy.all[2]/hazy.all[0]<clear.all[2]/clear.all[0],`haze ${clear.all} ${hazy.all}`);
+}
+console.log('Scattering: phase normalization, analytic optical depth, planet shadow, segment composition, thin limit, all scattering orders, convergence, sunset and humid lunar aureole passed',JSON.stringify(cases));

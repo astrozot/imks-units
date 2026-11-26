@@ -274,13 +274,15 @@ and directional sunlight/moonlight attenuation. With a loaded local terrain
 surface and Ground enabled, mountains shadow the air as well as the ground;
 scattering points above or beyond a ridge can still receive sunlight.
 Surface and air reuse one GPU shadow job per light direction.
-WebGL caches sky and finite-path transport; terrain resolution is reduced during
+WebGL caches the sky in world space (panning and zooming never integrate it
+again) and a finite-path volume for terrain; terrain resolution is reduced during
 Play and dragging, then restored when paused.
 A saved skyline alone cannot supply volumetric terrain shadows.
-An approximate second scattering
-order contributes to twilight. Terrain combines finite-path in-scattering with
-transmitted surface light in linear RGB. The model uses three colour bands;
-its second scattering order is isotropic and higher orders are omitted.
+Light scattered more than once (all orders, after Hillaire 2020, including
+light reflected by the ground) brightens the horizon, haze and twilight.
+Terrain combines finite-path in-scattering with transmitted surface light in
+linear RGB. The model uses three colour bands; scattering beyond the first
+order is treated as isotropic.
 Relative humidity alone cannot predict visibility without aerosol composition,
 and clouds, fog formation and ice-crystal halo rings are not simulated.
 Rise and set calculations continue to use standard refraction. Constellations, boundaries and minor planets have no

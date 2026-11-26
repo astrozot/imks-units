@@ -66,6 +66,9 @@ try{
    const cpuMs=performance.now()-start;
    const bg=skyRaster({}, {W:1000,H:700,radius:600,samples:45000,camera:{rotation:lookAt(body.az+i*.2,24),stereographic:true},toJ2000:[1,0,0,0,1,0,0,0,1],kind:'sky',milkyWay:false,ground:false,atmosphere:true,sun,moon,atmosphereSettings:{humidity:60,aerosol:1},eyeElevation:90,colours});
    if(rasterOptions.lastBackend!=='gpu')throw Error('Performance test requires GPU path');
+   // The sky table is in world space: panning must not integrate again.
+   if(!prefix&&i===0)window.firstBuilds=rasterOptions.transportBuilds;
+   if(!prefix&&i>0&&rasterOptions.transportBuilds!==window.firstBuilds)throw Error('Panning rebuilt the sky transport');
    const gl=bg.sky.getContext('webgl2');gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(4));
    const skyDone=performance.now();
    const info=renderer.draw({profile:true,W:1000,H:700,radius:600,rotation:lookAt(body.az+i*.2,24),sun:{az:body.az,alt:body.alt},moon:{az:0,alt:-30},flux:0,shadows:true,atmosphere:true,eyeElevation:90,sky:colours});

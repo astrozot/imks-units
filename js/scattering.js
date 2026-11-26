@@ -8,6 +8,9 @@ export const EARTH_RADIUS = 6371000, ATMOSPHERE_HEIGHT = 100000;
 export const RAYLEIGH = [5.802e-6, 13.558e-6, 33.1e-6];
 export const OZONE = [0.650e-6, 1.881e-6, 0.085e-6];
 const AEROSOL = 3e-5, ALBEDO = 0.9, PI = Math.PI;
+// Lambertian ground albedo for light reflected into the scattering field
+// (a typical land value; Hillaire 2020 uses 0.3).
+export const GROUND_ALBEDO = 0.3;
 const OW = 128, OH = 48, MW = 48, MH = 20;
 const clamp = (x, a=0, b=1) => Math.max(a,Math.min(b,x));
 const dot = (a,b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
@@ -73,7 +76,7 @@ function multipleSample(m,h,mu,out) {
 }
 // Integrate L = integral T_eye * (sigma_s * phase * T_light + j_order2) ds.
 // A closed-form homogeneous segment integral avoids overbright opaque haze.
-export function integrateScattering(m,height,view,source,{distance=Infinity,steps=32,multiple=true,direct=null}={}) {
+export function integrateScattering(m,height,view,source,{distance=Infinity,steps=32,multiple=true,direct=null,transfer=null}={}) {
   height=clamp(height,0,ATMOSPHERE_HEIGHT);const r=EARTH_RADIUS+height,mu=clamp(view[2],-1,1),end=Math.min(distance,boundary(height,mu));
   const L=[0,0,0],T=[1,1,1],light=[0,0,0],second=[0,0,0];
   const nu=clamp(dot(view,source),-1,1),pr=rayleighPhase(nu),pa=aerosolPhase(nu,m.g);
@@ -89,24 +92,36 @@ export function integrateScattering(m,height,view,source,{distance=Infinity,step
       const ext=RAYLEIGH[k]*dr+AEROSOL*da+OZONE[k]*dO,tr=Math.exp(-ext*ds);
       const j=(RAYLEIGH[k]*dr*pr+AEROSOL*ALBEDO*da*pa)*light[k]+(RAYLEIGH[k]*dr+AEROSOL*ALBEDO*da)*second[k];
       const w=T[k]*(ext>1e-12?(1-tr)/ext:ds);L[k]+=j*w;
-      if(direct)direct[k]+=(RAYLEIGH[k]*dr*pr+AEROSOL*ALBEDO*da*pa)*light[k]*w;T[k]*=tr;
+      if(direct)direct[k]+=(RAYLEIGH[k]*dr*pr+AEROSOL*ALBEDO*da*pa)*light[k]*w;
+      if(transfer)transfer[k]+=(RAYLEIGH[k]*dr+AEROSOL*ALBEDO*da)*w;T[k]*=tr;
     }
   }
   return {radiance:L,transmission:T};
 }
+// Multiple scattering of all orders (Hillaire 2020, "A Scalable and
+// Production Ready Sky and Atmosphere Rendering Technique", sec. 5.5): at
+// each height and source elevation, L2 is the angular mean of order-one
+// radiance including light reflected by the ground, and f the fraction of
+// isotropic unit radiance scattered back toward the point. Orders form a
+// geometric series, so the isotropic source radiance is L2/(1-f). Its
+// angular distribution is isotropic; order one keeps the full phase functions.
 export function prepareScattering(m) {
   if(m.multiple)return m;
-  const data=new Float32Array(MW*MH*4);
-  // Equal solid-angle quadrature for the angular mean of order-one radiance.
-  // The second collision is isotropic; anisotropy is retained in order one.
+  const data=new Float32Array(MW*MH*4),sun=[0,0,0];
   for(let j=0;j<MH;j++)for(let i=0;i<MW;i++) {
-    const h=(j/(MH-1))**2*ATMOSPHERE_HEIGHT,q=2*i/(MW-1)-1,mus=Math.sign(q)*q*q,S=[Math.sqrt(Math.max(0,1-mus*mus)),0,mus];
-    const o=4*(j*MW+i),N=32;
+    const h=(j/(MH-1))**2*ATMOSPHERE_HEIGHT,r=EARTH_RADIUS+h,q=2*i/(MW-1)-1,mus=Math.sign(q)*q*q,S=[Math.sqrt(Math.max(0,1-mus*mus)),0,mus];
+    const o=4*(j*MW+i),N=32,L2=[0,0,0],f=[0,0,0];
     for(let d=0;d<N;d++) {
-      const mu=1-2*(d+0.5)/N,az=d*2.399963229728653,c=Math.sqrt(1-mu*mu);
-      const L=integrateScattering(m,h,[c*Math.cos(az),c*Math.sin(az),mu],S,{steps:20,multiple:false}).radiance;
-      for(let k=0;k<3;k++)data[o+k]+=L[k]/N;
+      const mu=1-2*(d+0.5)/N,az=d*2.399963229728653,c=Math.sqrt(1-mu*mu),v=[c*Math.cos(az),c*Math.sin(az),mu],transfer=[0,0,0];
+      const {radiance:L,transmission:T}=integrateScattering(m,h,v,S,{steps:20,multiple:false,transfer});
+      if(mu<horizonMu(h)){
+        // Lambertian ground at the end of the path, lit through the atmosphere.
+        const t=boundary(h,mu),p=[v[0]*t,v[1]*t,r+v[2]*t],n=Math.hypot(...p),cosine=dot(p,S)/n;
+        if(cosine>0){transmission(m,0,cosine,true,sun);for(let k=0;k<3;k++)L[k]+=T[k]*GROUND_ALBEDO/PI*cosine*sun[k];}
+      }
+      for(let k=0;k<3;k++){L2[k]+=L[k]/N;f[k]+=transfer[k]/N;}
     }
+    for(let k=0;k<3;k++)data[o+k]=L2[k]/(1-Math.min(f[k],0.98));
   }
   m.multiple=data;return m;
 }
